@@ -1,0 +1,42 @@
+{
+  "name": "zflate-linux-x64-musl",
+  "version": "0.2.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "zflate.linux-x64-musl.node",
+  "files": [
+    "zflate.linux-x64-musl.node"
+  ],
+  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
+  "keywords": [
+    "compression",
+    "zstd",
+    "zstandard",
+    "gzip",
+    "brotli",
+    "deflate",
+    "decompress",
+    "wasm",
+    "rust",
+    "napi-rs",
+    "typescript",
+    "streaming"
+  ],
+  "author": "derodero24",
+  "homepage": "https://github.com/derodero24/zflate",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derodero24/zflate.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "musl"
+  ]
+}

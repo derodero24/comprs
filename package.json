@@ -1,0 +1,124 @@
+{
+  "name": "zflate",
+  "version": "0.2.0",
+  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
+  "license": "MIT",
+  "author": "derodero24",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derodero24/zflate.git"
+  },
+  "homepage": "https://github.com/derodero24/zflate",
+  "keywords": [
+    "compression",
+    "zstd",
+    "zstandard",
+    "gzip",
+    "brotli",
+    "deflate",
+    "decompress",
+    "wasm",
+    "rust",
+    "napi-rs",
+    "typescript",
+    "streaming"
+  ],
+  "sideEffects": false,
+  "type": "commonjs",
+  "main": "index.js",
+  "module": "index.mjs",
+  "browser": "browser.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./index.d.mts",
+        "default": "./index.mjs"
+      },
+      "require": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      },
+      "browser": "./browser.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "index.d.mts",
+    "streams.js",
+    "streams.d.ts",
+    "browser.js"
+  ],
+  "napi": {
+    "binaryName": "zflate",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "wasm32-wasip1-threads"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
+    "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
+    "build:wasm": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir . --target wasm32-wasip1-threads",
+    "postbuild:wasm": "node scripts/optimize-wasm.js",
+    "optimize:wasm": "node scripts/optimize-wasm.js",
+    "artifacts": "napi artifacts",
+    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
+    "prepublishOnly": "napi prepublish -t npm",
+    "version": "napi version",
+    "check": "biome ci",
+    "format": "biome format --write",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "bench": "vitest bench",
+    "publint": "publint",
+    "verify": "pnpm run check && cargo clippy -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
+    "clean": "rm -rf target coverage *.node *.wasm",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@changesets/cli": "^2.30.0",
+    "@codspeed/vitest-plugin": "^5.2.0",
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "@emnapi/core": "^1.9.1",
+    "@emnapi/runtime": "^1.9.1",
+    "@napi-rs/cli": "^3.5.1",
+    "@napi-rs/wasm-runtime": "^1.1.1",
+    "@tybys/wasm-util": "^0.10.1",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "lefthook": "^2.1.4",
+    "publint": "^0.3.18",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "lefthook"
+    ],
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "@codspeed/vitest-plugin>vite": "8"
+      }
+    }
+  }
+}

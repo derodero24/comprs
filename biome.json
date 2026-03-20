@@ -77,7 +77,7 @@
       }
     },
     {
-      "includes": ["__test__/**/*.bench.ts"],
+      "includes": ["__test__/**/*.bench.ts", "__test__/esm-import.mjs"],
       "linter": {
         "rules": {
           "suspicious": {
