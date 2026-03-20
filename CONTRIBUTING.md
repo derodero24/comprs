@@ -75,7 +75,7 @@ Conventional Commits format: `type(scope): description`
 
 ## Changesets
 
-Required for changes to `crates/` or `src/`:
+Required for changes to `crates/`:
 
 ```bash
 pnpm changeset

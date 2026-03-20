@@ -19,5 +19,5 @@
 - [ ] Rust tests pass (`cargo test`)
 - [ ] Clippy passes (`cargo clippy`)
 - [ ] Build succeeds (`pnpm run build`)
-- [ ] Changeset included (if `src/` or `crates/` changed)
+- [ ] Changeset included (if `crates/` changed)
 - [ ] Benchmarks run for performance-sensitive changes

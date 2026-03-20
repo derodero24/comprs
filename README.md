@@ -161,11 +161,10 @@ zstdCompress(data, -1);
 | Bun | WASM | ✅ |
 | Cloudflare Workers | WASM | ✅ |
 
-### Native binary targets
+### Build targets
 
-`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
+`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`, `wasm32-wasip1-threads`
 
-<<<<<<< HEAD
 ## Browser Usage
 
 zflate works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
