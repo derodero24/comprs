@@ -175,12 +175,28 @@ export declare class ZstdDecompressContext {
 export declare function brotliCompress(data: Buffer | Uint8Array, quality?: number | undefined | null): Buffer
 
 /**
+ * Asynchronously compress data using Brotli.
+ *
+ * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ */
+export declare function brotliCompressAsync(data: Buffer | Uint8Array, quality?: number | undefined | null): Promise<Buffer>
+
+/**
  * Decompress Brotli-compressed data.
  *
  * Returns the decompressed data as a Buffer.
  * The maximum decompressed size is 256 MB.
  */
 export declare function brotliDecompress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress Brotli-compressed data.
+ *
+ * Returns a Promise that resolves to the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB.
+ */
+export declare function brotliDecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
 /**
  * Decompress Brotli-compressed data with explicit capacity.
@@ -211,6 +227,14 @@ export declare function decompress(data: Buffer | Uint8Array): Buffer
 export declare function deflateCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
+ * Asynchronously compress data using raw deflate (no gzip header/trailer).
+ *
+ * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ */
+export declare function deflateCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
+
+/**
  * Decompress raw deflate-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -218,6 +242,15 @@ export declare function deflateCompress(data: Buffer | Uint8Array, level?: numbe
  * for larger data.
  */
 export declare function deflateDecompress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress raw deflate-compressed data.
+ *
+ * Returns a Promise that resolves to the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
+ * for larger data.
+ */
+export declare function deflateDecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
 /**
  * Decompress raw deflate-compressed data with explicit capacity.
@@ -249,6 +282,14 @@ export declare function detectFormat(data: Buffer | Uint8Array): string
 export declare function gzipCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
+ * Asynchronously compress data using gzip.
+ *
+ * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ */
+export declare function gzipCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
+
+/**
  * Decompress gzip-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -256,6 +297,15 @@ export declare function gzipCompress(data: Buffer | Uint8Array, level?: number |
  * for larger data.
  */
 export declare function gzipDecompress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress gzip-compressed data.
+ *
+ * Returns a Promise that resolves to the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
+ * for larger data.
+ */
+export declare function gzipDecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
 /**
  * Decompress gzip-compressed data with explicit capacity.
@@ -279,6 +329,16 @@ export declare function version(): string
 export declare function zstdCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
+ * Asynchronously compress data using Zstandard.
+ *
+ * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ * Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+ * ratio for speed. Level 0 is equivalent to the default level (3).
+ */
+export declare function zstdCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
+
+/**
  * Decompress Zstandard-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -286,6 +346,15 @@ export declare function zstdCompress(data: Buffer | Uint8Array, level?: number |
  * for larger data.
  */
 export declare function zstdDecompress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress Zstandard-compressed data.
+ *
+ * Returns a Promise that resolves to the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
+ * for larger data.
+ */
+export declare function zstdDecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
 /**
  * Decompress Zstandard-compressed data with explicit capacity.

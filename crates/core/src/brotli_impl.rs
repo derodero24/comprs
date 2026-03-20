@@ -2,6 +2,7 @@
 
 use std::io::{Read, Write};
 
+use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -127,6 +128,122 @@ pub fn brotli_decompress_with_capacity(
     }
 
     Ok(output.into())
+}
+
+// --- Async tasks ---
+
+pub struct BrotliCompressTask {
+    data: Vec<u8>,
+    quality: u32,
+}
+
+#[napi]
+impl Task for BrotliCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut output = Vec::with_capacity(self.data.len());
+        {
+            let mut compressor = brotli::CompressorWriter::new(
+                &mut output,
+                BUFFER_SIZE,
+                self.quality,
+                LG_WINDOW_SIZE,
+            );
+            compressor.write_all(&self.data).map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("brotli compress failed: {e}"),
+                )
+            })?;
+            // Drop compressor to flush and finalize
+        }
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using Brotli.
+///
+/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+#[napi]
+pub fn brotli_compress_async(
+    data: Either<Buffer, Uint8Array>,
+    quality: Option<u32>,
+) -> Result<AsyncTask<BrotliCompressTask>> {
+    let quality = quality.unwrap_or(DEFAULT_QUALITY);
+    if quality > 11 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "brotli quality must be between 0 and 11",
+        ));
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    Ok(AsyncTask::new(BrotliCompressTask {
+        data: input,
+        quality,
+    }))
+}
+
+pub struct BrotliDecompressTask {
+    data: Vec<u8>,
+}
+
+#[napi]
+impl Task for BrotliDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
+        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decompressor.read(&mut buf).map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("brotli decompress failed: {e}"),
+                )
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > MAX_DECOMPRESSED_SIZE {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "brotli decompress exceeded maximum size of {} bytes",
+                        MAX_DECOMPRESSED_SIZE
+                    ),
+                ));
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Brotli-compressed data.
+///
+/// Returns a Promise that resolves to the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB.
+#[napi]
+pub fn brotli_decompress_async(
+    data: Either<Buffer, Uint8Array>,
+) -> AsyncTask<BrotliDecompressTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    AsyncTask::new(BrotliDecompressTask { data: input })
 }
 
 #[cfg(test)]

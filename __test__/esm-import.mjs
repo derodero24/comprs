@@ -1,7 +1,9 @@
 import assert from 'node:assert';
 import {
   brotliCompress,
+  brotliCompressAsync,
   brotliDecompress,
+  brotliDecompressAsync,
   brotliDecompressWithCapacity,
   createBrotliCompressStream,
   createBrotliDecompressStream,
@@ -13,15 +15,21 @@ import {
   createZstdDecompressStream,
   decompress,
   deflateCompress,
+  deflateCompressAsync,
   deflateDecompress,
+  deflateDecompressAsync,
   deflateDecompressWithCapacity,
   detectFormat,
   gzipCompress,
+  gzipCompressAsync,
   gzipDecompress,
+  gzipDecompressAsync,
   gzipDecompressWithCapacity,
   version,
   zstdCompress,
+  zstdCompressAsync,
   zstdDecompress,
+  zstdDecompressAsync,
   zstdDecompressWithCapacity,
 } from '../index.mjs';
 
@@ -86,6 +94,38 @@ assert.strictEqual(
 );
 assert.strictEqual(typeof decompress, 'function', 'decompress should be a function');
 assert.strictEqual(typeof detectFormat, 'function', 'detectFormat should be a function');
+assert.strictEqual(typeof zstdCompressAsync, 'function', 'zstdCompressAsync should be a function');
+assert.strictEqual(
+  typeof zstdDecompressAsync,
+  'function',
+  'zstdDecompressAsync should be a function',
+);
+assert.strictEqual(typeof gzipCompressAsync, 'function', 'gzipCompressAsync should be a function');
+assert.strictEqual(
+  typeof gzipDecompressAsync,
+  'function',
+  'gzipDecompressAsync should be a function',
+);
+assert.strictEqual(
+  typeof deflateCompressAsync,
+  'function',
+  'deflateCompressAsync should be a function',
+);
+assert.strictEqual(
+  typeof deflateDecompressAsync,
+  'function',
+  'deflateDecompressAsync should be a function',
+);
+assert.strictEqual(
+  typeof brotliCompressAsync,
+  'function',
+  'brotliCompressAsync should be a function',
+);
+assert.strictEqual(
+  typeof brotliDecompressAsync,
+  'function',
+  'brotliDecompressAsync should be a function',
+);
 assert.strictEqual(
   typeof createBrotliCompressStream,
   'function',
