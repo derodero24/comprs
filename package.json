@@ -1,6 +1,6 @@
 {
   "name": "zflate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
   "license": "MIT",
   "author": "derodero24",
