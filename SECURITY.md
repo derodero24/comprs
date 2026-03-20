@@ -12,7 +12,7 @@
 
 As a compression library with a native Rust core, the following are considered security vulnerabilities:
 
-- **Decompression bombs**: Maliciously crafted compressed data designed to expand to an extremely large size, causing denial of service through memory or disk exhaustion.
+- **Decompression bombs**: Maliciously crafted compressed data designed to expand to a massive size, causing denial of service through memory or disk exhaustion.
 - **Buffer overflows**: Out-of-bounds reads or writes in the native Rust code or WASM module that could lead to crashes or arbitrary code execution.
 - **Memory safety issues**: Use-after-free, double-free, or other memory corruption bugs in the native bindings or core library.
 - **Integer overflows**: Arithmetic overflows that could lead to incorrect buffer sizes, unexpected behavior, or exploitable conditions.
@@ -36,7 +36,7 @@ When reporting, please include:
 ## Response Timeline
 
 - **Acknowledgment**: Within 48 hours of the report
-- **Initial assessment**: Within 5 business days
+- **Initial assessment**: Within 5 days
 - **Fix for critical vulnerabilities**: Within 7 days of confirmation
 - **Fix for non-critical vulnerabilities**: Included in the next scheduled release
 
