@@ -202,8 +202,18 @@ export declare function deflateCompress(data: Buffer, level?: number | undefined
  * Decompress raw deflate-compressed data.
  *
  * Returns the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
+ * for larger data.
  */
 export declare function deflateDecompress(data: Buffer): Buffer
+
+/**
+ * Decompress raw deflate-compressed data with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ */
+export declare function deflateDecompressWithCapacity(data: Buffer, capacity: number): Buffer
 
 /**
  * Compress data using gzip.
@@ -217,8 +227,18 @@ export declare function gzipCompress(data: Buffer, level?: number | undefined | 
  * Decompress gzip-compressed data.
  *
  * Returns the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
+ * for larger data.
  */
 export declare function gzipDecompress(data: Buffer): Buffer
+
+/**
+ * Decompress gzip-compressed data with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ */
+export declare function gzipDecompressWithCapacity(data: Buffer, capacity: number): Buffer
 
 /** Returns the library version. */
 export declare function version(): string
