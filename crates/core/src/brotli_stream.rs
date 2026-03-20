@@ -42,13 +42,15 @@ impl BrotliCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the compressor is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
-        self.compressor.write_all(chunk.as_ref()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli stream compress failed: {e}"),
-            )
-        })?;
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        self.compressor
+            .write_all(crate::as_bytes(&chunk))
+            .map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("brotli stream compress failed: {e}"),
+                )
+            })?;
 
         // Drain whatever the compressor has flushed to the inner Vec
         let output = self.compressor.get_ref().clone();
@@ -108,13 +110,15 @@ impl BrotliDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decompressor needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
-        self.decompressor.write_all(chunk.as_ref()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli stream decompress failed: {e}"),
-            )
-        })?;
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        self.decompressor
+            .write_all(crate::as_bytes(&chunk))
+            .map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("brotli stream decompress failed: {e}"),
+                )
+            })?;
 
         // Drain whatever the decompressor has written to the inner Vec
         let output = self.decompressor.get_ref().clone();

@@ -16,9 +16,9 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 /// Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
 /// ratio for speed. Level 0 is equivalent to the default level (3).
 #[napi]
-pub fn zstd_compress(data: Buffer, level: Option<i32>) -> Result<Buffer> {
+pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
 
     zstd::bulk::compress(input, level)
         .map(|v| v.into())
@@ -31,8 +31,8 @@ pub fn zstd_compress(data: Buffer, level: Option<i32>) -> Result<Buffer> {
 /// The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
 /// for larger data.
 #[napi]
-pub fn zstd_decompress(data: Buffer) -> Result<Buffer> {
-    let input = data.as_ref();
+pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    let input = crate::as_bytes(&data);
 
     // Try to read the frame content size from the header
     let capacity = match zstd::zstd_safe::get_frame_content_size(input) {
@@ -58,14 +58,17 @@ pub fn zstd_decompress(data: Buffer) -> Result<Buffer> {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
-pub fn zstd_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+pub fn zstd_decompress_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "capacity must be a positive finite number",
         ));
     }
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
     let cap = capacity as usize;
 
     zstd::bulk::decompress(input, cap)

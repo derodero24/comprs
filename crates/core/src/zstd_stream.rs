@@ -35,8 +35,8 @@ impl ZstdCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
-        let input = chunk.as_ref();
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let input = crate::as_bytes(&chunk);
         let bound = zstd::zstd_safe::compress_bound(input.len());
         let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
 
@@ -142,8 +142,8 @@ impl ZstdDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
-        let input = chunk.as_ref();
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let input = crate::as_bytes(&chunk);
         // Decompressed output can be much larger than input
         let mut output = vec![0u8; input.len().max(INITIAL_BUF_SIZE)];
 

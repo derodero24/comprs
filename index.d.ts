@@ -12,7 +12,7 @@ export declare class BrotliCompressContext {
    * Compress a chunk of data. Returns compressed output (may be empty if
    * the compressor is buffering data internally).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the compressor's internal buffer. Returns any buffered compressed data. */
   flush(): Buffer
   /**
@@ -34,7 +34,7 @@ export declare class BrotliDecompressContext {
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decompressor needs more data).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decompressor's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
 }
@@ -51,7 +51,7 @@ export declare class DeflateCompressContext {
    * Compress a chunk of data. Returns compressed output (may be empty if
    * the encoder is buffering data internally).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the encoder's internal buffer. Returns any buffered compressed data. */
   flush(): Buffer
   /**
@@ -73,7 +73,7 @@ export declare class DeflateDecompressContext {
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
   /**
@@ -95,7 +95,7 @@ export declare class GzipCompressContext {
    * Compress a chunk of data. Returns compressed output (may be empty if
    * the encoder is buffering data internally).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the encoder's internal buffer. Returns any buffered compressed data. */
   flush(): Buffer
   /**
@@ -117,7 +117,7 @@ export declare class GzipDecompressContext {
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
   /**
@@ -139,7 +139,7 @@ export declare class ZstdCompressContext {
    * Compress a chunk of data. Returns compressed output (may be empty if
    * the encoder is buffering data internally).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the encoder's internal buffer. Returns any buffered compressed data. */
   flush(): Buffer
   /**
@@ -161,7 +161,7 @@ export declare class ZstdDecompressContext {
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
    */
-  transform(chunk: Buffer): Buffer
+  transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
 }
@@ -172,7 +172,7 @@ export declare class ZstdDecompressContext {
  * Returns the compressed data as a Buffer.
  * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
  */
-export declare function brotliCompress(data: Buffer, quality?: number | undefined | null): Buffer
+export declare function brotliCompress(data: Buffer | Uint8Array, quality?: number | undefined | null): Buffer
 
 /**
  * Decompress Brotli-compressed data.
@@ -180,7 +180,7 @@ export declare function brotliCompress(data: Buffer, quality?: number | undefine
  * Returns the decompressed data as a Buffer.
  * The maximum decompressed size is 256 MB.
  */
-export declare function brotliDecompress(data: Buffer): Buffer
+export declare function brotliDecompress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Decompress Brotli-compressed data with explicit capacity.
@@ -188,7 +188,7 @@ export declare function brotliDecompress(data: Buffer): Buffer
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
-export declare function brotliDecompressWithCapacity(data: Buffer, capacity: number): Buffer
+export declare function brotliDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
 /**
  * Compress data using raw deflate (no gzip header/trailer).
@@ -196,7 +196,7 @@ export declare function brotliDecompressWithCapacity(data: Buffer, capacity: num
  * Returns the compressed data as a Buffer.
  * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
  */
-export declare function deflateCompress(data: Buffer, level?: number | undefined | null): Buffer
+export declare function deflateCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
  * Decompress raw deflate-compressed data.
@@ -205,7 +205,7 @@ export declare function deflateCompress(data: Buffer, level?: number | undefined
  * The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
  * for larger data.
  */
-export declare function deflateDecompress(data: Buffer): Buffer
+export declare function deflateDecompress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Decompress raw deflate-compressed data with explicit capacity.
@@ -213,7 +213,7 @@ export declare function deflateDecompress(data: Buffer): Buffer
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
-export declare function deflateDecompressWithCapacity(data: Buffer, capacity: number): Buffer
+export declare function deflateDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
 /**
  * Compress data using gzip.
@@ -221,7 +221,7 @@ export declare function deflateDecompressWithCapacity(data: Buffer, capacity: nu
  * Returns the compressed data as a Buffer.
  * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
  */
-export declare function gzipCompress(data: Buffer, level?: number | undefined | null): Buffer
+export declare function gzipCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
  * Decompress gzip-compressed data.
@@ -230,7 +230,7 @@ export declare function gzipCompress(data: Buffer, level?: number | undefined | 
  * The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
  * for larger data.
  */
-export declare function gzipDecompress(data: Buffer): Buffer
+export declare function gzipDecompress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Decompress gzip-compressed data with explicit capacity.
@@ -238,7 +238,7 @@ export declare function gzipDecompress(data: Buffer): Buffer
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
-export declare function gzipDecompressWithCapacity(data: Buffer, capacity: number): Buffer
+export declare function gzipDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
 /** Returns the library version. */
 export declare function version(): string
@@ -251,7 +251,7 @@ export declare function version(): string
  * Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
  * ratio for speed. Level 0 is equivalent to the default level (3).
  */
-export declare function zstdCompress(data: Buffer, level?: number | undefined | null): Buffer
+export declare function zstdCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
 /**
  * Decompress Zstandard-compressed data.
@@ -260,7 +260,7 @@ export declare function zstdCompress(data: Buffer, level?: number | undefined | 
  * The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
  * for larger data.
  */
-export declare function zstdDecompress(data: Buffer): Buffer
+export declare function zstdDecompress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Decompress Zstandard-compressed data with explicit capacity.
@@ -268,4 +268,4 @@ export declare function zstdDecompress(data: Buffer): Buffer
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
-export declare function zstdDecompressWithCapacity(data: Buffer, capacity: number): Buffer
+export declare function zstdDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
