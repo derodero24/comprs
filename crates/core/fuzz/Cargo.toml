@@ -1,0 +1,38 @@
+[package]
+name = "zflate-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+zstd = { version = "0.13", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+brotli = "8"
+
+# Prevent this from interfering with workspace members
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_zstd_decompress"
+path = "fuzz_targets/fuzz_zstd_decompress.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_gzip_decompress"
+path = "fuzz_targets/fuzz_gzip_decompress.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_deflate_decompress"
+path = "fuzz_targets/fuzz_deflate_decompress.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_brotli_decompress"
+path = "fuzz_targets/fuzz_brotli_decompress.rs"
+doc = false
