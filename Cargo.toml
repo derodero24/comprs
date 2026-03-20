@@ -19,6 +19,9 @@ brotli = { version = "8", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
+# Error handling
+thiserror = "2"
+
 [profile.release]
 codegen-units = 1
 lto = true

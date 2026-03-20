@@ -9,6 +9,8 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Default compression level for gzip/deflate (flate2 default = 6).
 const DEFAULT_LEVEL: u32 = 6;
 
@@ -26,21 +28,26 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "gzip compression level must be between 0 and 9",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "gzip compression level must be between 0 and 9".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data);
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level));
-    encoder
-        .write_all(input)
-        .map_err(|e| Error::new(Status::GenericFailure, format!("gzip compress failed: {e}")))?;
-    encoder
-        .finish()
-        .map(|v| v.into())
-        .map_err(|e| Error::new(Status::GenericFailure, format!("gzip compress failed: {e}")))
+    encoder.write_all(input).map_err(|e| {
+        napi::Error::from(ZflateError::Operation {
+            context: "gzip compress",
+            source: e.into(),
+        })
+    })?;
+    encoder.finish().map(|v| v.into()).map_err(|e| {
+        napi::Error::from(ZflateError::Operation {
+            context: "gzip compress",
+            source: e.into(),
+        })
+    })
 }
 
 /// Decompress gzip-compressed data.
@@ -63,10 +70,10 @@ pub fn gzip_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "capacity must be a positive finite number",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
     }
     decompress_gzip_with_limit(crate::as_bytes(&data), capacity as usize)
 }
@@ -78,22 +85,20 @@ fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
 
     loop {
         let n = decoder.read(&mut buf).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip decompress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip decompress",
+                source: e.into(),
+            })
         })?;
         if n == 0 {
             break;
         }
         if output.len() + n > max_size {
-            return Err(Error::new(
-                Status::GenericFailure,
-                format!(
-                    "gzip decompress exceeded maximum size of {} bytes",
-                    max_size
-                ),
-            ));
+            return Err(ZflateError::SizeLimit {
+                context: "gzip decompress",
+                limit: max_size,
+            }
+            .into());
         }
         output.extend_from_slice(&buf[..n]);
     }
@@ -109,25 +114,25 @@ fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
 pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "deflate compression level must be between 0 and 9",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "deflate compression level must be between 0 and 9".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data);
 
     let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("deflate compress failed: {e}"),
-        )
+        napi::Error::from(ZflateError::Operation {
+            context: "deflate compress",
+            source: e.into(),
+        })
     })?;
     encoder.finish().map(|v| v.into()).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("deflate compress failed: {e}"),
-        )
+        napi::Error::from(ZflateError::Operation {
+            context: "deflate compress",
+            source: e.into(),
+        })
     })
 }
 
@@ -151,10 +156,10 @@ pub fn deflate_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "capacity must be a positive finite number",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
     }
     decompress_deflate_with_limit(crate::as_bytes(&data), capacity as usize)
 }
@@ -166,22 +171,20 @@ fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer
 
     loop {
         let n = decoder.read(&mut buf).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate decompress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate decompress",
+                source: e.into(),
+            })
         })?;
         if n == 0 {
             break;
         }
         if output.len() + n > max_size {
-            return Err(Error::new(
-                Status::GenericFailure,
-                format!(
-                    "deflate decompress exceeded maximum size of {} bytes",
-                    max_size
-                ),
-            ));
+            return Err(ZflateError::SizeLimit {
+                context: "deflate decompress",
+                limit: max_size,
+            }
+            .into());
         }
         output.extend_from_slice(&buf[..n]);
     }
@@ -204,11 +207,17 @@ impl Task for GzipCompressTask {
     fn compute(&mut self) -> Result<Self::Output> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::new(self.level));
         encoder.write_all(&self.data).map_err(|e| {
-            Error::new(Status::GenericFailure, format!("gzip compress failed: {e}"))
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip compress",
+                source: e.into(),
+            })
         })?;
-        encoder
-            .finish()
-            .map_err(|e| Error::new(Status::GenericFailure, format!("gzip compress failed: {e}")))
+        encoder.finish().map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip compress",
+                source: e.into(),
+            })
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -227,10 +236,10 @@ pub fn gzip_compress_async(
 ) -> Result<AsyncTask<GzipCompressTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "gzip compression level must be between 0 and 9",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "gzip compression level must be between 0 and 9".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(GzipCompressTask { data: input, level }))
@@ -252,22 +261,20 @@ impl Task for GzipDecompressTask {
 
         loop {
             let n = decoder.read(&mut buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("gzip decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "gzip decompress",
+                    source: e.into(),
+                })
             })?;
             if n == 0 {
                 break;
             }
             if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    format!(
-                        "gzip decompress exceeded maximum size of {} bytes",
-                        MAX_DECOMPRESSED_SIZE
-                    ),
-                ));
+                return Err(ZflateError::SizeLimit {
+                    context: "gzip decompress",
+                    limit: MAX_DECOMPRESSED_SIZE,
+                }
+                .into());
             }
             output.extend_from_slice(&buf[..n]);
         }
@@ -304,16 +311,16 @@ impl Task for DeflateCompressTask {
     fn compute(&mut self) -> Result<Self::Output> {
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(self.level));
         encoder.write_all(&self.data).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate compress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate compress",
+                source: e.into(),
+            })
         })?;
         encoder.finish().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate compress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate compress",
+                source: e.into(),
+            })
         })
     }
 
@@ -333,10 +340,10 @@ pub fn deflate_compress_async(
 ) -> Result<AsyncTask<DeflateCompressTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "deflate compression level must be between 0 and 9",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "deflate compression level must be between 0 and 9".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(DeflateCompressTask { data: input, level }))
@@ -358,22 +365,20 @@ impl Task for DeflateDecompressTask {
 
         loop {
             let n = decoder.read(&mut buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("deflate decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "deflate decompress",
+                    source: e.into(),
+                })
             })?;
             if n == 0 {
                 break;
             }
             if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    format!(
-                        "deflate decompress exceeded maximum size of {} bytes",
-                        MAX_DECOMPRESSED_SIZE
-                    ),
-                ));
+                return Err(ZflateError::SizeLimit {
+                    context: "deflate decompress",
+                    limit: MAX_DECOMPRESSED_SIZE,
+                }
+                .into());
             }
             output.extend_from_slice(&buf[..n]);
         }

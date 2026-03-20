@@ -3,6 +3,7 @@
 mod brotli_impl;
 mod brotli_stream;
 mod detect;
+mod error;
 mod gzip;
 mod gzip_stream;
 mod zstd;
@@ -10,6 +11,8 @@ mod zstd_stream;
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+
+pub use error::ZflateError;
 
 /// Extract byte slice from Either<Buffer, Uint8Array>.
 fn as_bytes(data: &Either<Buffer, Uint8Array>) -> &[u8] {

@@ -6,6 +6,8 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Default compression quality for brotli.
 const DEFAULT_QUALITY: u32 = 6;
 
@@ -26,10 +28,9 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Buffer> {
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
     if quality > 11 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "brotli quality must be between 0 and 11",
-        ));
+        return Err(
+            ZflateError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+        );
     }
     let input = crate::as_bytes(&data);
 
@@ -38,10 +39,10 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
         let mut compressor =
             brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
         compressor.write_all(input).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli compress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli compress",
+                source: e.into(),
+            })
         })?;
         // Drop compressor to flush and finalize
     }
@@ -63,22 +64,20 @@ pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 
     loop {
         let n = decompressor.read(&mut buf).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli decompress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli decompress",
+                source: e.into(),
+            })
         })?;
         if n == 0 {
             break;
         }
         if output.len() + n > MAX_DECOMPRESSED_SIZE {
-            return Err(Error::new(
-                Status::GenericFailure,
-                format!(
-                    "brotli decompress exceeded maximum size of {} bytes",
-                    MAX_DECOMPRESSED_SIZE
-                ),
-            ));
+            return Err(ZflateError::SizeLimit {
+                context: "brotli decompress",
+                limit: MAX_DECOMPRESSED_SIZE,
+            }
+            .into());
         }
         output.extend_from_slice(&buf[..n]);
     }
@@ -96,10 +95,10 @@ pub fn brotli_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "capacity must be a positive finite number",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data);
     let cap = capacity as usize;
@@ -110,19 +109,20 @@ pub fn brotli_decompress_with_capacity(
 
     loop {
         let n = decompressor.read(&mut buf).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli decompress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli decompress",
+                source: e.into(),
+            })
         })?;
         if n == 0 {
             break;
         }
         if output.len() + n > cap {
-            return Err(Error::new(
-                Status::GenericFailure,
-                format!("brotli decompress exceeded maximum size of {} bytes", cap),
-            ));
+            return Err(ZflateError::SizeLimit {
+                context: "brotli decompress",
+                limit: cap,
+            }
+            .into());
         }
         output.extend_from_slice(&buf[..n]);
     }
@@ -152,10 +152,10 @@ impl Task for BrotliCompressTask {
                 LG_WINDOW_SIZE,
             );
             compressor.write_all(&self.data).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("brotli compress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "brotli compress",
+                    source: e.into(),
+                })
             })?;
             // Drop compressor to flush and finalize
         }
@@ -178,10 +178,9 @@ pub fn brotli_compress_async(
 ) -> Result<AsyncTask<BrotliCompressTask>> {
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
     if quality > 11 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "brotli quality must be between 0 and 11",
-        ));
+        return Err(
+            ZflateError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+        );
     }
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(BrotliCompressTask {
@@ -206,22 +205,20 @@ impl Task for BrotliDecompressTask {
 
         loop {
             let n = decompressor.read(&mut buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("brotli decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "brotli decompress",
+                    source: e.into(),
+                })
             })?;
             if n == 0 {
                 break;
             }
             if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    format!(
-                        "brotli decompress exceeded maximum size of {} bytes",
-                        MAX_DECOMPRESSED_SIZE
-                    ),
-                ));
+                return Err(ZflateError::SizeLimit {
+                    context: "brotli decompress",
+                    limit: MAX_DECOMPRESSED_SIZE,
+                }
+                .into());
             }
             output.extend_from_slice(&buf[..n]);
         }

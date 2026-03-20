@@ -7,6 +7,8 @@ use flate2::write::{DeflateDecoder, DeflateEncoder, GzDecoder, GzEncoder};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Default compression level for gzip/deflate (same as zlib default).
 const DEFAULT_LEVEL: u32 = 6;
 
@@ -25,10 +27,10 @@ impl GzipCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if level > 9 {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "gzip compression level must be between 0 and 9",
-            ));
+            return Err(ZflateError::InvalidArg(
+                "gzip compression level must be between 0 and 9".to_string(),
+            )
+            .into());
         }
         let encoder = GzEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
@@ -43,13 +45,13 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip stream compress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip stream compress",
+                source: e.into(),
+            })
         })?;
 
         let output = encoder.get_mut();
@@ -63,13 +65,13 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         encoder.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = encoder.get_mut();
@@ -84,13 +86,13 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .take()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         encoder.finish().map(|v| v.into()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip stream finish failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip stream finish",
+                source: e.into(),
+            })
         })
     }
 }
@@ -121,16 +123,16 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         let input = crate::as_bytes(&chunk);
         let mut pos = 0;
         while pos < input.len() {
             let n = decoder.write(&input[pos..]).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("gzip stream decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "gzip stream decompress",
+                    source: e.into(),
+                })
             })?;
             if n == 0 {
                 break;
@@ -149,13 +151,13 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         decoder.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = decoder.get_mut();
@@ -170,13 +172,13 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .take()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
 
         decoder.finish().map(|v| v.into()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("gzip stream finish failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "gzip stream finish",
+                source: e.into(),
+            })
         })
     }
 }
@@ -196,10 +198,10 @@ impl DeflateCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if level > 9 {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "deflate compression level must be between 0 and 9",
-            ));
+            return Err(ZflateError::InvalidArg(
+                "deflate compression level must be between 0 and 9".to_string(),
+            )
+            .into());
         }
         let encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
@@ -214,13 +216,13 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream compress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream compress",
+                source: e.into(),
+            })
         })?;
 
         let output = encoder.get_mut();
@@ -234,13 +236,13 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         encoder.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = encoder.get_mut();
@@ -255,13 +257,13 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .take()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         encoder.finish().map(|v| v.into()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream finish failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream finish",
+                source: e.into(),
+            })
         })
     }
 }
@@ -292,13 +294,13 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         decoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream decompress failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream decompress",
+                source: e.into(),
+            })
         })?;
 
         let output = decoder.get_mut();
@@ -312,13 +314,13 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         decoder.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = decoder.get_mut();
@@ -333,13 +335,13 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .take()
-            .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
 
         decoder.finish().map(|v| v.into()).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("deflate stream finish failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "deflate stream finish",
+                source: e.into(),
+            })
         })
     }
 }
