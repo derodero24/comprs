@@ -8,6 +8,8 @@ export declare function version(): string
  *
  * Returns the compressed data as a Buffer.
  * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ * Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+ * ratio for speed. Level 0 is equivalent to the default level (3).
  */
 export declare function zstdCompress(data: Buffer, level?: number | undefined | null): Buffer
 
