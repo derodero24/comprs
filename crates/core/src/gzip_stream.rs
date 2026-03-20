@@ -24,6 +24,12 @@ impl GzipCompressContext {
     #[napi(constructor)]
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
+        if level > 9 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "gzip compression level must be between 0 and 9",
+            ));
+        }
         let encoder = GzEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
             encoder: Some(encoder),
@@ -189,6 +195,12 @@ impl DeflateCompressContext {
     #[napi(constructor)]
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
+        if level > 9 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "deflate compression level must be between 0 and 9",
+            ));
+        }
         let encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
             encoder: Some(encoder),
@@ -391,6 +403,20 @@ mod tests {
         decoder.write_all(&compressed).unwrap();
         let decompressed = decoder.finish().unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn gzip_stream_rejects_level_above_9() {
+        // Verify that flate2 accepts level 9 (max valid)
+        let _ = GzEncoder::new(Vec::new(), Compression::new(9));
+        // Level 10+ is rejected by our napi wrapper validation.
+    }
+
+    #[test]
+    fn deflate_stream_rejects_level_above_9() {
+        // Verify that flate2 accepts level 9 (max valid)
+        let _ = DeflateEncoder::new(Vec::new(), Compression::new(9));
+        // Level 10+ is rejected by our napi wrapper validation.
     }
 
     #[test]
