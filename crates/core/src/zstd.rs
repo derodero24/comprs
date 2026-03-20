@@ -57,6 +57,12 @@ pub fn zstd_decompress(data: Buffer) -> Result<Buffer> {
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
 pub fn zstd_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "capacity must be a positive finite number",
+        ));
+    }
     let input = data.as_ref();
     let cap = capacity as usize;
 
