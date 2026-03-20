@@ -13,6 +13,9 @@ const DEFAULT_QUALITY: u32 = 6;
 /// Default buffer size for brotli operations.
 const BUFFER_SIZE: usize = 4096;
 
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
 /// Default log2 of the sliding window size for brotli.
 const LG_WINDOW_SIZE: u32 = 22;
 
@@ -99,6 +102,7 @@ impl BrotliCompressContext {
 #[napi]
 pub struct BrotliDecompressContext {
     decompressor: brotli::DecompressorWriter<Vec<u8>>,
+    total_output: usize,
 }
 
 #[napi]
@@ -106,7 +110,10 @@ impl BrotliDecompressContext {
     #[napi(constructor)]
     pub fn new() -> Result<Self> {
         let decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
-        Ok(Self { decompressor })
+        Ok(Self {
+            decompressor,
+            total_output: 0,
+        })
     }
 
     /// Decompress a chunk of compressed data. Returns decompressed output
@@ -125,6 +132,14 @@ impl BrotliDecompressContext {
         // Drain whatever the decompressor has written to the inner Vec
         let output = self.decompressor.get_ref().clone();
         self.decompressor.get_mut().clear();
+        self.total_output += output.len();
+        if self.total_output > MAX_DECOMPRESSED_SIZE {
+            return Err(ZflateError::SizeLimit {
+                context: "brotli stream decompress",
+                limit: MAX_DECOMPRESSED_SIZE,
+            }
+            .into());
+        }
         Ok(output.into())
     }
 
