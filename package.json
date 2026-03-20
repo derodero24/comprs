@@ -47,6 +47,8 @@
     "index.mjs",
     "index.d.ts",
     "index.d.mts",
+    "streams.js",
+    "streams.d.ts",
     "browser.js"
   ],
   "napi": {

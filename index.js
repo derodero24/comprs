@@ -576,6 +576,8 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.ZstdCompressContext = nativeBinding.ZstdCompressContext
+module.exports.ZstdDecompressContext = nativeBinding.ZstdDecompressContext
 module.exports.version = nativeBinding.version
 module.exports.zstdCompress = nativeBinding.zstdCompress
 module.exports.zstdDecompress = nativeBinding.zstdDecompress

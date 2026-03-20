@@ -1,9 +1,25 @@
 import assert from 'node:assert';
-import { version, zstdCompress, zstdDecompress } from '../index.mjs';
+import {
+  createZstdCompressStream,
+  createZstdDecompressStream,
+  version,
+  zstdCompress,
+  zstdDecompress,
+} from '../index.mjs';
 
 assert.strictEqual(typeof version, 'function', 'version should be a function');
 assert.strictEqual(typeof zstdCompress, 'function', 'zstdCompress should be a function');
 assert.strictEqual(typeof zstdDecompress, 'function', 'zstdDecompress should be a function');
+assert.strictEqual(
+  typeof createZstdCompressStream,
+  'function',
+  'createZstdCompressStream should be a function',
+);
+assert.strictEqual(
+  typeof createZstdDecompressStream,
+  'function',
+  'createZstdDecompressStream should be a function',
+);
 
 // Round-trip test
 const input = Buffer.from('ESM smoke test');
