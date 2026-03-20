@@ -109,6 +109,7 @@
     "test": "vitest run",
     "test:deno": "deno test --allow-read --allow-env --allow-net --node-modules-dir=auto e2e/wasm-deno.test.ts",
     "test:wasm": "vitest run __test__/wasm.spec.ts",
+    "test:bun": "bun test e2e/wasm-bun.test.ts",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
     "attw": "attw --pack .",
