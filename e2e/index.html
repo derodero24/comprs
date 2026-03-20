@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>zflate browser test</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+  const log = (msg) => { document.getElementById('log').textContent += `${msg}\n`; };
+
+  try {
+    log('Loading WASM module...');
+    const wasm = await import('../zflate.wasi-browser.js');
+    log(`Loaded. Exports: ${Object.keys(wasm).length}`);
+
+    const results = {};
+    const testData = new TextEncoder().encode('Hello, browser WASM zflate! '.repeat(100));
+
+    // zstd round-trip
+    const zstdCompressed = wasm.zstdCompress(testData);
+    const zstdDecompressed = wasm.zstdDecompress(zstdCompressed);
+    results.zstdRoundTrip = arrayEqual(zstdDecompressed, testData);
+    log(`zstd round-trip: ${results.zstdRoundTrip}`);
+
+    // gzip round-trip
+    const gzipCompressed = wasm.gzipCompress(testData);
+    const gzipDecompressed = wasm.gzipDecompress(gzipCompressed);
+    results.gzipRoundTrip = arrayEqual(gzipDecompressed, testData);
+    log(`gzip round-trip: ${results.gzipRoundTrip}`);
+
+    // deflate round-trip
+    const deflateCompressed = wasm.deflateCompress(testData);
+    const deflateDecompressed = wasm.deflateDecompress(deflateCompressed);
+    results.deflateRoundTrip = arrayEqual(deflateDecompressed, testData);
+    log(`deflate round-trip: ${results.deflateRoundTrip}`);
+
+    // brotli round-trip
+    const brotliCompressed = wasm.brotliCompress(testData);
+    const brotliDecompressed = wasm.brotliDecompress(brotliCompressed);
+    results.brotliRoundTrip = arrayEqual(brotliDecompressed, testData);
+    log(`brotli round-trip: ${results.brotliRoundTrip}`);
+
+    // auto-detect decompression
+    const autoDecompressed = wasm.decompress(zstdCompressed);
+    results.autoDetect = arrayEqual(autoDecompressed, testData);
+    log(`auto-detect: ${results.autoDetect}`);
+
+    // version
+    results.version = wasm.version();
+    log(`version: ${results.version}`);
+
+    // streaming (gzip as representative test)
+    try {
+      const ctx = new wasm.GzipCompressContext();
+      const chunk1 = ctx.transform(testData.slice(0, 100));
+      const chunk2 = ctx.transform(testData.slice(100));
+      const flushed = ctx.flush();
+      const finished = ctx.finish();
+      // Concatenate all chunks
+      const allChunks = concatBuffers([chunk1, chunk2, flushed, finished].filter(c => c.byteLength > 0));
+      const streamDecompressed = wasm.gzipDecompress(allChunks);
+      results.streaming = arrayEqual(streamDecompressed, testData);
+      log(`streaming: ${results.streaming}`);
+    } catch (e) {
+      log(`streaming error: ${e.message}`);
+      results.streaming = false;
+      results.streamingError = e.message;
+    }
+
+    window.__results = results;
+    window.__ready = true;
+    log('All tests completed.');
+  } catch (e) {
+    log(`FATAL: ${e.message}\n${e.stack}`);
+    window.__error = e.message;
+    window.__ready = true;
+  }
+
+  function arrayEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  function concatBuffers(buffers) {
+    const totalLength = buffers.reduce((sum, b) => sum + b.byteLength, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const buf of buffers) {
+      result.set(new Uint8Array(buf.buffer || buf), offset);
+      offset += buf.byteLength;
+    }
+    return result;
+  }
+</script>
+</body>
+</html>
