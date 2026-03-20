@@ -120,7 +120,7 @@ pub fn brotli_decompress_with_capacity(
         if output.len() + n > cap {
             return Err(Error::new(
                 Status::GenericFailure,
-                "Destination buffer is too small",
+                format!("brotli decompress exceeded maximum size of {} bytes", cap),
             ));
         }
         output.extend_from_slice(&buf[..n]);
