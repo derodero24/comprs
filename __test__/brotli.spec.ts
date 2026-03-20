@@ -115,9 +115,7 @@ describe('brotliDecompressWithCapacity', () => {
   });
 
   it('should throw with insufficient capacity', () => {
-    expect(() => brotliDecompressWithCapacity(compressed, 1)).toThrow(
-      /Destination buffer is too small/,
-    );
+    expect(() => brotliDecompressWithCapacity(compressed, 1)).toThrow(/exceeded maximum size/);
   });
 
   it('should throw with negative capacity', () => {
