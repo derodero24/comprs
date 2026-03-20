@@ -2,3 +2,28 @@
 /* eslint-disable */
 /** Returns the library version. */
 export declare function version(): string
+
+/**
+ * Compress data using Zstandard.
+ *
+ * Returns the compressed data as a Buffer.
+ * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ */
+export declare function zstdCompress(data: Buffer, level?: number | undefined | null): Buffer
+
+/**
+ * Decompress Zstandard-compressed data.
+ *
+ * Returns the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
+ * for larger data.
+ */
+export declare function zstdDecompress(data: Buffer): Buffer
+
+/**
+ * Decompress Zstandard-compressed data with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ */
+export declare function zstdDecompressWithCapacity(data: Buffer, capacity: number): Buffer
