@@ -22,7 +22,7 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 /// Returns the compressed data as a Buffer.
 /// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
 #[napi]
-pub fn brotli_compress(data: Buffer, quality: Option<u32>) -> Result<Buffer> {
+pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Buffer> {
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
     if quality > 11 {
         return Err(Error::new(
@@ -30,7 +30,7 @@ pub fn brotli_compress(data: Buffer, quality: Option<u32>) -> Result<Buffer> {
             "brotli quality must be between 0 and 11",
         ));
     }
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
 
     let mut output = Vec::with_capacity(input.len());
     {
@@ -53,8 +53,8 @@ pub fn brotli_compress(data: Buffer, quality: Option<u32>) -> Result<Buffer> {
 /// Returns the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB.
 #[napi]
-pub fn brotli_decompress(data: Buffer) -> Result<Buffer> {
-    let input = data.as_ref();
+pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    let input = crate::as_bytes(&data);
     let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
 
     let mut output = Vec::with_capacity(input.len().min(MAX_DECOMPRESSED_SIZE));
@@ -90,14 +90,17 @@ pub fn brotli_decompress(data: Buffer) -> Result<Buffer> {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
-pub fn brotli_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+pub fn brotli_decompress_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "capacity must be a positive finite number",
         ));
     }
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
     let cap = capacity as usize;
 
     let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);

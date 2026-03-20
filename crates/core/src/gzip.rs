@@ -22,7 +22,7 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 /// Returns the compressed data as a Buffer.
 /// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
 #[napi]
-pub fn gzip_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
+pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
         return Err(Error::new(
@@ -30,7 +30,7 @@ pub fn gzip_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
             "gzip compression level must be between 0 and 9",
         ));
     }
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level));
     encoder
@@ -48,8 +48,8 @@ pub fn gzip_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
 /// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
 /// for larger data.
 #[napi]
-pub fn gzip_decompress(data: Buffer) -> Result<Buffer> {
-    decompress_gzip_with_limit(data.as_ref(), MAX_DECOMPRESSED_SIZE)
+pub fn gzip_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    decompress_gzip_with_limit(crate::as_bytes(&data), MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress gzip-compressed data with explicit capacity.
@@ -57,14 +57,17 @@ pub fn gzip_decompress(data: Buffer) -> Result<Buffer> {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
-pub fn gzip_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+pub fn gzip_decompress_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "capacity must be a positive finite number",
         ));
     }
-    decompress_gzip_with_limit(data.as_ref(), capacity as usize)
+    decompress_gzip_with_limit(crate::as_bytes(&data), capacity as usize)
 }
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
@@ -102,7 +105,7 @@ fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
 /// Returns the compressed data as a Buffer.
 /// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
 #[napi]
-pub fn deflate_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
+pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
         return Err(Error::new(
@@ -110,7 +113,7 @@ pub fn deflate_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
             "deflate compression level must be between 0 and 9",
         ));
     }
-    let input = data.as_ref();
+    let input = crate::as_bytes(&data);
 
     let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
@@ -133,8 +136,8 @@ pub fn deflate_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
 /// for larger data.
 #[napi]
-pub fn deflate_decompress(data: Buffer) -> Result<Buffer> {
-    decompress_deflate_with_limit(data.as_ref(), MAX_DECOMPRESSED_SIZE)
+pub fn deflate_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    decompress_deflate_with_limit(crate::as_bytes(&data), MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress raw deflate-compressed data with explicit capacity.
@@ -142,14 +145,17 @@ pub fn deflate_decompress(data: Buffer) -> Result<Buffer> {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
-pub fn deflate_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+pub fn deflate_decompress_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "capacity must be a positive finite number",
         ));
     }
-    decompress_deflate_with_limit(data.as_ref(), capacity as usize)
+    decompress_deflate_with_limit(crate::as_bytes(&data), capacity as usize)
 }
 
 fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {

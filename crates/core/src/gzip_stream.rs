@@ -39,13 +39,13 @@ impl GzipCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
 
-        encoder.write_all(chunk.as_ref()).map_err(|e| {
+        encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
             Error::new(
                 Status::GenericFailure,
                 format!("gzip stream compress failed: {e}"),
@@ -117,13 +117,13 @@ impl GzipDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         let decoder = self
             .decoder
             .as_mut()
             .ok_or_else(|| Error::new(Status::GenericFailure, "gzip stream already finished"))?;
 
-        let input = chunk.as_ref();
+        let input = crate::as_bytes(&chunk);
         let mut pos = 0;
         while pos < input.len() {
             let n = decoder.write(&input[pos..]).map_err(|e| {
@@ -210,13 +210,13 @@ impl DeflateCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
 
-        encoder.write_all(chunk.as_ref()).map_err(|e| {
+        encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
             Error::new(
                 Status::GenericFailure,
                 format!("deflate stream compress failed: {e}"),
@@ -288,13 +288,13 @@ impl DeflateDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         let decoder = self
             .decoder
             .as_mut()
             .ok_or_else(|| Error::new(Status::GenericFailure, "deflate stream already finished"))?;
 
-        decoder.write_all(chunk.as_ref()).map_err(|e| {
+        decoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
             Error::new(
                 Status::GenericFailure,
                 format!("deflate stream decompress failed: {e}"),
