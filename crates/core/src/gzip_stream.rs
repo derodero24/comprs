@@ -58,7 +58,7 @@ impl GzipCompressContext {
         })?;
 
         let output = encoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
@@ -78,7 +78,7 @@ impl GzipCompressContext {
         })?;
 
         let output = encoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
@@ -146,7 +146,7 @@ impl GzipDecompressContext {
         }
 
         let output = decoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > MAX_DECOMPRESSED_SIZE {
             return Err(ZflateError::SizeLimit {
@@ -174,7 +174,7 @@ impl GzipDecompressContext {
         })?;
 
         let output = decoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
@@ -239,7 +239,7 @@ impl DeflateCompressContext {
         })?;
 
         let output = encoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
@@ -259,7 +259,7 @@ impl DeflateCompressContext {
         })?;
 
         let output = encoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
@@ -319,7 +319,7 @@ impl DeflateDecompressContext {
         })?;
 
         let output = decoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > MAX_DECOMPRESSED_SIZE {
             return Err(ZflateError::SizeLimit {
@@ -347,7 +347,7 @@ impl DeflateDecompressContext {
         })?;
 
         let output = decoder.get_mut();
-        let data = output.split_off(0);
+        let data = std::mem::take(output);
         Ok(data.into())
     }
 
