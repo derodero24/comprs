@@ -16,5 +16,8 @@ zstd = { workspace = true }
 flate2 = { workspace = true }
 thiserror = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+zstd = { workspace = true, features = ["zstdmt"] }
+
 [build-dependencies]
 napi-build = { workspace = true }
