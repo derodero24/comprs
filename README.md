@@ -328,7 +328,7 @@ const decompressed = gzipDecompress(compressed);
 <details>
 <summary>Raw benchmark data</summary>
 
-Measured on Apple M1, Node.js v24:
+Measured on Apple M2, Node.js v22:
 
 ### zstd compression throughput
 
