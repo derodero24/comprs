@@ -11,7 +11,9 @@ import {
   createDeflateDecompressStream,
   createGzipCompressStream,
   createGzipDecompressStream,
+  createZstdCompressDictStream,
   createZstdCompressStream,
+  createZstdDecompressDictStream,
   createZstdDecompressStream,
   decompress,
   deflateCompress,
@@ -48,6 +50,16 @@ assert.strictEqual(
   typeof createZstdDecompressStream,
   'function',
   'createZstdDecompressStream should be a function',
+);
+assert.strictEqual(
+  typeof createZstdCompressDictStream,
+  'function',
+  'createZstdCompressDictStream should be a function',
+);
+assert.strictEqual(
+  typeof createZstdDecompressDictStream,
+  'function',
+  'createZstdDecompressDictStream should be a function',
 );
 assert.strictEqual(typeof gzipCompress, 'function', 'gzipCompress should be a function');
 assert.strictEqual(typeof gzipDecompress, 'function', 'gzipDecompress should be a function');
