@@ -77,3 +77,29 @@ export declare function createDeflateCompressStream(
  * decompression.
  */
 export declare function createDeflateDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked compression
+ * with a pre-trained dictionary for improved compression of small, similar data.
+ *
+ * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
+ * @param level Compression level (1-22, or negative for fast mode). Default is 3.
+ */
+export declare function createZstdCompressDictStream(
+  dict: Buffer | Uint8Array,
+  level?: number,
+): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming zstd decompression TransformStream with a pre-trained dictionary.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked decompression
+ * with a pre-trained dictionary. The same dictionary used for compression must be provided.
+ *
+ * @param dict Pre-trained dictionary (must match the one used for compression).
+ */
+export declare function createZstdDecompressDictStream(
+  dict: Buffer | Uint8Array,
+): TransformStream<Uint8Array, Uint8Array>;

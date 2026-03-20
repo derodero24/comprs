@@ -150,6 +150,28 @@ export declare class ZstdCompressContext {
 }
 
 /**
+ * Streaming zstd compression context with dictionary.
+ *
+ * Maintains internal compression state across multiple `transform` calls,
+ * using a pre-trained dictionary for improved compression of small, similar data.
+ */
+export declare class ZstdCompressDictContext {
+  constructor(dict: Buffer | Uint8Array, level?: number | undefined | null)
+  /**
+   * Compress a chunk of data. Returns compressed output (may be empty if
+   * the encoder is buffering data internally).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Flush the encoder's internal buffer. Returns any buffered compressed data. */
+  flush(): Buffer
+  /**
+   * Finalize the compression stream. Writes the zstd frame footer.
+   * Must be called once after all data has been transformed.
+   */
+  finish(): Buffer
+}
+
+/**
  * Streaming zstd decompression context.
  *
  * Maintains internal decompression state across multiple `transform` calls,
@@ -157,6 +179,23 @@ export declare class ZstdCompressContext {
  */
 export declare class ZstdDecompressContext {
   constructor()
+  /**
+   * Decompress a chunk of compressed data. Returns decompressed output
+   * (may be empty if the decoder needs more data).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
+  flush(): Buffer
+}
+
+/**
+ * Streaming zstd decompression context with dictionary.
+ *
+ * Maintains internal decompression state across multiple `transform` calls,
+ * using a pre-trained dictionary that matches the one used for compression.
+ */
+export declare class ZstdDecompressDictContext {
+  constructor(dict: Buffer | Uint8Array)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).

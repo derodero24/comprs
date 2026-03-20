@@ -73,3 +73,27 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
  * with `stream.pipeline()` and pipe-based workflows.
  */
 export declare function createBrotliDecompressTransform(): Transform;
+
+/**
+ * Create a Node.js stream.Transform for zstd compression with a pre-trained dictionary.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked compression with a pre-trained
+ * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
+ * @param level Compression level (1-22, or negative for fast mode). Default is 3.
+ */
+export declare function createZstdCompressDictTransform(
+  dict: Buffer | Uint8Array,
+  level?: number,
+): Transform;
+
+/**
+ * Create a Node.js stream.Transform for zstd decompression with a pre-trained dictionary.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked decompression with a pre-trained
+ * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param dict Pre-trained dictionary (must match the one used for compression).
+ */
+export declare function createZstdDecompressDictTransform(dict: Buffer | Uint8Array): Transform;

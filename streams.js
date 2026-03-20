@@ -3,6 +3,8 @@ const {
   BrotliDecompressContext,
   ZstdCompressContext,
   ZstdDecompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressDictContext,
   GzipCompressContext,
   GzipDecompressContext,
   DeflateCompressContext,
@@ -221,11 +223,66 @@ function createDeflateDecompressStream() {
   });
 }
 
+/**
+ * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Pre-trained dictionary
+ * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createZstdCompressDictStream(dict, level) {
+  const ctx = new ZstdCompressDictContext(dict, level);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
+    },
+  });
+}
+
+/**
+ * Create a streaming zstd decompression TransformStream with a pre-trained dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Pre-trained dictionary (must match the one used for compression)
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createZstdDecompressDictStream(dict) {
+  const ctx = new ZstdDecompressDictContext(dict);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+    },
+  });
+}
+
 module.exports = {
   createBrotliCompressStream,
   createBrotliDecompressStream,
   createZstdCompressStream,
   createZstdDecompressStream,
+  createZstdCompressDictStream,
+  createZstdDecompressDictStream,
   createGzipCompressStream,
   createGzipDecompressStream,
   createDeflateCompressStream,

@@ -220,6 +220,213 @@ impl ZstdDecompressContext {
     }
 }
 
+/// Streaming zstd compression context with dictionary.
+///
+/// Maintains internal compression state across multiple `transform` calls,
+/// using a pre-trained dictionary for improved compression of small, similar data.
+#[napi]
+pub struct ZstdCompressDictContext {
+    encoder: Encoder<'static>,
+}
+
+#[napi]
+impl ZstdCompressDictContext {
+    #[napi(constructor)]
+    pub fn new(dict: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Self> {
+        let level = level.unwrap_or(DEFAULT_LEVEL);
+        if !(-131072..=22).contains(&level) {
+            return Err(ZflateError::InvalidArg(
+                "zstd compression level must be between -131072 and 22".to_string(),
+            )
+            .into());
+        }
+        let dict_bytes = crate::as_bytes(&dict);
+        let encoder = Encoder::with_dictionary(level, dict_bytes).map_err(|e| {
+            napi::Error::from(ZflateError::Creation {
+                context: "zstd dict encoder",
+                source: e.into(),
+            })
+        })?;
+        Ok(Self { encoder })
+    }
+
+    /// Compress a chunk of data. Returns compressed output (may be empty if
+    /// the encoder is buffering data internally).
+    #[napi]
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let input = crate::as_bytes(&chunk);
+        let bound = zstd::zstd_safe::compress_bound(input.len());
+        let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
+
+        let mut in_buf = InBuffer::around(input);
+        let mut total_written = 0;
+
+        while in_buf.pos() < in_buf.src.len() {
+            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            self.encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream compress",
+                    source: e.into(),
+                })
+            })?;
+            total_written = out_buf.pos();
+            if total_written >= output.len() {
+                output.resize(output.len() * 2, 0);
+            }
+        }
+
+        output.truncate(total_written);
+        Ok(output.into())
+    }
+
+    /// Flush the encoder's internal buffer. Returns any buffered compressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        let mut total_written = 0;
+
+        loop {
+            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let remaining = self.encoder.flush(&mut out_buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream flush",
+                    source: e.into(),
+                })
+            })?;
+            total_written = out_buf.pos();
+            if remaining == 0 {
+                break;
+            }
+            if total_written >= output.len() {
+                output.resize(output.len() * 2, 0);
+            }
+        }
+
+        output.truncate(total_written);
+        Ok(output.into())
+    }
+
+    /// Finalize the compression stream. Writes the zstd frame footer.
+    /// Must be called once after all data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        let mut total_written = 0;
+
+        loop {
+            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let remaining = self.encoder.finish(&mut out_buf, true).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream finish",
+                    source: e.into(),
+                })
+            })?;
+            total_written = out_buf.pos();
+            if remaining == 0 {
+                break;
+            }
+            if total_written >= output.len() {
+                output.resize(output.len() * 2, 0);
+            }
+        }
+
+        output.truncate(total_written);
+        Ok(output.into())
+    }
+}
+
+/// Streaming zstd decompression context with dictionary.
+///
+/// Maintains internal decompression state across multiple `transform` calls,
+/// using a pre-trained dictionary that matches the one used for compression.
+#[napi]
+pub struct ZstdDecompressDictContext {
+    decoder: Decoder<'static>,
+    total_output: usize,
+}
+
+#[napi]
+impl ZstdDecompressDictContext {
+    #[napi(constructor)]
+    pub fn new(dict: Either<Buffer, Uint8Array>) -> Result<Self> {
+        let dict_bytes = crate::as_bytes(&dict);
+        let decoder = Decoder::with_dictionary(dict_bytes).map_err(|e| {
+            napi::Error::from(ZflateError::Creation {
+                context: "zstd dict decoder",
+                source: e.into(),
+            })
+        })?;
+        Ok(Self {
+            decoder,
+            total_output: 0,
+        })
+    }
+
+    /// Decompress a chunk of compressed data. Returns decompressed output
+    /// (may be empty if the decoder needs more data).
+    #[napi]
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let input = crate::as_bytes(&chunk);
+        // Decompressed output can be much larger than input
+        let mut output = vec![0u8; input.len().max(INITIAL_BUF_SIZE)];
+
+        let mut in_buf = InBuffer::around(input);
+        let mut total_written = 0;
+
+        while in_buf.pos() < in_buf.src.len() {
+            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            self.decoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream decompress",
+                    source: e.into(),
+                })
+            })?;
+            total_written = out_buf.pos();
+            if self.total_output + total_written > MAX_DECOMPRESSED_SIZE {
+                return Err(ZflateError::SizeLimit {
+                    context: "zstd stream decompress",
+                    limit: MAX_DECOMPRESSED_SIZE,
+                }
+                .into());
+            }
+            if total_written >= output.len() {
+                output.resize(output.len() * 2, 0);
+            }
+        }
+
+        self.total_output += total_written;
+        output.truncate(total_written);
+        Ok(output.into())
+    }
+
+    /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        let mut total_written = 0;
+
+        loop {
+            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let remaining = self.decoder.flush(&mut out_buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream flush",
+                    source: e.into(),
+                })
+            })?;
+            total_written = out_buf.pos();
+            if remaining == 0 {
+                break;
+            }
+            if total_written >= output.len() {
+                output.resize(output.len() * 2, 0);
+            }
+        }
+
+        output.truncate(total_written);
+        Ok(output.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

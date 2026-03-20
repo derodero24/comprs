@@ -2,6 +2,8 @@ const { Transform } = require('node:stream');
 const {
   ZstdCompressContext,
   ZstdDecompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressDictContext,
   GzipCompressContext,
   GzipDecompressContext,
   DeflateCompressContext,
@@ -258,9 +260,74 @@ function createBrotliDecompressTransform() {
   });
 }
 
+/**
+ * Create a Node.js stream.Transform for zstd compression with a pre-trained dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Pre-trained dictionary
+ * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
+ * @returns {Transform}
+ */
+function createZstdCompressDictTransform(dict, level) {
+  const ctx = new ZstdCompressDictContext(dict, level);
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
+/**
+ * Create a Node.js stream.Transform for zstd decompression with a pre-trained dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Pre-trained dictionary (must match the one used for compression)
+ * @returns {Transform}
+ */
+function createZstdDecompressDictTransform(dict) {
+  const ctx = new ZstdDecompressDictContext(dict);
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
 module.exports = {
   createZstdCompressTransform,
   createZstdDecompressTransform,
+  createZstdCompressDictTransform,
+  createZstdDecompressDictTransform,
   createGzipCompressTransform,
   createGzipDecompressTransform,
   createDeflateCompressTransform,
