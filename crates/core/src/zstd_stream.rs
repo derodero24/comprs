@@ -4,6 +4,8 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use zstd::stream::raw::{Decoder, Encoder, InBuffer, Operation, OutBuffer};
 
+use crate::ZflateError;
+
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
 
@@ -24,10 +26,10 @@ impl ZstdCompressContext {
     #[napi(constructor)]
     pub fn new(level: Option<i32>) -> Result<Self> {
         let encoder = Encoder::new(level.unwrap_or(DEFAULT_LEVEL)).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("failed to create zstd encoder: {e}"),
-            )
+            napi::Error::from(ZflateError::Creation {
+                context: "zstd encoder",
+                source: e.into(),
+            })
         })?;
         Ok(Self { encoder })
     }
@@ -46,10 +48,10 @@ impl ZstdCompressContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             self.encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("zstd stream compress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream compress",
+                    source: e.into(),
+                })
             })?;
             total_written = out_buf.pos();
             if total_written >= output.len() {
@@ -70,10 +72,10 @@ impl ZstdCompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = self.encoder.flush(&mut out_buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("zstd stream flush failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream flush",
+                    source: e.into(),
+                })
             })?;
             total_written = out_buf.pos();
             if remaining == 0 {
@@ -98,10 +100,10 @@ impl ZstdCompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = self.encoder.finish(&mut out_buf, true).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("zstd stream finish failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream finish",
+                    source: e.into(),
+                })
             })?;
             total_written = out_buf.pos();
             if remaining == 0 {
@@ -131,10 +133,10 @@ impl ZstdDecompressContext {
     #[napi(constructor)]
     pub fn new() -> Result<Self> {
         let decoder = Decoder::new().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("failed to create zstd decoder: {e}"),
-            )
+            napi::Error::from(ZflateError::Creation {
+                context: "zstd decoder",
+                source: e.into(),
+            })
         })?;
         Ok(Self { decoder })
     }
@@ -153,10 +155,10 @@ impl ZstdDecompressContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             self.decoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("zstd stream decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream decompress",
+                    source: e.into(),
+                })
             })?;
             total_written = out_buf.pos();
             if total_written >= output.len() {
@@ -177,10 +179,10 @@ impl ZstdDecompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = self.decoder.flush(&mut out_buf).map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("zstd stream flush failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd stream flush",
+                    source: e.into(),
+                })
             })?;
             total_written = out_buf.pos();
             if remaining == 0 {
