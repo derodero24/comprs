@@ -97,12 +97,14 @@
     "test": "vitest run",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
+    "attw": "attw --pack .",
     "publint": "publint",
     "verify": "pnpm run check && cargo clippy -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
     "clean": "rm -rf target coverage *.node *.wasm",
     "prepare": "lefthook install"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "^2.4.8",
     "@changesets/cli": "^2.30.0",
     "@codspeed/vitest-plugin": "^5.2.0",

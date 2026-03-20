@@ -64,6 +64,8 @@ jobs:
         run: git diff --exit-code index.js index.d.ts browser.js
       - run: pnpm run typecheck
       - run: pnpm run publint
+      - name: Validate TypeScript type resolution
+        run: pnpm run attw
 
   audit:
     name: Dependency Audit
