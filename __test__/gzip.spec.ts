@@ -1,0 +1,176 @@
+import { randomBytes } from 'node:crypto';
+import { deflateRawSync, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib';
+import { describe, expect, it } from 'vitest';
+import { deflateCompress, deflateDecompress, gzipCompress, gzipDecompress } from '../index.js';
+
+describe('gzipCompress / gzipDecompress', () => {
+  it('should round-trip a simple string', () => {
+    const input = Buffer.from('Hello, zflate!');
+    const compressed = gzipCompress(input);
+    const decompressed = gzipDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip empty data', () => {
+    const input = Buffer.alloc(0);
+    const compressed = gzipCompress(input);
+    const decompressed = gzipDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip a 1-byte buffer', () => {
+    const input = Buffer.from([42]);
+    const compressed = gzipCompress(input);
+    const decompressed = gzipDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip 1KB of data', () => {
+    const input = Buffer.alloc(1024, 'a');
+    const compressed = gzipCompress(input);
+    const decompressed = gzipDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip 1MB of data', () => {
+    const input = Buffer.alloc(1024 * 1024);
+    for (let i = 0; i < input.length; i++) {
+      input[i] = i % 256;
+    }
+    const compressed = gzipCompress(input);
+    const decompressed = gzipDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should actually compress repetitive data', () => {
+    const input = Buffer.alloc(10000, 'x');
+    const compressed = gzipCompress(input);
+    expect(compressed.length).toBeLessThan(input.length);
+  });
+
+  it('should compress with different levels', () => {
+    const input = Buffer.from('Repeating data for compression. '.repeat(100));
+    const fast = gzipCompress(input, 1);
+    const normal = gzipCompress(input, 6);
+    const best = gzipCompress(input, 9);
+
+    // All should decompress to the same data
+    expect(gzipDecompress(fast)).toEqual(input);
+    expect(gzipDecompress(normal)).toEqual(input);
+    expect(gzipDecompress(best)).toEqual(input);
+
+    // Higher levels should produce smaller or equal output
+    expect(best.length).toBeLessThanOrEqual(normal.length);
+    expect(normal.length).toBeLessThanOrEqual(fast.length);
+  });
+
+  it('should throw on invalid compressed data', () => {
+    const invalid = Buffer.from('this is not gzip data');
+    expect(() => gzipDecompress(invalid)).toThrow();
+  });
+
+  it('should handle incompressible random data', () => {
+    const random = randomBytes(1024);
+    const compressed = gzipCompress(random);
+    const result = gzipDecompress(compressed);
+    expect(Buffer.compare(result, random)).toBe(0);
+  });
+});
+
+describe('gzip interop with Node.js zlib', () => {
+  const data = Buffer.from('Interoperability test data '.repeat(50));
+
+  it('should decompress Node.js gzipSync output', () => {
+    const compressed = gzipSync(data);
+    const decompressed = gzipDecompress(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+
+  it('should produce output decompressible by Node.js gunzipSync', () => {
+    const compressed = gzipCompress(data);
+    const decompressed = gunzipSync(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+
+  it('should produce valid gzip header (magic bytes)', () => {
+    const compressed = gzipCompress(data);
+    // Gzip magic number: 0x1f 0x8b
+    expect(compressed[0]).toBe(0x1f);
+    expect(compressed[1]).toBe(0x8b);
+  });
+});
+
+describe('deflateCompress / deflateDecompress', () => {
+  it('should round-trip a simple string', () => {
+    const input = Buffer.from('Hello, raw deflate!');
+    const compressed = deflateCompress(input);
+    const decompressed = deflateDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip empty data', () => {
+    const input = Buffer.alloc(0);
+    const compressed = deflateCompress(input);
+    const decompressed = deflateDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should round-trip 1MB of data', () => {
+    const input = Buffer.alloc(1024 * 1024);
+    for (let i = 0; i < input.length; i++) {
+      input[i] = i % 256;
+    }
+    const compressed = deflateCompress(input);
+    const decompressed = deflateDecompress(compressed);
+    expect(decompressed).toEqual(input);
+  });
+
+  it('should actually compress repetitive data', () => {
+    const input = Buffer.alloc(10000, 'x');
+    const compressed = deflateCompress(input);
+    expect(compressed.length).toBeLessThan(input.length);
+  });
+
+  it('should throw on invalid compressed data', () => {
+    const invalid = Buffer.from('this is not deflate data');
+    expect(() => deflateDecompress(invalid)).toThrow();
+  });
+
+  it('should handle incompressible random data', () => {
+    const random = randomBytes(1024);
+    const compressed = deflateCompress(random);
+    const result = deflateDecompress(compressed);
+    expect(Buffer.compare(result, random)).toBe(0);
+  });
+});
+
+describe('deflate interop with Node.js zlib', () => {
+  const data = Buffer.from('Deflate interop test data '.repeat(50));
+
+  it('should decompress Node.js deflateRawSync output', () => {
+    const compressed = deflateRawSync(data);
+    const decompressed = deflateDecompress(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+
+  it('should produce output decompressible by Node.js inflateRawSync', () => {
+    const compressed = deflateCompress(data);
+    const decompressed = inflateRawSync(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('gzip vs deflate output difference', () => {
+  it('should produce different output for gzip and deflate', () => {
+    const data = Buffer.from('Test data for format comparison '.repeat(20));
+    const gzipped = gzipCompress(data);
+    const deflated = deflateCompress(data);
+
+    // gzip has header/footer overhead, so it should be larger
+    expect(gzipped.length).toBeGreaterThan(deflated.length);
+
+    // Both should round-trip correctly
+    expect(gzipDecompress(gzipped)).toEqual(data);
+    expect(deflateDecompress(deflated)).toEqual(data);
+  });
+});

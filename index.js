@@ -576,8 +576,16 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.DeflateCompressContext = nativeBinding.DeflateCompressContext
+module.exports.DeflateDecompressContext = nativeBinding.DeflateDecompressContext
+module.exports.GzipCompressContext = nativeBinding.GzipCompressContext
+module.exports.GzipDecompressContext = nativeBinding.GzipDecompressContext
 module.exports.ZstdCompressContext = nativeBinding.ZstdCompressContext
 module.exports.ZstdDecompressContext = nativeBinding.ZstdDecompressContext
+module.exports.deflateCompress = nativeBinding.deflateCompress
+module.exports.deflateDecompress = nativeBinding.deflateDecompress
+module.exports.gzipCompress = nativeBinding.gzipCompress
+module.exports.gzipDecompress = nativeBinding.gzipDecompress
 module.exports.version = nativeBinding.version
 module.exports.zstdCompress = nativeBinding.zstdCompress
 module.exports.zstdDecompress = nativeBinding.zstdDecompress
