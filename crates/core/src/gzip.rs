@@ -11,6 +11,12 @@ use napi_derive::napi;
 /// Default compression level for gzip/deflate (flate2 default = 6).
 const DEFAULT_LEVEL: u32 = 6;
 
+/// Default buffer size for chunked read operations.
+const BUFFER_SIZE: usize = 4096;
+
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
 /// Compress data using gzip.
 ///
 /// Returns the compressed data as a Buffer.
@@ -39,18 +45,54 @@ pub fn gzip_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
 /// Decompress gzip-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
+/// for larger data.
 #[napi]
 pub fn gzip_decompress(data: Buffer) -> Result<Buffer> {
-    let input = data.as_ref();
-    let mut decoder = GzDecoder::new(input);
-    let mut output = Vec::new();
+    decompress_gzip_with_limit(data.as_ref(), MAX_DECOMPRESSED_SIZE)
+}
 
-    decoder.read_to_end(&mut output).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("gzip decompress failed: {e}"),
-        )
-    })?;
+/// Decompress gzip-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn gzip_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "capacity must be a positive finite number",
+        ));
+    }
+    decompress_gzip_with_limit(data.as_ref(), capacity as usize)
+}
+
+fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
+    let mut decoder = GzDecoder::new(input);
+    let mut output = Vec::with_capacity(input.len().min(max_size));
+    let mut buf = [0u8; BUFFER_SIZE];
+
+    loop {
+        let n = decoder.read(&mut buf).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("gzip decompress failed: {e}"),
+            )
+        })?;
+        if n == 0 {
+            break;
+        }
+        if output.len() + n > max_size {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "gzip decompress exceeded maximum size of {} bytes",
+                    max_size
+                ),
+            ));
+        }
+        output.extend_from_slice(&buf[..n]);
+    }
 
     Ok(output.into())
 }
@@ -88,18 +130,54 @@ pub fn deflate_compress(data: Buffer, level: Option<u32>) -> Result<Buffer> {
 /// Decompress raw deflate-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
+/// for larger data.
 #[napi]
 pub fn deflate_decompress(data: Buffer) -> Result<Buffer> {
-    let input = data.as_ref();
-    let mut decoder = DeflateDecoder::new(input);
-    let mut output = Vec::new();
+    decompress_deflate_with_limit(data.as_ref(), MAX_DECOMPRESSED_SIZE)
+}
 
-    decoder.read_to_end(&mut output).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("deflate decompress failed: {e}"),
-        )
-    })?;
+/// Decompress raw deflate-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn deflate_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "capacity must be a positive finite number",
+        ));
+    }
+    decompress_deflate_with_limit(data.as_ref(), capacity as usize)
+}
+
+fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
+    let mut decoder = DeflateDecoder::new(input);
+    let mut output = Vec::with_capacity(input.len().min(max_size));
+    let mut buf = [0u8; BUFFER_SIZE];
+
+    loop {
+        let n = decoder.read(&mut buf).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("deflate decompress failed: {e}"),
+            )
+        })?;
+        if n == 0 {
+            break;
+        }
+        if output.len() + n > max_size {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "deflate decompress exceeded maximum size of {} bytes",
+                    max_size
+                ),
+            ));
+        }
+        output.extend_from_slice(&buf[..n]);
+    }
 
     Ok(output.into())
 }
@@ -189,6 +267,112 @@ mod tests {
         // Same boundary assertion as gzip — level 10+ should be rejected
         // by the napi-exported functions. The pure-Rust tests confirm
         // the valid range works correctly (see round-trip tests).
+    }
+
+    #[test]
+    fn gzip_decompress_size_limit_concept() {
+        // Verify that chunked reading with a size check can detect oversized output.
+        // The napi-exported functions use this pattern; here we test the core logic.
+        let limit: usize = 1024;
+        let original: Vec<u8> = vec![0u8; limit + 1];
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        let mut buf = [0u8; BUFFER_SIZE];
+        let mut exceeded = false;
+        loop {
+            let n = decoder.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > limit {
+                exceeded = true;
+                break;
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+        assert!(exceeded, "Should detect data exceeding the limit");
+    }
+
+    #[test]
+    fn gzip_decompress_within_limit() {
+        let original = b"Hello, size-limited gzip!";
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        let mut buf = [0u8; BUFFER_SIZE];
+        let mut exceeded = false;
+        loop {
+            let n = decoder.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > MAX_DECOMPRESSED_SIZE {
+                exceeded = true;
+                break;
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+        assert!(!exceeded);
+        assert_eq!(original.as_slice(), output.as_slice());
+    }
+
+    #[test]
+    fn deflate_decompress_size_limit_concept() {
+        let limit: usize = 1024;
+        let original: Vec<u8> = vec![0u8; limit + 1];
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        let mut buf = [0u8; BUFFER_SIZE];
+        let mut exceeded = false;
+        loop {
+            let n = decoder.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > limit {
+                exceeded = true;
+                break;
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+        assert!(exceeded, "Should detect data exceeding the limit");
+    }
+
+    #[test]
+    fn deflate_decompress_within_limit() {
+        let original = b"Hello, size-limited deflate!";
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        let mut buf = [0u8; BUFFER_SIZE];
+        let mut exceeded = false;
+        loop {
+            let n = decoder.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > MAX_DECOMPRESSED_SIZE {
+                exceeded = true;
+                break;
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+        assert!(!exceeded);
+        assert_eq!(original.as_slice(), output.as_slice());
     }
 
     #[test]

@@ -5,9 +5,11 @@ import {
   DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  deflateDecompressWithCapacity,
   GzipCompressContext,
   gzipCompress,
   gzipDecompress,
+  gzipDecompressWithCapacity,
 } from '../index.js';
 
 describe('gzipCompress / gzipDecompress', () => {
@@ -100,6 +102,50 @@ describe('gzipCompress / gzipDecompress', () => {
   });
 });
 
+describe('gzipDecompressWithCapacity', () => {
+  const original = Buffer.from('Capacity test data '.repeat(100));
+  const compressed = gzipCompress(original);
+
+  it('should decompress with exact capacity', () => {
+    const result = gzipDecompressWithCapacity(compressed, original.length);
+    expect(Buffer.compare(result, original)).toBe(0);
+  });
+
+  it('should decompress with oversized capacity', () => {
+    const result = gzipDecompressWithCapacity(compressed, original.length * 10);
+    expect(Buffer.compare(result, original)).toBe(0);
+  });
+
+  it('should throw with insufficient capacity', () => {
+    expect(() => gzipDecompressWithCapacity(compressed, 1)).toThrow(/exceeded maximum size/);
+  });
+
+  it('should throw with negative capacity', () => {
+    expect(() => gzipDecompressWithCapacity(compressed, -1)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should throw with NaN capacity', () => {
+    expect(() => gzipDecompressWithCapacity(compressed, NaN)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should throw with Infinity capacity', () => {
+    expect(() => gzipDecompressWithCapacity(compressed, Infinity)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should accept capacity of 0 for empty data', () => {
+    const empty = Buffer.alloc(0);
+    const emptyCompressed = gzipCompress(empty);
+    const result = gzipDecompressWithCapacity(emptyCompressed, 0);
+    expect(result.length).toBe(0);
+  });
+});
+
 describe('gzip interop with Node.js zlib', () => {
   const data = Buffer.from('Interoperability test data '.repeat(50));
 
@@ -180,6 +226,50 @@ describe('deflateCompress / deflateDecompress', () => {
     const compressed = deflateCompress(random);
     const result = deflateDecompress(compressed);
     expect(Buffer.compare(result, random)).toBe(0);
+  });
+});
+
+describe('deflateDecompressWithCapacity', () => {
+  const original = Buffer.from('Capacity test data '.repeat(100));
+  const compressed = deflateCompress(original);
+
+  it('should decompress with exact capacity', () => {
+    const result = deflateDecompressWithCapacity(compressed, original.length);
+    expect(Buffer.compare(result, original)).toBe(0);
+  });
+
+  it('should decompress with oversized capacity', () => {
+    const result = deflateDecompressWithCapacity(compressed, original.length * 10);
+    expect(Buffer.compare(result, original)).toBe(0);
+  });
+
+  it('should throw with insufficient capacity', () => {
+    expect(() => deflateDecompressWithCapacity(compressed, 1)).toThrow(/exceeded maximum size/);
+  });
+
+  it('should throw with negative capacity', () => {
+    expect(() => deflateDecompressWithCapacity(compressed, -1)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should throw with NaN capacity', () => {
+    expect(() => deflateDecompressWithCapacity(compressed, NaN)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should throw with Infinity capacity', () => {
+    expect(() => deflateDecompressWithCapacity(compressed, Infinity)).toThrow(
+      /capacity must be a positive finite number/,
+    );
+  });
+
+  it('should accept capacity of 0 for empty data', () => {
+    const empty = Buffer.alloc(0);
+    const emptyCompressed = deflateCompress(empty);
+    const result = deflateDecompressWithCapacity(emptyCompressed, 0);
+    expect(result.length).toBe(0);
   });
 });
 
