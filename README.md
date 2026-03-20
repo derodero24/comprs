@@ -188,14 +188,16 @@ const decompressed = gzipDecompress(compressed);
 | zstd | ✅ | ❌ | ❌ | ✅* |
 | gzip/deflate | ✅ | ✅ | ✅ | ✅ |
 | brotli | ✅ | ❌ | ❌ | ✅ |
-| Streaming | ✅ | ❌ | ✅ | ✅ |
-| Browser/WASM | ✅ | ✅ | ✅ | ❌ |
-| Deno/Bun | ✅ | ❌ | ✅ | ❌ |
+| Web Streams API | ✅ | ❌ | ❌ | ❌ |
+| Streaming | ✅ | ✅† | ✅ | ✅ |
+| Browser | ✅ | ✅ | ✅ | ❌ |
+| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
 | Native performance | ✅ | ❌ | ❌ | ✅ |
 | TypeScript | ✅ | ✅ | ✅ | ✅ |
 | Zero JS deps | ✅ | ✅ | ✅ | ✅ |
 
 \* Node.js ≥ 22.15 (experimental)
+† Chunked mode via `Inflate`/`Deflate` classes, not Web Streams API
 
 ## Migration
 
