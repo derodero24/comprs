@@ -15,7 +15,7 @@ use crate::ZflateError;
 const DEFAULT_LEVEL: u32 = 6;
 
 /// Default buffer size for chunked read operations.
-const BUFFER_SIZE: usize = 4096;
+const BUFFER_SIZE: usize = 32768;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -35,7 +35,7 @@ pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Re
     }
     let input = crate::as_bytes(&data);
 
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level));
+    let mut encoder = GzEncoder::new(Vec::with_capacity(input.len()), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
         napi::Error::from(ZflateError::Operation {
             context: "gzip compress",
@@ -121,7 +121,7 @@ pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) ->
     }
     let input = crate::as_bytes(&data);
 
-    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
+    let mut encoder = DeflateEncoder::new(Vec::with_capacity(input.len()), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
         napi::Error::from(ZflateError::Operation {
             context: "deflate compress",
@@ -205,7 +205,10 @@ impl Task for GzipCompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(self.level));
+        let mut encoder = GzEncoder::new(
+            Vec::with_capacity(self.data.len()),
+            Compression::new(self.level),
+        );
         encoder.write_all(&self.data).map_err(|e| {
             napi::Error::from(ZflateError::Operation {
                 context: "gzip compress",
@@ -309,7 +312,10 @@ impl Task for DeflateCompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(self.level));
+        let mut encoder = DeflateEncoder::new(
+            Vec::with_capacity(self.data.len()),
+            Compression::new(self.level),
+        );
         encoder.write_all(&self.data).map_err(|e| {
             napi::Error::from(ZflateError::Operation {
                 context: "deflate compress",
