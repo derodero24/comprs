@@ -50,6 +50,16 @@
         "types": "./streams.d.ts",
         "default": "./streams.js"
       }
+    },
+    "./node": {
+      "import": {
+        "types": "./node.d.ts",
+        "default": "./node.js"
+      },
+      "require": {
+        "types": "./node.d.ts",
+        "default": "./node.js"
+      }
     }
   },
   "files": [
@@ -59,6 +69,8 @@
     "index.d.mts",
     "streams.js",
     "streams.d.ts",
+    "node.js",
+    "node.d.ts",
     "browser.js"
   ],
   "napi": {
