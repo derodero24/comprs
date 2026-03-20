@@ -13,6 +13,8 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 ///
 /// Returns the compressed data as a Buffer.
 /// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+/// Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+/// ratio for speed. Level 0 is equivalent to the default level (3).
 #[napi]
 pub fn zstd_compress(data: Buffer, level: Option<i32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
@@ -116,5 +118,31 @@ mod tests {
         // Higher levels should generally produce smaller output
         assert!(best.len() <= default.len());
         assert!(default.len() <= fast.len());
+    }
+
+    #[test]
+    fn level_zero_uses_default() {
+        let data = b"Level zero test data. ".repeat(50);
+        let with_zero = zstd::bulk::compress(&data, 0).unwrap();
+        let decompressed = zstd::bulk::decompress(&with_zero, data.len()).unwrap();
+        assert_eq!(data.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn negative_levels() {
+        let data = b"Negative level test data. ".repeat(50);
+        for level in [-1, -7, -50] {
+            let compressed = zstd::bulk::compress(&data, level).unwrap();
+            let decompressed = zstd::bulk::decompress(&compressed, data.len()).unwrap();
+            assert_eq!(data.as_slice(), decompressed.as_slice());
+        }
+    }
+
+    #[test]
+    fn level_22_max_standard() {
+        let data = b"Max level test data. ".repeat(50);
+        let compressed = zstd::bulk::compress(&data, 22).unwrap();
+        let decompressed = zstd::bulk::decompress(&compressed, data.len()).unwrap();
+        assert_eq!(data.as_slice(), decompressed.as_slice());
     }
 }
