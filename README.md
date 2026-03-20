@@ -11,7 +11,7 @@ Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**
 The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. zflate consolidates this into a single, fast, well-typed library:
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
-- **Unified API** — Same interface for zstd, gzip, and brotli (gzip and brotli coming soon)
+- **Unified API** — Same interface for zstd, gzip, and brotli
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
 - **Universal** — Node.js (native), browsers, Deno, Bun, and edge runtimes (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
@@ -87,11 +87,30 @@ zstdCompress(data, -1);
 
 ### One-shot
 
+#### zstd
+
 | Function | Description |
 | --- | --- |
-| `zstdCompress(data, level?)` | Compress data using zstd. Level: -131072 to 22 (default: 3) |
+| `zstdCompress(data, level?)` | Compress with zstd. Level: -131072 to 22 (default: 3) |
 | `zstdDecompress(data)` | Decompress zstd data (max 256 MB output) |
 | `zstdDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+#### gzip / deflate
+
+| Function | Description |
+| --- | --- |
+| `gzipCompress(data, level?)` | Compress with gzip. Level: 0-9 (default: 6) |
+| `gzipDecompress(data)` | Decompress gzip data |
+| `deflateCompress(data, level?)` | Compress with raw deflate. Level: 0-9 (default: 6) |
+| `deflateDecompress(data)` | Decompress raw deflate data |
+
+#### brotli
+
+| Function | Description |
+| --- | --- |
+| `brotliCompress(data, quality?)` | Compress with brotli. Quality: 0-11 (default: 6) |
+| `brotliDecompress(data)` | Decompress brotli data (max 256 MB output) |
+| `brotliDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
 
 ### Streaming
 
@@ -99,21 +118,20 @@ zstdCompress(data, -1);
 | --- | --- |
 | `createZstdCompressStream(level?)` | Create a zstd compression `TransformStream` |
 | `createZstdDecompressStream()` | Create a zstd decompression `TransformStream` |
-
-### Low-level
-
-| Class | Description |
-| --- | --- |
-| `ZstdCompressContext` | Stateful compression context with `transform()`, `flush()`, `finish()` |
-| `ZstdDecompressContext` | Stateful decompression context with `transform()`, `flush()` |
+| `createGzipCompressStream(level?)` | Create a gzip compression `TransformStream` |
+| `createGzipDecompressStream()` | Create a gzip decompression `TransformStream` |
+| `createDeflateCompressStream(level?)` | Create a raw deflate compression `TransformStream` |
+| `createDeflateDecompressStream()` | Create a raw deflate decompression `TransformStream` |
+| `createBrotliCompressStream(quality?)` | Create a brotli compression `TransformStream` |
+| `createBrotliDecompressStream()` | Create a brotli decompression `TransformStream` |
 
 ## Supported Algorithms
 
 | Algorithm | One-shot | Streaming | Status |
 | --- | --- | --- | --- |
 | zstd | ✅ | ✅ | Available |
-| gzip / deflate | — | — | Planned |
-| brotli | — | — | Planned |
+| gzip / deflate | ✅ | ✅ | Available |
+| brotli | ✅ | ✅ | Available |
 
 ## Platform Support
 
@@ -131,7 +149,7 @@ zstdCompress(data, -1);
 
 ## Benchmarks
 
-Measured on Apple M1, Node.js v22, zflate v0.1.0 (zstd default level 3):
+Measured on Apple M1, Node.js v22 (zstd level 3, gzip/brotli level 6):
 
 ### Compression throughput
 
