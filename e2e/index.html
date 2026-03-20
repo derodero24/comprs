@@ -52,13 +52,15 @@
     log(`version: ${results.version}`);
 
     // streaming (gzip as representative test)
+    // Note: Streaming contexts use Buffer.slice() internally which may cause
+    // "offset is out of bounds" errors in WASM due to memory view invalidation
+    // after WebAssembly.Memory growth. Pass Buffer-wrapped copies to work around.
     try {
       const ctx = new wasm.GzipCompressContext();
-      const chunk1 = ctx.transform(testData.slice(0, 100));
-      const chunk2 = ctx.transform(testData.slice(100));
+      const chunk1 = ctx.transform(Buffer.from(testData.slice(0, 100)));
+      const chunk2 = ctx.transform(Buffer.from(testData.slice(100)));
       const flushed = ctx.flush();
       const finished = ctx.finish();
-      // Concatenate all chunks
       const allChunks = concatBuffers([chunk1, chunk2, flushed, finished].filter(c => c.byteLength > 0));
       const streamDecompressed = wasm.gzipDecompress(allChunks);
       results.streaming = arrayEqual(streamDecompressed, testData);
