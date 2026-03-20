@@ -59,7 +59,7 @@ pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let input = crate::as_bytes(&data);
     let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
 
-    let mut output = Vec::with_capacity(input.len().min(MAX_DECOMPRESSED_SIZE));
+    let mut output = Vec::with_capacity((input.len() * 4).min(MAX_DECOMPRESSED_SIZE));
     let mut buf = [0u8; BUFFER_SIZE];
 
     loop {
@@ -104,7 +104,7 @@ pub fn brotli_decompress_with_capacity(
     let cap = capacity as usize;
 
     let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let mut output = Vec::with_capacity(input.len().min(cap));
+    let mut output = Vec::with_capacity((input.len() * 4).min(cap));
     let mut buf = [0u8; BUFFER_SIZE];
 
     loop {
@@ -200,7 +200,7 @@ impl Task for BrotliDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let mut decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
         let mut buf = [0u8; BUFFER_SIZE];
 
         loop {

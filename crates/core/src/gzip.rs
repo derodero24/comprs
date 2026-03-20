@@ -80,7 +80,7 @@ pub fn gzip_decompress_with_capacity(
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
     let mut decoder = GzDecoder::new(input);
-    let mut output = Vec::with_capacity(input.len().min(max_size));
+    let mut output = Vec::with_capacity((input.len() * 4).min(max_size));
     let mut buf = [0u8; BUFFER_SIZE];
 
     loop {
@@ -166,7 +166,7 @@ pub fn deflate_decompress_with_capacity(
 
 fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
     let mut decoder = DeflateDecoder::new(input);
-    let mut output = Vec::with_capacity(input.len().min(max_size));
+    let mut output = Vec::with_capacity((input.len() * 4).min(max_size));
     let mut buf = [0u8; BUFFER_SIZE];
 
     loop {
@@ -259,7 +259,7 @@ impl Task for GzipDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let mut decoder = GzDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
         let mut buf = [0u8; BUFFER_SIZE];
 
         loop {
@@ -366,7 +366,7 @@ impl Task for DeflateDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let mut decoder = DeflateDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
         let mut buf = [0u8; BUFFER_SIZE];
 
         loop {
