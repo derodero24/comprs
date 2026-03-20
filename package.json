@@ -40,6 +40,16 @@
         "default": "./index.js"
       },
       "browser": "./browser.js"
+    },
+    "./streams": {
+      "import": {
+        "types": "./streams.d.ts",
+        "default": "./streams.js"
+      },
+      "require": {
+        "types": "./streams.d.ts",
+        "default": "./streams.js"
+      }
     }
   },
   "files": [
