@@ -1,5 +1,9 @@
 import assert from 'node:assert';
 import {
+  brotliCompress,
+  brotliDecompress,
+  createBrotliCompressStream,
+  createBrotliDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
   createGzipCompressStream,
@@ -52,6 +56,18 @@ assert.strictEqual(
   'function',
   'createDeflateDecompressStream should be a function',
 );
+assert.strictEqual(typeof brotliCompress, 'function', 'brotliCompress should be a function');
+assert.strictEqual(typeof brotliDecompress, 'function', 'brotliDecompress should be a function');
+assert.strictEqual(
+  typeof createBrotliCompressStream,
+  'function',
+  'createBrotliCompressStream should be a function',
+);
+assert.strictEqual(
+  typeof createBrotliDecompressStream,
+  'function',
+  'createBrotliDecompressStream should be a function',
+);
 
 // Zstd round-trip test
 const input = Buffer.from('ESM smoke test');
@@ -68,5 +84,10 @@ assert.deepStrictEqual(gzDecompressed, input, 'gzip round-trip should produce id
 const dfCompressed = deflateCompress(input);
 const dfDecompressed = deflateDecompress(dfCompressed);
 assert.deepStrictEqual(dfDecompressed, input, 'deflate round-trip should produce identical output');
+
+// Brotli round-trip test
+const brCompressed = brotliCompress(input);
+const brDecompressed = brotliDecompress(brCompressed);
+assert.deepStrictEqual(brDecompressed, input, 'brotli round-trip should produce identical output');
 
 console.log('ESM import smoke test passed');

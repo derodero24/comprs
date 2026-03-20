@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 
+mod brotli_impl;
+mod brotli_stream;
 mod gzip;
 mod gzip_stream;
 mod zstd;
@@ -7,6 +9,8 @@ mod zstd_stream;
 
 use napi_derive::napi;
 
+pub use brotli_impl::*;
+pub use brotli_stream::*;
 pub use gzip::*;
 pub use gzip_stream::*;
 pub use zstd::*;

@@ -15,6 +15,7 @@ napi-build = "2"
 napi-derive = { version = "3", default-features = false, features = ["type-def"] }
 
 # Compression
+brotli = { version = "8", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 

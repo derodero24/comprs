@@ -1,4 +1,24 @@
 /**
+ * Create a streaming brotli compression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked compression.
+ * Data compressed across multiple chunks maintains cross-chunk context for
+ * optimal compression ratio.
+ *
+ * @param quality Compression quality (0-11). Default is 6.
+ */
+export declare function createBrotliCompressStream(
+  quality?: number,
+): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming brotli decompression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked decompression.
+ */
+export declare function createBrotliDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+
+/**
  * Create a streaming zstd compression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked compression.

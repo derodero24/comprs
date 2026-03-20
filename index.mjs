@@ -6,6 +6,11 @@ const streams = require('./streams.js');
 
 export const {
   version,
+  brotliCompress,
+  brotliDecompress,
+  brotliDecompressWithCapacity,
+  BrotliCompressContext,
+  BrotliDecompressContext,
   zstdCompress,
   zstdDecompress,
   zstdDecompressWithCapacity,
@@ -22,6 +27,8 @@ export const {
 } = binding;
 
 export const {
+  createBrotliCompressStream,
+  createBrotliDecompressStream,
   createZstdCompressStream,
   createZstdDecompressStream,
   createGzipCompressStream,

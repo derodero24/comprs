@@ -1,0 +1,209 @@
+//! Brotli streaming compression and decompression.
+
+use std::io::Write;
+
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+
+/// Default compression quality for brotli.
+const DEFAULT_QUALITY: u32 = 6;
+
+/// Default buffer size for brotli operations.
+const BUFFER_SIZE: usize = 4096;
+
+/// Default log2 of the sliding window size for brotli.
+const LG_WINDOW_SIZE: u32 = 22;
+
+/// Streaming brotli compression context.
+///
+/// Maintains internal compression state across multiple `transform` calls,
+/// enabling chunked compression without losing cross-chunk context.
+#[napi]
+pub struct BrotliCompressContext {
+    compressor: brotli::CompressorWriter<Vec<u8>>,
+}
+
+#[napi]
+impl BrotliCompressContext {
+    #[napi(constructor)]
+    pub fn new(quality: Option<u32>) -> Result<Self> {
+        let quality = quality.unwrap_or(DEFAULT_QUALITY);
+        if quality > 11 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "brotli quality must be between 0 and 11",
+            ));
+        }
+        let compressor =
+            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
+        Ok(Self { compressor })
+    }
+
+    /// Compress a chunk of data. Returns compressed output (may be empty if
+    /// the compressor is buffering data internally).
+    #[napi]
+    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+        self.compressor.write_all(chunk.as_ref()).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli stream compress failed: {e}"),
+            )
+        })?;
+
+        // Drain whatever the compressor has flushed to the inner Vec
+        let output = self.compressor.get_ref().clone();
+        self.compressor.get_mut().clear();
+        Ok(output.into())
+    }
+
+    /// Flush the compressor's internal buffer. Returns any buffered compressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        self.compressor.flush().map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli stream flush failed: {e}"),
+            )
+        })?;
+
+        let output = self.compressor.get_ref().clone();
+        self.compressor.get_mut().clear();
+        Ok(output.into())
+    }
+
+    /// Finalize the compression stream. Writes the brotli stream footer.
+    /// Must be called once after all data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        // Close the compressor by replacing it with a dummy and dropping the old one
+        let compressor = std::mem::replace(
+            &mut self.compressor,
+            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, 0, LG_WINDOW_SIZE),
+        );
+
+        // into_inner drops the CompressorWriter, which flushes remaining data
+        // and writes the brotli stream end marker
+        let output = compressor.into_inner();
+        Ok(output.into())
+    }
+}
+
+/// Streaming brotli decompression context.
+///
+/// Maintains internal decompression state across multiple `transform` calls,
+/// enabling chunked decompression of a brotli stream.
+#[napi]
+pub struct BrotliDecompressContext {
+    decompressor: brotli::DecompressorWriter<Vec<u8>>,
+}
+
+#[napi]
+impl BrotliDecompressContext {
+    #[napi(constructor)]
+    pub fn new() -> Result<Self> {
+        let decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
+        Ok(Self { decompressor })
+    }
+
+    /// Decompress a chunk of compressed data. Returns decompressed output
+    /// (may be empty if the decompressor needs more data).
+    #[napi]
+    pub fn transform(&mut self, chunk: Buffer) -> Result<Buffer> {
+        self.decompressor.write_all(chunk.as_ref()).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli stream decompress failed: {e}"),
+            )
+        })?;
+
+        // Drain whatever the decompressor has written to the inner Vec
+        let output = self.decompressor.get_ref().clone();
+        self.decompressor.get_mut().clear();
+        Ok(output.into())
+    }
+
+    /// Flush the decompressor's internal buffer. Returns any buffered decompressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        self.decompressor.flush().map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli stream flush failed: {e}"),
+            )
+        })?;
+
+        let output = self.decompressor.get_ref().clone();
+        self.decompressor.get_mut().clear();
+        Ok(output.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+
+    /// Default compression quality for brotli.
+    const DEFAULT_QUALITY: u32 = 6;
+
+    /// Default buffer size for brotli operations.
+    const BUFFER_SIZE: usize = 4096;
+
+    /// Default log2 of the sliding window size for brotli.
+    const LG_WINDOW_SIZE: u32 = 22;
+
+    #[test]
+    fn stream_round_trip() {
+        let original = b"Hello, zflate streaming! ".repeat(100);
+
+        // Compress in chunks using CompressorWriter<Vec<u8>>
+        let mut compressor =
+            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
+        for chunk in original.chunks(256) {
+            compressor.write_all(chunk).unwrap();
+        }
+        let compressed = compressor.into_inner();
+
+        // Decompress using Decompressor
+        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn stream_empty_input() {
+        let compressor =
+            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
+        let compressed = compressor.into_inner();
+
+        // Should produce a valid (empty) brotli stream
+        assert!(!compressed.is_empty());
+
+        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+        assert!(decompressed.is_empty());
+    }
+
+    #[test]
+    fn stream_decompressor_writer_round_trip() {
+        let original = b"DecompressorWriter test data ".repeat(100);
+
+        // Compress
+        let mut compressor =
+            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
+        compressor.write_all(&original).unwrap();
+        let compressed = compressor.into_inner();
+
+        // Decompress in chunks using DecompressorWriter<Vec<u8>>
+        let mut decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
+        for chunk in compressed.chunks(64) {
+            decompressor.write_all(chunk).unwrap();
+        }
+        decompressor.flush().unwrap();
+        let decompressed = decompressor.into_inner().unwrap();
+
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+}
