@@ -28,9 +28,12 @@ import {
   version,
   zstdCompress,
   zstdCompressAsync,
+  zstdCompressWithDict,
   zstdDecompress,
   zstdDecompressAsync,
   zstdDecompressWithCapacity,
+  zstdDecompressWithDict,
+  zstdTrainDictionary,
 } from '../index.mjs';
 
 assert.strictEqual(typeof version, 'function', 'version should be a function');
@@ -94,6 +97,21 @@ assert.strictEqual(
 );
 assert.strictEqual(typeof decompress, 'function', 'decompress should be a function');
 assert.strictEqual(typeof detectFormat, 'function', 'detectFormat should be a function');
+assert.strictEqual(
+  typeof zstdTrainDictionary,
+  'function',
+  'zstdTrainDictionary should be a function',
+);
+assert.strictEqual(
+  typeof zstdCompressWithDict,
+  'function',
+  'zstdCompressWithDict should be a function',
+);
+assert.strictEqual(
+  typeof zstdDecompressWithDict,
+  'function',
+  'zstdDecompressWithDict should be a function',
+);
 assert.strictEqual(typeof zstdCompressAsync, 'function', 'zstdCompressAsync should be a function');
 assert.strictEqual(
   typeof zstdDecompressAsync,
