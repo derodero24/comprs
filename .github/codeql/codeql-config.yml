@@ -1,0 +1,5 @@
+name: "zflate CodeQL config"
+
+query-filters:
+  - exclude:
+      id: rust/access-invalid-pointer
