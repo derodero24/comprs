@@ -197,6 +197,19 @@ jobs:
           sudo apt-get update && sudo apt-get install -y binaryen
           pnpm run optimize:wasm
 
+      - name: Report WASM binary size
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        run: |
+          WASM_FILE=$(ls zflate.*.wasm 2>/dev/null | head -1)
+          if [ -n "$WASM_FILE" ]; then
+            SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
+            echo "### WASM Binary Size" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+            echo "| $WASM_FILE | $(( SIZE / 1024 )) KB |" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

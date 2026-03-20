@@ -165,6 +165,7 @@ zstdCompress(data, -1);
 
 `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
 
+<<<<<<< HEAD
 ## Browser Usage
 
 zflate works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
@@ -222,6 +223,10 @@ const decompressed = gzipDecompress(compressed);
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```
+
+### WASM bundle size
+
+The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during the build process. Binary size is tracked and reported in CI on every build — check the latest [CI run summary](https://github.com/derodero24/zflate/actions/workflows/ci.yml) for current numbers.
 
 ## Benchmarks
 
