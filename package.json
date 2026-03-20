@@ -120,16 +120,5 @@
         "@codspeed/vitest-plugin>vite": "8"
       }
     }
-  },
-  "optionalDependencies": {
-    "zflate-darwin-x64": "0.1.0",
-    "zflate-darwin-arm64": "0.1.0",
-    "zflate-linux-x64-gnu": "0.1.0",
-    "zflate-linux-x64-musl": "0.1.0",
-    "zflate-linux-arm64-gnu": "0.1.0",
-    "zflate-linux-arm64-musl": "0.1.0",
-    "zflate-win32-x64-msvc": "0.1.0",
-    "zflate-win32-arm64-msvc": "0.1.0",
-    "zflate-wasm32-wasi": "0.1.0"
   }
 }
