@@ -1,0 +1,24 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+    patch:
+      default:
+        target: 70%
+
+comment:
+  layout: 'condensed_header, condensed_files, condensed_footer'
+  require_changes: true
+
+flags:
+  rust:
+    paths:
+      - crates/
+    carryforward: true
+  javascript:
+    paths:
+      - __test__/
+      - src/
+    carryforward: true

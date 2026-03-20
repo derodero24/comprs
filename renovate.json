@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "baseBranchPatterns": ["develop"],
+  "prConcurrentLimit": 10,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "recreateWhen": "always",
+    "rebaseWhen": "never"
+  },
+  "packageRules": [
+    {
+      "description": "Automerge non-major devDependency updates",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Pin GitHub Actions digests and automerge non-major updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "pinDigests": true,
+      "automerge": true
+    },
+    {
+      "description": "Group Rust crate updates",
+      "matchManagers": ["cargo"],
+      "groupName": "rust-dependencies"
+    },
+    {
+      "description": "Automerge non-major Rust crate updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    }
+  ]
+}
