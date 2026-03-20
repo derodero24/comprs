@@ -20,6 +20,8 @@ on:
       - 'streams.d.ts'
       - 'index.mjs'
       - 'index.d.mts'
+      - 'node.js'
+      - 'node.d.ts'
   pull_request:
     branches: [develop]
     paths:
@@ -39,6 +41,8 @@ on:
       - 'streams.d.ts'
       - 'index.mjs'
       - 'index.d.mts'
+      - 'node.js'
+      - 'node.d.ts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

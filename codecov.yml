@@ -20,5 +20,4 @@ flags:
   javascript:
     paths:
       - __test__/
-      - src/
     carryforward: true
