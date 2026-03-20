@@ -4,6 +4,8 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
 
@@ -23,7 +25,13 @@ pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Re
 
     zstd::bulk::compress(input, level)
         .map(|v| v.into())
-        .map_err(|e| Error::new(Status::GenericFailure, format!("zstd compress failed: {e}")))
+        .map_err(|e| {
+            ZflateError::Operation {
+                context: "zstd compress",
+                source: e.into(),
+            }
+            .into()
+        })
 }
 
 pub struct ZstdCompressTask {
@@ -37,8 +45,13 @@ impl Task for ZstdCompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        zstd::bulk::compress(&self.data, self.level)
-            .map_err(|e| Error::new(Status::GenericFailure, format!("zstd compress failed: {e}")))
+        zstd::bulk::compress(&self.data, self.level).map_err(|e| {
+            ZflateError::Operation {
+                context: "zstd compress",
+                source: e.into(),
+            }
+            .into()
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -81,10 +94,11 @@ impl Task for ZstdDecompressTask {
         let capacity = capacity.max(1024);
 
         zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd decompress failed: {e}"),
-            )
+            ZflateError::Operation {
+                context: "zstd decompress",
+                source: e.into(),
+            }
+            .into()
         })
     }
 
@@ -125,10 +139,11 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     zstd::bulk::decompress(input, capacity)
         .map(|v| v.into())
         .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd decompress failed: {e}"),
-            )
+            ZflateError::Operation {
+                context: "zstd decompress",
+                source: e.into(),
+            }
+            .into()
         })
 }
 
@@ -142,10 +157,10 @@ pub fn zstd_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     if !capacity.is_finite() || capacity < 0.0 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "capacity must be a positive finite number",
-        ));
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
     }
     let input = crate::as_bytes(&data);
     let cap = capacity as usize;
@@ -153,10 +168,11 @@ pub fn zstd_decompress_with_capacity(
     zstd::bulk::decompress(input, cap)
         .map(|v| v.into())
         .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd decompress failed: {e}"),
-            )
+            ZflateError::Operation {
+                context: "zstd decompress",
+                source: e.into(),
+            }
+            .into()
         })
 }
 
@@ -186,10 +202,11 @@ pub fn zstd_train_dictionary(
     zstd::dict::from_samples(&sample_vecs, max_size)
         .map(|v| v.into())
         .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd dictionary training failed: {e}"),
-            )
+            ZflateError::Operation {
+                context: "zstd dictionary training",
+                source: e.into(),
+            }
+            .into()
         })
 }
 
@@ -209,17 +226,17 @@ pub fn zstd_compress_with_dict(
 
     let mut compressor =
         zstd::bulk::Compressor::with_dictionary(level, dict_bytes).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd compressor init failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "zstd compressor init",
+                source: e.into(),
+            })
         })?;
 
     compressor.compress(input).map(|v| v.into()).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("zstd compress with dict failed: {e}"),
-        )
+        napi::Error::from(ZflateError::Operation {
+            context: "zstd compress with dict",
+            source: e.into(),
+        })
     })
 }
 
@@ -241,20 +258,20 @@ pub fn zstd_decompress_with_dict(
     let capacity = capacity.max(1024);
 
     let mut decompressor = zstd::bulk::Decompressor::with_dictionary(dict_bytes).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("zstd decompressor init failed: {e}"),
-        )
+        napi::Error::from(ZflateError::Operation {
+            context: "zstd decompressor init",
+            source: e.into(),
+        })
     })?;
 
     decompressor
         .decompress(input, capacity)
         .map(|v| v.into())
         .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("zstd decompress with dict failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "zstd decompress with dict",
+                source: e.into(),
+            })
         })
 }
 

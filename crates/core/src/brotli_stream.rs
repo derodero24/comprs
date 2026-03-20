@@ -5,6 +5,8 @@ use std::io::Write;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Default compression quality for brotli.
 const DEFAULT_QUALITY: u32 = 6;
 
@@ -29,10 +31,10 @@ impl BrotliCompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self> {
         let quality = quality.unwrap_or(DEFAULT_QUALITY);
         if quality > 11 {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "brotli quality must be between 0 and 11",
-            ));
+            return Err(ZflateError::InvalidArg(
+                "brotli quality must be between 0 and 11".to_string(),
+            )
+            .into());
         }
         let compressor =
             brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
@@ -46,10 +48,10 @@ impl BrotliCompressContext {
         self.compressor
             .write_all(crate::as_bytes(&chunk))
             .map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("brotli stream compress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "brotli stream compress",
+                    source: e.into(),
+                })
             })?;
 
         // Drain whatever the compressor has flushed to the inner Vec
@@ -62,10 +64,10 @@ impl BrotliCompressContext {
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.compressor.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = self.compressor.get_ref().clone();
@@ -114,10 +116,10 @@ impl BrotliDecompressContext {
         self.decompressor
             .write_all(crate::as_bytes(&chunk))
             .map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("brotli stream decompress failed: {e}"),
-                )
+                napi::Error::from(ZflateError::Operation {
+                    context: "brotli stream decompress",
+                    source: e.into(),
+                })
             })?;
 
         // Drain whatever the decompressor has written to the inner Vec
@@ -130,10 +132,10 @@ impl BrotliDecompressContext {
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.decompressor.flush().map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("brotli stream flush failed: {e}"),
-            )
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli stream flush",
+                source: e.into(),
+            })
         })?;
 
         let output = self.decompressor.get_ref().clone();

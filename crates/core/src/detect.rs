@@ -5,6 +5,8 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::ZflateError;
+
 /// Zstd magic number: 0xFD2FB528 (little-endian).
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
@@ -41,10 +43,10 @@ pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         Format::Zstd => crate::zstd_decompress(data),
         Format::Gzip => crate::gzip_decompress(data),
         Format::Brotli => crate::brotli_decompress(data),
-        Format::Unknown => Err(Error::new(
-            Status::InvalidArg,
-            "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress) instead",
-        )),
+        Format::Unknown => Err(ZflateError::InvalidArg(
+            "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress) instead".to_string(),
+        )
+        .into()),
     }
 }
 
