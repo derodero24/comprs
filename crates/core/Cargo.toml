@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 napi = { workspace = true }
 napi-derive = { workspace = true }
 zstd = { workspace = true }
+flate2 = { workspace = true }
 
 [build-dependencies]
 napi-build = { workspace = true }

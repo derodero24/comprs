@@ -11,6 +11,21 @@ export const {
   zstdDecompressWithCapacity,
   ZstdCompressContext,
   ZstdDecompressContext,
+  gzipCompress,
+  gzipDecompress,
+  deflateCompress,
+  deflateDecompress,
+  GzipCompressContext,
+  GzipDecompressContext,
+  DeflateCompressContext,
+  DeflateDecompressContext,
 } = binding;
 
-export const { createZstdCompressStream, createZstdDecompressStream } = streams;
+export const {
+  createZstdCompressStream,
+  createZstdDecompressStream,
+  createGzipCompressStream,
+  createGzipDecompressStream,
+  createDeflateCompressStream,
+  createDeflateDecompressStream,
+} = streams;
