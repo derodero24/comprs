@@ -1,0 +1,172 @@
+# zflate
+
+[![npm version](https://img.shields.io/npm/v/zflate)](https://www.npmjs.com/package/zflate)
+[![CI](https://github.com/derodero24/zflate/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/zflate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, and **brotli** in one package.
+
+## Why zflate?
+
+The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. zflate consolidates this into a single, fast, well-typed library:
+
+- **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
+- **Unified API** — Same interface for zstd, gzip, and brotli (gzip and brotli coming soon)
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
+- **Universal** — Node.js (native), browsers, Deno, Bun, and edge runtimes (WASM)
+- **Zero JS dependencies** — Only Rust and the platform
+
+## Installation
+
+```bash
+npm install zflate
+# or
+pnpm add zflate
+# or
+yarn add zflate
+# or
+bun add zflate
+```
+
+## Quick Start
+
+### One-shot compression
+
+```typescript
+import { zstdCompress, zstdDecompress } from 'zflate';
+
+const data = Buffer.from('Hello, zflate!');
+
+// Compress
+const compressed = zstdCompress(data);
+
+// Decompress
+const decompressed = zstdDecompress(compressed);
+```
+
+### Streaming
+
+```typescript
+import { createZstdCompressStream, createZstdDecompressStream } from 'zflate';
+
+// Create a readable stream from data
+const input = new ReadableStream({
+  start(controller) {
+    controller.enqueue(new TextEncoder().encode('Hello, streaming zflate!'));
+    controller.close();
+  },
+});
+
+// Compress → Decompress round-trip
+const chunks: Uint8Array[] = [];
+await input
+  .pipeThrough(createZstdCompressStream())
+  .pipeThrough(createZstdDecompressStream())
+  .pipeTo(new WritableStream({ write(chunk) { chunks.push(chunk); } }));
+```
+
+### Compression levels
+
+```typescript
+import { zstdCompress } from 'zflate';
+
+// Fast compression (level 1)
+zstdCompress(data, 1);
+
+// Default (level 3)
+zstdCompress(data);
+
+// Best compression (level 22)
+zstdCompress(data, 22);
+
+// Fast mode with negative levels
+zstdCompress(data, -1);
+```
+
+## API
+
+### One-shot
+
+| Function | Description |
+| --- | --- |
+| `zstdCompress(data, level?)` | Compress data using zstd. Level: -131072 to 22 (default: 3) |
+| `zstdDecompress(data)` | Decompress zstd data (max 256 MB output) |
+| `zstdDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+### Streaming
+
+| Function | Description |
+| --- | --- |
+| `createZstdCompressStream(level?)` | Create a zstd compression `TransformStream` |
+| `createZstdDecompressStream()` | Create a zstd decompression `TransformStream` |
+
+### Low-level
+
+| Class | Description |
+| --- | --- |
+| `ZstdCompressContext` | Stateful compression context with `transform()`, `flush()`, `finish()` |
+| `ZstdDecompressContext` | Stateful decompression context with `transform()`, `flush()` |
+
+## Supported Algorithms
+
+| Algorithm | One-shot | Streaming | Status |
+| --- | --- | --- | --- |
+| zstd | ✅ | ✅ | Available |
+| gzip / deflate | — | — | Planned |
+| brotli | — | — | Planned |
+
+## Platform Support
+
+| Platform | Backend | Status |
+| --- | --- | --- |
+| Node.js ≥ 20 | Native (napi-rs) | ✅ |
+| Browsers | WASM | ✅ |
+| Deno | WASM | ✅ |
+| Bun | WASM | ✅ |
+| Cloudflare Workers | WASM | ✅ |
+
+### Native binary targets
+
+`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
+
+## Benchmarks
+
+Measured on Apple M1, Node.js v22, zflate v0.1.0 (zstd default level 3):
+
+### Compression throughput
+
+| Data type | Size | ops/sec |
+| --- | --- | --- |
+| Patterned | 150B | 677,003 |
+| Patterned | 10KB | 138,047 |
+| Patterned | 1MB | 4,219 |
+| Random | 150B | 683,696 |
+| Random | 10KB | 80,501 |
+| Random | 1MB | 2,585 |
+| JSON | 84KB | 9,104 |
+| Text | 45KB | 56,757 |
+
+### Decompression throughput
+
+| Data type | Size | ops/sec |
+| --- | --- | --- |
+| Patterned | 150B | 464,668 |
+| Patterned | 10KB | 269,381 |
+| Patterned | 1MB | 3,415 |
+| Random | 150B | 756,275 |
+| Random | 10KB | 374,927 |
+| Random | 1MB | 3,797 |
+| JSON | 84KB | 15,034 |
+| Text | 45KB | 37,599 |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+## License
+
+[MIT](LICENSE)
