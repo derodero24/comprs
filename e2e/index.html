@@ -7,6 +7,10 @@
   const log = (msg) => { document.getElementById('log').textContent += `${msg}\n`; };
 
   try {
+    // Buffer polyfill required by emnapi (napi-rs WASM runtime)
+    const { Buffer } = await import('buffer');
+    globalThis.Buffer = Buffer;
+
     log('Loading WASM module...');
     const wasm = await import('../zflate.wasi-browser.js');
     log(`Loaded. Exports: ${Object.keys(wasm).length}`);

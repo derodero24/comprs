@@ -133,6 +133,7 @@
     "@types/node": "^24.0.0",
     "@types/pako": "^2.0.4",
     "@vitest/coverage-v8": "^4.1.0",
+    "buffer": "^6.0.3",
     "fflate": "^0.8.2",
     "lefthook": "^2.1.4",
     "pako": "^2.1.0",
