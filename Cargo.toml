@@ -17,7 +17,7 @@ napi-derive = { version = "3", default-features = false, features = ["type-def"]
 # Compression
 brotli = { version = "8", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 
 # Error handling
 thiserror = "2"

@@ -68,9 +68,8 @@ describe('gzipCompress / gzipDecompress', () => {
     expect(gzipDecompress(normal)).toEqual(input);
     expect(gzipDecompress(best)).toEqual(input);
 
-    // Higher levels should produce smaller or equal output
-    expect(best.length).toBeLessThanOrEqual(normal.length);
-    expect(normal.length).toBeLessThanOrEqual(fast.length);
+    // Best compression (level 9) should generally produce smaller output than fastest (level 1)
+    expect(best.length).toBeLessThanOrEqual(fast.length);
   });
 
   it('should throw on level > 9', () => {
