@@ -16,6 +16,10 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'streams.js'
+      - 'streams.d.ts'
+      - 'index.mjs'
+      - 'index.d.mts'
   pull_request:
     branches: [develop]
     paths:
@@ -31,6 +35,10 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'streams.js'
+      - 'streams.d.ts'
+      - 'index.mjs'
+      - 'index.d.mts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
