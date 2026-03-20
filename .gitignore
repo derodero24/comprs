@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+target/
+dist/
+*.node
+
+# napi-rs generated files (tracked via git add -f for npm package)
+# Biome ignores these via useIgnoreFile
+index.js
+index.d.ts
+browser.js
+
+# napi-rs generated binaries (build output)
+*.wasm
+*.wasi.cjs
+*.wasi-browser.js
+wasi-worker.mjs
+wasi-worker-browser.mjs
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+*.lcov
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+
+# Internal docs (local only)
+docs/*
+!docs/migration/
+
+# Claude Code (local development only)
+CLAUDE.md
+.claude/
+test-results
+deno.lock
