@@ -1,6 +1,10 @@
 #![deny(clippy::all)]
 
+mod zstd;
+
 use napi_derive::napi;
+
+pub use zstd::*;
 
 /// Returns the library version.
 #[napi]

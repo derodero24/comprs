@@ -14,6 +14,9 @@ napi = { version = "3", default-features = false, features = ["napi6"] }
 napi-build = "2"
 napi-derive = { version = "3", default-features = false, features = ["type-def"] }
 
+# Compression
+zstd = { version = "0.13", default-features = false }
+
 [profile.release]
 codegen-units = 1
 lto = true
