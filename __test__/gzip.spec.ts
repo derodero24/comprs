@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { deflateRawSync, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { deflateCompress, deflateDecompress, gzipCompress, gzipDecompress } from '../index.js';
+import {
+  DeflateCompressContext,
+  deflateCompress,
+  deflateDecompress,
+  GzipCompressContext,
+  gzipCompress,
+  gzipDecompress,
+} from '../index.js';
 
 describe('gzipCompress / gzipDecompress', () => {
   it('should round-trip a simple string', () => {
@@ -62,6 +69,22 @@ describe('gzipCompress / gzipDecompress', () => {
     // Higher levels should produce smaller or equal output
     expect(best.length).toBeLessThanOrEqual(normal.length);
     expect(normal.length).toBeLessThanOrEqual(fast.length);
+  });
+
+  it('should throw on level > 9', () => {
+    const input = Buffer.from('test');
+    expect(() => gzipCompress(input, 10)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should throw on very high level', () => {
+    const input = Buffer.from('test');
+    expect(() => gzipCompress(input, 100)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should accept level 0 and level 9', () => {
+    const input = Buffer.from('test');
+    expect(() => gzipCompress(input, 0)).not.toThrow();
+    expect(() => gzipCompress(input, 9)).not.toThrow();
   });
 
   it('should throw on invalid compressed data', () => {
@@ -131,6 +154,22 @@ describe('deflateCompress / deflateDecompress', () => {
     expect(compressed.length).toBeLessThan(input.length);
   });
 
+  it('should throw on level > 9', () => {
+    const input = Buffer.from('test');
+    expect(() => deflateCompress(input, 10)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should throw on very high level', () => {
+    const input = Buffer.from('test');
+    expect(() => deflateCompress(input, 100)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should accept level 0 and level 9', () => {
+    const input = Buffer.from('test');
+    expect(() => deflateCompress(input, 0)).not.toThrow();
+    expect(() => deflateCompress(input, 9)).not.toThrow();
+  });
+
   it('should throw on invalid compressed data', () => {
     const invalid = Buffer.from('this is not deflate data');
     expect(() => deflateDecompress(invalid)).toThrow();
@@ -172,5 +211,27 @@ describe('gzip vs deflate output difference', () => {
     // Both should round-trip correctly
     expect(gzipDecompress(gzipped)).toEqual(data);
     expect(deflateDecompress(deflated)).toEqual(data);
+  });
+});
+
+describe('GzipCompressContext level validation', () => {
+  it('should throw on level > 9', () => {
+    expect(() => new GzipCompressContext(10)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should accept level 0 and level 9', () => {
+    expect(() => new GzipCompressContext(0)).not.toThrow();
+    expect(() => new GzipCompressContext(9)).not.toThrow();
+  });
+});
+
+describe('DeflateCompressContext level validation', () => {
+  it('should throw on level > 9', () => {
+    expect(() => new DeflateCompressContext(10)).toThrow(/level must be between 0 and 9/);
+  });
+
+  it('should accept level 0 and level 9', () => {
+    expect(() => new DeflateCompressContext(0)).not.toThrow();
+    expect(() => new DeflateCompressContext(9)).not.toThrow();
   });
 });
