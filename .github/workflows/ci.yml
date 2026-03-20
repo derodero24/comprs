@@ -22,6 +22,7 @@ on:
       - 'index.d.mts'
       - 'node.js'
       - 'node.d.ts'
+      - 'e2e/**'
   pull_request:
     branches: [develop]
     paths:
@@ -43,6 +44,7 @@ on:
       - 'index.d.mts'
       - 'node.js'
       - 'node.d.ts'
+      - 'e2e/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -296,6 +298,29 @@ jobs:
           path: .
       - name: Run WASM tests
         run: pnpm run test:wasm
+
+  test-deno:
+    name: Deno WASM Test
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2
+        with:
+          deno-version: v2.x
+      - run: pnpm install --frozen-lockfile
+      - name: Download WASM artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm32
+          path: .
+      - name: Run Deno WASM tests
+        run: pnpm run test:deno
 
   coverage:
     name: Coverage
