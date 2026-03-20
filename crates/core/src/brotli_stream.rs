@@ -11,7 +11,7 @@ use crate::ZflateError;
 const DEFAULT_QUALITY: u32 = 6;
 
 /// Default buffer size for brotli operations.
-const BUFFER_SIZE: usize = 32768;
+const BUFFER_SIZE: usize = 4096;
 
 /// Default log2 of the sliding window size for brotli.
 const LG_WINDOW_SIZE: u32 = 22;

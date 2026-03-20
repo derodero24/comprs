@@ -15,7 +15,7 @@ use crate::ZflateError;
 const DEFAULT_LEVEL: u32 = 6;
 
 /// Default buffer size for chunked read operations.
-const BUFFER_SIZE: usize = 32768;
+const BUFFER_SIZE: usize = 4096;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
