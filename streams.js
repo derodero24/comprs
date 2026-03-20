@@ -1,4 +1,6 @@
 const {
+  BrotliCompressContext,
+  BrotliDecompressContext,
   ZstdCompressContext,
   ZstdDecompressContext,
   GzipCompressContext,
@@ -6,6 +8,57 @@ const {
   DeflateCompressContext,
   DeflateDecompressContext,
 } = require('./index.js');
+
+/**
+ * Create a streaming brotli compression TransformStream.
+ *
+ * @param {number} [quality=6] Compression quality (0-11)
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createBrotliCompressStream(quality) {
+  const ctx = new BrotliCompressContext(quality);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
+    },
+  });
+}
+
+/**
+ * Create a streaming brotli decompression TransformStream.
+ *
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createBrotliDecompressStream() {
+  const ctx = new BrotliDecompressContext();
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+    },
+  });
+}
 
 /**
  * Create a streaming zstd compression TransformStream.
@@ -169,6 +222,8 @@ function createDeflateDecompressStream() {
 }
 
 module.exports = {
+  createBrotliCompressStream,
+  createBrotliDecompressStream,
   createZstdCompressStream,
   createZstdDecompressStream,
   createGzipCompressStream,

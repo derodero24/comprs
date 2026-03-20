@@ -9,6 +9,7 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+brotli = { workspace = true }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 zstd = { workspace = true }

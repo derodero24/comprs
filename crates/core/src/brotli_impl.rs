@@ -1,0 +1,243 @@
+//! Brotli compression and decompression.
+
+use std::io::{Read, Write};
+
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+
+/// Default compression quality for brotli.
+const DEFAULT_QUALITY: u32 = 6;
+
+/// Default buffer size for brotli operations.
+const BUFFER_SIZE: usize = 4096;
+
+/// Default log2 of the sliding window size for brotli.
+const LG_WINDOW_SIZE: u32 = 22;
+
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
+/// Compress data using Brotli.
+///
+/// Returns the compressed data as a Buffer.
+/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+#[napi]
+pub fn brotli_compress(data: Buffer, quality: Option<u32>) -> Result<Buffer> {
+    let quality = quality.unwrap_or(DEFAULT_QUALITY);
+    if quality > 11 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "brotli quality must be between 0 and 11",
+        ));
+    }
+    let input = data.as_ref();
+
+    let mut output = Vec::with_capacity(input.len());
+    {
+        let mut compressor =
+            brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
+        compressor.write_all(input).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli compress failed: {e}"),
+            )
+        })?;
+        // Drop compressor to flush and finalize
+    }
+
+    Ok(output.into())
+}
+
+/// Decompress Brotli-compressed data.
+///
+/// Returns the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB.
+#[napi]
+pub fn brotli_decompress(data: Buffer) -> Result<Buffer> {
+    let input = data.as_ref();
+    let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
+
+    let mut output = Vec::with_capacity(input.len().min(MAX_DECOMPRESSED_SIZE));
+    let mut buf = [0u8; BUFFER_SIZE];
+
+    loop {
+        let n = decompressor.read(&mut buf).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli decompress failed: {e}"),
+            )
+        })?;
+        if n == 0 {
+            break;
+        }
+        if output.len() + n > MAX_DECOMPRESSED_SIZE {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "brotli decompress exceeded maximum size of {} bytes",
+                    MAX_DECOMPRESSED_SIZE
+                ),
+            ));
+        }
+        output.extend_from_slice(&buf[..n]);
+    }
+
+    Ok(output.into())
+}
+
+/// Decompress Brotli-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn brotli_decompress_with_capacity(data: Buffer, capacity: f64) -> Result<Buffer> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "capacity must be a positive finite number",
+        ));
+    }
+    let input = data.as_ref();
+    let cap = capacity as usize;
+
+    let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
+    let mut output = Vec::with_capacity(input.len().min(cap));
+    let mut buf = [0u8; BUFFER_SIZE];
+
+    loop {
+        let n = decompressor.read(&mut buf).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("brotli decompress failed: {e}"),
+            )
+        })?;
+        if n == 0 {
+            break;
+        }
+        if output.len() + n > cap {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "Destination buffer is too small",
+            ));
+        }
+        output.extend_from_slice(&buf[..n]);
+    }
+
+    Ok(output.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+
+    /// Default compression quality for brotli.
+    const DEFAULT_QUALITY: u32 = 6;
+
+    /// Default buffer size for brotli operations.
+    const BUFFER_SIZE: usize = 4096;
+
+    /// Default log2 of the sliding window size for brotli.
+    const LG_WINDOW_SIZE: u32 = 22;
+
+    #[test]
+    fn round_trip_basic() {
+        let original = b"Hello, zflate! This is a test of brotli compression.";
+        let mut compressed = Vec::new();
+        {
+            let mut compressor = brotli::CompressorWriter::new(
+                &mut compressed,
+                BUFFER_SIZE,
+                DEFAULT_QUALITY,
+                LG_WINDOW_SIZE,
+            );
+            compressor.write_all(original).unwrap();
+        }
+        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn round_trip_empty() {
+        let original = b"";
+        let mut compressed = Vec::new();
+        {
+            let mut compressor = brotli::CompressorWriter::new(
+                &mut compressed,
+                BUFFER_SIZE,
+                DEFAULT_QUALITY,
+                LG_WINDOW_SIZE,
+            );
+            compressor.write_all(original).unwrap();
+        }
+        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn round_trip_large() {
+        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
+        let mut compressed = Vec::new();
+        {
+            let mut compressor = brotli::CompressorWriter::new(
+                &mut compressed,
+                BUFFER_SIZE,
+                DEFAULT_QUALITY,
+                LG_WINDOW_SIZE,
+            );
+            compressor.write_all(&original).unwrap();
+        }
+        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(original, decompressed);
+        // Compression should actually reduce size for repetitive data
+        assert!(compressed.len() < original.len());
+    }
+
+    #[test]
+    fn compression_quality_levels() {
+        let data = b"Repeating data for compression quality testing. ".repeat(100);
+        let compress_at = |q: u32| {
+            let mut compressed = Vec::new();
+            {
+                let mut compressor =
+                    brotli::CompressorWriter::new(&mut compressed, BUFFER_SIZE, q, LG_WINDOW_SIZE);
+                compressor.write_all(&data).unwrap();
+            }
+            compressed
+        };
+
+        let fast = compress_at(0);
+        let default = compress_at(DEFAULT_QUALITY);
+        let best = compress_at(11);
+
+        // Higher quality should generally produce smaller output
+        assert!(best.len() <= default.len());
+        assert!(default.len() <= fast.len());
+    }
+
+    #[test]
+    fn all_quality_levels_round_trip() {
+        let data = b"Quality level test data. ".repeat(50);
+        for quality in 0..=11 {
+            let mut compressed = Vec::new();
+            {
+                let mut compressor = brotli::CompressorWriter::new(
+                    &mut compressed,
+                    BUFFER_SIZE,
+                    quality,
+                    LG_WINDOW_SIZE,
+                );
+                compressor.write_all(&data).unwrap();
+            }
+            let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
+            let mut decompressed = Vec::new();
+            decompressor.read_to_end(&mut decompressed).unwrap();
+            assert_eq!(data.as_slice(), decompressed.as_slice());
+        }
+    }
+}

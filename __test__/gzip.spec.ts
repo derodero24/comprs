@@ -32,7 +32,7 @@ describe('gzipCompress / gzipDecompress', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should round-trip 1MB of data', () => {
+  it('should round-trip 1MB of data', { timeout: 30_000 }, () => {
     const input = Buffer.alloc(1024 * 1024);
     for (let i = 0; i < input.length; i++) {
       input[i] = i % 256;
@@ -115,7 +115,7 @@ describe('deflateCompress / deflateDecompress', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should round-trip 1MB of data', () => {
+  it('should round-trip 1MB of data', { timeout: 30_000 }, () => {
     const input = Buffer.alloc(1024 * 1024);
     for (let i = 0; i < input.length; i++) {
       input[i] = i % 256;

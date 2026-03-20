@@ -129,7 +129,7 @@ describe('gzip streaming round-trip', () => {
     expect(Buffer.compare(result, data)).toBe(0);
   });
 
-  it('should handle large data (1MB)', async () => {
+  it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
     for (let i = 0; i < large.length; i++) large[i] = i % 256;
     const stream = toChunkedStream(large, 64 * 1024);

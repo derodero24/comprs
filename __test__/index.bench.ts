@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { bench, describe } from 'vitest';
-import { zstdCompress, zstdDecompress } from '../index.js';
+import { brotliCompress, brotliDecompress, zstdCompress, zstdDecompress } from '../index.js';
 
 // --- Patterned data (compressible) ---
 const SMALL = Buffer.from('Hello, zflate! '.repeat(10));
@@ -116,5 +116,91 @@ describe('zstd decompress (realistic)', () => {
 
   bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
     zstdDecompress(TEXT_COMPRESSED);
+  });
+});
+
+// --- Brotli pre-compressed data ---
+const BROTLI_SMALL_COMPRESSED = brotliCompress(SMALL);
+const BROTLI_MEDIUM_COMPRESSED = brotliCompress(MEDIUM);
+const BROTLI_LARGE_COMPRESSED = brotliCompress(LARGE);
+const BROTLI_RANDOM_SMALL_COMPRESSED = brotliCompress(RANDOM_SMALL);
+const BROTLI_RANDOM_MEDIUM_COMPRESSED = brotliCompress(RANDOM_MEDIUM);
+const BROTLI_RANDOM_LARGE_COMPRESSED = brotliCompress(RANDOM_LARGE);
+const BROTLI_JSON_COMPRESSED = brotliCompress(JSON_DATA);
+const BROTLI_TEXT_COMPRESSED = brotliCompress(TEXT_DATA);
+
+describe('brotli compress (patterned)', () => {
+  bench('150B', () => {
+    brotliCompress(SMALL);
+  });
+
+  bench('10KB', () => {
+    brotliCompress(MEDIUM);
+  });
+
+  bench('1MB', () => {
+    brotliCompress(LARGE);
+  });
+});
+
+describe('brotli compress (random)', () => {
+  bench('150B', () => {
+    brotliCompress(RANDOM_SMALL);
+  });
+
+  bench('10KB', () => {
+    brotliCompress(RANDOM_MEDIUM);
+  });
+
+  bench('1MB', () => {
+    brotliCompress(RANDOM_LARGE);
+  });
+});
+
+describe('brotli compress (realistic)', () => {
+  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
+    brotliCompress(JSON_DATA);
+  });
+
+  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
+    brotliCompress(TEXT_DATA);
+  });
+});
+
+describe('brotli decompress (patterned)', () => {
+  bench('150B', () => {
+    brotliDecompress(BROTLI_SMALL_COMPRESSED);
+  });
+
+  bench('10KB', () => {
+    brotliDecompress(BROTLI_MEDIUM_COMPRESSED);
+  });
+
+  bench('1MB', () => {
+    brotliDecompress(BROTLI_LARGE_COMPRESSED);
+  });
+});
+
+describe('brotli decompress (random)', () => {
+  bench('150B', () => {
+    brotliDecompress(BROTLI_RANDOM_SMALL_COMPRESSED);
+  });
+
+  bench('10KB', () => {
+    brotliDecompress(BROTLI_RANDOM_MEDIUM_COMPRESSED);
+  });
+
+  bench('1MB', () => {
+    brotliDecompress(BROTLI_RANDOM_LARGE_COMPRESSED);
+  });
+});
+
+describe('brotli decompress (realistic)', () => {
+  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
+    brotliDecompress(BROTLI_JSON_COMPRESSED);
+  });
+
+  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
+    brotliDecompress(BROTLI_TEXT_COMPRESSED);
   });
 });

@@ -576,12 +576,17 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.BrotliCompressContext = nativeBinding.BrotliCompressContext
+module.exports.BrotliDecompressContext = nativeBinding.BrotliDecompressContext
 module.exports.DeflateCompressContext = nativeBinding.DeflateCompressContext
 module.exports.DeflateDecompressContext = nativeBinding.DeflateDecompressContext
 module.exports.GzipCompressContext = nativeBinding.GzipCompressContext
 module.exports.GzipDecompressContext = nativeBinding.GzipDecompressContext
 module.exports.ZstdCompressContext = nativeBinding.ZstdCompressContext
 module.exports.ZstdDecompressContext = nativeBinding.ZstdDecompressContext
+module.exports.brotliCompress = nativeBinding.brotliCompress
+module.exports.brotliDecompress = nativeBinding.brotliDecompress
+module.exports.brotliDecompressWithCapacity = nativeBinding.brotliDecompressWithCapacity
 module.exports.deflateCompress = nativeBinding.deflateCompress
 module.exports.deflateDecompress = nativeBinding.deflateDecompress
 module.exports.gzipCompress = nativeBinding.gzipCompress
