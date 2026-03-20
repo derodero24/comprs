@@ -15,7 +15,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
 - **Unified API** — Same interface for zstd, gzip, and brotli
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
-- **Universal** — Node.js (native), browsers, Deno, Bun, and edge runtimes (WASM)
+- **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
 
 ## Installation
@@ -159,7 +159,6 @@ zstdCompress(data, -1);
 | Browsers | WASM | ✅ |
 | Deno | WASM | ✅ |
 | Bun | WASM | ✅ |
-| Cloudflare Workers | WASM | ✅ |
 
 ### Build targets
 
