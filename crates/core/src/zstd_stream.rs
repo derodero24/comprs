@@ -12,6 +12,9 @@ const DEFAULT_LEVEL: i32 = 3;
 /// Initial output buffer size for streaming operations.
 const INITIAL_BUF_SIZE: usize = 128 * 1024;
 
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
 /// Streaming zstd compression context.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
@@ -126,6 +129,7 @@ impl ZstdCompressContext {
 #[napi]
 pub struct ZstdDecompressContext {
     decoder: Decoder<'static>,
+    total_output: usize,
 }
 
 #[napi]
@@ -138,7 +142,10 @@ impl ZstdDecompressContext {
                 source: e.into(),
             })
         })?;
-        Ok(Self { decoder })
+        Ok(Self {
+            decoder,
+            total_output: 0,
+        })
     }
 
     /// Decompress a chunk of compressed data. Returns decompressed output
@@ -161,11 +168,19 @@ impl ZstdDecompressContext {
                 })
             })?;
             total_written = out_buf.pos();
+            if self.total_output + total_written > MAX_DECOMPRESSED_SIZE {
+                return Err(ZflateError::SizeLimit {
+                    context: "zstd stream decompress",
+                    limit: MAX_DECOMPRESSED_SIZE,
+                }
+                .into());
+            }
             if total_written >= output.len() {
                 output.resize(output.len() * 2, 0);
             }
         }
 
+        self.total_output += total_written;
         output.truncate(total_written);
         Ok(output.into())
     }

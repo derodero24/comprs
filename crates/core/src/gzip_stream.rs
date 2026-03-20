@@ -12,6 +12,9 @@ use crate::ZflateError;
 /// Default compression level for gzip/deflate (same as zlib default).
 const DEFAULT_LEVEL: u32 = 6;
 
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
 /// Streaming gzip compression context.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
@@ -104,6 +107,7 @@ impl GzipCompressContext {
 #[napi]
 pub struct GzipDecompressContext {
     decoder: Option<GzDecoder<Vec<u8>>>,
+    total_output: usize,
 }
 
 #[napi]
@@ -113,6 +117,7 @@ impl GzipDecompressContext {
         let decoder = GzDecoder::new(Vec::new());
         Ok(Self {
             decoder: Some(decoder),
+            total_output: 0,
         })
     }
 
@@ -142,6 +147,14 @@ impl GzipDecompressContext {
 
         let output = decoder.get_mut();
         let data = output.split_off(0);
+        self.total_output += data.len();
+        if self.total_output > MAX_DECOMPRESSED_SIZE {
+            return Err(ZflateError::SizeLimit {
+                context: "gzip stream decompress",
+                limit: MAX_DECOMPRESSED_SIZE,
+            }
+            .into());
+        }
         Ok(data.into())
     }
 
@@ -275,6 +288,7 @@ impl DeflateCompressContext {
 #[napi]
 pub struct DeflateDecompressContext {
     decoder: Option<DeflateDecoder<Vec<u8>>>,
+    total_output: usize,
 }
 
 #[napi]
@@ -284,6 +298,7 @@ impl DeflateDecompressContext {
         let decoder = DeflateDecoder::new(Vec::new());
         Ok(Self {
             decoder: Some(decoder),
+            total_output: 0,
         })
     }
 
@@ -305,6 +320,14 @@ impl DeflateDecompressContext {
 
         let output = decoder.get_mut();
         let data = output.split_off(0);
+        self.total_output += data.len();
+        if self.total_output > MAX_DECOMPRESSED_SIZE {
+            return Err(ZflateError::SizeLimit {
+                context: "deflate stream decompress",
+                limit: MAX_DECOMPRESSED_SIZE,
+            }
+            .into());
+        }
         Ok(data.into())
     }
 
