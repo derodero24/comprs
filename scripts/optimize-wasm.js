@@ -55,6 +55,9 @@ if (wasmFiles.length === 0) {
 
 console.log(`Optimizing ${wasmFiles.length} WASM file(s) with wasm-opt ${optLevel}...`);
 
+let totalOriginal = 0;
+let totalOptimized = 0;
+
 for (const wasmFile of wasmFiles) {
   const basename = path.basename(wasmFile);
   const originalSize = fs.statSync(wasmFile).size;
@@ -73,6 +76,9 @@ for (const wasmFile of wasmFiles) {
     console.log(
       `  ${basename}: ${formatBytes(originalSize)} -> ${formatBytes(optimizedSize)} (${reduction}% smaller)`,
     );
+
+    totalOriginal += originalSize;
+    totalOptimized += optimizedSize;
   } catch (err) {
     // Clean up temp file on failure
     const tmpFile = `${wasmFile}.opt`;
@@ -84,6 +90,12 @@ for (const wasmFile of wasmFiles) {
   }
 }
 
+if (wasmFiles.length > 1) {
+  const totalReduction = (((totalOriginal - totalOptimized) / totalOriginal) * 100).toFixed(1);
+  console.log(
+    `  Total: ${formatBytes(totalOriginal)} -> ${formatBytes(totalOptimized)} (${totalReduction}% smaller)`,
+  );
+}
 console.log('WASM optimization complete.');
 
 function formatBytes(bytes) {
