@@ -191,6 +191,18 @@ export declare function brotliDecompress(data: Buffer | Uint8Array): Buffer
 export declare function brotliDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
 /**
+ * Decompress data by auto-detecting the compression format.
+ *
+ * Detects the format from magic bytes and decompresses using the
+ * appropriate algorithm. The maximum decompressed size is 256 MB
+ * for all formats.
+ *
+ * Supported formats: zstd, gzip, brotli.
+ * Raw deflate is not supported (no magic bytes to distinguish it).
+ */
+export declare function decompress(data: Buffer | Uint8Array): Buffer
+
+/**
  * Compress data using raw deflate (no gzip header/trailer).
  *
  * Returns the compressed data as a Buffer.
@@ -214,6 +226,19 @@ export declare function deflateDecompress(data: Buffer | Uint8Array): Buffer
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
 export declare function deflateDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
+
+/**
+ * Detect the compression format of the given data.
+ *
+ * Returns `"zstd"`, `"gzip"`, or `"brotli"`.
+ * Returns `"unknown"` if the format cannot be determined.
+ *
+ * Note: Brotli has no magic bytes, so it is detected by elimination.
+ * Data that does not match zstd or gzip is reported as `"brotli"` only
+ * if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
+ * is returned.
+ */
+export declare function detectFormat(data: Buffer | Uint8Array): string
 
 /**
  * Compress data using gzip.
