@@ -24,6 +24,8 @@ npm install zflate
 pnpm add zflate
 # or
 yarn add zflate
+# or
+bun add zflate
 ```
 
 ## Quick Start
@@ -47,14 +49,20 @@ const decompressed = zstdDecompress(compressed);
 ```typescript
 import { createZstdCompressStream, createZstdDecompressStream } from 'zflate';
 
-// Compress a stream
-const compressed = inputStream.pipeThrough(createZstdCompressStream());
+// Create a readable stream from data
+const input = new ReadableStream({
+  start(controller) {
+    controller.enqueue(new TextEncoder().encode('Hello, streaming zflate!'));
+    controller.close();
+  },
+});
 
-// Decompress a stream
-const decompressed = compressed.pipeThrough(createZstdDecompressStream());
-
-// Pipe to output
-await decompressed.pipeTo(outputStream);
+// Compress → Decompress round-trip
+const chunks: Uint8Array[] = [];
+await input
+  .pipeThrough(createZstdCompressStream())
+  .pipeThrough(createZstdDecompressStream())
+  .pipeTo(new WritableStream({ write(chunk) { chunks.push(chunk); } }));
 ```
 
 ### Compression levels
