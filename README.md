@@ -1,7 +1,9 @@
 # zflate
 
 [![npm version](https://img.shields.io/npm/v/zflate)](https://www.npmjs.com/package/zflate)
+[![npm downloads](https://img.shields.io/npm/dm/zflate)](https://www.npmjs.com/package/zflate)
 [![CI](https://github.com/derodero24/zflate/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/zflate/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/derodero24/zflate/graph/badge.svg)](https://codecov.io/gh/derodero24/zflate)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, and **brotli** in one package.
@@ -42,6 +44,22 @@ const compressed = zstdCompress(data);
 
 // Decompress
 const decompressed = zstdDecompress(compressed);
+```
+
+```typescript
+// Gzip
+import { gzipCompress, gzipDecompress } from 'zflate';
+
+const compressed = gzipCompress(Buffer.from('Hello, gzip!'));
+const decompressed = gzipDecompress(compressed);
+```
+
+```typescript
+// Brotli
+import { brotliCompress, brotliDecompress } from 'zflate';
+
+const compressed = brotliCompress(Buffer.from('Hello, brotli!'));
+const decompressed = brotliDecompress(compressed);
 ```
 
 ### Streaming
@@ -146,6 +164,64 @@ zstdCompress(data, -1);
 ### Native binary targets
 
 `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
+
+## Browser Usage
+
+zflate works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
+
+```typescript
+import { gzipCompress, gzipDecompress } from 'zflate';
+
+const encoder = new TextEncoder();
+const data = encoder.encode('Hello from the browser!');
+
+const compressed = gzipCompress(data);
+const decompressed = gzipDecompress(compressed);
+```
+
+> Note: WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
+
+## Comparison with Alternatives
+
+| Feature | zflate | pako | fflate | node:zlib |
+|---------|--------|------|--------|-----------|
+| zstd | ✅ | ❌ | ❌ | ✅* |
+| gzip/deflate | ✅ | ✅ | ✅ | ✅ |
+| brotli | ✅ | ❌ | ❌ | ✅ |
+| Web Streams API | ✅ | ❌ | ❌ | ❌ |
+| Streaming | ✅ | ✅† | ✅ | ✅ |
+| Browser | ✅ | ✅ | ✅ | ❌ |
+| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
+| Native performance | ✅ | ❌ | ❌ | ✅ |
+| TypeScript | ✅ | ✅ | ✅ | ✅ |
+| Zero JS deps | ✅ | ✅ | ✅ | ✅ |
+
+\* Node.js ≥ 22.15 (experimental)
+† Chunked mode via `Inflate`/`Deflate` classes, not Web Streams API
+
+## Migration
+
+### From pako
+
+```diff
+- import pako from 'pako';
+- const compressed = pako.gzip(data);
+- const decompressed = pako.ungzip(compressed);
++ import { gzipCompress, gzipDecompress } from 'zflate';
++ const compressed = gzipCompress(data);
++ const decompressed = gzipDecompress(compressed);
+```
+
+### From node:zlib
+
+```diff
+- import { gzipSync, gunzipSync } from 'node:zlib';
+- const compressed = gzipSync(data);
+- const decompressed = gunzipSync(compressed);
++ import { gzipCompress, gzipDecompress } from 'zflate';
++ const compressed = gzipCompress(data);
++ const decompressed = gzipDecompress(compressed);
+```
 
 ## Benchmarks
 
