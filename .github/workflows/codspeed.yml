@@ -8,6 +8,10 @@ on:
       - "__test__/**/*.bench.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
+      - "streams.js"
+      - "streams.d.ts"
+      - "index.mjs"
+      - "index.d.mts"
   pull_request:
     branches: [develop]
     paths:
@@ -15,6 +19,10 @@ on:
       - "__test__/**/*.bench.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
+      - "streams.js"
+      - "streams.d.ts"
+      - "index.mjs"
+      - "index.d.mts"
   workflow_dispatch:
 
 concurrency:
