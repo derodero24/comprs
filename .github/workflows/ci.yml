@@ -233,7 +233,9 @@ jobs:
           name: bindings-wasm32
           path: |
             *.wasm
+            *.wasi.cjs
             *.wasi-browser.js
+            wasi-worker.mjs
             wasi-worker-browser.mjs
           if-no-files-found: ignore
 
