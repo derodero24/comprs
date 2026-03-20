@@ -1,5 +1,6 @@
 //! Zstandard compression and decompression.
 
+use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -23,6 +24,84 @@ pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Re
     zstd::bulk::compress(input, level)
         .map(|v| v.into())
         .map_err(|e| Error::new(Status::GenericFailure, format!("zstd compress failed: {e}")))
+}
+
+pub struct ZstdCompressTask {
+    data: Vec<u8>,
+    level: i32,
+}
+
+#[napi]
+impl Task for ZstdCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        zstd::bulk::compress(&self.data, self.level)
+            .map_err(|e| Error::new(Status::GenericFailure, format!("zstd compress failed: {e}")))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using Zstandard.
+///
+/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+/// Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+/// ratio for speed. Level 0 is equivalent to the default level (3).
+#[napi]
+pub fn zstd_compress_async(
+    data: Either<Buffer, Uint8Array>,
+    level: Option<i32>,
+) -> AsyncTask<ZstdCompressTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    AsyncTask::new(ZstdCompressTask {
+        data: input,
+        level: level.unwrap_or(DEFAULT_LEVEL),
+    })
+}
+
+pub struct ZstdDecompressTask {
+    data: Vec<u8>,
+}
+
+#[napi]
+impl Task for ZstdDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
+            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
+            _ => MAX_DECOMPRESSED_SIZE,
+        };
+        let capacity = capacity.max(1024);
+
+        zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("zstd decompress failed: {e}"),
+            )
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Zstandard-compressed data.
+///
+/// Returns a Promise that resolves to the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
+/// for larger data.
+#[napi]
+pub fn zstd_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<ZstdDecompressTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    AsyncTask::new(ZstdDecompressTask { data: input })
 }
 
 /// Decompress Zstandard-compressed data.

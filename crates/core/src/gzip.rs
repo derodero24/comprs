@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use flate2::Compression;
 use flate2::read::{DeflateDecoder, GzDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder};
+use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -186,6 +187,216 @@ fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer
     }
 
     Ok(output.into())
+}
+
+// --- Async tasks ---
+
+pub struct GzipCompressTask {
+    data: Vec<u8>,
+    level: u32,
+}
+
+#[napi]
+impl Task for GzipCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(self.level));
+        encoder.write_all(&self.data).map_err(|e| {
+            Error::new(Status::GenericFailure, format!("gzip compress failed: {e}"))
+        })?;
+        encoder
+            .finish()
+            .map_err(|e| Error::new(Status::GenericFailure, format!("gzip compress failed: {e}")))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using gzip.
+///
+/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+#[napi]
+pub fn gzip_compress_async(
+    data: Either<Buffer, Uint8Array>,
+    level: Option<u32>,
+) -> Result<AsyncTask<GzipCompressTask>> {
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    if level > 9 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "gzip compression level must be between 0 and 9",
+        ));
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    Ok(AsyncTask::new(GzipCompressTask { data: input, level }))
+}
+
+pub struct GzipDecompressTask {
+    data: Vec<u8>,
+}
+
+#[napi]
+impl Task for GzipDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decoder = GzDecoder::new(self.data.as_slice());
+        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decoder.read(&mut buf).map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("gzip decompress failed: {e}"),
+                )
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > MAX_DECOMPRESSED_SIZE {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "gzip decompress exceeded maximum size of {} bytes",
+                        MAX_DECOMPRESSED_SIZE
+                    ),
+                ));
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress gzip-compressed data.
+///
+/// Returns a Promise that resolves to the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
+/// for larger data.
+#[napi]
+pub fn gzip_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<GzipDecompressTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    AsyncTask::new(GzipDecompressTask { data: input })
+}
+
+pub struct DeflateCompressTask {
+    data: Vec<u8>,
+    level: u32,
+}
+
+#[napi]
+impl Task for DeflateCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(self.level));
+        encoder.write_all(&self.data).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("deflate compress failed: {e}"),
+            )
+        })?;
+        encoder.finish().map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("deflate compress failed: {e}"),
+            )
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using raw deflate (no gzip header/trailer).
+///
+/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+#[napi]
+pub fn deflate_compress_async(
+    data: Either<Buffer, Uint8Array>,
+    level: Option<u32>,
+) -> Result<AsyncTask<DeflateCompressTask>> {
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    if level > 9 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "deflate compression level must be between 0 and 9",
+        ));
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    Ok(AsyncTask::new(DeflateCompressTask { data: input, level }))
+}
+
+pub struct DeflateDecompressTask {
+    data: Vec<u8>,
+}
+
+#[napi]
+impl Task for DeflateDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decoder = DeflateDecoder::new(self.data.as_slice());
+        let mut output = Vec::with_capacity(self.data.len().min(MAX_DECOMPRESSED_SIZE));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decoder.read(&mut buf).map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("deflate decompress failed: {e}"),
+                )
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > MAX_DECOMPRESSED_SIZE {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "deflate decompress exceeded maximum size of {} bytes",
+                        MAX_DECOMPRESSED_SIZE
+                    ),
+                ));
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress raw deflate-compressed data.
+///
+/// Returns a Promise that resolves to the decompressed data as a Buffer.
+/// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
+/// for larger data.
+#[napi]
+pub fn deflate_decompress_async(
+    data: Either<Buffer, Uint8Array>,
+) -> AsyncTask<DeflateDecompressTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    AsyncTask::new(DeflateDecompressTask { data: input })
 }
 
 #[cfg(test)]
