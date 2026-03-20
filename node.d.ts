@@ -1,0 +1,75 @@
+import type { Transform } from 'node:stream';
+
+/**
+ * Create a Node.js stream.Transform for zstd compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked compression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param level Compression level (1-22, or negative for fast mode). Default is 3.
+ */
+export declare function createZstdCompressTransform(level?: number): Transform;
+
+/**
+ * Create a Node.js stream.Transform for zstd decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked decompression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ */
+export declare function createZstdDecompressTransform(): Transform;
+
+/**
+ * Create a Node.js stream.Transform for gzip compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked gzip compression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ * Produces spec-compliant gzip output with proper header and CRC32 footer.
+ *
+ * @param level Compression level (0-9). Default is 6.
+ */
+export declare function createGzipCompressTransform(level?: number): Transform;
+
+/**
+ * Create a Node.js stream.Transform for gzip decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked gzip decompression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ * Verifies CRC32 integrity on finalization.
+ */
+export declare function createGzipDecompressTransform(): Transform;
+
+/**
+ * Create a Node.js stream.Transform for raw deflate compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked raw deflate compression
+ * (no gzip header/footer) compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param level Compression level (0-9). Default is 6.
+ */
+export declare function createDeflateCompressTransform(level?: number): Transform;
+
+/**
+ * Create a Node.js stream.Transform for raw deflate decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked raw deflate decompression
+ * compatible with `stream.pipeline()` and pipe-based workflows.
+ */
+export declare function createDeflateDecompressTransform(): Transform;
+
+/**
+ * Create a Node.js stream.Transform for brotli compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked brotli compression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param quality Compression quality (0-11). Default is 6.
+ */
+export declare function createBrotliCompressTransform(quality?: number): Transform;
+
+/**
+ * Create a Node.js stream.Transform for brotli decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked brotli decompression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ */
+export declare function createBrotliDecompressTransform(): Transform;
