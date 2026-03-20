@@ -339,6 +339,14 @@ export declare function zstdCompress(data: Buffer | Uint8Array, level?: number |
 export declare function zstdCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
 
 /**
+ * Compress data using Zstandard with a pre-trained dictionary.
+ *
+ * The same dictionary must be used for decompression via `zstdDecompressWithDict`.
+ * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ */
+export declare function zstdCompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null): Buffer
+
+/**
  * Decompress Zstandard-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -363,3 +371,20 @@ export declare function zstdDecompressAsync(data: Buffer | Uint8Array): Promise<
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
 export declare function zstdDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
+
+/**
+ * Decompress Zstandard-compressed data that was compressed with a dictionary.
+ *
+ * The same dictionary used for compression must be provided.
+ */
+export declare function zstdDecompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array): Buffer
+
+/**
+ * Train a zstd dictionary from sample data.
+ *
+ * The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
+ * to achieve better compression ratios on small, similar data.
+ *
+ * `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+ */
+export declare function zstdTrainDictionary(samples: Array<Buffer | Uint8Array>, maxDictSize?: number | undefined | null): Buffer
