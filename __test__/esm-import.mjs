@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import {
   brotliCompress,
   brotliDecompress,
+  brotliDecompressWithCapacity,
   createBrotliCompressStream,
   createBrotliDecompressStream,
   createDeflateCompressStream,
@@ -10,13 +11,18 @@ import {
   createGzipDecompressStream,
   createZstdCompressStream,
   createZstdDecompressStream,
+  decompress,
   deflateCompress,
   deflateDecompress,
+  deflateDecompressWithCapacity,
+  detectFormat,
   gzipCompress,
   gzipDecompress,
+  gzipDecompressWithCapacity,
   version,
   zstdCompress,
   zstdDecompress,
+  zstdDecompressWithCapacity,
 } from '../index.mjs';
 
 assert.strictEqual(typeof version, 'function', 'version should be a function');
@@ -59,6 +65,28 @@ assert.strictEqual(
 assert.strictEqual(typeof brotliCompress, 'function', 'brotliCompress should be a function');
 assert.strictEqual(typeof brotliDecompress, 'function', 'brotliDecompress should be a function');
 assert.strictEqual(
+  typeof brotliDecompressWithCapacity,
+  'function',
+  'brotliDecompressWithCapacity should be a function',
+);
+assert.strictEqual(
+  typeof zstdDecompressWithCapacity,
+  'function',
+  'zstdDecompressWithCapacity should be a function',
+);
+assert.strictEqual(
+  typeof gzipDecompressWithCapacity,
+  'function',
+  'gzipDecompressWithCapacity should be a function',
+);
+assert.strictEqual(
+  typeof deflateDecompressWithCapacity,
+  'function',
+  'deflateDecompressWithCapacity should be a function',
+);
+assert.strictEqual(typeof decompress, 'function', 'decompress should be a function');
+assert.strictEqual(typeof detectFormat, 'function', 'detectFormat should be a function');
+assert.strictEqual(
   typeof createBrotliCompressStream,
   'function',
   'createBrotliCompressStream should be a function',
@@ -89,5 +117,10 @@ assert.deepStrictEqual(dfDecompressed, input, 'deflate round-trip should produce
 const brCompressed = brotliCompress(input);
 const brDecompressed = brotliDecompress(brCompressed);
 assert.deepStrictEqual(brDecompressed, input, 'brotli round-trip should produce identical output');
+
+// Auto-detect decompress test
+const autoResult = decompress(zstdCompress(input));
+assert.deepStrictEqual(autoResult, input, 'auto-detect decompress should work with zstd');
+assert.strictEqual(detectFormat(zstdCompress(input)), 'zstd', 'detectFormat should identify zstd');
 
 console.log('ESM import smoke test passed');
