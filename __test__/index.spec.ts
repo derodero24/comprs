@@ -1,10 +1,14 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { version, zstdCompress, zstdDecompress, zstdDecompressWithCapacity } from '../index.js';
 
+const pkgVersion = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8')).version;
+
 describe('zflate', () => {
   it('should return the package version', () => {
-    expect(version()).toBe('0.1.0');
+    expect(version()).toBe(pkgVersion);
   });
 });
 
