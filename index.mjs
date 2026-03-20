@@ -23,6 +23,7 @@ export const {
   zstdTrainDictionary,
   zstdCompressWithDict,
   zstdDecompressWithDict,
+  CompressionFormat,
   decompress,
   detectFormat,
   gzipCompress,

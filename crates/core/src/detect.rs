@@ -13,6 +13,19 @@ const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 /// Gzip magic number: 0x1F 0x8B.
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
+/// Compression format detected from input data.
+#[napi(string_enum)]
+pub enum CompressionFormat {
+    #[napi(value = "zstd")]
+    Zstd,
+    #[napi(value = "gzip")]
+    Gzip,
+    #[napi(value = "brotli")]
+    Brotli,
+    #[napi(value = "unknown")]
+    Unknown,
+}
+
 /// Detect the compression format of the given data.
 ///
 /// Returns `"zstd"`, `"gzip"`, or `"brotli"`.
@@ -23,9 +36,14 @@ const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 /// if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
 /// is returned.
 #[napi]
-pub fn detect_format(data: Either<Buffer, Uint8Array>) -> String {
+pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
     let input = crate::as_bytes(&data);
-    detect(input).to_string()
+    match detect(input) {
+        Format::Zstd => CompressionFormat::Zstd,
+        Format::Gzip => CompressionFormat::Gzip,
+        Format::Brotli => CompressionFormat::Brotli,
+        Format::Unknown => CompressionFormat::Unknown,
+    }
 }
 
 /// Decompress data by auto-detecting the compression format.

@@ -206,6 +206,14 @@ export declare function brotliDecompressAsync(data: Buffer | Uint8Array): Promis
  */
 export declare function brotliDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
+/** Compression format detected from input data. */
+export declare const enum CompressionFormat {
+  Zstd = 'zstd',
+  Gzip = 'gzip',
+  Brotli = 'brotli',
+  Unknown = 'unknown'
+}
+
 /**
  * Decompress data by auto-detecting the compression format.
  *
@@ -271,7 +279,7 @@ export declare function deflateDecompressWithCapacity(data: Buffer | Uint8Array,
  * if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
  * is returned.
  */
-export declare function detectFormat(data: Buffer | Uint8Array): string
+export declare function detectFormat(data: Buffer | Uint8Array): CompressionFormat
 
 /**
  * Compress data using gzip.
