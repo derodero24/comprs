@@ -73,6 +73,20 @@ describe('zstdCompress / zstdDecompress', () => {
     const invalid = Buffer.from('this is not zstd data');
     expect(() => zstdDecompress(invalid)).toThrow();
   });
+
+  it('should throw on level > 22', () => {
+    expect(() => zstdCompress(Buffer.from('test'), 23)).toThrow(/level must be between/);
+  });
+
+  it('should throw on level < -131072', () => {
+    expect(() => zstdCompress(Buffer.from('test'), -131073)).toThrow(/level must be between/);
+  });
+
+  it('should accept level 22 and negative levels', () => {
+    const input = Buffer.from('test');
+    expect(() => zstdCompress(input, 22)).not.toThrow();
+    expect(() => zstdCompress(input, -1)).not.toThrow();
+  });
 });
 
 describe('zstdDecompressWithCapacity', () => {

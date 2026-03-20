@@ -21,6 +21,12 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 #[napi]
 pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
+    if !(-131072..=22).contains(&level) {
+        return Err(ZflateError::InvalidArg(
+            "zstd compression level must be between -131072 and 22".to_string(),
+        )
+        .into());
+    }
     let input = crate::as_bytes(&data);
 
     zstd::bulk::compress(input, level)
@@ -69,12 +75,16 @@ impl Task for ZstdCompressTask {
 pub fn zstd_compress_async(
     data: Either<Buffer, Uint8Array>,
     level: Option<i32>,
-) -> AsyncTask<ZstdCompressTask> {
+) -> Result<AsyncTask<ZstdCompressTask>> {
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    if !(-131072..=22).contains(&level) {
+        return Err(ZflateError::InvalidArg(
+            "zstd compression level must be between -131072 and 22".to_string(),
+        )
+        .into());
+    }
     let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(ZstdCompressTask {
-        data: input,
-        level: level.unwrap_or(DEFAULT_LEVEL),
-    })
+    Ok(AsyncTask::new(ZstdCompressTask { data: input, level }))
 }
 
 pub struct ZstdDecompressTask {
@@ -221,6 +231,12 @@ pub fn zstd_compress_with_dict(
     level: Option<i32>,
 ) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
+    if !(-131072..=22).contains(&level) {
+        return Err(ZflateError::InvalidArg(
+            "zstd compression level must be between -131072 and 22".to_string(),
+        )
+        .into());
+    }
     let input = crate::as_bytes(&data);
     let dict_bytes = crate::as_bytes(&dict);
 

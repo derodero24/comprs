@@ -28,7 +28,14 @@ pub struct ZstdCompressContext {
 impl ZstdCompressContext {
     #[napi(constructor)]
     pub fn new(level: Option<i32>) -> Result<Self> {
-        let encoder = Encoder::new(level.unwrap_or(DEFAULT_LEVEL)).map_err(|e| {
+        let level = level.unwrap_or(DEFAULT_LEVEL);
+        if !(-131072..=22).contains(&level) {
+            return Err(ZflateError::InvalidArg(
+                "zstd compression level must be between -131072 and 22".to_string(),
+            )
+            .into());
+        }
+        let encoder = Encoder::new(level).map_err(|e| {
             napi::Error::from(ZflateError::Creation {
                 context: "zstd encoder",
                 source: e.into(),
