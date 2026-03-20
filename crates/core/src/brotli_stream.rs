@@ -58,9 +58,8 @@ impl BrotliCompressContext {
             })?;
 
         // Drain whatever the compressor has flushed to the inner Vec
-        let output = self.compressor.get_ref().clone();
-        self.compressor.get_mut().clear();
-        Ok(output.into())
+        let data = std::mem::take(self.compressor.get_mut());
+        Ok(data.into())
     }
 
     /// Flush the compressor's internal buffer. Returns any buffered compressed data.
@@ -73,9 +72,8 @@ impl BrotliCompressContext {
             })
         })?;
 
-        let output = self.compressor.get_ref().clone();
-        self.compressor.get_mut().clear();
-        Ok(output.into())
+        let data = std::mem::take(self.compressor.get_mut());
+        Ok(data.into())
     }
 
     /// Finalize the compression stream. Writes the brotli stream footer.
@@ -130,9 +128,8 @@ impl BrotliDecompressContext {
             })?;
 
         // Drain whatever the decompressor has written to the inner Vec
-        let output = self.decompressor.get_ref().clone();
-        self.decompressor.get_mut().clear();
-        self.total_output += output.len();
+        let data = std::mem::take(self.decompressor.get_mut());
+        self.total_output += data.len();
         if self.total_output > MAX_DECOMPRESSED_SIZE {
             return Err(ZflateError::SizeLimit {
                 context: "brotli stream decompress",
@@ -140,7 +137,7 @@ impl BrotliDecompressContext {
             }
             .into());
         }
-        Ok(output.into())
+        Ok(data.into())
     }
 
     /// Flush the decompressor's internal buffer. Returns any buffered decompressed data.
@@ -153,9 +150,8 @@ impl BrotliDecompressContext {
             })
         })?;
 
-        let output = self.decompressor.get_ref().clone();
-        self.decompressor.get_mut().clear();
-        Ok(output.into())
+        let data = std::mem::take(self.decompressor.get_mut());
+        Ok(data.into())
     }
 }
 
