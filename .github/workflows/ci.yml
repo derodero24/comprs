@@ -228,12 +228,24 @@ jobs:
           WASM_FILE=$(ls zflate.*.wasm 2>/dev/null | head -1)
           if [ -n "$WASM_FILE" ]; then
             SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
+            SIZE_KB=$(( SIZE / 1024 ))
             echo "### WASM Binary Size" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
             echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-            echo "| $WASM_FILE | $(( SIZE / 1024 )) KB |" >> $GITHUB_STEP_SUMMARY
+            echo "| $WASM_FILE | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
+            mkdir -p wasm-size-report
+            echo "$WASM_FILE" > wasm-size-report/file.txt
+            echo "$SIZE_KB" > wasm-size-report/size.txt
           fi
+
+      - name: Upload WASM size report
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: wasm-size-report
+          path: wasm-size-report/
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
@@ -423,6 +435,36 @@ jobs:
           files: rust-lcov.info,coverage/lcov.info
           flags: rust,javascript
           fail_ci_if_error: false
+
+  report-wasm-size:
+    name: Report WASM Size
+    if: github.event_name == 'pull_request'
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download WASM size report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wasm-size-report
+          path: wasm-size-report
+      - name: Read size data
+        id: read
+        run: |
+          echo "file=$(cat wasm-size-report/file.txt)" >> $GITHUB_OUTPUT
+          echo "size=$(cat wasm-size-report/size.txt)" >> $GITHUB_OUTPUT
+      - name: Post size comment on PR
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ### WASM Binary Size
+
+            | File | Size |
+            |------|------|
+            | ${{ steps.read.outputs.file }} | ${{ steps.read.outputs.size }} KB |
+          comment-tag: wasm-size-report
 
   # ──── Aggregate gate: single required status check ────
   ci-complete:
