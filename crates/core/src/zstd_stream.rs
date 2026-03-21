@@ -21,7 +21,7 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 /// enabling chunked compression without losing cross-chunk context.
 #[napi]
 pub struct ZstdCompressContext {
-    encoder: Encoder<'static>,
+    encoder: Option<Encoder<'static>>,
 }
 
 #[napi]
@@ -41,13 +41,20 @@ impl ZstdCompressContext {
                 source: e.into(),
             })
         })?;
-        Ok(Self { encoder })
+        Ok(Self {
+            encoder: Some(encoder),
+        })
     }
 
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let input = crate::as_bytes(&chunk);
         let bound = zstd::zstd_safe::compress_bound(input.len());
         let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
@@ -57,7 +64,7 @@ impl ZstdCompressContext {
 
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            self.encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
+            encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream compress",
                     source: e.into(),
@@ -76,12 +83,17 @@ impl ZstdCompressContext {
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            let remaining = self.encoder.flush(&mut out_buf).map_err(|e| {
+            let remaining = encoder.flush(&mut out_buf).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
@@ -104,12 +116,17 @@ impl ZstdCompressContext {
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
+        let mut encoder = self
+            .encoder
+            .take()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            let remaining = self.encoder.finish(&mut out_buf, true).map_err(|e| {
+            let remaining = encoder.finish(&mut out_buf, true).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream finish",
                     source: e.into(),
@@ -226,7 +243,7 @@ impl ZstdDecompressContext {
 /// using a pre-trained dictionary for improved compression of small, similar data.
 #[napi]
 pub struct ZstdCompressDictContext {
-    encoder: Encoder<'static>,
+    encoder: Option<Encoder<'static>>,
 }
 
 #[napi]
@@ -247,13 +264,20 @@ impl ZstdCompressDictContext {
                 source: e.into(),
             })
         })?;
-        Ok(Self { encoder })
+        Ok(Self {
+            encoder: Some(encoder),
+        })
     }
 
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let input = crate::as_bytes(&chunk);
         let bound = zstd::zstd_safe::compress_bound(input.len());
         let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
@@ -263,7 +287,7 @@ impl ZstdCompressDictContext {
 
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            self.encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
+            encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream compress",
                     source: e.into(),
@@ -282,12 +306,17 @@ impl ZstdCompressDictContext {
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            let remaining = self.encoder.flush(&mut out_buf).map_err(|e| {
+            let remaining = encoder.flush(&mut out_buf).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
@@ -310,12 +339,17 @@ impl ZstdCompressDictContext {
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
+        let mut encoder = self
+            .encoder
+            .take()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
-            let remaining = self.encoder.finish(&mut out_buf, true).map_err(|e| {
+            let remaining = encoder.finish(&mut out_buf, true).map_err(|e| {
                 napi::Error::from(ZflateError::Operation {
                     context: "zstd stream finish",
                     source: e.into(),

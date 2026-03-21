@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ZstdCompressDictContext,
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompressWithDict,
@@ -194,5 +195,42 @@ describe('zstd streaming dictionary compression', () => {
       decompStream.pipeThrough(createZstdDecompressDictStream(dict)),
     );
     expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+});
+
+describe('zstd dict compress context finish guard', () => {
+  const samples = Array.from({ length: 100 }, (_, i) =>
+    Buffer.from(
+      JSON.stringify({
+        id: i,
+        name: `user_${i}`,
+        email: `user${i}@example.com`,
+        active: i % 2 === 0,
+      }),
+    ),
+  );
+
+  it('should throw when calling transform() after finish() on ZstdCompressDictContext', () => {
+    const dict = zstdTrainDictionary(samples);
+    const ctx = new ZstdCompressDictContext(dict);
+    ctx.transform(Buffer.from('hello'));
+    ctx.finish();
+    expect(() => ctx.transform(Buffer.from('more data'))).toThrow(/already finished/);
+  });
+
+  it('should throw when calling finish() twice on ZstdCompressDictContext', () => {
+    const dict = zstdTrainDictionary(samples);
+    const ctx = new ZstdCompressDictContext(dict);
+    ctx.transform(Buffer.from('hello'));
+    ctx.finish();
+    expect(() => ctx.finish()).toThrow(/already finished/);
+  });
+
+  it('should throw when calling flush() after finish() on ZstdCompressDictContext', () => {
+    const dict = zstdTrainDictionary(samples);
+    const ctx = new ZstdCompressDictContext(dict);
+    ctx.transform(Buffer.from('hello'));
+    ctx.finish();
+    expect(() => ctx.flush()).toThrow(/already finished/);
   });
 });
