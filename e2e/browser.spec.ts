@@ -39,11 +39,14 @@ test('version returns string', async ({ page }) => {
   expect(version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
-// Streaming context in WASM triggers "offset is out of bounds" due to
-// WebAssembly.Memory growth invalidating existing ArrayBuffer views.
-// Tracked separately — one-shot APIs are the primary browser use case.
-test.skip('streaming compression', async ({ page }) => {
+test('streaming compression', async ({ page }) => {
   const result = await page.evaluate(() => window.__results.streaming);
   const error = await page.evaluate(() => window.__results.streamingError);
   expect(result, error || 'streaming failed').toBe(true);
+});
+
+test('streaming decompression', async ({ page }) => {
+  const result = await page.evaluate(() => window.__results.streamingDecompress);
+  const error = await page.evaluate(() => window.__results.streamingDecompressError);
+  expect(result, error || 'streaming decompression failed').toBe(true);
 });

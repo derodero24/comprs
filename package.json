@@ -30,7 +30,7 @@
   "type": "commonjs",
   "main": "index.js",
   "module": "index.mjs",
-  "browser": "browser.js",
+  "browser": "browser-entry.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
@@ -44,7 +44,7 @@
       },
       "browser": {
         "types": "./index.d.ts",
-        "default": "./browser.js"
+        "default": "./browser-entry.js"
       }
     },
     "./streams": {
