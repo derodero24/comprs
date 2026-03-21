@@ -97,3 +97,12 @@ export declare function createZstdCompressDictTransform(
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
 export declare function createZstdDecompressDictTransform(dict: Buffer | Uint8Array): Transform;
+
+/**
+ * Create a Node.js stream.Transform for auto-detect decompression.
+ *
+ * Detects the compression format (zstd, gzip, or brotli) from the first
+ * few bytes and delegates to the appropriate decompression context.
+ * Raw deflate is not supported (no magic bytes to distinguish it).
+ */
+export declare function createDecompressTransform(): Transform;

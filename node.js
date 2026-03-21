@@ -10,6 +10,7 @@ const {
   DeflateDecompressContext,
   BrotliCompressContext,
   BrotliDecompressContext,
+  detectFormat,
 } = require('./index.js');
 
 /**
@@ -323,6 +324,86 @@ function createZstdDecompressDictTransform(dict) {
   });
 }
 
+function createDecompressContext(format) {
+  switch (format) {
+    case 'zstd':
+      return new ZstdDecompressContext();
+    case 'gzip':
+      return new GzipDecompressContext();
+    case 'brotli':
+      return new BrotliDecompressContext();
+    default:
+      throw new Error('unable to detect compression format from stream data');
+  }
+}
+
+function pushIfNonEmpty(stream, result) {
+  if (result.byteLength > 0) stream.push(result);
+}
+
+/**
+ * Create a Node.js stream.Transform for auto-detect decompression.
+ *
+ * Detects the compression format (zstd, gzip, or brotli) from the first
+ * few bytes and delegates to the appropriate decompression context.
+ * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * @returns {Transform}
+ */
+function createDecompressTransform() {
+  let ctx = null;
+  let buffer = null;
+
+  function detectAndReplay(stream, data) {
+    ctx = createDecompressContext(detectFormat(data));
+    buffer = null;
+    pushIfNonEmpty(stream, ctx.transform(data));
+  }
+
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        if (ctx) {
+          pushIfNonEmpty(this, ctx.transform(chunk));
+          callback();
+          return;
+        }
+
+        buffer = buffer === null ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
+
+        if (buffer.length < 4) {
+          callback();
+          return;
+        }
+
+        detectAndReplay(this, buffer);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        if (!ctx && buffer && buffer.length > 0) {
+          detectAndReplay(this, buffer);
+        }
+        if (!ctx) {
+          callback();
+          return;
+        }
+
+        pushIfNonEmpty(this, ctx.flush());
+        if (ctx instanceof GzipDecompressContext) {
+          pushIfNonEmpty(this, ctx.finish());
+        }
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
 module.exports = {
   createZstdCompressTransform,
   createZstdDecompressTransform,
@@ -334,4 +415,5 @@ module.exports = {
   createDeflateDecompressTransform,
   createBrotliCompressTransform,
   createBrotliDecompressTransform,
+  createDecompressTransform,
 };

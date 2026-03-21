@@ -55,4 +55,5 @@ export const {
   createGzipDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
+  createDecompressStream,
 } = streams;

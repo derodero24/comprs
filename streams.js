@@ -9,6 +9,7 @@ const {
   GzipDecompressContext,
   DeflateCompressContext,
   DeflateDecompressContext,
+  detectFormat,
 } = require('./index.js');
 
 /**
@@ -276,6 +277,78 @@ function createZstdDecompressDictStream(dict) {
   });
 }
 
+function createDecompressContext(format) {
+  switch (format) {
+    case 'zstd':
+      return new ZstdDecompressContext();
+    case 'gzip':
+      return new GzipDecompressContext();
+    case 'brotli':
+      return new BrotliDecompressContext();
+    default:
+      throw new Error('unable to detect compression format from stream data');
+  }
+}
+
+function enqueueIfNonEmpty(controller, result) {
+  if (result.byteLength > 0) {
+    controller.enqueue(new Uint8Array(result));
+  }
+}
+
+/**
+ * Create a streaming auto-detect decompression TransformStream.
+ *
+ * Detects the compression format (zstd, gzip, or brotli) from the first
+ * few bytes and delegates to the appropriate decompression context.
+ * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createDecompressStream() {
+  let ctx = null;
+  let buffer = null;
+
+  function detectAndReplay(data, controller) {
+    ctx = createDecompressContext(detectFormat(data));
+    buffer = null;
+    enqueueIfNonEmpty(controller, ctx.transform(data));
+  }
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (ctx) {
+        enqueueIfNonEmpty(controller, ctx.transform(chunk));
+        return;
+      }
+
+      if (buffer === null) {
+        buffer = new Uint8Array(chunk);
+      } else {
+        const combined = new Uint8Array(buffer.length + chunk.length);
+        combined.set(buffer);
+        combined.set(chunk, buffer.length);
+        buffer = combined;
+      }
+
+      if (buffer.length < 4) return;
+
+      detectAndReplay(buffer, controller);
+    },
+    flush(controller) {
+      if (!ctx && buffer && buffer.length > 0) {
+        detectAndReplay(buffer, controller);
+      }
+      if (!ctx) return;
+
+      enqueueIfNonEmpty(controller, ctx.flush());
+      if (ctx instanceof GzipDecompressContext) {
+        enqueueIfNonEmpty(controller, ctx.finish());
+      }
+    },
+  });
+}
+
 module.exports = {
   createBrotliCompressStream,
   createBrotliDecompressStream,
@@ -287,4 +360,5 @@ module.exports = {
   createGzipDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
+  createDecompressStream,
 };
