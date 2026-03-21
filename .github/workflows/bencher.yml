@@ -1,0 +1,130 @@
+name: Bencher
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "crates/**"
+      - "__test__/index.bench.ts"
+      - "__test__/gzip.bench.ts"
+      - "__test__/deflate.bench.ts"
+      - "scripts/vitest-to-bmf.js"
+      - "vitest.config.mts"
+      - ".github/workflows/bencher.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "crates/**"
+      - "__test__/index.bench.ts"
+      - "__test__/gzip.bench.ts"
+      - "__test__/deflate.bench.ts"
+      - "scripts/vitest-to-bmf.js"
+      - "vitest.config.mts"
+      - ".github/workflows/bencher.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: bencher-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Track base branch benchmarks on push to develop
+  benchmark-develop:
+    name: Track Benchmarks
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bencher
+      - uses: bencherdev/bencher@main
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build native module
+        run: pnpm run build
+
+      - name: Run benchmarks
+        run: pnpm vitest bench __test__/index.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts --outputJson benchmark-results.json
+
+      - name: Convert to Bencher Metric Format
+        run: node scripts/vitest-to-bmf.js benchmark-results.json bmf-results.json
+
+      - name: Track with Bencher
+        run: |
+          bencher run \
+            --project zflate \
+            --token '${{ secrets.BENCHER_API_TOKEN }}' \
+            --branch develop \
+            --testbed ubuntu-latest \
+            --adapter json \
+            --err \
+            --github-actions '${{ secrets.GITHUB_TOKEN }}' \
+            --threshold-measure latency \
+            --threshold-test t_test \
+            --threshold-max-sample-size 64 \
+            --threshold-upper-boundary 0.99 \
+            --file bmf-results.json
+
+  # Track PR benchmarks and post comparison comments
+  benchmark-pr:
+    name: PR Benchmarks
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bencher
+      - uses: bencherdev/bencher@main
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build native module
+        run: pnpm run build
+
+      - name: Run benchmarks
+        run: pnpm vitest bench __test__/index.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts --outputJson benchmark-results.json
+
+      - name: Convert to Bencher Metric Format
+        run: node scripts/vitest-to-bmf.js benchmark-results.json bmf-results.json
+
+      - name: Track with Bencher
+        run: |
+          bencher run \
+            --project zflate \
+            --token '${{ secrets.BENCHER_API_TOKEN }}' \
+            --branch "$GITHUB_HEAD_REF" \
+            --start-point "$GITHUB_BASE_REF" \
+            --start-point-hash '${{ github.event.pull_request.base.sha }}' \
+            --start-point-clone-thresholds \
+            --start-point-reset \
+            --testbed ubuntu-latest \
+            --adapter json \
+            --err \
+            --github-actions '${{ secrets.GITHUB_TOKEN }}' \
+            --file bmf-results.json
