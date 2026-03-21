@@ -208,10 +208,11 @@ jobs:
     name: Publish
     needs: [check, build]
     if: needs.check.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
