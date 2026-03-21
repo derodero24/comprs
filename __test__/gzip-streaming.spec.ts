@@ -116,6 +116,15 @@ describe('createGzipDecompressStream', () => {
     const decompressed = await collectStream(stream.pipeThrough(createGzipDecompressStream()));
     expect(Buffer.compare(decompressed, data)).toBe(0);
   });
+
+  it('should handle concatenated gzip streams', async () => {
+    const a = gzipCompress(Buffer.from('Hello'));
+    const b = gzipCompress(Buffer.from(' World'));
+    const concatenated = Buffer.concat([a, b]);
+    const stream = toChunkedStream(concatenated, concatenated.length);
+    const decompressed = await collectStream(stream.pipeThrough(createGzipDecompressStream()));
+    expect(decompressed.toString()).toBe('Hello World');
+  });
 });
 
 describe('gzip streaming round-trip', () => {

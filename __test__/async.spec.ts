@@ -102,6 +102,14 @@ describe('gzip async', () => {
     const invalid = Buffer.from('not gzip data');
     await expect(gzipDecompressAsync(invalid)).rejects.toThrow();
   });
+
+  it('should decompress concatenated gzip streams', async () => {
+    const a = gzipCompress(Buffer.from('Hello'));
+    const b = gzipCompress(Buffer.from(' World'));
+    const concatenated = Buffer.concat([a, b]);
+    const result = await gzipDecompressAsync(concatenated);
+    expect(result.toString()).toBe('Hello World');
+  });
 });
 
 describe('deflate async', () => {

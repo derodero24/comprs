@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use flate2::Compression;
-use flate2::write::{DeflateDecoder, DeflateEncoder, GzDecoder, GzEncoder};
+use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder, MultiGzDecoder};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -106,7 +106,7 @@ impl GzipCompressContext {
 /// enabling chunked decompression of a gzip stream.
 #[napi]
 pub struct GzipDecompressContext {
-    decoder: Option<GzDecoder<Vec<u8>>>,
+    decoder: Option<MultiGzDecoder<Vec<u8>>>,
     total_output: usize,
 }
 
@@ -114,7 +114,7 @@ pub struct GzipDecompressContext {
 impl GzipDecompressContext {
     #[napi(constructor)]
     pub fn new() -> Result<Self> {
-        let decoder = GzDecoder::new(Vec::new());
+        let decoder = MultiGzDecoder::new(Vec::new());
         Ok(Self {
             decoder: Some(decoder),
             total_output: 0,
