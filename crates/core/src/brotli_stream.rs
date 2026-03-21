@@ -25,7 +25,7 @@ const LG_WINDOW_SIZE: u32 = 22;
 /// enabling chunked compression without losing cross-chunk context.
 #[napi]
 pub struct BrotliCompressContext {
-    compressor: brotli::CompressorWriter<Vec<u8>>,
+    compressor: Option<brotli::CompressorWriter<Vec<u8>>>,
 }
 
 #[napi]
@@ -41,38 +41,48 @@ impl BrotliCompressContext {
         }
         let compressor =
             brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
-        Ok(Self { compressor })
+        Ok(Self {
+            compressor: Some(compressor),
+        })
     }
 
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the compressor is buffering data internally).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        self.compressor
-            .write_all(crate::as_bytes(&chunk))
-            .map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "brotli stream compress",
-                    source: e.into(),
-                })
-            })?;
+        let compressor = self
+            .compressor
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
+
+        compressor.write_all(crate::as_bytes(&chunk)).map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context: "brotli stream compress",
+                source: e.into(),
+            })
+        })?;
 
         // Drain whatever the compressor has flushed to the inner Vec
-        let data = std::mem::take(self.compressor.get_mut());
+        let data = std::mem::take(compressor.get_mut());
         Ok(data.into())
     }
 
     /// Flush the compressor's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
-        self.compressor.flush().map_err(|e| {
+        let compressor = self
+            .compressor
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
+
+        compressor.flush().map_err(|e| {
             napi::Error::from(ZflateError::Operation {
                 context: "brotli stream flush",
                 source: e.into(),
             })
         })?;
 
-        let data = std::mem::take(self.compressor.get_mut());
+        let data = std::mem::take(compressor.get_mut());
         Ok(data.into())
     }
 
@@ -80,11 +90,10 @@ impl BrotliCompressContext {
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
-        // Close the compressor by replacing it with a dummy and dropping the old one
-        let compressor = std::mem::replace(
-            &mut self.compressor,
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, 0, LG_WINDOW_SIZE),
-        );
+        let compressor = self
+            .compressor
+            .take()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
 
         // into_inner drops the CompressorWriter, which flushes remaining data
         // and writes the brotli stream end marker

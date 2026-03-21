@@ -11,6 +11,7 @@ import {
   GzipDecompressContext,
   gzipCompress,
   gzipDecompress,
+  ZstdCompressContext,
   zstdCompress,
   zstdDecompress,
 } from '../index.js';
@@ -275,6 +276,60 @@ describe('streaming edge cases', () => {
       ctx.transform(compressed);
       ctx.finish();
       expect(() => ctx.finish()).toThrow(/already finished/);
+    });
+  });
+
+  describe('transform after finish on brotli compress context', () => {
+    it('should throw when calling transform() after finish() on BrotliCompressContext', () => {
+      const ctx = new BrotliCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.transform(Buffer.from('more data'))).toThrow(/already finished/);
+    });
+  });
+
+  describe('finish twice on brotli compress context', () => {
+    it('should throw when calling finish() twice on BrotliCompressContext', () => {
+      const ctx = new BrotliCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.finish()).toThrow(/already finished/);
+    });
+  });
+
+  describe('flush after finish on brotli compress context', () => {
+    it('should throw when calling flush() after finish() on BrotliCompressContext', () => {
+      const ctx = new BrotliCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.flush()).toThrow(/already finished/);
+    });
+  });
+
+  describe('transform after finish on zstd compress context', () => {
+    it('should throw when calling transform() after finish() on ZstdCompressContext', () => {
+      const ctx = new ZstdCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.transform(Buffer.from('more data'))).toThrow(/already finished/);
+    });
+  });
+
+  describe('finish twice on zstd compress context', () => {
+    it('should throw when calling finish() twice on ZstdCompressContext', () => {
+      const ctx = new ZstdCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.finish()).toThrow(/already finished/);
+    });
+  });
+
+  describe('flush after finish on zstd compress context', () => {
+    it('should throw when calling flush() after finish() on ZstdCompressContext', () => {
+      const ctx = new ZstdCompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.flush()).toThrow(/already finished/);
     });
   });
 
