@@ -9,16 +9,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+permissions: {}
 
 jobs:
   # ──── On develop push: manage version PR and create release PR ────
   version:
     name: Version
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     env:
       LEFTHOOK: "0"
@@ -81,6 +81,8 @@ jobs:
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       should_publish: ${{ steps.check.outputs.should_publish }}
@@ -107,6 +109,8 @@ jobs:
     name: Build - ${{ matrix.settings.target }}
     needs: check
     if: needs.check.outputs.should_publish == 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -204,6 +208,9 @@ jobs:
     name: Publish
     needs: [check, build]
     if: needs.check.outputs.should_publish == 'true'
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
