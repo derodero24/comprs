@@ -6,6 +6,7 @@ const streams = require('./streams.js');
 
 export const {
   version,
+  crc32,
   brotliCompress,
   brotliDecompress,
   brotliDecompressWithCapacity,

@@ -262,6 +262,15 @@ export declare const enum CompressionFormat {
 }
 
 /**
+ * Compute CRC32 checksum of the given data.
+ *
+ * Optionally accepts an initial CRC value for incremental computation:
+ * split data into chunks, pass the result of each chunk as `initial_value`
+ * for the next.
+ */
+export declare function crc32(data: Buffer | Uint8Array, initialValue?: number | undefined | null): number
+
+/**
  * Decompress data by auto-detecting the compression format.
  *
  * Detects the format from magic bytes and decompresses using the

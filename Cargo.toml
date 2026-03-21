@@ -19,6 +19,9 @@ brotli = { version = "8", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 
+# Utilities
+crc32fast = "1"
+
 # Error handling
 thiserror = "2"
 
