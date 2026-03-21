@@ -374,6 +374,15 @@ export declare function gzipCompress(data: Buffer | Uint8Array, level?: number |
 export declare function gzipCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
 
 /**
+ * Compress data using gzip with custom header metadata.
+ *
+ * Allows setting header fields such as `filename` and `mtime`.
+ * Returns the compressed data as a Buffer.
+ * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ */
+export declare function gzipCompressWithHeader(data: Buffer | Uint8Array, header: GzipHeaderOptions, level?: number | undefined | null): Buffer
+
+/**
  * Decompress gzip-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -406,6 +415,35 @@ export declare function gzipDecompressWithCapacity(data: Buffer | Uint8Array, ca
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
 export declare function gzipDecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
+
+/** Parsed gzip header metadata. */
+export interface GzipHeader {
+  /** Original filename stored in the header, if present. */
+  filename?: string
+  /** Modification time as a Unix timestamp (seconds since epoch). */
+  mtime: number
+  /** Comment stored in the header, if present. */
+  comment?: string
+  /** Operating system that created the gzip stream. */
+  os: number
+  /** Extra field data, if present. */
+  extra?: Buffer
+}
+
+/** Options for customizing the gzip header during compression. */
+export interface GzipHeaderOptions {
+  /** Original filename to store in the gzip header. */
+  filename?: string
+  /** Modification time as a Unix timestamp (seconds since epoch). */
+  mtime?: number
+}
+
+/**
+ * Read gzip header metadata without fully decompressing the data.
+ *
+ * Returns the parsed header fields including filename, mtime, comment, OS, and extra data.
+ */
+export declare function gzipReadHeader(data: Buffer | Uint8Array): GzipHeader
 
 /** Returns the library version. */
 export declare function version(): string

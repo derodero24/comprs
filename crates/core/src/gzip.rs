@@ -3,7 +3,8 @@
 use std::io::{Read, Write};
 
 use flate2::Compression;
-use flate2::read::{DeflateDecoder, MultiGzDecoder};
+use flate2::GzBuilder;
+use flate2::read::{DeflateDecoder, GzDecoder, MultiGzDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder};
 use napi::Task;
 use napi::bindgen_prelude::*;
@@ -47,6 +48,99 @@ pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Re
             context: "gzip compress",
             source: e.into(),
         })
+    })
+}
+
+/// Options for customizing the gzip header during compression.
+#[napi(object)]
+pub struct GzipHeaderOptions {
+    /// Original filename to store in the gzip header.
+    pub filename: Option<String>,
+    /// Modification time as a Unix timestamp (seconds since epoch).
+    pub mtime: Option<u32>,
+}
+
+/// Parsed gzip header metadata.
+#[napi(object)]
+pub struct GzipHeader {
+    /// Original filename stored in the header, if present.
+    pub filename: Option<String>,
+    /// Modification time as a Unix timestamp (seconds since epoch).
+    pub mtime: u32,
+    /// Comment stored in the header, if present.
+    pub comment: Option<String>,
+    /// Operating system that created the gzip stream.
+    pub os: u8,
+    /// Extra field data, if present.
+    pub extra: Option<Buffer>,
+}
+
+/// Compress data using gzip with custom header metadata.
+///
+/// Allows setting header fields such as `filename` and `mtime`.
+/// Returns the compressed data as a Buffer.
+/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+#[napi]
+pub fn gzip_compress_with_header(
+    data: Either<Buffer, Uint8Array>,
+    header: GzipHeaderOptions,
+    level: Option<u32>,
+) -> Result<Buffer> {
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    if level > 9 {
+        return Err(ZflateError::InvalidArg(
+            "gzip compression level must be between 0 and 9".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data);
+
+    let mut builder = GzBuilder::new();
+    if let Some(ref filename) = header.filename {
+        builder = builder.filename(filename.as_bytes());
+    }
+    if let Some(mtime) = header.mtime {
+        builder = builder.mtime(mtime);
+    }
+
+    let mut encoder = builder.write(Vec::with_capacity(input.len()), Compression::new(level));
+    encoder.write_all(input).map_err(|e| {
+        napi::Error::from(ZflateError::Operation {
+            context: "gzip compress with header",
+            source: e.into(),
+        })
+    })?;
+    encoder.finish().map(|v| v.into()).map_err(|e| {
+        napi::Error::from(ZflateError::Operation {
+            context: "gzip compress with header",
+            source: e.into(),
+        })
+    })
+}
+
+/// Read gzip header metadata without fully decompressing the data.
+///
+/// Returns the parsed header fields including filename, mtime, comment, OS, and extra data.
+#[napi]
+pub fn gzip_read_header(data: Either<Buffer, Uint8Array>) -> Result<GzipHeader> {
+    let input = crate::as_bytes(&data);
+    let decoder = GzDecoder::new(input);
+    let header = decoder.header().ok_or_else(|| {
+        napi::Error::from(ZflateError::InvalidArg(
+            "invalid gzip data: unable to parse header".to_string(),
+        ))
+    })?;
+
+    Ok(GzipHeader {
+        filename: header
+            .filename()
+            .map(|b| String::from_utf8_lossy(b).into_owned()),
+        mtime: header.mtime(),
+        comment: header
+            .comment()
+            .map(|b| String::from_utf8_lossy(b).into_owned()),
+        os: header.operating_system(),
+        extra: header.extra().map(|b| b.to_vec().into()),
     })
 }
 
@@ -768,5 +862,60 @@ mod tests {
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).unwrap();
         assert_eq!(b"Hello World", decompressed.as_slice());
+    }
+
+    #[test]
+    fn gzip_compress_with_header_filename() {
+        let original = b"Hello, gzip header!";
+        let mut encoder = GzBuilder::new()
+            .filename("hello.txt")
+            .write(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = GzDecoder::new(compressed.as_slice());
+        let header = decoder.header().expect("header should be present");
+        assert_eq!(
+            header
+                .filename()
+                .map(|b| String::from_utf8_lossy(b).into_owned()),
+            Some("hello.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn gzip_compress_with_header_mtime() {
+        let original = b"Mtime test";
+        let mtime_val: u32 = 1_700_000_000;
+        let mut encoder = GzBuilder::new()
+            .mtime(mtime_val)
+            .write(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = GzDecoder::new(compressed.as_slice());
+        let header = decoder.header().expect("header should be present");
+        assert_eq!(header.mtime(), mtime_val);
+    }
+
+    #[test]
+    fn gzip_read_header_default() {
+        let original = b"default header";
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = GzDecoder::new(compressed.as_slice());
+        let header = decoder.header().expect("header should be present");
+        assert_eq!(header.mtime(), 0);
+        assert!(header.filename().is_none());
+        assert!(header.comment().is_none());
+    }
+
+    #[test]
+    fn gzip_read_header_invalid_data() {
+        let invalid = b"not gzip data";
+        let decoder = GzDecoder::new(invalid.as_slice());
+        assert!(decoder.header().is_none());
     }
 }
