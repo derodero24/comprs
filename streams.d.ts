@@ -103,3 +103,12 @@ export declare function createZstdCompressDictStream(
 export declare function createZstdDecompressDictStream(
   dict: Buffer | Uint8Array,
 ): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming auto-detect decompression TransformStream.
+ *
+ * Detects the compression format (zstd, gzip, or brotli) from the first
+ * few bytes and delegates to the appropriate decompression context.
+ * Raw deflate is not supported (no magic bytes to distinguish it).
+ */
+export declare function createDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
