@@ -15,8 +15,10 @@ export declare function createZstdCompressTransform(level?: number): Transform;
  *
  * Uses Node.js `stream.Transform` to provide chunked decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createZstdDecompressTransform(): Transform;
+export declare function createZstdDecompressTransform(maxOutputSize?: number): Transform;
 
 /**
  * Create a Node.js stream.Transform for gzip compression.
@@ -35,8 +37,10 @@ export declare function createGzipCompressTransform(level?: number): Transform;
  * Uses Node.js `stream.Transform` to provide chunked gzip decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  * Verifies CRC32 integrity on finalization.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createGzipDecompressTransform(): Transform;
+export declare function createGzipDecompressTransform(maxOutputSize?: number): Transform;
 
 /**
  * Create a Node.js stream.Transform for raw deflate compression.
@@ -53,8 +57,10 @@ export declare function createDeflateCompressTransform(level?: number): Transfor
  *
  * Uses Node.js `stream.Transform` to provide chunked raw deflate decompression
  * compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDeflateDecompressTransform(): Transform;
+export declare function createDeflateDecompressTransform(maxOutputSize?: number): Transform;
 
 /**
  * Create a Node.js stream.Transform for brotli compression.
@@ -71,8 +77,10 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
  *
  * Uses Node.js `stream.Transform` to provide chunked brotli decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createBrotliDecompressTransform(): Transform;
+export declare function createBrotliDecompressTransform(maxOutputSize?: number): Transform;
 
 /**
  * Create a Node.js stream.Transform for zstd compression with a pre-trained dictionary.
@@ -96,7 +104,10 @@ export declare function createZstdCompressDictTransform(
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
-export declare function createZstdDecompressDictTransform(dict: Buffer | Uint8Array): Transform;
+export declare function createZstdDecompressDictTransform(
+  dict: Buffer | Uint8Array,
+  maxOutputSize?: number,
+): Transform;
 
 /**
  * Create a Node.js stream.Transform for auto-detect decompression.
@@ -104,5 +115,7 @@ export declare function createZstdDecompressDictTransform(dict: Buffer | Uint8Ar
  * Detects the compression format (zstd, gzip, or brotli) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDecompressTransform(): Transform;
+export declare function createDecompressTransform(maxOutputSize?: number): Transform;

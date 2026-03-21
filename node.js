@@ -48,10 +48,11 @@ function createZstdCompressTransform(level) {
 /**
  * Create a Node.js stream.Transform for zstd decompression.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createZstdDecompressTransform() {
-  const ctx = new ZstdDecompressContext();
+function createZstdDecompressTransform(maxOutputSize) {
+  const ctx = new ZstdDecompressContext(maxOutputSize);
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
@@ -109,10 +110,11 @@ function createGzipCompressTransform(level) {
 /**
  * Create a Node.js stream.Transform for gzip decompression.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createGzipDecompressTransform() {
-  const ctx = new GzipDecompressContext();
+function createGzipDecompressTransform(maxOutputSize) {
+  const ctx = new GzipDecompressContext(maxOutputSize);
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
@@ -172,10 +174,11 @@ function createDeflateCompressTransform(level) {
 /**
  * Create a Node.js stream.Transform for raw deflate decompression.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createDeflateDecompressTransform() {
-  const ctx = new DeflateDecompressContext();
+function createDeflateDecompressTransform(maxOutputSize) {
+  const ctx = new DeflateDecompressContext(maxOutputSize);
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
@@ -235,10 +238,11 @@ function createBrotliCompressTransform(quality) {
 /**
  * Create a Node.js stream.Transform for brotli decompression.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createBrotliDecompressTransform() {
-  const ctx = new BrotliDecompressContext();
+function createBrotliDecompressTransform(maxOutputSize) {
+  const ctx = new BrotliDecompressContext(maxOutputSize);
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
@@ -298,10 +302,11 @@ function createZstdCompressDictTransform(dict, level) {
  * Create a Node.js stream.Transform for zstd decompression with a pre-trained dictionary.
  *
  * @param {Buffer | Uint8Array} dict Pre-trained dictionary (must match the one used for compression)
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createZstdDecompressDictTransform(dict) {
-  const ctx = new ZstdDecompressDictContext(dict);
+function createZstdDecompressDictTransform(dict, maxOutputSize) {
+  const ctx = new ZstdDecompressDictContext(dict, maxOutputSize);
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
@@ -324,14 +329,14 @@ function createZstdDecompressDictTransform(dict) {
   });
 }
 
-function createDecompressContext(format) {
+function createDecompressContext(format, maxOutputSize) {
   switch (format) {
     case 'zstd':
-      return new ZstdDecompressContext();
+      return new ZstdDecompressContext(maxOutputSize);
     case 'gzip':
-      return new GzipDecompressContext();
+      return new GzipDecompressContext(maxOutputSize);
     case 'brotli':
-      return new BrotliDecompressContext();
+      return new BrotliDecompressContext(maxOutputSize);
     default:
       throw new Error('unable to detect compression format from stream data');
   }
@@ -348,14 +353,15 @@ function pushIfNonEmpty(stream, result) {
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
-function createDecompressTransform() {
+function createDecompressTransform(maxOutputSize) {
   let ctx = null;
   let buffer = null;
 
   function detectAndReplay(stream, data) {
-    ctx = createDecompressContext(detectFormat(data));
+    ctx = createDecompressContext(detectFormat(data), maxOutputSize);
     buffer = null;
     pushIfNonEmpty(stream, ctx.transform(data));
   }

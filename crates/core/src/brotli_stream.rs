@@ -13,9 +13,6 @@ const DEFAULT_QUALITY: u32 = 6;
 /// Default buffer size for brotli operations.
 const BUFFER_SIZE: usize = 4096;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Default log2 of the sliding window size for brotli.
 const LG_WINDOW_SIZE: u32 = 22;
 
@@ -110,16 +107,19 @@ impl BrotliCompressContext {
 pub struct BrotliDecompressContext {
     decompressor: brotli::DecompressorWriter<Vec<u8>>,
     total_output: usize,
+    max_output_size: usize,
 }
 
 #[napi]
 impl BrotliDecompressContext {
     #[napi(constructor)]
-    pub fn new() -> Result<Self> {
+    pub fn new(max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
         let decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
         Ok(Self {
             decompressor,
             total_output: 0,
+            max_output_size: max_size,
         })
     }
 
@@ -139,10 +139,10 @@ impl BrotliDecompressContext {
         // Drain whatever the decompressor has written to the inner Vec
         let data = std::mem::take(self.decompressor.get_mut());
         self.total_output += data.len();
-        if self.total_output > MAX_DECOMPRESSED_SIZE {
+        if self.total_output > self.max_output_size {
             return Err(ZflateError::SizeLimit {
                 context: "brotli stream decompress",
-                limit: MAX_DECOMPRESSED_SIZE,
+                limit: self.max_output_size,
             }
             .into());
         }
@@ -160,6 +160,14 @@ impl BrotliDecompressContext {
         })?;
 
         let data = std::mem::take(self.decompressor.get_mut());
+        self.total_output += data.len();
+        if self.total_output > self.max_output_size {
+            return Err(ZflateError::SizeLimit {
+                context: "brotli stream decompress",
+                limit: self.max_output_size,
+            }
+            .into());
+        }
         Ok(data.into())
     }
 }

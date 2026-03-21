@@ -29,7 +29,7 @@ export declare class BrotliCompressContext {
  * enabling chunked decompression of a brotli stream.
  */
 export declare class BrotliDecompressContext {
-  constructor()
+  constructor(maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decompressor needs more data).
@@ -68,7 +68,7 @@ export declare class DeflateCompressContext {
  * enabling chunked decompression of a raw deflate stream.
  */
 export declare class DeflateDecompressContext {
-  constructor()
+  constructor(maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
@@ -112,7 +112,7 @@ export declare class GzipCompressContext {
  * enabling chunked decompression of a gzip stream.
  */
 export declare class GzipDecompressContext {
-  constructor()
+  constructor(maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
@@ -178,7 +178,7 @@ export declare class ZstdCompressDictContext {
  * enabling chunked decompression of a zstd frame.
  */
 export declare class ZstdDecompressContext {
-  constructor()
+  constructor(maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
@@ -195,7 +195,7 @@ export declare class ZstdDecompressContext {
  * using a pre-trained dictionary that matches the one used for compression.
  */
 export declare class ZstdDecompressDictContext {
-  constructor(dict: Buffer | Uint8Array)
+  constructor(dict: Buffer | Uint8Array, maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decoder needs more data).
