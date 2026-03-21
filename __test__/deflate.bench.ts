@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { bench, describe } from 'vitest';
 import { deflateCompress, deflateDecompress } from '../index.js';
 
@@ -9,10 +8,21 @@ for (let i = 0; i < MEDIUM.length; i++) MEDIUM[i] = i % 256;
 const LARGE = Buffer.alloc(1_000_000);
 for (let i = 0; i < LARGE.length; i++) LARGE[i] = i % 256;
 
-// --- Random data (incompressible) ---
-const RANDOM_SMALL = randomBytes(150);
-const RANDOM_MEDIUM = randomBytes(10_000);
-const RANDOM_LARGE = randomBytes(1_000_000);
+// --- Deterministic pseudo-random data (incompressible) ---
+// Uses a linear congruential generator for reproducible benchmark inputs,
+// avoiding CodSpeed instruction count variance from non-deterministic randomBytes.
+const deterministicBytes = (size: number, seed: number): Buffer => {
+  const out = Buffer.alloc(size);
+  let x = seed >>> 0;
+  for (let i = 0; i < size; i++) {
+    x = (1664525 * x + 1013904223) >>> 0;
+    out[i] = x & 0xff;
+  }
+  return out;
+};
+const RANDOM_SMALL = deterministicBytes(150, 0x1234);
+const RANDOM_MEDIUM = deterministicBytes(10_000, 0x5678);
+const RANDOM_LARGE = deterministicBytes(1_000_000, 0x9abc);
 
 // --- Pre-compressed data for decompression benchmarks ---
 const SMALL_COMPRESSED = deflateCompress(SMALL);
