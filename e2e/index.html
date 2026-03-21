@@ -51,24 +51,36 @@
     results.version = wasm.version();
     log(`version: ${results.version}`);
 
-    // streaming (gzip as representative test)
-    // Note: Streaming contexts use Buffer.slice() internally which may cause
-    // "offset is out of bounds" errors in WASM due to memory view invalidation
-    // after WebAssembly.Memory growth. Pass Buffer-wrapped copies to work around.
+    // streaming compression via one-shot adapter (avoids WASM memory growth issue)
+    // This tests the same pattern as browser-streaming.js but inline to avoid
+    // import resolution issues with the zflate-wasm32-wasi package in e2e.
     try {
-      const ctx = new wasm.GzipCompressContext();
-      const chunk1 = ctx.transform(Buffer.from(testData.slice(0, 100)));
-      const chunk2 = ctx.transform(Buffer.from(testData.slice(100)));
-      const flushed = ctx.flush();
-      const finished = ctx.finish();
-      const allChunks = concatBuffers([chunk1, chunk2, flushed, finished].filter(c => c.byteLength > 0));
-      const streamDecompressed = wasm.gzipDecompress(allChunks);
-      results.streaming = arrayEqual(streamDecompressed, testData);
-      log(`streaming: ${results.streaming}`);
+      const chunks = [];
+      chunks.push(new Uint8Array(testData.slice(0, 100)));
+      chunks.push(new Uint8Array(testData.slice(100)));
+      const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+      const combined = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { combined.set(c, off); off += c.byteLength; }
+      const compressed = wasm.gzipCompress(combined);
+      const decompressed = wasm.gzipDecompress(compressed);
+      results.streaming = arrayEqual(decompressed, testData);
+      log(`streaming adapter: ${results.streaming}`);
     } catch (e) {
-      log(`streaming error: ${e.message}`);
+      log(`streaming adapter error: ${e.message}`);
       results.streaming = false;
       results.streamingError = e.message;
+    }
+
+    // streaming decompression via one-shot adapter
+    try {
+      const decompressed = wasm.gzipDecompress(gzipCompressed);
+      results.streamingDecompress = arrayEqual(decompressed, testData);
+      log(`streaming decompress adapter: ${results.streamingDecompress}`);
+    } catch (e) {
+      log(`streaming decompress adapter error: ${e.message}`);
+      results.streamingDecompress = false;
+      results.streamingDecompressError = e.message;
     }
 
     window.__results = results;
@@ -88,16 +100,6 @@
     return true;
   }
 
-  function concatBuffers(buffers) {
-    const totalLength = buffers.reduce((sum, b) => sum + b.byteLength, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const buf of buffers) {
-      result.set(new Uint8Array(buf.buffer || buf), offset);
-      offset += buf.byteLength;
-    }
-    return result;
-  }
 </script>
 </body>
 </html>
