@@ -1,5 +1,8 @@
+import zlib from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { crc32 } from '../index.js';
+
+const zlibCrc32Available = typeof zlib.crc32 === 'function';
 
 describe('crc32', () => {
   it('should compute CRC32 of empty data', () => {
@@ -34,17 +37,9 @@ describe('crc32', () => {
     expect(result).toBe(crc32(Buffer.from([1, 2, 3, 4, 5])));
   });
 
-  it('should match Node.js zlib.crc32 if available', () => {
-    // Node.js >= 22.2.0 has zlib.crc32
-    try {
-      const zlib = require('node:zlib');
-      if (typeof zlib.crc32 === 'function') {
-        const data = Buffer.from('test data for crc32 interop');
-        expect(crc32(data)).toBe(zlib.crc32(data));
-      }
-    } catch {
-      // Skip if not available
-    }
+  it.skipIf(!zlibCrc32Available)('should match Node.js zlib.crc32', () => {
+    const data = Buffer.from('test data for crc32 interop');
+    expect(crc32(data)).toBe(zlib.crc32(data));
   });
 
   it('should handle large data', () => {
