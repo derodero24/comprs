@@ -2,12 +2,10 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "baseBranchPatterns": ["develop"],
-  "prConcurrentLimit": 10,
+  "schedule": ["at any time"],
+  "prConcurrentLimit": 0,
   "lockFileMaintenance": {
-    "enabled": true,
-    "automerge": true,
-    "recreateWhen": "always",
-    "rebaseWhen": "never"
+    "enabled": false
   },
   "packageRules": [
     {
