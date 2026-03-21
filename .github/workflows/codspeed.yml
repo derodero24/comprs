@@ -5,9 +5,11 @@ on:
     branches: [develop]
     paths:
       - "crates/**"
-      - "__test__/index.bench.ts"
+      - "__test__/zstd.bench.ts"
+      - "__test__/brotli.bench.ts"
       - "__test__/gzip.bench.ts"
       - "__test__/deflate.bench.ts"
+      - "__test__/bench-fixtures.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
       - "streams.js"
@@ -20,9 +22,11 @@ on:
     branches: [develop]
     paths:
       - "crates/**"
-      - "__test__/index.bench.ts"
+      - "__test__/zstd.bench.ts"
+      - "__test__/brotli.bench.ts"
       - "__test__/gzip.bench.ts"
       - "__test__/deflate.bench.ts"
+      - "__test__/bench-fixtures.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
       - "streams.js"
@@ -67,4 +71,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
-          run: pnpm vitest bench __test__/index.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts
+          run: pnpm vitest bench __test__/zstd.bench.ts __test__/brotli.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts
