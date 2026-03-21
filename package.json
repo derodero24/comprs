@@ -9,6 +9,9 @@
     "url": "git+https://github.com/derodero24/zflate.git"
   },
   "homepage": "https://github.com/derodero24/zflate",
+  "bugs": {
+    "url": "https://github.com/derodero24/zflate/issues"
+  },
   "keywords": [
     "compression",
     "zstd",
@@ -39,7 +42,10 @@
         "types": "./index.d.ts",
         "default": "./index.js"
       },
-      "browser": "./browser.js"
+      "browser": {
+        "types": "./index.d.ts",
+        "default": "./browser.js"
+      }
     },
     "./streams": {
       "import": {
