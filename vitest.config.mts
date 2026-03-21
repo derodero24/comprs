@@ -13,6 +13,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       reportsDirectory: 'coverage',
+      include: ['streams.js', 'node.js'],
+      thresholds: {
+        lines: 70,
+        functions: 80,
+        branches: 60,
+      },
     },
   },
 });
