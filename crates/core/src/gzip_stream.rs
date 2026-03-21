@@ -12,9 +12,6 @@ use crate::ZflateError;
 /// Default compression level for gzip/deflate (same as zlib default).
 const DEFAULT_LEVEL: u32 = 6;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Streaming gzip compression context.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
@@ -108,16 +105,19 @@ impl GzipCompressContext {
 pub struct GzipDecompressContext {
     decoder: Option<MultiGzDecoder<Vec<u8>>>,
     total_output: usize,
+    max_output_size: usize,
 }
 
 #[napi]
 impl GzipDecompressContext {
     #[napi(constructor)]
-    pub fn new() -> Result<Self> {
+    pub fn new(max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
         let decoder = MultiGzDecoder::new(Vec::new());
         Ok(Self {
             decoder: Some(decoder),
             total_output: 0,
+            max_output_size: max_size,
         })
     }
 
@@ -148,10 +148,10 @@ impl GzipDecompressContext {
         let output = decoder.get_mut();
         let data = std::mem::take(output);
         self.total_output += data.len();
-        if self.total_output > MAX_DECOMPRESSED_SIZE {
+        if self.total_output > self.max_output_size {
             return Err(ZflateError::SizeLimit {
                 context: "gzip stream decompress",
-                limit: MAX_DECOMPRESSED_SIZE,
+                limit: self.max_output_size,
             }
             .into());
         }
@@ -175,6 +175,14 @@ impl GzipDecompressContext {
 
         let output = decoder.get_mut();
         let data = std::mem::take(output);
+        self.total_output += data.len();
+        if self.total_output > self.max_output_size {
+            return Err(ZflateError::SizeLimit {
+                context: "gzip stream decompress",
+                limit: self.max_output_size,
+            }
+            .into());
+        }
         Ok(data.into())
     }
 
@@ -289,16 +297,19 @@ impl DeflateCompressContext {
 pub struct DeflateDecompressContext {
     decoder: Option<DeflateDecoder<Vec<u8>>>,
     total_output: usize,
+    max_output_size: usize,
 }
 
 #[napi]
 impl DeflateDecompressContext {
     #[napi(constructor)]
-    pub fn new() -> Result<Self> {
+    pub fn new(max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
         let decoder = DeflateDecoder::new(Vec::new());
         Ok(Self {
             decoder: Some(decoder),
             total_output: 0,
+            max_output_size: max_size,
         })
     }
 
@@ -321,10 +332,10 @@ impl DeflateDecompressContext {
         let output = decoder.get_mut();
         let data = std::mem::take(output);
         self.total_output += data.len();
-        if self.total_output > MAX_DECOMPRESSED_SIZE {
+        if self.total_output > self.max_output_size {
             return Err(ZflateError::SizeLimit {
                 context: "deflate stream decompress",
-                limit: MAX_DECOMPRESSED_SIZE,
+                limit: self.max_output_size,
             }
             .into());
         }
@@ -348,6 +359,14 @@ impl DeflateDecompressContext {
 
         let output = decoder.get_mut();
         let data = std::mem::take(output);
+        self.total_output += data.len();
+        if self.total_output > self.max_output_size {
+            return Err(ZflateError::SizeLimit {
+                context: "deflate stream decompress",
+                limit: self.max_output_size,
+            }
+            .into());
+        }
         Ok(data.into())
     }
 

@@ -43,10 +43,11 @@ function createBrotliCompressStream(quality) {
 /**
  * Create a streaming brotli decompression TransformStream.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createBrotliDecompressStream() {
-  const ctx = new BrotliDecompressContext();
+function createBrotliDecompressStream(maxOutputSize) {
+  const ctx = new BrotliDecompressContext(maxOutputSize);
   return new TransformStream({
     transform(chunk, controller) {
       const result = ctx.transform(chunk);
@@ -94,10 +95,11 @@ function createZstdCompressStream(level) {
 /**
  * Create a streaming zstd decompression TransformStream.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createZstdDecompressStream() {
-  const ctx = new ZstdDecompressContext();
+function createZstdDecompressStream(maxOutputSize) {
+  const ctx = new ZstdDecompressContext(maxOutputSize);
   return new TransformStream({
     transform(chunk, controller) {
       const result = ctx.transform(chunk);
@@ -145,10 +147,11 @@ function createGzipCompressStream(level) {
 /**
  * Create a streaming gzip decompression TransformStream.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createGzipDecompressStream() {
-  const ctx = new GzipDecompressContext();
+function createGzipDecompressStream(maxOutputSize) {
+  const ctx = new GzipDecompressContext(maxOutputSize);
   return new TransformStream({
     transform(chunk, controller) {
       const result = ctx.transform(chunk);
@@ -200,10 +203,11 @@ function createDeflateCompressStream(level) {
 /**
  * Create a streaming raw deflate decompression TransformStream.
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createDeflateDecompressStream() {
-  const ctx = new DeflateDecompressContext();
+function createDeflateDecompressStream(maxOutputSize) {
+  const ctx = new DeflateDecompressContext(maxOutputSize);
   return new TransformStream({
     transform(chunk, controller) {
       const result = ctx.transform(chunk);
@@ -257,10 +261,11 @@ function createZstdCompressDictStream(dict, level) {
  * Create a streaming zstd decompression TransformStream with a pre-trained dictionary.
  *
  * @param {Buffer | Uint8Array} dict Pre-trained dictionary (must match the one used for compression)
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createZstdDecompressDictStream(dict) {
-  const ctx = new ZstdDecompressDictContext(dict);
+function createZstdDecompressDictStream(dict, maxOutputSize) {
+  const ctx = new ZstdDecompressDictContext(dict, maxOutputSize);
   return new TransformStream({
     transform(chunk, controller) {
       const result = ctx.transform(chunk);
@@ -277,14 +282,14 @@ function createZstdDecompressDictStream(dict) {
   });
 }
 
-function createDecompressContext(format) {
+function createDecompressContext(format, maxOutputSize) {
   switch (format) {
     case 'zstd':
-      return new ZstdDecompressContext();
+      return new ZstdDecompressContext(maxOutputSize);
     case 'gzip':
-      return new GzipDecompressContext();
+      return new GzipDecompressContext(maxOutputSize);
     case 'brotli':
-      return new BrotliDecompressContext();
+      return new BrotliDecompressContext(maxOutputSize);
     default:
       throw new Error('unable to detect compression format from stream data');
   }
@@ -303,14 +308,15 @@ function enqueueIfNonEmpty(controller, result) {
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
-function createDecompressStream() {
+function createDecompressStream(maxOutputSize) {
   let ctx = null;
   let buffer = null;
 
   function detectAndReplay(data, controller) {
-    ctx = createDecompressContext(detectFormat(data));
+    ctx = createDecompressContext(detectFormat(data), maxOutputSize);
     buffer = null;
     enqueueIfNonEmpty(controller, ctx.transform(data));
   }

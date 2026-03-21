@@ -14,11 +14,31 @@ use napi_derive::napi;
 
 pub use error::ZflateError;
 
+/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
+const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+
 /// Extract byte slice from Either<Buffer, Uint8Array>.
 fn as_bytes(data: &Either<Buffer, Uint8Array>) -> &[u8] {
     match data {
         Either::A(buf) => buf.as_ref(),
         Either::B(arr) => arr.as_ref(),
+    }
+}
+
+/// Validate and return the max output size, defaulting to MAX_DECOMPRESSED_SIZE.
+fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize> {
+    match max_output_size {
+        None => Ok(MAX_DECOMPRESSED_SIZE),
+        Some(size) => {
+            if !size.is_finite() || size < 0.0 {
+                Err(ZflateError::InvalidArg(
+                    "maxOutputSize must be a positive finite number".to_string(),
+                )
+                .into())
+            } else {
+                Ok(size as usize)
+            }
+        }
     }
 }
 

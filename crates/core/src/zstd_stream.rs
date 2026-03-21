@@ -12,9 +12,6 @@ const DEFAULT_LEVEL: i32 = 3;
 /// Initial output buffer size for streaming operations.
 const INITIAL_BUF_SIZE: usize = 128 * 1024;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Streaming zstd compression context.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
@@ -154,12 +151,14 @@ impl ZstdCompressContext {
 pub struct ZstdDecompressContext {
     decoder: Decoder<'static>,
     total_output: usize,
+    max_output_size: usize,
 }
 
 #[napi]
 impl ZstdDecompressContext {
     #[napi(constructor)]
-    pub fn new() -> Result<Self> {
+    pub fn new(max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
         let decoder = Decoder::new().map_err(|e| {
             napi::Error::from(ZflateError::Creation {
                 context: "zstd decoder",
@@ -169,6 +168,7 @@ impl ZstdDecompressContext {
         Ok(Self {
             decoder,
             total_output: 0,
+            max_output_size: max_size,
         })
     }
 
@@ -192,10 +192,10 @@ impl ZstdDecompressContext {
                 })
             })?;
             total_written = out_buf.pos();
-            if self.total_output + total_written > MAX_DECOMPRESSED_SIZE {
+            if self.total_output + total_written > self.max_output_size {
                 return Err(ZflateError::SizeLimit {
                     context: "zstd stream decompress",
-                    limit: MAX_DECOMPRESSED_SIZE,
+                    limit: self.max_output_size,
                 }
                 .into());
             }
@@ -377,12 +377,14 @@ impl ZstdCompressDictContext {
 pub struct ZstdDecompressDictContext {
     decoder: Decoder<'static>,
     total_output: usize,
+    max_output_size: usize,
 }
 
 #[napi]
 impl ZstdDecompressDictContext {
     #[napi(constructor)]
-    pub fn new(dict: Either<Buffer, Uint8Array>) -> Result<Self> {
+    pub fn new(dict: Either<Buffer, Uint8Array>, max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
         let dict_bytes = crate::as_bytes(&dict);
         let decoder = Decoder::with_dictionary(dict_bytes).map_err(|e| {
             napi::Error::from(ZflateError::Creation {
@@ -393,6 +395,7 @@ impl ZstdDecompressDictContext {
         Ok(Self {
             decoder,
             total_output: 0,
+            max_output_size: max_size,
         })
     }
 
@@ -416,10 +419,10 @@ impl ZstdDecompressDictContext {
                 })
             })?;
             total_written = out_buf.pos();
-            if self.total_output + total_written > MAX_DECOMPRESSED_SIZE {
+            if self.total_output + total_written > self.max_output_size {
                 return Err(ZflateError::SizeLimit {
                     context: "zstd stream decompress",
-                    limit: MAX_DECOMPRESSED_SIZE,
+                    limit: self.max_output_size,
                 }
                 .into());
             }

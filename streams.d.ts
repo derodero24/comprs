@@ -15,8 +15,12 @@ export declare function createBrotliCompressStream(
  * Create a streaming brotli decompression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createBrotliDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+export declare function createBrotliDecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
 
 /**
  * Create a streaming zstd compression TransformStream.
@@ -35,8 +39,12 @@ export declare function createZstdCompressStream(
  * Create a streaming zstd decompression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createZstdDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+export declare function createZstdDecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
 
 /**
  * Create a streaming gzip compression TransformStream.
@@ -55,8 +63,12 @@ export declare function createGzipCompressStream(
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked gzip decompression.
  * Verifies CRC32 integrity on finalization.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createGzipDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+export declare function createGzipDecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
 
 /**
  * Create a streaming raw deflate compression TransformStream.
@@ -75,8 +87,12 @@ export declare function createDeflateCompressStream(
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked raw deflate
  * decompression.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDeflateDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+export declare function createDeflateDecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
 
 /**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
@@ -99,9 +115,11 @@ export declare function createZstdCompressDictStream(
  * with a pre-trained dictionary. The same dictionary used for compression must be provided.
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createZstdDecompressDictStream(
   dict: Buffer | Uint8Array,
+  maxOutputSize?: number,
 ): TransformStream<Uint8Array, Uint8Array>;
 
 /**
@@ -110,5 +128,9 @@ export declare function createZstdDecompressDictStream(
  * Detects the compression format (zstd, gzip, or brotli) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDecompressStream(): TransformStream<Uint8Array, Uint8Array>;
+export declare function createDecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
