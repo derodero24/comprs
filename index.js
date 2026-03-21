@@ -592,6 +592,7 @@ module.exports.brotliDecompress = nativeBinding.brotliDecompress
 module.exports.brotliDecompressAsync = nativeBinding.brotliDecompressAsync
 module.exports.brotliDecompressWithCapacity = nativeBinding.brotliDecompressWithCapacity
 module.exports.CompressionFormat = nativeBinding.CompressionFormat
+module.exports.crc32 = nativeBinding.crc32
 module.exports.decompress = nativeBinding.decompress
 module.exports.deflateCompress = nativeBinding.deflateCompress
 module.exports.deflateCompressAsync = nativeBinding.deflateCompressAsync
