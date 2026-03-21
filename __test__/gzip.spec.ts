@@ -99,6 +99,14 @@ describe('gzipCompress / gzipDecompress', () => {
     const result = gzipDecompress(compressed);
     expect(Buffer.compare(result, random)).toBe(0);
   });
+
+  it('should decompress concatenated gzip streams', () => {
+    const a = gzipCompress(Buffer.from('Hello'));
+    const b = gzipCompress(Buffer.from(' World'));
+    const concatenated = Buffer.concat([a, b]);
+    const result = gzipDecompress(concatenated);
+    expect(result.toString()).toBe('Hello World');
+  });
 });
 
 describe('gzipDecompressWithCapacity', () => {
@@ -143,6 +151,14 @@ describe('gzipDecompressWithCapacity', () => {
     const result = gzipDecompressWithCapacity(emptyCompressed, 0);
     expect(result.length).toBe(0);
   });
+
+  it('should decompress concatenated gzip streams with capacity', () => {
+    const a = gzipCompress(Buffer.from('Hello'));
+    const b = gzipCompress(Buffer.from(' World'));
+    const concatenated = Buffer.concat([a, b]);
+    const result = gzipDecompressWithCapacity(concatenated, 1024);
+    expect(result.toString()).toBe('Hello World');
+  });
 });
 
 describe('gzip interop with Node.js zlib', () => {
@@ -165,6 +181,14 @@ describe('gzip interop with Node.js zlib', () => {
     // Gzip magic number: 0x1f 0x8b
     expect(compressed[0]).toBe(0x1f);
     expect(compressed[1]).toBe(0x8b);
+  });
+
+  it('should decompress concatenated gzip streams from Node.js zlib', () => {
+    const a = gzipSync(Buffer.from('Part1'));
+    const b = gzipSync(Buffer.from('Part2'));
+    const concatenated = Buffer.concat([a, b]);
+    const result = gzipDecompress(concatenated);
+    expect(result.toString()).toBe('Part1Part2');
   });
 });
 

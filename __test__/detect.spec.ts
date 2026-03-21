@@ -111,4 +111,12 @@ describe('decompress (auto-detect)', () => {
     const result = decompress(uint8);
     expect(Buffer.compare(result, original)).toBe(0);
   });
+
+  it('should auto-decompress concatenated gzip streams', () => {
+    const a = gzipCompress(Buffer.from('Part1'));
+    const b = gzipCompress(Buffer.from('Part2'));
+    const concatenated = Buffer.concat([a, b]);
+    const result = decompress(concatenated);
+    expect(result.toString()).toBe('Part1Part2');
+  });
 });

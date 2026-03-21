@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 
 use flate2::Compression;
-use flate2::read::{DeflateDecoder, GzDecoder};
+use flate2::read::{DeflateDecoder, MultiGzDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder};
 use napi::Task;
 use napi::bindgen_prelude::*;
@@ -79,7 +79,7 @@ pub fn gzip_decompress_with_capacity(
 }
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
-    let mut decoder = GzDecoder::new(input);
+    let mut decoder = MultiGzDecoder::new(input);
     let mut output = Vec::with_capacity((input.len() * 4).min(max_size));
     let mut buf = [0u8; BUFFER_SIZE];
 
@@ -258,7 +258,7 @@ impl Task for GzipDecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decoder = GzDecoder::new(self.data.as_slice());
+        let mut decoder = MultiGzDecoder::new(self.data.as_slice());
         let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
         let mut buf = [0u8; BUFFER_SIZE];
 
@@ -421,7 +421,7 @@ mod tests {
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
@@ -434,7 +434,7 @@ mod tests {
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
@@ -447,7 +447,7 @@ mod tests {
         encoder.write_all(&original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).unwrap();
         assert_eq!(original, decompressed);
@@ -507,7 +507,7 @@ mod tests {
         encoder.write_all(&original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
         let mut buf = [0u8; BUFFER_SIZE];
         let mut exceeded = false;
@@ -532,7 +532,7 @@ mod tests {
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
         let mut buf = [0u8; BUFFER_SIZE];
         let mut exceeded = false;
@@ -614,5 +614,27 @@ mod tests {
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn gzip_concatenated_round_trip() {
+        let part_a = b"Hello";
+        let part_b = b" World";
+
+        let mut enc_a = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        enc_a.write_all(part_a).unwrap();
+        let compressed_a = enc_a.finish().unwrap();
+
+        let mut enc_b = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        enc_b.write_all(part_b).unwrap();
+        let compressed_b = enc_b.finish().unwrap();
+
+        let mut concatenated = compressed_a;
+        concatenated.extend_from_slice(&compressed_b);
+
+        let mut decoder = MultiGzDecoder::new(concatenated.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(b"Hello World", decompressed.as_slice());
     }
 }
