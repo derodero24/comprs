@@ -129,7 +129,6 @@
     "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "^2.4.8",
     "@changesets/cli": "^2.30.0",
-    "@codspeed/vitest-plugin": "^5.2.0",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@emnapi/core": "^1.9.1",
@@ -153,11 +152,6 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "lefthook"
-    ],
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "@codspeed/vitest-plugin>vite": "8"
-      }
-    }
+    ]
   }
 }
