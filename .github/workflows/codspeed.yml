@@ -5,7 +5,9 @@ on:
     branches: [develop]
     paths:
       - "crates/**"
-      - "__test__/**/*.bench.ts"
+      - "__test__/index.bench.ts"
+      - "__test__/gzip.bench.ts"
+      - "__test__/deflate.bench.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
       - "streams.js"
@@ -18,7 +20,9 @@ on:
     branches: [develop]
     paths:
       - "crates/**"
-      - "__test__/**/*.bench.ts"
+      - "__test__/index.bench.ts"
+      - "__test__/gzip.bench.ts"
+      - "__test__/deflate.bench.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
       - "streams.js"
@@ -63,4 +67,4 @@ jobs:
         uses: CodSpeedHQ/action@1c8ae4843586d3ba879736b7f6b7b0c990757fab # v4
         with:
           mode: simulation
-          run: pnpm run bench
+          run: pnpm vitest bench __test__/index.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts
