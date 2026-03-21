@@ -417,3 +417,17 @@ jobs:
           files: rust-lcov.info,coverage/lcov.info
           flags: rust,javascript
           fail_ci_if_error: false
+
+  # ──── Aggregate gate: single required status check ────
+  ci-complete:
+    name: CI Complete
+    if: always()
+    needs: [lint, audit, rust-lint, rust-test, test, test-wasm, test-browser, test-deno, test-bun, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled"
+            exit 1
+          fi
