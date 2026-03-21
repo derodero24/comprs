@@ -291,6 +291,214 @@ pub fn zstd_decompress_with_dict(
         })
 }
 
+pub struct ZstdDecompressWithCapacityTask {
+    data: Vec<u8>,
+    capacity: usize,
+}
+
+#[napi]
+impl Task for ZstdDecompressWithCapacityTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        zstd::bulk::decompress(&self.data, self.capacity).map_err(|e| {
+            ZflateError::Operation {
+                context: "zstd decompress",
+                source: e.into(),
+            }
+            .into()
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Zstandard-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn zstd_decompress_with_capacity_async(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<AsyncTask<ZstdDecompressWithCapacityTask>> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let cap = capacity as usize;
+    Ok(AsyncTask::new(ZstdDecompressWithCapacityTask {
+        data: input,
+        capacity: cap,
+    }))
+}
+
+pub struct ZstdCompressWithDictTask {
+    data: Vec<u8>,
+    dict: Vec<u8>,
+    level: i32,
+}
+
+#[napi]
+impl Task for ZstdCompressWithDictTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut compressor = zstd::bulk::Compressor::with_dictionary(self.level, &self.dict)
+            .map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd compressor init",
+                    source: e.into(),
+                })
+            })?;
+        compressor.compress(&self.data).map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context: "zstd compress with dict",
+                source: e.into(),
+            })
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using Zstandard with a pre-trained dictionary.
+///
+/// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
+/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+#[napi]
+pub fn zstd_compress_with_dict_async(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    level: Option<i32>,
+) -> Result<AsyncTask<ZstdCompressWithDictTask>> {
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    if !(-131072..=22).contains(&level) {
+        return Err(ZflateError::InvalidArg(
+            "zstd compression level must be between -131072 and 22".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    Ok(AsyncTask::new(ZstdCompressWithDictTask {
+        data: input,
+        dict: dict_bytes,
+        level,
+    }))
+}
+
+pub struct ZstdDecompressWithDictTask {
+    data: Vec<u8>,
+    dict: Vec<u8>,
+}
+
+#[napi]
+impl Task for ZstdDecompressWithDictTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
+            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
+            _ => MAX_DECOMPRESSED_SIZE,
+        };
+        let capacity = capacity.max(1024);
+
+        let mut decompressor =
+            zstd::bulk::Decompressor::with_dictionary(&self.dict).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "zstd decompressor init",
+                    source: e.into(),
+                })
+            })?;
+        decompressor.decompress(&self.data, capacity).map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context: "zstd decompress with dict",
+                source: e.into(),
+            })
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary.
+///
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn zstd_decompress_with_dict_async(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+) -> AsyncTask<ZstdDecompressWithDictTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    AsyncTask::new(ZstdDecompressWithDictTask {
+        data: input,
+        dict: dict_bytes,
+    })
+}
+
+pub struct ZstdTrainDictionaryTask {
+    samples: Vec<Vec<u8>>,
+    max_dict_size: usize,
+}
+
+#[napi]
+impl Task for ZstdTrainDictionaryTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        zstd::dict::from_samples(&self.samples, self.max_dict_size).map_err(|e| {
+            ZflateError::Operation {
+                context: "zstd dictionary training",
+                source: e.into(),
+            }
+            .into()
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously train a zstd dictionary from sample data.
+///
+/// The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
+/// to achieve better compression ratios on small, similar data.
+///
+/// `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+#[napi]
+pub fn zstd_train_dictionary_async(
+    samples: Vec<Either<Buffer, Uint8Array>>,
+    max_dict_size: Option<f64>,
+) -> AsyncTask<ZstdTrainDictionaryTask> {
+    let max_size = max_dict_size
+        .map(|s| s as usize)
+        .unwrap_or(DEFAULT_MAX_DICT_SIZE);
+    let sample_vecs: Vec<Vec<u8>> = samples
+        .iter()
+        .map(|s| crate::as_bytes(s).to_vec())
+        .collect();
+    AsyncTask::new(ZstdTrainDictionaryTask {
+        samples: sample_vecs,
+        max_dict_size: max_size,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

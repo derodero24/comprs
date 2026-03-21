@@ -243,6 +243,72 @@ pub fn brotli_decompress_async(
     AsyncTask::new(BrotliDecompressTask { data: input })
 }
 
+pub struct BrotliDecompressWithCapacityTask {
+    data: Vec<u8>,
+    capacity: usize,
+}
+
+#[napi]
+impl Task for BrotliDecompressWithCapacityTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decompressor.read(&mut buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "brotli decompress",
+                    source: e.into(),
+                })
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > self.capacity {
+                return Err(ZflateError::SizeLimit {
+                    context: "brotli decompress",
+                    limit: self.capacity,
+                }
+                .into());
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Brotli-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn brotli_decompress_with_capacity_async(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<AsyncTask<BrotliDecompressWithCapacityTask>> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let cap = capacity as usize;
+    Ok(AsyncTask::new(BrotliDecompressWithCapacityTask {
+        data: input,
+        capacity: cap,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};

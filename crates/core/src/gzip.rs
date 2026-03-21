@@ -410,6 +410,138 @@ pub fn deflate_decompress_async(
     AsyncTask::new(DeflateDecompressTask { data: input })
 }
 
+pub struct GzipDecompressWithCapacityTask {
+    data: Vec<u8>,
+    capacity: usize,
+}
+
+#[napi]
+impl Task for GzipDecompressWithCapacityTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decoder = MultiGzDecoder::new(self.data.as_slice());
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decoder.read(&mut buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "gzip decompress",
+                    source: e.into(),
+                })
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > self.capacity {
+                return Err(ZflateError::SizeLimit {
+                    context: "gzip decompress",
+                    limit: self.capacity,
+                }
+                .into());
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress gzip-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn gzip_decompress_with_capacity_async(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<AsyncTask<GzipDecompressWithCapacityTask>> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let cap = capacity as usize;
+    Ok(AsyncTask::new(GzipDecompressWithCapacityTask {
+        data: input,
+        capacity: cap,
+    }))
+}
+
+pub struct DeflateDecompressWithCapacityTask {
+    data: Vec<u8>,
+    capacity: usize,
+}
+
+#[napi]
+impl Task for DeflateDecompressWithCapacityTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut decoder = DeflateDecoder::new(self.data.as_slice());
+        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
+        let mut buf = [0u8; BUFFER_SIZE];
+
+        loop {
+            let n = decoder.read(&mut buf).map_err(|e| {
+                napi::Error::from(ZflateError::Operation {
+                    context: "deflate decompress",
+                    source: e.into(),
+                })
+            })?;
+            if n == 0 {
+                break;
+            }
+            if output.len() + n > self.capacity {
+                return Err(ZflateError::SizeLimit {
+                    context: "deflate decompress",
+                    limit: self.capacity,
+                }
+                .into());
+            }
+            output.extend_from_slice(&buf[..n]);
+        }
+
+        Ok(output)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress raw deflate-compressed data with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+#[napi]
+pub fn deflate_decompress_with_capacity_async(
+    data: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<AsyncTask<DeflateDecompressWithCapacityTask>> {
+    if !capacity.is_finite() || capacity < 0.0 {
+        return Err(ZflateError::InvalidArg(
+            "capacity must be a positive finite number".to_string(),
+        )
+        .into());
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let cap = capacity as usize;
+    Ok(AsyncTask::new(DeflateDecompressWithCapacityTask {
+        data: input,
+        capacity: cap,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
