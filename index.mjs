@@ -36,6 +36,8 @@ export const {
   decompressAsync,
   detectFormat,
   gzipCompress,
+  gzipCompressWithHeader,
+  gzipReadHeader,
   gzipDecompress,
   gzipDecompressWithCapacity,
   gzipCompressAsync,
