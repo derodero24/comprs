@@ -23,6 +23,7 @@ on:
       - 'index.d.mts'
       - 'node.js'
       - 'node.d.ts'
+      - 'scripts/**'
       - 'playwright.config.ts'
   pull_request:
     branches: [develop]
@@ -46,6 +47,7 @@ on:
       - 'index.d.mts'
       - 'node.js'
       - 'node.d.ts'
+      - 'scripts/**'
       - 'playwright.config.ts'
 
 concurrency:
