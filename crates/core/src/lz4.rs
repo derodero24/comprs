@@ -193,6 +193,8 @@ pub fn lz4_decompress_with_capacity_async(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use super::*;
 
     #[test]
