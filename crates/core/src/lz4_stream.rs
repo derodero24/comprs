@@ -10,75 +10,96 @@ use crate::ZflateError;
 
 /// Streaming LZ4 frame compression context.
 ///
-/// Buffers input data and produces the compressed LZ4 frame on `finish()`.
-/// LZ4 frame format requires finalization to write a valid frame footer.
+/// Uses `FrameEncoder` internally to produce incremental compressed output
+/// on each `transform()` call. A cursor tracks already-returned bytes, and
+/// old bytes are drained periodically to bound memory usage.
 #[napi]
 pub struct Lz4CompressContext {
-    buffer: Option<Vec<u8>>,
+    encoder: Option<FrameEncoder<Vec<u8>>>,
+    cursor: usize,
 }
 
 #[napi]
 impl Lz4CompressContext {
     #[napi(constructor)]
     pub fn new() -> Result<Self> {
+        let encoder = FrameEncoder::new(Vec::new());
         Ok(Self {
-            buffer: Some(Vec::new()),
+            encoder: Some(encoder),
+            cursor: 0,
         })
     }
 
-    /// Buffer a chunk of data for compression.
-    /// Returns an empty buffer (compressed output is produced in `finish()`).
+    /// Compress a chunk of data. Returns any compressed output produced so far.
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        let buf = self
-            .buffer
+        let encoder = self
+            .encoder
             .as_mut()
             .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
 
-        buf.extend_from_slice(crate::as_bytes(&chunk));
-        Ok(Buffer::from(Vec::<u8>::new()))
-    }
-
-    /// Flush the encoder's internal buffer. Returns empty (all output in `finish()`).
-    #[napi]
-    pub fn flush(&mut self) -> Result<Buffer> {
-        if self.buffer.is_none() {
-            return Err(ZflateError::StreamFinished("lz4 stream").into());
-        }
-        Ok(Buffer::from(Vec::<u8>::new()))
-    }
-
-    /// Finalize the compression stream. Compresses all buffered data and
-    /// returns the complete LZ4 frame.
-    #[napi]
-    pub fn finish(&mut self) -> Result<Buffer> {
-        let data = self
-            .buffer
-            .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
-
-        let mut output = Vec::with_capacity(data.len());
-        let mut encoder = FrameEncoder::new(&mut output);
-        encoder.write_all(&data).map_err(|e| {
+        let input = crate::as_bytes(&chunk);
+        encoder.write_all(input).map_err(|e| {
             napi::Error::from(ZflateError::Operation {
                 context: "lz4 stream compress",
                 source: e.into(),
             })
         })?;
-        encoder.finish().map_err(|e| {
+
+        let output = encoder.get_mut();
+        let new_bytes = output[self.cursor..].to_vec();
+        output.drain(..self.cursor);
+        self.cursor = output.len();
+        Ok(new_bytes.into())
+    }
+
+    /// Flush the encoder's internal buffer. Returns any buffered compressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
+
+        encoder.flush().map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context: "lz4 stream flush",
+                source: e.into(),
+            })
+        })?;
+
+        let output = encoder.get_mut();
+        let new_bytes = output[self.cursor..].to_vec();
+        output.drain(..self.cursor);
+        self.cursor = output.len();
+        Ok(new_bytes.into())
+    }
+
+    /// Finalize the compression stream. Writes the LZ4 frame footer.
+    /// Must be called once after all data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        let encoder = self
+            .encoder
+            .take()
+            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
+
+        let output = encoder.finish().map_err(|e| {
             napi::Error::from(ZflateError::Operation {
                 context: "lz4 stream finish",
                 source: e.into(),
             })
         })?;
 
-        Ok(output.into())
+        Ok(output[self.cursor..].to_vec().into())
     }
 }
 
 /// Streaming LZ4 frame decompression context.
 ///
 /// Buffers compressed input and decompresses on `flush()`.
+/// LZ4 frame decompression requires the full compressed input, so true
+/// incremental streaming is not possible with the current lz4_flex API.
 #[napi]
 pub struct Lz4DecompressContext {
     buffer: Vec<u8>,

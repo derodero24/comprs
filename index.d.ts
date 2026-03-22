@@ -130,21 +130,19 @@ export declare class GzipDecompressContext {
 /**
  * Streaming LZ4 frame compression context.
  *
- * Buffers input data and produces the compressed LZ4 frame on `finish()`.
- * LZ4 frame format requires finalization to write a valid frame footer.
+ * Uses `FrameEncoder` internally to produce incremental compressed output
+ * on each `transform()` call. A cursor tracks already-returned bytes, and
+ * old bytes are drained periodically to bound memory usage.
  */
 export declare class Lz4CompressContext {
   constructor()
-  /**
-   * Buffer a chunk of data for compression.
-   * Returns an empty buffer (compressed output is produced in `finish()`).
-   */
+  /** Compress a chunk of data. Returns any compressed output produced so far. */
   transform(chunk: Buffer | Uint8Array): Buffer
-  /** Flush the encoder's internal buffer. Returns empty (all output in `finish()`). */
+  /** Flush the encoder's internal buffer. Returns any buffered compressed data. */
   flush(): Buffer
   /**
-   * Finalize the compression stream. Compresses all buffered data and
-   * returns the complete LZ4 frame.
+   * Finalize the compression stream. Writes the LZ4 frame footer.
+   * Must be called once after all data has been transformed.
    */
   finish(): Buffer
 }
@@ -153,6 +151,8 @@ export declare class Lz4CompressContext {
  * Streaming LZ4 frame decompression context.
  *
  * Buffers compressed input and decompresses on `flush()`.
+ * LZ4 frame decompression requires the full compressed input, so true
+ * incremental streaming is not possible with the current lz4_flex API.
  */
 export declare class Lz4DecompressContext {
   constructor(maxOutputSize?: number | undefined | null)
