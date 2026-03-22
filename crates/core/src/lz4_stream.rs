@@ -11,8 +11,8 @@ use crate::ZflateError;
 /// Streaming LZ4 frame compression context.
 ///
 /// Uses `FrameEncoder` internally to produce incremental compressed output
-/// on each `transform()` call. The frame header is emitted on construction,
-/// and block data is flushed as internal buffers fill.
+/// on each `transform()` call. A cursor tracks already-returned bytes, and
+/// old bytes are drained periodically to bound memory usage.
 #[napi]
 pub struct Lz4CompressContext {
     encoder: Option<FrameEncoder<Vec<u8>>>,
@@ -46,8 +46,9 @@ impl Lz4CompressContext {
             })
         })?;
 
-        let output = encoder.get_ref();
+        let output = encoder.get_mut();
         let new_bytes = output[self.cursor..].to_vec();
+        output.drain(..self.cursor);
         self.cursor = output.len();
         Ok(new_bytes.into())
     }
@@ -67,8 +68,9 @@ impl Lz4CompressContext {
             })
         })?;
 
-        let output = encoder.get_ref();
+        let output = encoder.get_mut();
         let new_bytes = output[self.cursor..].to_vec();
+        output.drain(..self.cursor);
         self.cursor = output.len();
         Ok(new_bytes.into())
     }
@@ -89,8 +91,7 @@ impl Lz4CompressContext {
             })
         })?;
 
-        let new_bytes = output[self.cursor..].to_vec();
-        Ok(new_bytes.into())
+        Ok(output[self.cursor..].to_vec().into())
     }
 }
 
