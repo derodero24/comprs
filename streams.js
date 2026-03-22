@@ -9,6 +9,8 @@ const {
   GzipDecompressContext,
   DeflateCompressContext,
   DeflateDecompressContext,
+  Lz4CompressContext,
+  Lz4DecompressContext,
   detectFormat,
 } = require('./index.js');
 
@@ -282,6 +284,57 @@ function createZstdDecompressDictStream(dict, maxOutputSize) {
   });
 }
 
+/**
+ * Create a streaming LZ4 frame compression TransformStream.
+ *
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createLz4CompressStream() {
+  const ctx = new Lz4CompressContext();
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
+    },
+  });
+}
+
+/**
+ * Create a streaming LZ4 frame decompression TransformStream.
+ *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createLz4DecompressStream(maxOutputSize) {
+  const ctx = new Lz4DecompressContext(maxOutputSize);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+    },
+  });
+}
+
 function createDecompressContext(format, maxOutputSize) {
   switch (format) {
     case 'zstd':
@@ -290,6 +343,8 @@ function createDecompressContext(format, maxOutputSize) {
       return new GzipDecompressContext(maxOutputSize);
     case 'brotli':
       return new BrotliDecompressContext(maxOutputSize);
+    case 'lz4':
+      return new Lz4DecompressContext(maxOutputSize);
     default:
       throw new Error('unable to detect compression format from stream data');
   }
@@ -304,7 +359,7 @@ function enqueueIfNonEmpty(controller, result) {
 /**
  * Create a streaming auto-detect decompression TransformStream.
  *
- * Detects the compression format (zstd, gzip, or brotli) from the first
+ * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
@@ -366,5 +421,7 @@ module.exports = {
   createGzipDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
+  createLz4CompressStream,
+  createLz4DecompressStream,
   createDecompressStream,
 };

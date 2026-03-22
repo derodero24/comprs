@@ -16,6 +16,9 @@ const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 /// Gzip magic number: 0x1F 0x8B.
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
+/// LZ4 frame magic number: 0x184D2204.
+const LZ4_MAGIC: [u8; 4] = [0x04, 0x22, 0x4D, 0x18];
+
 /// Compression format detected from input data.
 #[napi(string_enum)]
 pub enum CompressionFormat {
@@ -25,17 +28,19 @@ pub enum CompressionFormat {
     Gzip,
     #[napi(value = "brotli")]
     Brotli,
+    #[napi(value = "lz4")]
+    Lz4,
     #[napi(value = "unknown")]
     Unknown,
 }
 
 /// Detect the compression format of the given data.
 ///
-/// Returns `"zstd"`, `"gzip"`, or `"brotli"`.
+/// Returns `"zstd"`, `"gzip"`, `"brotli"`, or `"lz4"`.
 /// Returns `"unknown"` if the format cannot be determined.
 ///
 /// Note: Brotli has no magic bytes, so it is detected by elimination.
-/// Data that does not match zstd or gzip is reported as `"brotli"` only
+/// Data that does not match zstd, gzip, or lz4 is reported as `"brotli"` only
 /// if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
 /// is returned.
 #[napi]
@@ -45,6 +50,7 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
         Format::Zstd => CompressionFormat::Zstd,
         Format::Gzip => CompressionFormat::Gzip,
         Format::Brotli => CompressionFormat::Brotli,
+        Format::Lz4 => CompressionFormat::Lz4,
         Format::Unknown => CompressionFormat::Unknown,
     }
 }
@@ -55,7 +61,7 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
 /// appropriate algorithm. The maximum decompressed size is 256 MB
 /// for all formats.
 ///
-/// Supported formats: zstd, gzip, brotli.
+/// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
 #[napi]
 pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
@@ -64,8 +70,9 @@ pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         Format::Zstd => crate::zstd_decompress(data),
         Format::Gzip => crate::gzip_decompress(data),
         Format::Brotli => crate::brotli_decompress(data),
+        Format::Lz4 => crate::lz4_decompress(data),
         Format::Unknown => Err(ZflateError::InvalidArg(
-            "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress) instead".to_string(),
+            "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress) instead".to_string(),
         )
         .into()),
     }
@@ -76,6 +83,7 @@ enum Format {
     Zstd,
     Gzip,
     Brotli,
+    Lz4,
     Unknown,
 }
 
@@ -85,6 +93,7 @@ impl std::fmt::Display for Format {
             Format::Zstd => write!(f, "zstd"),
             Format::Gzip => write!(f, "gzip"),
             Format::Brotli => write!(f, "brotli"),
+            Format::Lz4 => write!(f, "lz4"),
             Format::Unknown => write!(f, "unknown"),
         }
     }
@@ -96,6 +105,9 @@ fn detect(data: &[u8]) -> Format {
     }
     if data.len() >= 2 && data[..2] == GZIP_MAGIC {
         return Format::Gzip;
+    }
+    if data.len() >= 4 && data[..4] == LZ4_MAGIC {
+        return Format::Lz4;
     }
     // Brotli has no magic bytes. Attempt heuristic detection:
     // A valid brotli stream starts with a window size byte where the
@@ -203,8 +215,19 @@ impl Task for DecompressTask {
                 }
                 Ok(output)
             }
+            Format::Lz4 => {
+                let decoder = lz4_flex::frame::FrameDecoder::new(self.data.as_slice());
+                let init_cap =
+                    self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
+                crate::decompress_with_limit(
+                    decoder,
+                    MAX_DECOMPRESSED_SIZE,
+                    init_cap,
+                    "lz4 decompress",
+                )
+            }
             Format::Unknown => Err(ZflateError::InvalidArg(
-                "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress) instead".to_string(),
+                "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress) instead".to_string(),
             )
             .into()),
         }
@@ -256,6 +279,15 @@ mod tests {
             compressor.write_all(b"test data for brotli").unwrap();
         }
         assert_eq!(detect(&output), Format::Brotli);
+    }
+
+    #[test]
+    fn detect_lz4() {
+        let mut compressed = Vec::new();
+        let mut encoder = lz4_flex::frame::FrameEncoder::new(&mut compressed);
+        encoder.write_all(b"test data for lz4").unwrap();
+        encoder.finish().unwrap();
+        assert_eq!(detect(&compressed), Format::Lz4);
     }
 
     #[test]

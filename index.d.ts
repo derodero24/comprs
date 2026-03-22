@@ -128,6 +128,44 @@ export declare class GzipDecompressContext {
 }
 
 /**
+ * Streaming LZ4 frame compression context.
+ *
+ * Buffers input data and produces the compressed LZ4 frame on `finish()`.
+ * LZ4 frame format requires finalization to write a valid frame footer.
+ */
+export declare class Lz4CompressContext {
+  constructor()
+  /**
+   * Buffer a chunk of data for compression.
+   * Returns an empty buffer (compressed output is produced in `finish()`).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Flush the encoder's internal buffer. Returns empty (all output in `finish()`). */
+  flush(): Buffer
+  /**
+   * Finalize the compression stream. Compresses all buffered data and
+   * returns the complete LZ4 frame.
+   */
+  finish(): Buffer
+}
+
+/**
+ * Streaming LZ4 frame decompression context.
+ *
+ * Buffers compressed input and decompresses on `flush()`.
+ */
+export declare class Lz4DecompressContext {
+  constructor(maxOutputSize?: number | undefined | null)
+  /**
+   * Buffer a chunk of compressed data.
+   * Returns an empty buffer (decompressed output is produced in `flush()`).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Decompress all buffered data and return the result. */
+  flush(): Buffer
+}
+
+/**
  * Streaming zstd compression context.
  *
  * Maintains internal compression state across multiple `transform` calls,
@@ -258,6 +296,7 @@ export declare const enum CompressionFormat {
   Zstd = 'zstd',
   Gzip = 'gzip',
   Brotli = 'brotli',
+  Lz4 = 'lz4',
   Unknown = 'unknown'
 }
 
@@ -277,7 +316,7 @@ export declare function crc32(data: Buffer | Uint8Array, initialValue?: number |
  * appropriate algorithm. The maximum decompressed size is 256 MB
  * for all formats.
  *
- * Supported formats: zstd, gzip, brotli.
+ * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  */
 export declare function decompress(data: Buffer | Uint8Array): Buffer
@@ -347,11 +386,11 @@ export declare function deflateDecompressWithCapacityAsync(data: Buffer | Uint8A
 /**
  * Detect the compression format of the given data.
  *
- * Returns `"zstd"`, `"gzip"`, or `"brotli"`.
+ * Returns `"zstd"`, `"gzip"`, `"brotli"`, or `"lz4"`.
  * Returns `"unknown"` if the format cannot be determined.
  *
  * Note: Brotli has no magic bytes, so it is detected by elimination.
- * Data that does not match zstd or gzip is reported as `"brotli"` only
+ * Data that does not match zstd, gzip, or lz4 is reported as `"brotli"` only
  * if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
  * is returned.
  */
@@ -444,6 +483,54 @@ export interface GzipHeaderOptions {
  * Returns the parsed header fields including filename, mtime, comment, OS, and extra data.
  */
 export declare function gzipReadHeader(data: Buffer | Uint8Array): GzipHeader
+
+/**
+ * Compress data using LZ4 frame format.
+ *
+ * Returns the compressed data as a Buffer.
+ */
+export declare function lz4Compress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously compress data using LZ4 frame format.
+ *
+ * Returns a Promise that resolves to the compressed data as a Buffer.
+ */
+export declare function lz4CompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
+
+/**
+ * Decompress LZ4 frame-compressed data.
+ *
+ * Returns the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacity`
+ * for larger data.
+ */
+export declare function lz4Decompress(data: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress LZ4 frame-compressed data.
+ *
+ * Returns a Promise that resolves to the decompressed data as a Buffer.
+ * The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacityAsync`
+ * for larger data.
+ */
+export declare function lz4DecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
+
+/**
+ * Decompress LZ4 frame-compressed data with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ */
+export declare function lz4DecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
+
+/**
+ * Asynchronously decompress LZ4 frame-compressed data with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ */
+export declare function lz4DecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 
 /** Returns the library version. */
 export declare function version(): string

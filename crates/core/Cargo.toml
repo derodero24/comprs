@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 brotli = { workspace = true }
 crc32fast = { workspace = true }
+lz4_flex = { workspace = true }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 zstd = { workspace = true }
