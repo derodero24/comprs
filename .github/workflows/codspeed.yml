@@ -4,6 +4,9 @@ on:
   push:
     branches: [develop]
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
       - "crates/**"
       - "__test__/**/*.bench.ts"
       - "__test__/bench-fixtures.ts"
@@ -18,6 +21,9 @@ on:
   pull_request:
     branches: [develop]
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
       - "crates/**"
       - "__test__/**/*.bench.ts"
       - "__test__/bench-fixtures.ts"
