@@ -18,7 +18,7 @@ napi-derive = { version = "3", default-features = false, features = ["type-def"]
 brotli = { version = "8", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-lz4_flex = { version = "0.11", default-features = false, features = ["std", "frame"] }
+lz4_flex = { version = "0.13", default-features = false, features = ["std", "frame"] }
 
 # Utilities
 crc32fast = "1"
