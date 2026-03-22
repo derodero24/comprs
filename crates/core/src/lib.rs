@@ -7,6 +7,8 @@ mod detect;
 mod error;
 mod gzip;
 mod gzip_stream;
+mod lz4;
+mod lz4_stream;
 mod zstd;
 mod zstd_stream;
 
@@ -82,6 +84,8 @@ pub use crc::*;
 pub use detect::*;
 pub use gzip::*;
 pub use gzip_stream::*;
+pub use lz4::*;
+pub use lz4_stream::*;
 pub use zstd::*;
 pub use zstd_stream::*;
 

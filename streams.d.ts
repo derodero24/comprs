@@ -95,6 +95,24 @@ export declare function createDeflateDecompressStream(
 ): TransformStream<Uint8Array, Uint8Array>;
 
 /**
+ * Create a streaming LZ4 frame compression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 compression.
+ */
+export declare function createLz4CompressStream(): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming LZ4 frame decompression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createLz4DecompressStream(
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
+
+/**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked compression
@@ -125,7 +143,7 @@ export declare function createZstdDecompressDictStream(
 /**
  * Create a streaming auto-detect decompression TransformStream.
  *
- * Detects the compression format (zstd, gzip, or brotli) from the first
+ * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
