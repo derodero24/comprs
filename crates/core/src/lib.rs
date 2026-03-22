@@ -10,6 +10,8 @@ mod gzip_stream;
 mod zstd;
 mod zstd_stream;
 
+use std::io::Read;
+
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -41,6 +43,37 @@ fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize> {
             }
         }
     }
+}
+
+/// Decompress data from a reader with a size limit.
+///
+/// Uses `Read::read_to_end` to write directly into the output Vec's spare
+/// capacity, avoiding the double-copy through an intermediate stack buffer.
+/// The `Take` wrapper enforces the size limit without per-chunk checking.
+fn decompress_with_limit(
+    decoder: impl Read,
+    max_size: usize,
+    init_cap: usize,
+    context: &'static str,
+) -> Result<Vec<u8>> {
+    let mut output = Vec::with_capacity(init_cap);
+    decoder
+        .take((max_size as u64).saturating_add(1))
+        .read_to_end(&mut output)
+        .map_err(|e| {
+            napi::Error::from(ZflateError::Operation {
+                context,
+                source: e.into(),
+            })
+        })?;
+    if output.len() > max_size {
+        return Err(ZflateError::SizeLimit {
+            context,
+            limit: max_size,
+        }
+        .into());
+    }
+    Ok(output)
 }
 
 pub use brotli_impl::*;
