@@ -1,6 +1,6 @@
 //! Brotli compression and decompression.
 
-use std::io::{Read, Write};
+use std::io::Write;
 
 use napi::Task;
 use napi::bindgen_prelude::*;
@@ -57,32 +57,15 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
 #[napi]
 pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let input = crate::as_bytes(&data);
-    let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-
-    let mut output = Vec::with_capacity((input.len() * 4).min(MAX_DECOMPRESSED_SIZE));
-    let mut buf = [0u8; BUFFER_SIZE];
-
-    loop {
-        let n = decompressor.read(&mut buf).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
-                context: "brotli decompress",
-                source: e.into(),
-            })
-        })?;
-        if n == 0 {
-            break;
-        }
-        if output.len() + n > MAX_DECOMPRESSED_SIZE {
-            return Err(ZflateError::SizeLimit {
-                context: "brotli decompress",
-                limit: MAX_DECOMPRESSED_SIZE,
-            }
-            .into());
-        }
-        output.extend_from_slice(&buf[..n]);
-    }
-
-    Ok(output.into())
+    let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
+    let init_cap = (input.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+    crate::decompress_with_limit(
+        decompressor,
+        MAX_DECOMPRESSED_SIZE,
+        init_cap,
+        "brotli decompress",
+    )
+    .map(|v| v.into())
 }
 
 /// Decompress Brotli-compressed data with explicit capacity.
@@ -102,32 +85,9 @@ pub fn brotli_decompress_with_capacity(
     }
     let input = crate::as_bytes(&data);
     let cap = capacity as usize;
-
-    let mut decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let mut output = Vec::with_capacity((input.len() * 4).min(cap));
-    let mut buf = [0u8; BUFFER_SIZE];
-
-    loop {
-        let n = decompressor.read(&mut buf).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
-                context: "brotli decompress",
-                source: e.into(),
-            })
-        })?;
-        if n == 0 {
-            break;
-        }
-        if output.len() + n > cap {
-            return Err(ZflateError::SizeLimit {
-                context: "brotli decompress",
-                limit: cap,
-            }
-            .into());
-        }
-        output.extend_from_slice(&buf[..n]);
-    }
-
-    Ok(output.into())
+    let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
+    let init_cap = (input.len() * 4).min(cap);
+    crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress").map(|v| v.into())
 }
 
 // --- Async tasks ---
@@ -199,31 +159,14 @@ impl Task for BrotliDecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decompressor.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "brotli decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(ZflateError::SizeLimit {
-                    context: "brotli decompress",
-                    limit: MAX_DECOMPRESSED_SIZE,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
+        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(
+            decompressor,
+            MAX_DECOMPRESSED_SIZE,
+            init_cap,
+            "brotli decompress",
+        )
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -254,31 +197,9 @@ impl Task for BrotliDecompressWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decompressor.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "brotli decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > self.capacity {
-                return Err(ZflateError::SizeLimit {
-                    context: "brotli decompress",
-                    limit: self.capacity,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
+        let init_cap = (self.data.len() * 4).min(self.capacity);
+        crate::decompress_with_limit(decompressor, self.capacity, init_cap, "brotli decompress")
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

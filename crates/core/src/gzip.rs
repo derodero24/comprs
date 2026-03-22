@@ -1,6 +1,6 @@
 //! Gzip and raw deflate compression and decompression.
 
-use std::io::{Read, Write};
+use std::io::Write;
 
 use flate2::Compression;
 use flate2::GzBuilder;
@@ -14,9 +14,6 @@ use crate::ZflateError;
 
 /// Default compression level for gzip/deflate (flate2 default = 6).
 const DEFAULT_LEVEL: u32 = 6;
-
-/// Default buffer size for chunked read operations.
-const BUFFER_SIZE: usize = 4096;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -173,31 +170,9 @@ pub fn gzip_decompress_with_capacity(
 }
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
-    let mut decoder = MultiGzDecoder::new(input);
-    let mut output = Vec::with_capacity((input.len() * 4).min(max_size));
-    let mut buf = [0u8; BUFFER_SIZE];
-
-    loop {
-        let n = decoder.read(&mut buf).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
-                context: "gzip decompress",
-                source: e.into(),
-            })
-        })?;
-        if n == 0 {
-            break;
-        }
-        if output.len() + n > max_size {
-            return Err(ZflateError::SizeLimit {
-                context: "gzip decompress",
-                limit: max_size,
-            }
-            .into());
-        }
-        output.extend_from_slice(&buf[..n]);
-    }
-
-    Ok(output.into())
+    let decoder = MultiGzDecoder::new(input);
+    let init_cap = (input.len() * 4).min(max_size);
+    crate::decompress_with_limit(decoder, max_size, init_cap, "gzip decompress").map(|v| v.into())
 }
 
 /// Compress data using raw deflate (no gzip header/trailer).
@@ -259,31 +234,10 @@ pub fn deflate_decompress_with_capacity(
 }
 
 fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
-    let mut decoder = DeflateDecoder::new(input);
-    let mut output = Vec::with_capacity((input.len() * 4).min(max_size));
-    let mut buf = [0u8; BUFFER_SIZE];
-
-    loop {
-        let n = decoder.read(&mut buf).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
-                context: "deflate decompress",
-                source: e.into(),
-            })
-        })?;
-        if n == 0 {
-            break;
-        }
-        if output.len() + n > max_size {
-            return Err(ZflateError::SizeLimit {
-                context: "deflate decompress",
-                limit: max_size,
-            }
-            .into());
-        }
-        output.extend_from_slice(&buf[..n]);
-    }
-
-    Ok(output.into())
+    let decoder = DeflateDecoder::new(input);
+    let init_cap = (input.len() * 4).min(max_size);
+    crate::decompress_with_limit(decoder, max_size, init_cap, "deflate decompress")
+        .map(|v| v.into())
 }
 
 // --- Async tasks ---
@@ -352,31 +306,9 @@ impl Task for GzipDecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decoder = MultiGzDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decoder.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "gzip decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(ZflateError::SizeLimit {
-                    context: "gzip decompress",
-                    limit: MAX_DECOMPRESSED_SIZE,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decoder = MultiGzDecoder::new(self.data.as_slice());
+        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(decoder, MAX_DECOMPRESSED_SIZE, init_cap, "gzip decompress")
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -459,31 +391,14 @@ impl Task for DeflateDecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decoder = DeflateDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decoder.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "deflate decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                return Err(ZflateError::SizeLimit {
-                    context: "deflate decompress",
-                    limit: MAX_DECOMPRESSED_SIZE,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decoder = DeflateDecoder::new(self.data.as_slice());
+        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(
+            decoder,
+            MAX_DECOMPRESSED_SIZE,
+            init_cap,
+            "deflate decompress",
+        )
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -515,31 +430,9 @@ impl Task for GzipDecompressWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decoder = MultiGzDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decoder.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "gzip decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > self.capacity {
-                return Err(ZflateError::SizeLimit {
-                    context: "gzip decompress",
-                    limit: self.capacity,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decoder = MultiGzDecoder::new(self.data.as_slice());
+        let init_cap = (self.data.len() * 4).min(self.capacity);
+        crate::decompress_with_limit(decoder, self.capacity, init_cap, "gzip decompress")
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -581,31 +474,9 @@ impl Task for DeflateDecompressWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut decoder = DeflateDecoder::new(self.data.as_slice());
-        let mut output = Vec::with_capacity((self.data.len() * 4).min(self.capacity));
-        let mut buf = [0u8; BUFFER_SIZE];
-
-        loop {
-            let n = decoder.read(&mut buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
-                    context: "deflate decompress",
-                    source: e.into(),
-                })
-            })?;
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > self.capacity {
-                return Err(ZflateError::SizeLimit {
-                    context: "deflate decompress",
-                    limit: self.capacity,
-                }
-                .into());
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-
-        Ok(output)
+        let decoder = DeflateDecoder::new(self.data.as_slice());
+        let init_cap = (self.data.len() * 4).min(self.capacity);
+        crate::decompress_with_limit(decoder, self.capacity, init_cap, "deflate decompress")
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -638,6 +509,8 @@ pub fn deflate_decompress_with_capacity_async(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use super::*;
 
     #[test]
@@ -735,7 +608,7 @@ mod tests {
 
         let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; BUFFER_SIZE];
+        let mut buf = [0u8; 4096];
         let mut exceeded = false;
         loop {
             let n = decoder.read(&mut buf).unwrap();
@@ -760,7 +633,7 @@ mod tests {
 
         let mut decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; BUFFER_SIZE];
+        let mut buf = [0u8; 4096];
         let mut exceeded = false;
         loop {
             let n = decoder.read(&mut buf).unwrap();
@@ -787,7 +660,7 @@ mod tests {
 
         let mut decoder = DeflateDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; BUFFER_SIZE];
+        let mut buf = [0u8; 4096];
         let mut exceeded = false;
         loop {
             let n = decoder.read(&mut buf).unwrap();
@@ -812,7 +685,7 @@ mod tests {
 
         let mut decoder = DeflateDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; BUFFER_SIZE];
+        let mut buf = [0u8; 4096];
         let mut exceeded = false;
         loop {
             let n = decoder.read(&mut buf).unwrap();
