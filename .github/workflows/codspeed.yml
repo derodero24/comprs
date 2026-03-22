@@ -4,11 +4,11 @@ on:
   push:
     branches: [develop]
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
       - "crates/**"
-      - "__test__/zstd.bench.ts"
-      - "__test__/brotli.bench.ts"
-      - "__test__/gzip.bench.ts"
-      - "__test__/deflate.bench.ts"
+      - "__test__/**/*.bench.ts"
       - "__test__/bench-fixtures.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
@@ -21,11 +21,11 @@ on:
   pull_request:
     branches: [develop]
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
       - "crates/**"
-      - "__test__/zstd.bench.ts"
-      - "__test__/brotli.bench.ts"
-      - "__test__/gzip.bench.ts"
-      - "__test__/deflate.bench.ts"
+      - "__test__/**/*.bench.ts"
       - "__test__/bench-fixtures.ts"
       - "vitest.config.mts"
       - ".github/workflows/codspeed.yml"
@@ -46,6 +46,30 @@ permissions:
   id-token: write
 
 jobs:
+  rust-benchmarks:
+    name: Rust Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: codspeed
+
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+
+      - name: Build benchmarks
+        run: cargo codspeed build -p zflate-bench
+
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v4
+        with:
+          mode: simulation
+          run: cargo codspeed run -p zflate-bench
+
   js-benchmarks:
     name: JS Benchmarks
     runs-on: ubuntu-latest
@@ -71,4 +95,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
-          run: pnpm vitest bench __test__/zstd.bench.ts __test__/brotli.bench.ts __test__/gzip.bench.ts __test__/deflate.bench.ts
+          run: pnpm run bench:ci
