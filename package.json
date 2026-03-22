@@ -119,6 +119,7 @@
     "test:bun": "bun test e2e/wasm-bun.test.ts",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
+    "bench:ci": "vitest bench --exclude '**/*.compare.bench.ts'",
     "attw": "attw --pack .",
     "publint": "publint",
     "verify": "pnpm run check && cargo clippy -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
