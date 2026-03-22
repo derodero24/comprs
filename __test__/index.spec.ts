@@ -135,6 +135,18 @@ describe('zstdDecompressWithCapacity', () => {
     );
   });
 
+  it('should throw with fractional capacity', () => {
+    expect(() => zstdDecompressWithCapacity(compressed, 1.5)).toThrow(
+      /capacity must be a non-negative integer/,
+    );
+  });
+
+  it('should throw with excessively large capacity', () => {
+    expect(() => zstdDecompressWithCapacity(compressed, Number.MAX_VALUE)).toThrow(
+      /capacity must be a non-negative integer/,
+    );
+  });
+
   it('should accept capacity of 0 for empty data', () => {
     const empty = Buffer.alloc(0);
     const emptyCompressed = zstdCompress(empty);
