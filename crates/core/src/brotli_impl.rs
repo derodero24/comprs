@@ -58,7 +58,7 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
 pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let input = crate::as_bytes(&data);
     let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let init_cap = (input.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+    let init_cap = (input.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
     crate::decompress_with_limit(
         decompressor,
         MAX_DECOMPRESSED_SIZE,
@@ -86,7 +86,7 @@ pub fn brotli_decompress_with_capacity(
     let input = crate::as_bytes(&data);
     let cap = capacity as usize;
     let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let init_cap = (input.len() * 4).min(cap);
+    let init_cap = (input.len().saturating_mul(4)).min(cap);
     crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress").map(|v| v.into())
 }
 
@@ -160,7 +160,7 @@ impl Task for BrotliDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
         crate::decompress_with_limit(
             decompressor,
             MAX_DECOMPRESSED_SIZE,
@@ -198,7 +198,7 @@ impl Task for BrotliDecompressWithCapacityTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let init_cap = (self.data.len() * 4).min(self.capacity);
+        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
         crate::decompress_with_limit(decompressor, self.capacity, init_cap, "brotli decompress")
     }
 

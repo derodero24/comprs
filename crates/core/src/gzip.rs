@@ -171,7 +171,7 @@ pub fn gzip_decompress_with_capacity(
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
     let decoder = MultiGzDecoder::new(input);
-    let init_cap = (input.len() * 4).min(max_size);
+    let init_cap = (input.len().saturating_mul(4)).min(max_size);
     crate::decompress_with_limit(decoder, max_size, init_cap, "gzip decompress").map(|v| v.into())
 }
 
@@ -235,7 +235,7 @@ pub fn deflate_decompress_with_capacity(
 
 fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
     let decoder = DeflateDecoder::new(input);
-    let init_cap = (input.len() * 4).min(max_size);
+    let init_cap = (input.len().saturating_mul(4)).min(max_size);
     crate::decompress_with_limit(decoder, max_size, init_cap, "deflate decompress")
         .map(|v| v.into())
 }
@@ -307,7 +307,7 @@ impl Task for GzipDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = MultiGzDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
         crate::decompress_with_limit(decoder, MAX_DECOMPRESSED_SIZE, init_cap, "gzip decompress")
     }
 
@@ -392,7 +392,7 @@ impl Task for DeflateDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = DeflateDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE);
+        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
         crate::decompress_with_limit(
             decoder,
             MAX_DECOMPRESSED_SIZE,
@@ -431,7 +431,7 @@ impl Task for GzipDecompressWithCapacityTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = MultiGzDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len() * 4).min(self.capacity);
+        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
         crate::decompress_with_limit(decoder, self.capacity, init_cap, "gzip decompress")
     }
 
@@ -475,7 +475,7 @@ impl Task for DeflateDecompressWithCapacityTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = DeflateDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len() * 4).min(self.capacity);
+        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
         crate::decompress_with_limit(decoder, self.capacity, init_cap, "deflate decompress")
     }
 
@@ -596,110 +596,87 @@ mod tests {
         // the valid range works correctly (see round-trip tests).
     }
 
-    #[test]
-    fn gzip_decompress_size_limit_concept() {
-        // Verify that chunked reading with a size check can detect oversized output.
-        // The napi-exported functions use this pattern; here we test the core logic.
-        let limit: usize = 1024;
-        let original: Vec<u8> = vec![0u8; limit + 1];
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        let mut buf = [0u8; 4096];
-        let mut exceeded = false;
-        loop {
-            let n = decoder.read(&mut buf).unwrap();
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > limit {
-                exceeded = true;
-                break;
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-        assert!(exceeded, "Should detect data exceeding the limit");
-    }
+    // Tests exercise the read_to_end + Take pattern used by decompress_with_limit.
+    // Direct calls to decompress_with_limit are avoided because napi::Error::Drop
+    // references napi symbols unavailable in standalone test binaries.
 
     #[test]
-    fn gzip_decompress_within_limit() {
+    fn gzip_take_read_to_end_within_limit() {
         let original = b"Hello, size-limited gzip!";
         let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
+        let decoder = MultiGzDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; 4096];
-        let mut exceeded = false;
-        loop {
-            let n = decoder.read(&mut buf).unwrap();
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                exceeded = true;
-                break;
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-        assert!(!exceeded);
+        decoder.take(1025).read_to_end(&mut output).unwrap();
         assert_eq!(original.as_slice(), output.as_slice());
     }
 
     #[test]
-    fn deflate_decompress_size_limit_concept() {
+    fn gzip_take_read_to_end_exceeds_limit() {
+        let limit: usize = 1024;
+        let original: Vec<u8> = vec![0u8; limit + 1];
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = MultiGzDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        decoder
+            .take((limit as u64).saturating_add(1))
+            .read_to_end(&mut output)
+            .unwrap();
+        assert!(
+            output.len() > limit,
+            "Take should allow reading past the limit to detect overflow"
+        );
+    }
+
+    #[test]
+    fn gzip_take_read_to_end_exact_boundary() {
+        let original = vec![42u8; 1024];
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = MultiGzDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        decoder.take(1025).read_to_end(&mut output).unwrap();
+        assert_eq!(original, output);
+    }
+
+    #[test]
+    fn deflate_take_read_to_end_within_limit() {
+        let original = b"Hello, size-limited deflate!";
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut output = Vec::new();
+        decoder.take(1025).read_to_end(&mut output).unwrap();
+        assert_eq!(original.as_slice(), output.as_slice());
+    }
+
+    #[test]
+    fn deflate_take_read_to_end_exceeds_limit() {
         let limit: usize = 1024;
         let original: Vec<u8> = vec![0u8; limit + 1];
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
         encoder.write_all(&original).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let decoder = DeflateDecoder::new(compressed.as_slice());
         let mut output = Vec::new();
-        let mut buf = [0u8; 4096];
-        let mut exceeded = false;
-        loop {
-            let n = decoder.read(&mut buf).unwrap();
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > limit {
-                exceeded = true;
-                break;
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-        assert!(exceeded, "Should detect data exceeding the limit");
-    }
-
-    #[test]
-    fn deflate_decompress_within_limit() {
-        let original = b"Hello, size-limited deflate!";
-        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = DeflateDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        let mut buf = [0u8; 4096];
-        let mut exceeded = false;
-        loop {
-            let n = decoder.read(&mut buf).unwrap();
-            if n == 0 {
-                break;
-            }
-            if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                exceeded = true;
-                break;
-            }
-            output.extend_from_slice(&buf[..n]);
-        }
-        assert!(!exceeded);
-        assert_eq!(original.as_slice(), output.as_slice());
+        decoder
+            .take((limit as u64).saturating_add(1))
+            .read_to_end(&mut output)
+            .unwrap();
+        assert!(
+            output.len() > limit,
+            "Take should allow reading past the limit to detect overflow"
+        );
     }
 
     #[test]

@@ -153,7 +153,7 @@ impl Task for DecompressTask {
                 let mut decoder =
                     flate2::read::MultiGzDecoder::new(self.data.as_slice());
                 let mut output =
-                    Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
+                    Vec::with_capacity((self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE));
                 let mut buf = [0u8; BUFFER_SIZE];
                 loop {
                     let n = decoder.read(&mut buf).map_err(|e| {
@@ -180,7 +180,7 @@ impl Task for DecompressTask {
                 let mut decompressor =
                     brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
                 let mut output =
-                    Vec::with_capacity((self.data.len() * 4).min(MAX_DECOMPRESSED_SIZE));
+                    Vec::with_capacity((self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE));
                 let mut buf = [0u8; BUFFER_SIZE];
                 loop {
                     let n = decompressor.read(&mut buf).map_err(|e| {
