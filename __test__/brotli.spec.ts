@@ -120,19 +120,19 @@ describe('brotliDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 

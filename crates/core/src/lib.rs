@@ -47,6 +47,24 @@ fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize> {
     }
 }
 
+/// Validate a capacity parameter from JavaScript.
+///
+/// JavaScript numbers are f64, but capacity must be a non-negative integer
+/// that fits in usize. Rejects NaN, Infinity, negative, fractional, and
+/// values exceeding usize::MAX.
+fn validate_capacity(capacity: f64) -> Result<usize> {
+    if !capacity.is_finite()
+        || capacity < 0.0
+        || capacity.fract() != 0.0
+        || capacity > usize::MAX as f64
+    {
+        return Err(
+            ZflateError::InvalidArg("capacity must be a non-negative integer".to_string()).into(),
+        );
+    }
+    Ok(capacity as usize)
+}
+
 /// Decompress data from a reader with a size limit.
 ///
 /// Uses `Read::read_to_end` to write directly into the output Vec's spare

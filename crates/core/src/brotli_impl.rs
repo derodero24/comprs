@@ -77,14 +77,8 @@ pub fn brotli_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
+    let cap = crate::validate_capacity(capacity)?;
     let input = crate::as_bytes(&data);
-    let cap = capacity as usize;
     let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
     let init_cap = (input.len().saturating_mul(4)).min(cap);
     crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress").map(|v| v.into())
@@ -216,14 +210,8 @@ pub fn brotli_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<BrotliDecompressWithCapacityTask>> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
+    let cap = crate::validate_capacity(capacity)?;
     let input = crate::as_bytes(&data).to_vec();
-    let cap = capacity as usize;
     Ok(AsyncTask::new(BrotliDecompressWithCapacityTask {
         data: input,
         capacity: cap,
