@@ -160,13 +160,8 @@ pub fn gzip_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
-    decompress_gzip_with_limit(crate::as_bytes(&data), capacity as usize)
+    let cap = crate::validate_capacity(capacity)?;
+    decompress_gzip_with_limit(crate::as_bytes(&data), cap)
 }
 
 fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
@@ -224,13 +219,8 @@ pub fn deflate_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
-    decompress_deflate_with_limit(crate::as_bytes(&data), capacity as usize)
+    let cap = crate::validate_capacity(capacity)?;
+    decompress_deflate_with_limit(crate::as_bytes(&data), cap)
 }
 
 fn decompress_deflate_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
@@ -449,14 +439,8 @@ pub fn gzip_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<GzipDecompressWithCapacityTask>> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
+    let cap = crate::validate_capacity(capacity)?;
     let input = crate::as_bytes(&data).to_vec();
-    let cap = capacity as usize;
     Ok(AsyncTask::new(GzipDecompressWithCapacityTask {
         data: input,
         capacity: cap,
@@ -493,14 +477,8 @@ pub fn deflate_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<DeflateDecompressWithCapacityTask>> {
-    if !capacity.is_finite() || capacity < 0.0 {
-        return Err(ZflateError::InvalidArg(
-            "capacity must be a positive finite number".to_string(),
-        )
-        .into());
-    }
+    let cap = crate::validate_capacity(capacity)?;
     let input = crate::as_bytes(&data).to_vec();
-    let cap = capacity as usize;
     Ok(AsyncTask::new(DeflateDecompressWithCapacityTask {
         data: input,
         capacity: cap,

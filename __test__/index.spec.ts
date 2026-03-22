@@ -119,19 +119,19 @@ describe('zstdDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 

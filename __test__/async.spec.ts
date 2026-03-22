@@ -301,7 +301,7 @@ describe('zstdDecompressWithCapacityAsync', () => {
   it('should reject with invalid capacity', () => {
     const compressed = zstdCompress(Buffer.from('test'));
     expect(() => zstdDecompressWithCapacityAsync(compressed, -1)).toThrow(
-      'capacity must be a positive finite number',
+      'capacity must be a non-negative integer',
     );
   });
 });
@@ -408,7 +408,7 @@ describe('gzipDecompressWithCapacityAsync', () => {
   it('should reject with invalid capacity', () => {
     const compressed = gzipCompress(Buffer.from('test'));
     expect(() => gzipDecompressWithCapacityAsync(compressed, -1)).toThrow(
-      'capacity must be a positive finite number',
+      'capacity must be a non-negative integer',
     );
   });
 });
@@ -424,7 +424,7 @@ describe('deflateDecompressWithCapacityAsync', () => {
   it('should reject with invalid capacity', () => {
     const compressed = deflateCompress(Buffer.from('test'));
     expect(() => deflateDecompressWithCapacityAsync(compressed, -1)).toThrow(
-      'capacity must be a positive finite number',
+      'capacity must be a non-negative integer',
     );
   });
 });
@@ -440,7 +440,7 @@ describe('brotliDecompressWithCapacityAsync', () => {
   it('should reject with invalid capacity', () => {
     const compressed = brotliCompress(Buffer.from('test'));
     expect(() => brotliDecompressWithCapacityAsync(compressed, -1)).toThrow(
-      'capacity must be a positive finite number',
+      'capacity must be a non-negative integer',
     );
   });
 });

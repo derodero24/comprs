@@ -129,19 +129,19 @@ describe('gzipDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
@@ -272,19 +272,19 @@ describe('deflateDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
