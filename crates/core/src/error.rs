@@ -5,7 +5,7 @@ use thiserror::Error;
 
 /// Errors produced by comprs compression and decompression operations.
 #[derive(Error, Debug)]
-pub enum ZflateError {
+pub enum ComprsError {
     /// Compression or decompression operation failure.
     #[error("{context} failed: {source}")]
     Operation {
@@ -35,10 +35,10 @@ pub enum ZflateError {
     StreamFinished(&'static str),
 }
 
-impl From<ZflateError> for napi::Error {
-    fn from(e: ZflateError) -> Self {
+impl From<ComprsError> for napi::Error {
+    fn from(e: ComprsError) -> Self {
         match &e {
-            ZflateError::InvalidArg(_) => Error::new(Status::InvalidArg, e.to_string()),
+            ComprsError::InvalidArg(_) => Error::new(Status::InvalidArg, e.to_string()),
             _ => Error::new(Status::GenericFailure, e.to_string()),
         }
     }

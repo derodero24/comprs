@@ -7,7 +7,7 @@ use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder, MultiGzDecoder};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression level for gzip/deflate (same as zlib default).
 const DEFAULT_LEVEL: u32 = 6;
@@ -27,7 +27,7 @@ impl GzipCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if level > 9 {
-            return Err(ZflateError::InvalidArg(
+            return Err(ComprsError::InvalidArg(
                 "gzip compression level must be between 0 and 9".to_string(),
             )
             .into());
@@ -45,10 +45,10 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip stream compress",
                 source: e.into(),
             })
@@ -65,10 +65,10 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         encoder.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip stream flush",
                 source: e.into(),
             })
@@ -86,10 +86,10 @@ impl GzipCompressContext {
         let encoder = self
             .encoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         encoder.finish().map(|v| v.into()).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip stream finish",
                 source: e.into(),
             })
@@ -128,13 +128,13 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         let input = crate::as_bytes(&chunk);
         let mut pos = 0;
         while pos < input.len() {
             let n = decoder.write(&input[pos..]).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "gzip stream decompress",
                     source: e.into(),
                 })
@@ -149,7 +149,7 @@ impl GzipDecompressContext {
         let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "gzip stream decompress",
                 limit: self.max_output_size,
             }
@@ -164,10 +164,10 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         decoder.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip stream flush",
                 source: e.into(),
             })
@@ -177,7 +177,7 @@ impl GzipDecompressContext {
         let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "gzip stream decompress",
                 limit: self.max_output_size,
             }
@@ -193,10 +193,10 @@ impl GzipDecompressContext {
         let decoder = self
             .decoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("gzip stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("gzip stream")))?;
 
         decoder.finish().map(|v| v.into()).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip stream finish",
                 source: e.into(),
             })
@@ -219,7 +219,7 @@ impl DeflateCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if level > 9 {
-            return Err(ZflateError::InvalidArg(
+            return Err(ComprsError::InvalidArg(
                 "deflate compression level must be between 0 and 9".to_string(),
             )
             .into());
@@ -237,10 +237,10 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         encoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream compress",
                 source: e.into(),
             })
@@ -257,10 +257,10 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         encoder.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream flush",
                 source: e.into(),
             })
@@ -278,10 +278,10 @@ impl DeflateCompressContext {
         let encoder = self
             .encoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         encoder.finish().map(|v| v.into()).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream finish",
                 source: e.into(),
             })
@@ -320,10 +320,10 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         decoder.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream decompress",
                 source: e.into(),
             })
@@ -333,7 +333,7 @@ impl DeflateDecompressContext {
         let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "deflate stream decompress",
                 limit: self.max_output_size,
             }
@@ -348,10 +348,10 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         decoder.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream flush",
                 source: e.into(),
             })
@@ -361,7 +361,7 @@ impl DeflateDecompressContext {
         let data = std::mem::take(output);
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "deflate stream decompress",
                 limit: self.max_output_size,
             }
@@ -377,10 +377,10 @@ impl DeflateDecompressContext {
         let decoder = self
             .decoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("deflate stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("deflate stream")))?;
 
         decoder.finish().map(|v| v.into()).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate stream finish",
                 source: e.into(),
             })

@@ -10,7 +10,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression level for gzip/deflate (flate2 default = 6).
 const DEFAULT_LEVEL: u32 = 6;
@@ -26,7 +26,7 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "gzip compression level must be between 0 and 9".to_string(),
         )
         .into());
@@ -35,13 +35,13 @@ pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Re
 
     let mut encoder = GzEncoder::new(Vec::with_capacity(input.len()), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "gzip compress",
             source: e.into(),
         })
     })?;
     encoder.finish().map(|v| v.into()).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "gzip compress",
             source: e.into(),
         })
@@ -85,7 +85,7 @@ pub fn gzip_compress_with_header(
 ) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "gzip compression level must be between 0 and 9".to_string(),
         )
         .into());
@@ -102,13 +102,13 @@ pub fn gzip_compress_with_header(
 
     let mut encoder = builder.write(Vec::with_capacity(input.len()), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "gzip compress with header",
             source: e.into(),
         })
     })?;
     encoder.finish().map(|v| v.into()).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "gzip compress with header",
             source: e.into(),
         })
@@ -123,7 +123,7 @@ pub fn gzip_read_header(data: Either<Buffer, Uint8Array>) -> Result<GzipHeader> 
     let input = crate::as_bytes(&data);
     let decoder = GzDecoder::new(input);
     let header = decoder.header().ok_or_else(|| {
-        napi::Error::from(ZflateError::InvalidArg(
+        napi::Error::from(ComprsError::InvalidArg(
             "invalid gzip data: unable to parse header".to_string(),
         ))
     })?;
@@ -178,7 +178,7 @@ fn decompress_gzip_with_limit(input: &[u8], max_size: usize) -> Result<Buffer> {
 pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "deflate compression level must be between 0 and 9".to_string(),
         )
         .into());
@@ -187,13 +187,13 @@ pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) ->
 
     let mut encoder = DeflateEncoder::new(Vec::with_capacity(input.len()), Compression::new(level));
     encoder.write_all(input).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "deflate compress",
             source: e.into(),
         })
     })?;
     encoder.finish().map(|v| v.into()).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "deflate compress",
             source: e.into(),
         })
@@ -248,13 +248,13 @@ impl Task for GzipCompressTask {
             Compression::new(self.level),
         );
         encoder.write_all(&self.data).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip compress",
                 source: e.into(),
             })
         })?;
         encoder.finish().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "gzip compress",
                 source: e.into(),
             })
@@ -277,7 +277,7 @@ pub fn gzip_compress_async(
 ) -> Result<AsyncTask<GzipCompressTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "gzip compression level must be between 0 and 9".to_string(),
         )
         .into());
@@ -333,13 +333,13 @@ impl Task for DeflateCompressTask {
             Compression::new(self.level),
         );
         encoder.write_all(&self.data).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate compress",
                 source: e.into(),
             })
         })?;
         encoder.finish().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "deflate compress",
                 source: e.into(),
             })
@@ -362,7 +362,7 @@ pub fn deflate_compress_async(
 ) -> Result<AsyncTask<DeflateCompressTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if level > 9 {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "deflate compression level must be between 0 and 9".to_string(),
         )
         .into());

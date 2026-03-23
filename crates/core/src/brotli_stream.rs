@@ -5,7 +5,7 @@ use std::io::Write;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression quality for brotli.
 const DEFAULT_QUALITY: u32 = 6;
@@ -31,7 +31,7 @@ impl BrotliCompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self> {
         let quality = quality.unwrap_or(DEFAULT_QUALITY);
         if quality > 11 {
-            return Err(ZflateError::InvalidArg(
+            return Err(ComprsError::InvalidArg(
                 "brotli quality must be between 0 and 11".to_string(),
             )
             .into());
@@ -50,10 +50,10 @@ impl BrotliCompressContext {
         let compressor = self
             .compressor
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
 
         compressor.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "brotli stream compress",
                 source: e.into(),
             })
@@ -70,10 +70,10 @@ impl BrotliCompressContext {
         let compressor = self
             .compressor
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
 
         compressor.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "brotli stream flush",
                 source: e.into(),
             })
@@ -90,7 +90,7 @@ impl BrotliCompressContext {
         let compressor = self
             .compressor
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("brotli stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
 
         // into_inner drops the CompressorWriter, which flushes remaining data
         // and writes the brotli stream end marker
@@ -130,7 +130,7 @@ impl BrotliDecompressContext {
         self.decompressor
             .write_all(crate::as_bytes(&chunk))
             .map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "brotli stream decompress",
                     source: e.into(),
                 })
@@ -140,7 +140,7 @@ impl BrotliDecompressContext {
         let data = std::mem::take(self.decompressor.get_mut());
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "brotli stream decompress",
                 limit: self.max_output_size,
             }
@@ -153,7 +153,7 @@ impl BrotliDecompressContext {
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.decompressor.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "brotli stream flush",
                 source: e.into(),
             })
@@ -162,7 +162,7 @@ impl BrotliDecompressContext {
         let data = std::mem::take(self.decompressor.get_mut());
         self.total_output += data.len();
         if self.total_output > self.max_output_size {
-            return Err(ZflateError::SizeLimit {
+            return Err(ComprsError::SizeLimit {
                 context: "brotli stream decompress",
                 limit: self.max_output_size,
             }

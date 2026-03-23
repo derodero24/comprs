@@ -6,7 +6,7 @@ use lz4_flex::frame::{FrameDecoder, FrameEncoder};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Streaming LZ4 frame compression context.
 ///
@@ -36,11 +36,11 @@ impl Lz4CompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("lz4 stream")))?;
 
         let input = crate::as_bytes(&chunk);
         encoder.write_all(input).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "lz4 stream compress",
                 source: e.into(),
             })
@@ -59,10 +59,10 @@ impl Lz4CompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("lz4 stream")))?;
 
         encoder.flush().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "lz4 stream flush",
                 source: e.into(),
             })
@@ -82,10 +82,10 @@ impl Lz4CompressContext {
         let encoder = self
             .encoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("lz4 stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("lz4 stream")))?;
 
         let output = encoder.finish().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "lz4 stream finish",
                 source: e.into(),
             })
