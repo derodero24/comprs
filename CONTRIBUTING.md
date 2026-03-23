@@ -1,4 +1,4 @@
-# Contributing to zflate
+# Contributing to comprs
 
 Thank you for your interest in contributing! This guide covers everything you need to get started.
 
@@ -13,7 +13,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 
 ```bash
 git clone https://github.com/derodero24/zflate.git
-cd zflate
+cd comprs
 pnpm install --ignore-scripts
 pnpm run build
 pnpm test
@@ -23,7 +23,7 @@ cargo test
 ## Project structure
 
 ```
-zflate/
+comprs/
 ├── crates/
 │   └── core/        ← Rust core library (zstd, gzip, brotli)
 ├── __test__/        ← Vitest tests and JS benchmarks

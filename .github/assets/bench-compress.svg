@@ -11,7 +11,7 @@
 <rect x="0.5" y="0.5" width="679" height="219" rx="8" fill="none" stroke="#e5e7eb" />
 <text x="20" y="28" class="title">Gzip Compression — 10 KB</text>
 <text x="20" y="44" class="subtitle">Apple M2 · Node.js v22 · ops/sec (higher is better)</text>
-<text x="112" y="78" class="bar-label" text-anchor="end">zflate</text>
+<text x="112" y="78" class="bar-label" text-anchor="end">comprs</text>
 <rect x="120" y="60" width="360" height="28" rx="4" fill="#3b82f6" />
 <text x="488" y="78" class="bar-value">40,350 ops/s</text>
 <text x="112" y="114" class="bar-label" text-anchor="end">node:zlib</text>

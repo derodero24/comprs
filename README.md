@@ -1,7 +1,7 @@
-# zflate
+# comprs
 
-[![npm version](https://img.shields.io/npm/v/zflate)](https://www.npmjs.com/package/zflate)
-[![npm downloads](https://img.shields.io/npm/dm/zflate)](https://www.npmjs.com/package/zflate)
+[![npm version](https://img.shields.io/npm/v/comprs)](https://www.npmjs.com/package/comprs)
+[![npm downloads](https://img.shields.io/npm/dm/comprs)](https://www.npmjs.com/package/comprs)
 [![CI](https://github.com/derodero24/zflate/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/zflate/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/derodero24/zflate/graph/badge.svg)](https://codecov.io/gh/derodero24/zflate)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repo=derodero24/zflate)](https://codspeed.io/derodero24/zflate)
@@ -9,9 +9,9 @@
 
 Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, and **brotli** in one package.
 
-## Why zflate?
+## Why comprs?
 
-The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. zflate consolidates this into a single, fast, well-typed library:
+The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. comprs consolidates this into a single, fast, well-typed library:
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
 - **Unified API** — Same interface for zstd, gzip, and brotli
@@ -22,13 +22,13 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 ## Installation
 
 ```bash
-npm install zflate
+npm install comprs
 # or
-pnpm add zflate
+pnpm add comprs
 # or
-yarn add zflate
+yarn add comprs
 # or
-bun add zflate
+bun add comprs
 ```
 
 ## Quick Start
@@ -36,9 +36,9 @@ bun add zflate
 ### One-shot compression
 
 ```typescript
-import { zstdCompress, zstdDecompress } from 'zflate';
+import { zstdCompress, zstdDecompress } from 'comprs';
 
-const data = Buffer.from('Hello, zflate!');
+const data = Buffer.from('Hello, comprs!');
 
 // Compress
 const compressed = zstdCompress(data);
@@ -49,7 +49,7 @@ const decompressed = zstdDecompress(compressed);
 
 ```typescript
 // Gzip
-import { gzipCompress, gzipDecompress } from 'zflate';
+import { gzipCompress, gzipDecompress } from 'comprs';
 
 const compressed = gzipCompress(Buffer.from('Hello, gzip!'));
 const decompressed = gzipDecompress(compressed);
@@ -57,7 +57,7 @@ const decompressed = gzipDecompress(compressed);
 
 ```typescript
 // Brotli
-import { brotliCompress, brotliDecompress } from 'zflate';
+import { brotliCompress, brotliDecompress } from 'comprs';
 
 const compressed = brotliCompress(Buffer.from('Hello, brotli!'));
 const decompressed = brotliDecompress(compressed);
@@ -66,12 +66,12 @@ const decompressed = brotliDecompress(compressed);
 ### Streaming
 
 ```typescript
-import { createZstdCompressStream, createZstdDecompressStream } from 'zflate';
+import { createZstdCompressStream, createZstdDecompressStream } from 'comprs';
 
 // Create a readable stream from data
 const input = new ReadableStream({
   start(controller) {
-    controller.enqueue(new TextEncoder().encode('Hello, streaming zflate!'));
+    controller.enqueue(new TextEncoder().encode('Hello, streaming comprs!'));
     controller.close();
   },
 });
@@ -87,7 +87,7 @@ await input
 ### Compression levels
 
 ```typescript
-import { zstdCompress } from 'zflate';
+import { zstdCompress } from 'comprs';
 
 // Fast compression (level 1)
 zstdCompress(data, 1);
@@ -105,7 +105,7 @@ zstdCompress(data, -1);
 ### Auto-detect
 
 ```typescript
-import { decompress } from 'zflate';
+import { decompress } from 'comprs';
 
 // Works with any supported format — no need to know the algorithm
 const decompressed = decompress(compressedData);
@@ -114,7 +114,7 @@ const decompressed = decompress(compressedData);
 ### Async
 
 ```typescript
-import { gzipCompressAsync, gzipDecompressAsync } from 'zflate';
+import { gzipCompressAsync, gzipDecompressAsync } from 'comprs';
 
 const compressed = await gzipCompressAsync(data);
 const decompressed = await gzipDecompressAsync(compressed);
@@ -123,7 +123,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 ### Dictionary
 
 ```typescript
-import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from 'zflate';
+import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from 'comprs';
 
 // Train from samples of similar data
 const dict = zstdTrainDictionary(samples);
@@ -211,10 +211,10 @@ All one-shot functions have async variants that run on the libuv thread pool, ke
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `zflate/node`:
+For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
 
 ```typescript
-import { createGzipCompressTransform } from 'zflate/node';
+import { createGzipCompressTransform } from 'comprs/node';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 
@@ -265,10 +265,10 @@ The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` durin
 
 ## Browser Usage
 
-zflate works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
+comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
 
 ```typescript
-import { gzipCompress, gzipDecompress } from 'zflate';
+import { gzipCompress, gzipDecompress } from 'comprs';
 
 const encoder = new TextEncoder();
 const data = encoder.encode('Hello from the browser!');
@@ -281,7 +281,7 @@ const decompressed = gzipDecompress(compressed);
 
 ## Comparison with Alternatives
 
-| Feature | zflate | pako | fflate | node:zlib |
+| Feature | comprs | pako | fflate | node:zlib |
 |---------|--------|------|--------|-----------|
 | zstd | ✅ | ❌ | ❌ | ✅* |
 | gzip/deflate | ✅ | ✅ | ✅ | ✅ |
@@ -305,7 +305,7 @@ const decompressed = gzipDecompress(compressed);
 - import pako from 'pako';
 - const compressed = pako.gzip(data);
 - const decompressed = pako.ungzip(compressed);
-+ import { gzipCompress, gzipDecompress } from 'zflate';
++ import { gzipCompress, gzipDecompress } from 'comprs';
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```
@@ -316,7 +316,7 @@ const decompressed = gzipDecompress(compressed);
 - import { gzipSync, gunzipSync } from 'node:zlib';
 - const compressed = gzipSync(data);
 - const decompressed = gunzipSync(compressed);
-+ import { gzipCompress, gzipDecompress } from 'zflate';
++ import { gzipCompress, gzipDecompress } from 'comprs';
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```

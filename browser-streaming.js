@@ -14,7 +14,7 @@ import {
   zstdDecompressWithCapacity as _zstdDecompressWithCapacity,
   zstdCompressWithDict as _zstdCompressWithDict,
   zstdDecompressWithDict as _zstdDecompressWithDict,
-} from 'zflate-wasm32-wasi'
+} from 'comprs-wasm32-wasi'
 
 /**
  * Concatenate an array of Uint8Array chunks into a single Uint8Array.

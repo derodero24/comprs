@@ -1,5 +1,5 @@
+use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 use criterion::{Criterion, criterion_group, criterion_main};
-use zflate_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 
 fn compress(data: &[u8], level: i32) -> Vec<u8> {
     zstd::bulk::compress(data, level).unwrap()

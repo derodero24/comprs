@@ -14,7 +14,7 @@ const deterministicBytes = (size: number, seed: number): Buffer => {
 };
 
 // --- Patterned data (compressible) ---
-export const SMALL = Buffer.from('Hello, zflate! '.repeat(10));
+export const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
 export const MEDIUM = Buffer.alloc(10_000);
 for (let i = 0; i < MEDIUM.length; i++) MEDIUM[i] = i % 256;
 export const LARGE = Buffer.alloc(1_000_000);

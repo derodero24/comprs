@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn stream_round_trip() {
-        let original = b"Hello, zflate streaming! ".repeat(100);
+        let original = b"Hello, comprs streaming! ".repeat(100);
 
         // Compress in chunks using CompressorWriter<Vec<u8>>
         let mut compressor =

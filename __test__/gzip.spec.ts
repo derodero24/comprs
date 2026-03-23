@@ -14,7 +14,7 @@ import {
 
 describe('gzipCompress / gzipDecompress', () => {
   it('should round-trip a simple string', () => {
-    const input = Buffer.from('Hello, zflate!');
+    const input = Buffer.from('Hello, comprs!');
     const compressed = gzipCompress(input);
     const decompressed = gzipDecompress(compressed);
     expect(decompressed).toEqual(input);

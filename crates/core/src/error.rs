@@ -1,9 +1,9 @@
-//! Structured error types for zflate.
+//! Structured error types for comprs.
 
 use napi::bindgen_prelude::*;
 use thiserror::Error;
 
-/// Errors produced by zflate compression and decompression operations.
+/// Errors produced by comprs compression and decompression operations.
 #[derive(Error, Debug)]
 pub enum ZflateError {
     /// Compression or decompression operation failure.

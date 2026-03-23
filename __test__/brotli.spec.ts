@@ -29,7 +29,7 @@ function toChunkedStream(data: Uint8Array, chunkSize: number): ReadableStream<Ui
 
 describe('brotliCompress / brotliDecompress', () => {
   it('should round-trip a simple string', () => {
-    const input = Buffer.from('Hello, zflate brotli!');
+    const input = Buffer.from('Hello, comprs brotli!');
     const compressed = brotliCompress(input);
     const decompressed = brotliDecompress(compressed);
     expect(decompressed).toEqual(input);
@@ -161,7 +161,7 @@ describe('brotli interop with Node.js zlib', () => {
 });
 
 describe('createBrotliCompressStream', () => {
-  const data = Buffer.from('Hello, zflate brotli streaming! '.repeat(100));
+  const data = Buffer.from('Hello, comprs brotli streaming! '.repeat(100));
 
   it('should compress data through a stream', async () => {
     const stream = toChunkedStream(data, 256);
@@ -200,7 +200,7 @@ describe('createBrotliCompressStream', () => {
 });
 
 describe('createBrotliDecompressStream', () => {
-  const data = Buffer.from('Hello, zflate brotli streaming decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs brotli streaming decompression! '.repeat(100));
   const compressed = brotliCompress(data);
 
   it('should decompress data through a stream', async () => {

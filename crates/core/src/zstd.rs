@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn round_trip_basic() {
-        let original = b"Hello, zflate! This is a test of zstd compression.";
+        let original = b"Hello, comprs! This is a test of zstd compression.";
         let compressed = zstd::bulk::compress(original, DEFAULT_LEVEL).unwrap();
         let decompressed = zstd::bulk::decompress(&compressed, original.len()).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());

@@ -1,3 +1,3 @@
-# `zflate-win32-arm64-msvc`
+# `comprs-win32-arm64-msvc`
 
-This is the **aarch64-pc-windows-msvc** binary for `zflate`
+This is the **aarch64-pc-windows-msvc** binary for `comprs`

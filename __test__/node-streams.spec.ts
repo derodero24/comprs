@@ -67,7 +67,7 @@ function toChunkedReadable(data: Buffer, chunkSize: number): Readable {
 }
 
 describe('createZstdCompressTransform', () => {
-  const data = Buffer.from('Hello, zflate node stream! '.repeat(100));
+  const data = Buffer.from('Hello, comprs node stream! '.repeat(100));
 
   it('should compress data through pipeline', async () => {
     const source = toChunkedReadable(data, 256);
@@ -107,7 +107,7 @@ describe('createZstdCompressTransform', () => {
 });
 
 describe('createZstdDecompressTransform', () => {
-  const data = Buffer.from('Hello, zflate node stream decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs node stream decompression! '.repeat(100));
   const compressed = Buffer.from(zstdCompress(data));
 
   it('should decompress data through pipeline', async () => {
@@ -165,7 +165,7 @@ describe('zstd node stream round-trip', () => {
 });
 
 describe('createGzipCompressTransform', () => {
-  const data = Buffer.from('Hello, zflate gzip node stream! '.repeat(100));
+  const data = Buffer.from('Hello, comprs gzip node stream! '.repeat(100));
 
   it('should compress data through pipeline', async () => {
     const source = toChunkedReadable(data, 256);
@@ -190,7 +190,7 @@ describe('createGzipCompressTransform', () => {
 });
 
 describe('createGzipDecompressTransform', () => {
-  const data = Buffer.from('Hello, zflate gzip node stream decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs gzip node stream decompression! '.repeat(100));
   const compressed = Buffer.from(gzipCompress(data));
 
   it('should decompress data through pipeline', async () => {
@@ -236,7 +236,7 @@ describe('gzip node stream round-trip', () => {
 });
 
 describe('createDeflateCompressTransform', () => {
-  const data = Buffer.from('Hello, zflate deflate node stream! '.repeat(100));
+  const data = Buffer.from('Hello, comprs deflate node stream! '.repeat(100));
 
   it('should compress data through pipeline', async () => {
     const source = toChunkedReadable(data, 256);
@@ -261,7 +261,7 @@ describe('createDeflateCompressTransform', () => {
 });
 
 describe('createDeflateDecompressTransform', () => {
-  const data = Buffer.from('Hello, zflate deflate node stream decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs deflate node stream decompression! '.repeat(100));
   const compressed = Buffer.from(deflateCompress(data));
 
   it('should decompress data through pipeline', async () => {
@@ -307,7 +307,7 @@ describe('deflate node stream round-trip', () => {
 });
 
 describe('createBrotliCompressTransform', () => {
-  const data = Buffer.from('Hello, zflate brotli node stream! '.repeat(100));
+  const data = Buffer.from('Hello, comprs brotli node stream! '.repeat(100));
 
   it('should compress data through pipeline', async () => {
     const source = toChunkedReadable(data, 256);
@@ -332,7 +332,7 @@ describe('createBrotliCompressTransform', () => {
 });
 
 describe('createBrotliDecompressTransform', () => {
-  const data = Buffer.from('Hello, zflate brotli node stream decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs brotli node stream decompression! '.repeat(100));
   const compressed = Buffer.from(brotliCompress(data));
 
   it('should decompress data through pipeline', async () => {

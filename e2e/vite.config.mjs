@@ -5,7 +5,7 @@ export default defineConfig({
   root: import.meta.dirname,
   resolve: {
     alias: {
-      'zflate-wasm32-wasi': fileURLToPath(new URL('../zflate.wasi-browser.js', import.meta.url)),
+      'comprs-wasm32-wasi': fileURLToPath(new URL('../comprs.wasi-browser.js', import.meta.url)),
     },
   },
   server: {

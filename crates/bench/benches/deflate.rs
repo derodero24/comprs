@@ -1,10 +1,10 @@
 use std::io::{Read, Write};
 
+use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 use criterion::{Criterion, criterion_group, criterion_main};
 use flate2::Compression;
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
-use zflate_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 
 fn compress(data: &[u8], level: u32) -> Vec<u8> {
     let mut encoder = DeflateEncoder::new(Vec::with_capacity(data.len()), Compression::new(level));

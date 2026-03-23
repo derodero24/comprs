@@ -18,7 +18,7 @@ import {
 
 describe('lz4Compress / lz4Decompress', () => {
   it('should round-trip a simple string', () => {
-    const input = Buffer.from('Hello, zflate LZ4!');
+    const input = Buffer.from('Hello, comprs LZ4!');
     const compressed = lz4Compress(input);
     const decompressed = lz4Decompress(compressed);
     expect(decompressed).toEqual(input);

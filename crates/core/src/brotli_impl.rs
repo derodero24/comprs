@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn round_trip_basic() {
-        let original = b"Hello, zflate! This is a test of brotli compression.";
+        let original = b"Hello, comprs! This is a test of brotli compression.";
         let mut compressed = Vec::new();
         {
             let mut compressor = brotli::CompressorWriter::new(

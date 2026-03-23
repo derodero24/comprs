@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
+use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 use criterion::{Criterion, criterion_group, criterion_main};
-use zflate_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 
 const BUFFER_SIZE: usize = 4096;
 const LG_WINDOW_SIZE: u32 = 22;

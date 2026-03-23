@@ -1,3 +1,3 @@
-# `zflate-wasm32-wasi`
+# `comprs-wasm32-wasi`
 
-This is the **wasm32-wasip1-threads** binary for `zflate`
+This is the **wasm32-wasip1-threads** binary for `comprs`

@@ -1,6 +1,6 @@
 // Deno does not support the WASI CJS loader (Context is not supported),
 // so we use the browser loader which works via @napi-rs/wasm-runtime.
-const wasm = await import('../zflate.wasi-browser.js');
+const wasm = await import('../comprs.wasi-browser.js');
 
 function arrayEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -10,7 +10,7 @@ function arrayEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-const testData = new TextEncoder().encode('Hello, Deno WASM zflate! '.repeat(100));
+const testData = new TextEncoder().encode('Hello, Deno WASM comprs! '.repeat(100));
 
 Deno.test('zstd round-trip', () => {
   const compressed = wasm.zstdCompress(testData);

@@ -1,12 +1,12 @@
 {
-  "name": "zflate-linux-x64-gnu",
+  "name": "comprs-linux-x64-gnu",
   "version": "0.2.0",
   "cpu": [
     "x64"
   ],
-  "main": "zflate.linux-x64-gnu.node",
+  "main": "comprs.linux-x64-gnu.node",
   "files": [
-    "zflate.linux-x64-gnu.node"
+    "comprs.linux-x64-gnu.node"
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
   "keywords": [

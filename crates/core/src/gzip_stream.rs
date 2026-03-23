@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn gzip_stream_round_trip() {
-        let original = b"Hello, zflate gzip streaming! ".repeat(100);
+        let original = b"Hello, comprs gzip streaming! ".repeat(100);
 
         // Compress in chunks using GzEncoder
         let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn deflate_stream_round_trip() {
-        let original = b"Hello, zflate deflate streaming! ".repeat(100);
+        let original = b"Hello, comprs deflate streaming! ".repeat(100);
 
         // Compress in chunks
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));

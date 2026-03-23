@@ -1,4 +1,4 @@
-name: "zflate CodeQL config"
+name: "comprs CodeQL config"
 
 query-filters:
   - exclude:

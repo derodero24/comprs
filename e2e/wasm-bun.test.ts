@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 // Bun does not support node:wasi (wasi.initialize is undefined),
 // so we use the browser loader which works via @napi-rs/wasm-runtime.
-const wasm = await import('../zflate.wasi-browser.js');
+const wasm = await import('../comprs.wasi-browser.js');
 
 function arrayEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -12,9 +12,9 @@ function arrayEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-const testData = new TextEncoder().encode('Hello, Bun WASM zflate! '.repeat(100));
+const testData = new TextEncoder().encode('Hello, Bun WASM comprs! '.repeat(100));
 
-describe('zflate WASM on Bun', () => {
+describe('comprs WASM on Bun', () => {
   test('zstd round-trip', () => {
     const compressed = wasm.zstdCompress(testData);
     const decompressed = wasm.zstdDecompress(compressed);
