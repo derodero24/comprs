@@ -211,7 +211,7 @@ All one-shot functions have async variants that run on the libuv thread pool, ke
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `zflate/node`:
+For Node.js `stream.pipeline()` compatibility, import from `@derodero24/zflate/node`:
 
 ```typescript
 import { createGzipCompressTransform } from '@derodero24/zflate/node';
