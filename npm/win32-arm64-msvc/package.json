@@ -1,5 +1,5 @@
 {
-  "name": "zflate-win32-arm64-msvc",
+  "name": "@derodero24/zflate-win32-arm64-msvc",
   "version": "0.2.0",
   "cpu": [
     "arm64"

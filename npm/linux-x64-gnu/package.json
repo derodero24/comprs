@@ -1,5 +1,5 @@
 {
-  "name": "zflate-linux-x64-gnu",
+  "name": "@derodero24/zflate-linux-x64-gnu",
   "version": "0.2.0",
   "cpu": [
     "x64"

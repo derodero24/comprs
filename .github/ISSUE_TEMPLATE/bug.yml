@@ -15,7 +15,7 @@ body:
       label: Steps to reproduce
       description: Minimal steps to reproduce the behavior.
       placeholder: |
-        1. Install zflate
+        1. Install @derodero24/zflate
         2. Call `compress(...)`
         3. See error
     validations:

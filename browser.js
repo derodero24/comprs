@@ -1,1 +1,1 @@
-export * from 'zflate-wasm32-wasi'
+export * from '@derodero24/zflate-wasm32-wasi'

@@ -1,5 +1,5 @@
 {
-  "name": "zflate",
+  "name": "@derodero24/zflate",
   "version": "0.2.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
   "license": "MIT",

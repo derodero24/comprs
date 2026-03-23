@@ -1,5 +1,5 @@
 {
-  "name": "zflate-wasm32-wasi",
+  "name": "@derodero24/zflate-wasm32-wasi",
   "version": "0.2.0",
   "cpu": [
     "wasm32"

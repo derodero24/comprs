@@ -1,5 +1,5 @@
 {
-  "name": "zflate-darwin-arm64",
+  "name": "@derodero24/zflate-darwin-arm64",
   "version": "0.2.0",
   "cpu": [
     "arm64"
