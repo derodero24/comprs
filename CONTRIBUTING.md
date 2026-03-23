@@ -12,7 +12,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ## Development setup
 
 ```bash
-git clone https://github.com/derodero24/zflate.git
+git clone https://github.com/derodero24/comprs.git comprs
 cd comprs
 pnpm install --ignore-scripts
 pnpm run build

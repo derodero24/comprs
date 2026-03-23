@@ -24,7 +24,7 @@ Issues related to compression ratio, performance, or API usability are **not** c
 
 **Please do not create public issues for security vulnerabilities.**
 
-To report a vulnerability, use [GitHub Security Advisories](https://github.com/derodero24/zflate/security/advisories/new). This allows us to discuss and resolve the issue privately before any public disclosure.
+To report a vulnerability, use [GitHub Security Advisories](https://github.com/derodero24/comprs/security/advisories/new). This allows us to discuss and resolve the issue privately before any public disclosure.
 
 When reporting, please include:
 

@@ -6,11 +6,11 @@
   "author": "derodero24",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derodero24/zflate.git"
+    "url": "git+https://github.com/derodero24/comprs.git"
   },
-  "homepage": "https://github.com/derodero24/zflate",
+  "homepage": "https://github.com/derodero24/comprs",
   "bugs": {
-    "url": "https://github.com/derodero24/zflate/issues"
+    "url": "https://github.com/derodero24/comprs/issues"
   },
   "keywords": [
     "compression",

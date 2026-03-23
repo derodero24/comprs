@@ -1,7 +1,7 @@
 // Browser entry point: re-export all WASM APIs with streaming context adapters.
 // Streaming contexts are replaced with JS-side adapters that wrap one-shot APIs
 // to work around WebAssembly.Memory growth invalidating ArrayBuffer views.
-// See: https://github.com/derodero24/zflate/issues/106
+// See: https://github.com/derodero24/comprs/issues/106
 
 // One-shot APIs (pass through from WASM)
 export {

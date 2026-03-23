@@ -252,7 +252,7 @@ jobs:
       # npm trusted publishing (OIDC) — no NPM_TOKEN needed.
       # Requires each package to be linked to this repo on npmjs.com:
       #   npmjs.com → Package Settings → Trusted publishers → Add GitHub Actions
-      #   Repository: derodero24/zflate | Workflow: release.yml
+      #   Repository: derodero24/comprs | Workflow: release.yml
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:

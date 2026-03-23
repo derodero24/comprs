@@ -24,14 +24,14 @@
     "streaming"
   ],
   "author": "derodero24",
-  "homepage": "https://github.com/derodero24/zflate",
+  "homepage": "https://github.com/derodero24/comprs",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derodero24/zflate.git"
+    "url": "git+https://github.com/derodero24/comprs.git"
   },
   "os": [
     "win32"
