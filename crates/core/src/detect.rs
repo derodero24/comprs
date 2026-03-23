@@ -8,7 +8,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Zstd magic number: 0xFD2FB528 (little-endian).
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
@@ -71,7 +71,7 @@ pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         Format::Gzip => crate::gzip_decompress(data),
         Format::Brotli => crate::brotli_decompress(data),
         Format::Lz4 => crate::lz4_decompress(data),
-        Format::Unknown => Err(ZflateError::InvalidArg(
+        Format::Unknown => Err(ComprsError::InvalidArg(
             "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress) instead".to_string(),
         )
         .into()),
@@ -154,7 +154,7 @@ impl Task for DecompressTask {
                 };
                 let capacity = capacity.max(1024);
                 zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
-                    ZflateError::Operation {
+                    ComprsError::Operation {
                         context: "zstd decompress",
                         source: e.into(),
                     }
@@ -169,7 +169,7 @@ impl Task for DecompressTask {
                 let mut buf = [0u8; BUFFER_SIZE];
                 loop {
                     let n = decoder.read(&mut buf).map_err(|e| {
-                        napi::Error::from(ZflateError::Operation {
+                        napi::Error::from(ComprsError::Operation {
                             context: "gzip decompress",
                             source: e.into(),
                         })
@@ -178,7 +178,7 @@ impl Task for DecompressTask {
                         break;
                     }
                     if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                        return Err(ZflateError::SizeLimit {
+                        return Err(ComprsError::SizeLimit {
                             context: "gzip decompress",
                             limit: MAX_DECOMPRESSED_SIZE,
                         }
@@ -196,7 +196,7 @@ impl Task for DecompressTask {
                 let mut buf = [0u8; BUFFER_SIZE];
                 loop {
                     let n = decompressor.read(&mut buf).map_err(|e| {
-                        napi::Error::from(ZflateError::Operation {
+                        napi::Error::from(ComprsError::Operation {
                             context: "brotli decompress",
                             source: e.into(),
                         })
@@ -205,7 +205,7 @@ impl Task for DecompressTask {
                         break;
                     }
                     if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                        return Err(ZflateError::SizeLimit {
+                        return Err(ComprsError::SizeLimit {
                             context: "brotli decompress",
                             limit: MAX_DECOMPRESSED_SIZE,
                         }
@@ -226,7 +226,7 @@ impl Task for DecompressTask {
                     "lz4 decompress",
                 )
             }
-            Format::Unknown => Err(ZflateError::InvalidArg(
+            Format::Unknown => Err(ComprsError::InvalidArg(
                 "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress) instead".to_string(),
             )
             .into()),

@@ -4,7 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use zstd::stream::raw::{Decoder, Encoder, InBuffer, Operation, OutBuffer};
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
@@ -27,13 +27,13 @@ impl ZstdCompressContext {
     pub fn new(level: Option<i32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if !(-131072..=22).contains(&level) {
-            return Err(ZflateError::InvalidArg(
+            return Err(ComprsError::InvalidArg(
                 "zstd compression level must be between -131072 and 22".to_string(),
             )
             .into());
         }
         let encoder = Encoder::new(level).map_err(|e| {
-            napi::Error::from(ZflateError::Creation {
+            napi::Error::from(ComprsError::Creation {
                 context: "zstd encoder",
                 source: e.into(),
             })
@@ -50,7 +50,7 @@ impl ZstdCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let input = crate::as_bytes(&chunk);
         let bound = zstd::zstd_safe::compress_bound(input.len());
@@ -62,7 +62,7 @@ impl ZstdCompressContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream compress",
                     source: e.into(),
                 })
@@ -83,7 +83,7 @@ impl ZstdCompressContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
@@ -91,7 +91,7 @@ impl ZstdCompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = encoder.flush(&mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
                 })
@@ -116,7 +116,7 @@ impl ZstdCompressContext {
         let mut encoder = self
             .encoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
@@ -124,7 +124,7 @@ impl ZstdCompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = encoder.finish(&mut out_buf, true).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream finish",
                     source: e.into(),
                 })
@@ -160,7 +160,7 @@ impl ZstdDecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         let decoder = Decoder::new().map_err(|e| {
-            napi::Error::from(ZflateError::Creation {
+            napi::Error::from(ComprsError::Creation {
                 context: "zstd decoder",
                 source: e.into(),
             })
@@ -186,14 +186,14 @@ impl ZstdDecompressContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             self.decoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream decompress",
                     source: e.into(),
                 })
             })?;
             total_written = out_buf.pos();
             if self.total_output + total_written > self.max_output_size {
-                return Err(ZflateError::SizeLimit {
+                return Err(ComprsError::SizeLimit {
                     context: "zstd stream decompress",
                     limit: self.max_output_size,
                 }
@@ -218,7 +218,7 @@ impl ZstdDecompressContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = self.decoder.flush(&mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
                 })
@@ -252,14 +252,14 @@ impl ZstdCompressDictContext {
     pub fn new(dict: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Self> {
         let level = level.unwrap_or(DEFAULT_LEVEL);
         if !(-131072..=22).contains(&level) {
-            return Err(ZflateError::InvalidArg(
+            return Err(ComprsError::InvalidArg(
                 "zstd compression level must be between -131072 and 22".to_string(),
             )
             .into());
         }
         let dict_bytes = crate::as_bytes(&dict);
         let encoder = Encoder::with_dictionary(level, dict_bytes).map_err(|e| {
-            napi::Error::from(ZflateError::Creation {
+            napi::Error::from(ComprsError::Creation {
                 context: "zstd dict encoder",
                 source: e.into(),
             })
@@ -276,7 +276,7 @@ impl ZstdCompressDictContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let input = crate::as_bytes(&chunk);
         let bound = zstd::zstd_safe::compress_bound(input.len());
@@ -288,7 +288,7 @@ impl ZstdCompressDictContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             encoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream compress",
                     source: e.into(),
                 })
@@ -309,7 +309,7 @@ impl ZstdCompressDictContext {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
@@ -317,7 +317,7 @@ impl ZstdCompressDictContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = encoder.flush(&mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
                 })
@@ -342,7 +342,7 @@ impl ZstdCompressDictContext {
         let mut encoder = self
             .encoder
             .take()
-            .ok_or_else(|| napi::Error::from(ZflateError::StreamFinished("zstd stream")))?;
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("zstd stream")))?;
 
         let mut output = vec![0u8; INITIAL_BUF_SIZE];
         let mut total_written = 0;
@@ -350,7 +350,7 @@ impl ZstdCompressDictContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = encoder.finish(&mut out_buf, true).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream finish",
                     source: e.into(),
                 })
@@ -387,7 +387,7 @@ impl ZstdDecompressDictContext {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         let dict_bytes = crate::as_bytes(&dict);
         let decoder = Decoder::with_dictionary(dict_bytes).map_err(|e| {
-            napi::Error::from(ZflateError::Creation {
+            napi::Error::from(ComprsError::Creation {
                 context: "zstd dict decoder",
                 source: e.into(),
             })
@@ -413,14 +413,14 @@ impl ZstdDecompressDictContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             self.decoder.run(&mut in_buf, &mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream decompress",
                     source: e.into(),
                 })
             })?;
             total_written = out_buf.pos();
             if self.total_output + total_written > self.max_output_size {
-                return Err(ZflateError::SizeLimit {
+                return Err(ComprsError::SizeLimit {
                     context: "zstd stream decompress",
                     limit: self.max_output_size,
                 }
@@ -445,7 +445,7 @@ impl ZstdDecompressDictContext {
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
             let remaining = self.decoder.flush(&mut out_buf).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd stream flush",
                     source: e.into(),
                 })

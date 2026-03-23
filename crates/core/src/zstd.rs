@@ -4,7 +4,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
@@ -22,7 +22,7 @@ const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if !(-131072..=22).contains(&level) {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "zstd compression level must be between -131072 and 22".to_string(),
         )
         .into());
@@ -32,7 +32,7 @@ pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Re
     zstd::bulk::compress(input, level)
         .map(|v| v.into())
         .map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd compress",
                 source: e.into(),
             }
@@ -52,7 +52,7 @@ impl Task for ZstdCompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         zstd::bulk::compress(&self.data, self.level).map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd compress",
                 source: e.into(),
             }
@@ -78,7 +78,7 @@ pub fn zstd_compress_async(
 ) -> Result<AsyncTask<ZstdCompressTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if !(-131072..=22).contains(&level) {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "zstd compression level must be between -131072 and 22".to_string(),
         )
         .into());
@@ -104,7 +104,7 @@ impl Task for ZstdDecompressTask {
         let capacity = capacity.max(1024);
 
         zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd decompress",
                 source: e.into(),
             }
@@ -149,7 +149,7 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     zstd::bulk::decompress(input, capacity)
         .map(|v| v.into())
         .map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd decompress",
                 source: e.into(),
             }
@@ -172,7 +172,7 @@ pub fn zstd_decompress_with_capacity(
     zstd::bulk::decompress(input, cap)
         .map(|v| v.into())
         .map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd decompress",
                 source: e.into(),
             }
@@ -206,7 +206,7 @@ pub fn zstd_train_dictionary(
     zstd::dict::from_samples(&sample_vecs, max_size)
         .map(|v| v.into())
         .map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd dictionary training",
                 source: e.into(),
             }
@@ -226,7 +226,7 @@ pub fn zstd_compress_with_dict(
 ) -> Result<Buffer> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if !(-131072..=22).contains(&level) {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "zstd compression level must be between -131072 and 22".to_string(),
         )
         .into());
@@ -236,14 +236,14 @@ pub fn zstd_compress_with_dict(
 
     let mut compressor =
         zstd::bulk::Compressor::with_dictionary(level, dict_bytes).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "zstd compressor init",
                 source: e.into(),
             })
         })?;
 
     compressor.compress(input).map(|v| v.into()).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "zstd compress with dict",
             source: e.into(),
         })
@@ -268,7 +268,7 @@ pub fn zstd_decompress_with_dict(
     let capacity = capacity.max(1024);
 
     let mut decompressor = zstd::bulk::Decompressor::with_dictionary(dict_bytes).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "zstd decompressor init",
             source: e.into(),
         })
@@ -278,7 +278,7 @@ pub fn zstd_decompress_with_dict(
         .decompress(input, capacity)
         .map(|v| v.into())
         .map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "zstd decompress with dict",
                 source: e.into(),
             })
@@ -297,7 +297,7 @@ impl Task for ZstdDecompressWithCapacityTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         zstd::bulk::decompress(&self.data, self.capacity).map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd decompress",
                 source: e.into(),
             }
@@ -341,13 +341,13 @@ impl Task for ZstdCompressWithDictTask {
     fn compute(&mut self) -> Result<Self::Output> {
         let mut compressor = zstd::bulk::Compressor::with_dictionary(self.level, &self.dict)
             .map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd compressor init",
                     source: e.into(),
                 })
             })?;
         compressor.compress(&self.data).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "zstd compress with dict",
                 source: e.into(),
             })
@@ -371,7 +371,7 @@ pub fn zstd_compress_with_dict_async(
 ) -> Result<AsyncTask<ZstdCompressWithDictTask>> {
     let level = level.unwrap_or(DEFAULT_LEVEL);
     if !(-131072..=22).contains(&level) {
-        return Err(ZflateError::InvalidArg(
+        return Err(ComprsError::InvalidArg(
             "zstd compression level must be between -131072 and 22".to_string(),
         )
         .into());
@@ -404,13 +404,13 @@ impl Task for ZstdDecompressWithDictTask {
 
         let mut decompressor =
             zstd::bulk::Decompressor::with_dictionary(&self.dict).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "zstd decompressor init",
                     source: e.into(),
                 })
             })?;
         decompressor.decompress(&self.data, capacity).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "zstd decompress with dict",
                 source: e.into(),
             })
@@ -450,7 +450,7 @@ impl Task for ZstdTrainDictionaryTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         zstd::dict::from_samples(&self.samples, self.max_dict_size).map_err(|e| {
-            ZflateError::Operation {
+            ComprsError::Operation {
                 context: "zstd dictionary training",
                 source: e.into(),
             }

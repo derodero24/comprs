@@ -6,7 +6,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Default compression quality for brotli.
 const DEFAULT_QUALITY: u32 = 6;
@@ -29,7 +29,7 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
     if quality > 11 {
         return Err(
-            ZflateError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
         );
     }
     let input = crate::as_bytes(&data);
@@ -39,7 +39,7 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
         let mut compressor =
             brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
         compressor.write_all(input).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "brotli compress",
                 source: e.into(),
             })
@@ -106,7 +106,7 @@ impl Task for BrotliCompressTask {
                 LG_WINDOW_SIZE,
             );
             compressor.write_all(&self.data).map_err(|e| {
-                napi::Error::from(ZflateError::Operation {
+                napi::Error::from(ComprsError::Operation {
                     context: "brotli compress",
                     source: e.into(),
                 })
@@ -133,7 +133,7 @@ pub fn brotli_compress_async(
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
     if quality > 11 {
         return Err(
-            ZflateError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
         );
     }
     let input = crate::as_bytes(&data).to_vec();

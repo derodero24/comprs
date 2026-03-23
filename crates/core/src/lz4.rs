@@ -7,7 +7,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ZflateError;
+use crate::ComprsError;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -22,13 +22,13 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let mut output = Vec::with_capacity(input.len());
     let mut encoder = FrameEncoder::new(&mut output);
     encoder.write_all(input).map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "lz4 compress",
             source: e.into(),
         })
     })?;
     encoder.finish().map_err(|e| {
-        napi::Error::from(ZflateError::Operation {
+        napi::Error::from(ComprsError::Operation {
             context: "lz4 compress",
             source: e.into(),
         })
@@ -82,13 +82,13 @@ impl Task for Lz4CompressTask {
         let mut output = Vec::with_capacity(self.data.len());
         let mut encoder = FrameEncoder::new(&mut output);
         encoder.write_all(&self.data).map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "lz4 compress",
                 source: e.into(),
             })
         })?;
         encoder.finish().map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context: "lz4 compress",
                 source: e.into(),
             })

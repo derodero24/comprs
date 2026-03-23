@@ -17,7 +17,7 @@ use std::io::Read;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-pub use error::ZflateError;
+pub use error::ComprsError;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -36,7 +36,7 @@ fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize> {
         None => Ok(MAX_DECOMPRESSED_SIZE),
         Some(size) => {
             if !size.is_finite() || size < 0.0 {
-                Err(ZflateError::InvalidArg(
+                Err(ComprsError::InvalidArg(
                     "maxOutputSize must be a positive finite number".to_string(),
                 )
                 .into())
@@ -59,7 +59,7 @@ fn validate_capacity(capacity: f64) -> Result<usize> {
         || capacity > usize::MAX as f64
     {
         return Err(
-            ZflateError::InvalidArg("capacity must be a non-negative integer".to_string()).into(),
+            ComprsError::InvalidArg("capacity must be a non-negative integer".to_string()).into(),
         );
     }
     Ok(capacity as usize)
@@ -81,13 +81,13 @@ fn decompress_with_limit(
         .take((max_size as u64).saturating_add(1))
         .read_to_end(&mut output)
         .map_err(|e| {
-            napi::Error::from(ZflateError::Operation {
+            napi::Error::from(ComprsError::Operation {
                 context,
                 source: e.into(),
             })
         })?;
     if output.len() > max_size {
-        return Err(ZflateError::SizeLimit {
+        return Err(ComprsError::SizeLimit {
             context,
             limit: max_size,
         }

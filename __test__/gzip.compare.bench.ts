@@ -18,32 +18,32 @@ const RANDOM_MEDIUM = randomBytes(10_000);
 const RANDOM_LARGE = randomBytes(1_000_000);
 
 // --- Pre-compressed data for decompression benchmarks ---
-const SMALL_ZFLATE = gzipCompress(SMALL);
+const SMALL_COMPRS = gzipCompress(SMALL);
 const SMALL_PAKO = Buffer.from(pako.gzip(SMALL));
 const SMALL_FFLATE = Buffer.from(gzipSync(SMALL));
 const SMALL_NODE = nodeGzip(SMALL);
 
-const MEDIUM_ZFLATE = gzipCompress(MEDIUM);
+const MEDIUM_COMPRS = gzipCompress(MEDIUM);
 const MEDIUM_PAKO = Buffer.from(pako.gzip(MEDIUM));
 const MEDIUM_FFLATE = Buffer.from(gzipSync(MEDIUM));
 const MEDIUM_NODE = nodeGzip(MEDIUM);
 
-const LARGE_ZFLATE = gzipCompress(LARGE);
+const LARGE_COMPRS = gzipCompress(LARGE);
 const LARGE_PAKO = Buffer.from(pako.gzip(LARGE));
 const LARGE_FFLATE = Buffer.from(gzipSync(LARGE));
 const LARGE_NODE = nodeGzip(LARGE);
 
-const RANDOM_SMALL_ZFLATE = gzipCompress(RANDOM_SMALL);
+const RANDOM_SMALL_COMPRS = gzipCompress(RANDOM_SMALL);
 const RANDOM_SMALL_PAKO = Buffer.from(pako.gzip(RANDOM_SMALL));
 const RANDOM_SMALL_FFLATE = Buffer.from(gzipSync(RANDOM_SMALL));
 const RANDOM_SMALL_NODE = nodeGzip(RANDOM_SMALL);
 
-const RANDOM_MEDIUM_ZFLATE = gzipCompress(RANDOM_MEDIUM);
+const RANDOM_MEDIUM_COMPRS = gzipCompress(RANDOM_MEDIUM);
 const RANDOM_MEDIUM_PAKO = Buffer.from(pako.gzip(RANDOM_MEDIUM));
 const RANDOM_MEDIUM_FFLATE = Buffer.from(gzipSync(RANDOM_MEDIUM));
 const RANDOM_MEDIUM_NODE = nodeGzip(RANDOM_MEDIUM);
 
-const RANDOM_LARGE_ZFLATE = gzipCompress(RANDOM_LARGE);
+const RANDOM_LARGE_COMPRS = gzipCompress(RANDOM_LARGE);
 const RANDOM_LARGE_PAKO = Buffer.from(pako.gzip(RANDOM_LARGE));
 const RANDOM_LARGE_FFLATE = Buffer.from(gzipSync(RANDOM_LARGE));
 const RANDOM_LARGE_NODE = nodeGzip(RANDOM_LARGE);
@@ -148,7 +148,7 @@ describe('gzip compress - 1MB random', () => {
 
 describe('gzip decompress - 150B patterned', () => {
   bench('comprs', () => {
-    gzipDecompress(SMALL_ZFLATE);
+    gzipDecompress(SMALL_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(SMALL_PAKO);
@@ -163,7 +163,7 @@ describe('gzip decompress - 150B patterned', () => {
 
 describe('gzip decompress - 10KB patterned', () => {
   bench('comprs', () => {
-    gzipDecompress(MEDIUM_ZFLATE);
+    gzipDecompress(MEDIUM_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(MEDIUM_PAKO);
@@ -178,7 +178,7 @@ describe('gzip decompress - 10KB patterned', () => {
 
 describe('gzip decompress - 1MB patterned', () => {
   bench('comprs', () => {
-    gzipDecompress(LARGE_ZFLATE);
+    gzipDecompress(LARGE_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(LARGE_PAKO);
@@ -193,7 +193,7 @@ describe('gzip decompress - 1MB patterned', () => {
 
 describe('gzip decompress - 150B random', () => {
   bench('comprs', () => {
-    gzipDecompress(RANDOM_SMALL_ZFLATE);
+    gzipDecompress(RANDOM_SMALL_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(RANDOM_SMALL_PAKO);
@@ -208,7 +208,7 @@ describe('gzip decompress - 150B random', () => {
 
 describe('gzip decompress - 10KB random', () => {
   bench('comprs', () => {
-    gzipDecompress(RANDOM_MEDIUM_ZFLATE);
+    gzipDecompress(RANDOM_MEDIUM_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(RANDOM_MEDIUM_PAKO);
@@ -223,7 +223,7 @@ describe('gzip decompress - 10KB random', () => {
 
 describe('gzip decompress - 1MB random', () => {
   bench('comprs', () => {
-    gzipDecompress(RANDOM_LARGE_ZFLATE);
+    gzipDecompress(RANDOM_LARGE_COMPRS);
   });
   bench('pako', () => {
     pako.ungzip(RANDOM_LARGE_PAKO);
