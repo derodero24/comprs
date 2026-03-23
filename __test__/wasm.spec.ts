@@ -5,7 +5,7 @@ let wasmAvailable = false;
 // biome-ignore lint/suspicious/noExplicitAny: WASM module loaded dynamically
 let wasm: any;
 try {
-  wasm = require('../zflate.wasi.cjs');
+  wasm = require('../comprs.wasi.cjs');
   wasmAvailable = true;
 } catch {
   // WASM binary not built — skip tests
@@ -13,7 +13,7 @@ try {
 
 describe.skipIf(!wasmAvailable)('WASM compatibility', () => {
   describe('one-shot compression', () => {
-    const testData = Buffer.from('Hello, WASM zflate! '.repeat(100));
+    const testData = Buffer.from('Hello, WASM comprs! '.repeat(100));
 
     it('should round-trip with zstd', () => {
       const compressed = wasm.zstdCompress(testData);

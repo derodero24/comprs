@@ -1,1 +1,1 @@
-export * from 'zflate-wasm32-wasi'
+export * from 'comprs-wasm32-wasi'

@@ -1,14 +1,14 @@
 {
-  "name": "zflate-wasm32-wasi",
+  "name": "comprs-wasm32-wasi",
   "version": "0.2.0",
   "cpu": [
     "wasm32"
   ],
-  "main": "zflate.wasi.cjs",
+  "main": "comprs.wasi.cjs",
   "files": [
-    "zflate.wasm32-wasi.wasm",
-    "zflate.wasi.cjs",
-    "zflate.wasi-browser.js",
+    "comprs.wasm32-wasi.wasm",
+    "comprs.wasi.cjs",
+    "comprs.wasi-browser.js",
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
   ],
@@ -28,16 +28,16 @@
     "streaming"
   ],
   "author": "derodero24",
-  "homepage": "https://github.com/derodero24/zflate",
+  "homepage": "https://github.com/derodero24/comprs",
   "license": "MIT",
   "engines": {
     "node": ">=14.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derodero24/zflate.git"
+    "url": "git+https://github.com/derodero24/comprs.git"
   },
-  "browser": "zflate.wasi-browser.js",
+  "browser": "comprs.wasi-browser.js",
   "dependencies": {
     "@napi-rs/wasm-runtime": "^1.1.1"
   }

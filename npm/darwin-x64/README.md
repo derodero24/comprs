@@ -1,3 +1,3 @@
-# `zflate-darwin-x64`
+# `comprs-darwin-x64`
 
-This is the **x86_64-apple-darwin** binary for `zflate`
+This is the **x86_64-apple-darwin** binary for `comprs`

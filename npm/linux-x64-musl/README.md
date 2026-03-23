@@ -1,3 +1,3 @@
-# `zflate-linux-x64-musl`
+# `comprs-linux-x64-musl`
 
-This is the **x86_64-unknown-linux-musl** binary for `zflate`
+This is the **x86_64-unknown-linux-musl** binary for `comprs`

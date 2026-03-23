@@ -29,7 +29,7 @@ function toChunkedStream(data: Uint8Array, chunkSize: number): ReadableStream<Ui
 }
 
 describe('createZstdCompressStream', () => {
-  const data = Buffer.from('Hello, zflate streaming! '.repeat(100));
+  const data = Buffer.from('Hello, comprs streaming! '.repeat(100));
 
   it('should compress data through a stream', async () => {
     const stream = toChunkedStream(data, 256);
@@ -76,7 +76,7 @@ describe('createZstdCompressStream', () => {
 });
 
 describe('createZstdDecompressStream', () => {
-  const data = Buffer.from('Hello, zflate streaming decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs streaming decompression! '.repeat(100));
   const compressed = zstdCompress(data);
 
   it('should decompress data through a stream', async () => {

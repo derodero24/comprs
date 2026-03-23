@@ -35,7 +35,7 @@ function toChunkedStream(data: Uint8Array, chunkSize: number): ReadableStream<Ui
 }
 
 describe('createGzipCompressStream', () => {
-  const data = Buffer.from('Hello, zflate gzip streaming! '.repeat(100));
+  const data = Buffer.from('Hello, comprs gzip streaming! '.repeat(100));
 
   it('should compress data through a stream', async () => {
     const stream = toChunkedStream(data, 256);
@@ -89,7 +89,7 @@ describe('createGzipCompressStream', () => {
 });
 
 describe('createGzipDecompressStream', () => {
-  const data = Buffer.from('Hello, zflate gzip streaming decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs gzip streaming decompression! '.repeat(100));
   const compressed = gzipCompress(data);
 
   it('should decompress data through a stream', async () => {
@@ -169,7 +169,7 @@ describe('gzip streaming round-trip', () => {
 });
 
 describe('createDeflateCompressStream', () => {
-  const data = Buffer.from('Hello, zflate deflate streaming! '.repeat(100));
+  const data = Buffer.from('Hello, comprs deflate streaming! '.repeat(100));
 
   it('should compress data through a stream', async () => {
     const stream = toChunkedStream(data, 256);
@@ -201,7 +201,7 @@ describe('createDeflateCompressStream', () => {
 });
 
 describe('createDeflateDecompressStream', () => {
-  const data = Buffer.from('Hello, zflate deflate streaming decompression! '.repeat(100));
+  const data = Buffer.from('Hello, comprs deflate streaming decompression! '.repeat(100));
   const compressed = deflateCompress(data);
 
   it('should decompress data through a stream', async () => {

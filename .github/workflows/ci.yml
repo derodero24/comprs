@@ -227,7 +227,7 @@ jobs:
       - name: Report WASM binary size
         if: matrix.settings.target == 'wasm32-wasip1-threads'
         run: |
-          WASM_FILE=$(ls zflate.*.wasm 2>/dev/null | head -1)
+          WASM_FILE=$(ls comprs.*.wasm 2>/dev/null | head -1)
           if [ -n "$WASM_FILE" ]; then
             SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
             SIZE_KB=$(( SIZE / 1024 ))

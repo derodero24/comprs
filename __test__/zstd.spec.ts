@@ -3,7 +3,7 @@ import { zstdCompress, zstdDecompress, zstdDecompressWithCapacity } from '../ind
 
 describe('zstdCompress / zstdDecompress', () => {
   it('should round-trip a simple string', () => {
-    const input = Buffer.from('Hello, zflate!');
+    const input = Buffer.from('Hello, comprs!');
     const compressed = zstdCompress(input);
     const decompressed = zstdDecompress(compressed);
     expect(decompressed).toEqual(input);

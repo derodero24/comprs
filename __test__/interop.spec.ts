@@ -25,13 +25,13 @@ const zstdAvailable = 'zstdCompressSync' in zlib;
 describe('brotli Node.js zlib interop', () => {
   const testData = Buffer.from('Hello, interop testing with brotli compression!'.repeat(10));
 
-  it('zflate brotli output should be decompressible by node:zlib', () => {
+  it('comprs brotli output should be decompressible by node:zlib', () => {
     const compressed = brotliCompress(testData);
     const decompressed = brotliDecompressSync(compressed);
     expect(Buffer.from(decompressed)).toEqual(testData);
   });
 
-  it('node:zlib brotli output should be decompressible by zflate', () => {
+  it('node:zlib brotli output should be decompressible by comprs', () => {
     const compressed = brotliCompressSync(testData);
     const decompressed = brotliDecompress(Buffer.from(compressed));
     expect(Buffer.from(decompressed)).toEqual(testData);
@@ -46,7 +46,7 @@ describe('brotli Node.js zlib interop', () => {
   });
 
   it('should round-trip through both implementations', () => {
-    // zflate compress -> node decompress -> node compress -> zflate decompress
+    // comprs compress -> node decompress -> node compress -> comprs decompress
     const step1 = brotliCompress(testData);
     const step2 = brotliDecompressSync(step1);
     const step3 = brotliCompressSync(step2);
@@ -58,13 +58,13 @@ describe('brotli Node.js zlib interop', () => {
 describe('gzip Node.js zlib interop', () => {
   const testData = Buffer.from('Hello, interop testing with gzip compression!'.repeat(10));
 
-  it('zflate gzip output should be decompressible by node:zlib', () => {
+  it('comprs gzip output should be decompressible by node:zlib', () => {
     const compressed = gzipCompress(testData);
     const decompressed = gunzipSync(compressed);
     expect(Buffer.from(decompressed)).toEqual(testData);
   });
 
-  it('node:zlib gzip output should be decompressible by zflate', () => {
+  it('node:zlib gzip output should be decompressible by comprs', () => {
     const compressed = gzipSync(testData);
     const decompressed = gzipDecompress(Buffer.from(compressed));
     expect(Buffer.from(decompressed)).toEqual(testData);
@@ -90,13 +90,13 @@ describe('gzip Node.js zlib interop', () => {
 describe('deflate Node.js zlib interop', () => {
   const testData = Buffer.from('Hello, interop testing with deflate compression!'.repeat(10));
 
-  it('zflate deflate output should be decompressible by node:zlib', () => {
+  it('comprs deflate output should be decompressible by node:zlib', () => {
     const compressed = deflateCompress(testData);
     const decompressed = inflateRawSync(compressed);
     expect(Buffer.from(decompressed)).toEqual(testData);
   });
 
-  it('node:zlib deflate output should be decompressible by zflate', () => {
+  it('node:zlib deflate output should be decompressible by comprs', () => {
     const compressed = deflateRawSync(testData);
     const decompressed = deflateDecompress(Buffer.from(compressed));
     expect(Buffer.from(decompressed)).toEqual(testData);
@@ -126,13 +126,13 @@ describe.skipIf(!zstdAvailable)('zstd Node.js zlib interop', () => {
   // biome-ignore lint/suspicious/noExplicitAny: zstd is experimental and not in all type definitions
   const zlibWithZstd = zlib as any;
 
-  it('zflate zstd output should be decompressible by node:zlib', () => {
+  it('comprs zstd output should be decompressible by node:zlib', () => {
     const compressed = zstdCompress(testData);
     const decompressed = zlibWithZstd.zstdDecompressSync(compressed);
     expect(Buffer.from(decompressed)).toEqual(testData);
   });
 
-  it('node:zlib zstd output should be decompressible by zflate', () => {
+  it('node:zlib zstd output should be decompressible by comprs', () => {
     const compressed = zlibWithZstd.zstdCompressSync(testData);
     const decompressed = zstdDecompress(Buffer.from(compressed));
     expect(Buffer.from(decompressed)).toEqual(testData);

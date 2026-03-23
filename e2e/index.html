@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><title>zflate browser test</title></head>
+<head><title>comprs browser test</title></head>
 <body>
 <pre id="log"></pre>
 <script type="module">
@@ -12,11 +12,11 @@
     globalThis.Buffer = Buffer;
 
     log('Loading WASM module...');
-    const wasm = await import('../zflate.wasi-browser.js');
+    const wasm = await import('../comprs.wasi-browser.js');
     log(`Loaded. Exports: ${Object.keys(wasm).length}`);
 
     const results = {};
-    const testData = new TextEncoder().encode('Hello, browser WASM zflate! '.repeat(100));
+    const testData = new TextEncoder().encode('Hello, browser WASM comprs! '.repeat(100));
 
     // zstd round-trip
     const zstdCompressed = wasm.zstdCompress(testData);
@@ -53,7 +53,7 @@
 
     // streaming compression via one-shot adapter (avoids WASM memory growth issue)
     // This tests the same pattern as browser-streaming.js but inline to avoid
-    // import resolution issues with the zflate-wasm32-wasi package in e2e.
+    // import resolution issues with the comprs-wasm32-wasi package in e2e.
     try {
       const chunks = [];
       chunks.push(new Uint8Array(testData.slice(0, 100)));

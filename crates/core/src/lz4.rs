@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn round_trip_basic() {
-        let original = b"Hello, zflate! This is a test of LZ4 compression.";
+        let original = b"Hello, comprs! This is a test of LZ4 compression.";
         let mut compressed = Vec::new();
         let mut encoder = FrameEncoder::new(&mut compressed);
         encoder.write_all(original).unwrap();

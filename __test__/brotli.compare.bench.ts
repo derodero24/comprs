@@ -7,7 +7,7 @@ import { bench, describe } from 'vitest';
 import { brotliCompress, brotliDecompress } from '../index.js';
 
 // --- Patterned data (compressible) ---
-const SMALL = Buffer.from('Hello, zflate! '.repeat(10));
+const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
 const MEDIUM = Buffer.alloc(10_000);
 for (let i = 0; i < MEDIUM.length; i++) MEDIUM[i] = i % 256;
 const LARGE = Buffer.alloc(1_000_000);
@@ -42,7 +42,7 @@ const RANDOM_LARGE_NODE = nodeBrotliCompress(RANDOM_LARGE);
 // =====================================================
 
 describe('brotli compress - 150B patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(SMALL);
   });
   bench('node:zlib', () => {
@@ -51,7 +51,7 @@ describe('brotli compress - 150B patterned', () => {
 });
 
 describe('brotli compress - 10KB patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(MEDIUM);
   });
   bench('node:zlib', () => {
@@ -60,7 +60,7 @@ describe('brotli compress - 10KB patterned', () => {
 });
 
 describe('brotli compress - 1MB patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(LARGE);
   });
   bench('node:zlib', () => {
@@ -69,7 +69,7 @@ describe('brotli compress - 1MB patterned', () => {
 });
 
 describe('brotli compress - 150B random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(RANDOM_SMALL);
   });
   bench('node:zlib', () => {
@@ -78,7 +78,7 @@ describe('brotli compress - 150B random', () => {
 });
 
 describe('brotli compress - 10KB random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(RANDOM_MEDIUM);
   });
   bench('node:zlib', () => {
@@ -87,7 +87,7 @@ describe('brotli compress - 10KB random', () => {
 });
 
 describe('brotli compress - 1MB random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliCompress(RANDOM_LARGE);
   });
   bench('node:zlib', () => {
@@ -100,7 +100,7 @@ describe('brotli compress - 1MB random', () => {
 // =====================================================
 
 describe('brotli decompress - 150B patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(SMALL_ZFLATE);
   });
   bench('node:zlib', () => {
@@ -109,7 +109,7 @@ describe('brotli decompress - 150B patterned', () => {
 });
 
 describe('brotli decompress - 10KB patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(MEDIUM_ZFLATE);
   });
   bench('node:zlib', () => {
@@ -118,7 +118,7 @@ describe('brotli decompress - 10KB patterned', () => {
 });
 
 describe('brotli decompress - 1MB patterned', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(LARGE_ZFLATE);
   });
   bench('node:zlib', () => {
@@ -127,7 +127,7 @@ describe('brotli decompress - 1MB patterned', () => {
 });
 
 describe('brotli decompress - 150B random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(RANDOM_SMALL_ZFLATE);
   });
   bench('node:zlib', () => {
@@ -136,7 +136,7 @@ describe('brotli decompress - 150B random', () => {
 });
 
 describe('brotli decompress - 10KB random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(RANDOM_MEDIUM_ZFLATE);
   });
   bench('node:zlib', () => {
@@ -145,7 +145,7 @@ describe('brotli decompress - 10KB random', () => {
 });
 
 describe('brotli decompress - 1MB random', () => {
-  bench('zflate', () => {
+  bench('comprs', () => {
     brotliDecompress(RANDOM_LARGE_ZFLATE);
   });
   bench('node:zlib', () => {

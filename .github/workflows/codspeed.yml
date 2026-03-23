@@ -62,13 +62,13 @@ jobs:
           tool: cargo-codspeed
 
       - name: Build benchmarks
-        run: cargo codspeed build -p zflate-bench
+        run: cargo codspeed build -p comprs-bench
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: cargo codspeed run -p zflate-bench
+          run: cargo codspeed run -p comprs-bench
 
   js-benchmarks:
     name: JS Benchmarks

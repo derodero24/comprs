@@ -1,5 +1,5 @@
 [package]
-name = "zflate"
+name = "comprs"
 version = "0.2.0"
 edition.workspace = true
 license.workspace = true

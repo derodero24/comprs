@@ -55,7 +55,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
 
           # Skip if already published
-          if npm view "zflate@${VERSION}" version 2>/dev/null; then
+          if npm view "comprs@${VERSION}" version 2>/dev/null; then
             echo "Version ${VERSION} already published, skipping release PR"
             exit 0
           fi
@@ -96,7 +96,7 @@ jobs:
         id: check
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "zflate@${VERSION}" version 2>/dev/null; then
+          if npm view "comprs@${VERSION}" version 2>/dev/null; then
             echo "Version ${VERSION} already published, skipping"
             echo "should_publish=false" >> $GITHUB_OUTPUT
           else
@@ -196,10 +196,10 @@ jobs:
         with:
           name: bindings-${{ matrix.settings.target }}
           path: |
-            zflate.*.node
-            zflate.*.wasm
-            zflate.wasi*.cjs
-            zflate.wasi*.js
+            comprs.*.node
+            comprs.*.wasm
+            comprs.wasi*.cjs
+            comprs.wasi*.js
             wasi-worker*.mjs
           if-no-files-found: error
 
@@ -234,7 +234,7 @@ jobs:
           if [ -d "$WASM_DIR" ]; then
             cp "$WASM_DIR"/*.cjs "$WASM_DIR"/*.js "$WASM_DIR"/*.mjs . 2>/dev/null || true
             echo "Copied WASM wrapper files from $WASM_DIR"
-            ls -la zflate.wasi* wasi-worker* 2>/dev/null
+            ls -la comprs.wasi* wasi-worker* 2>/dev/null
           fi
 
       - name: Move artifacts to platform packages
@@ -252,7 +252,7 @@ jobs:
       # npm trusted publishing (OIDC) — no NPM_TOKEN needed.
       # Requires each package to be linked to this repo on npmjs.com:
       #   npmjs.com → Package Settings → Trusted publishers → Add GitHub Actions
-      #   Repository: derodero24/zflate | Workflow: release.yml
+      #   Repository: derodero24/comprs | Workflow: release.yml
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:

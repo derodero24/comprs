@@ -6,14 +6,14 @@ import { version, zstdCompress, zstdDecompress, zstdDecompressWithCapacity } fro
 
 const pkgVersion = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8')).version;
 
-describe('zflate', () => {
+describe('comprs', () => {
   it('should return the package version', () => {
     expect(version()).toBe(pkgVersion);
   });
 });
 
 describe('zstdCompress', () => {
-  const data = Buffer.from('Hello, zflate! '.repeat(100));
+  const data = Buffer.from('Hello, comprs! '.repeat(100));
 
   it('should compress data with default level', () => {
     const compressed = zstdCompress(data);

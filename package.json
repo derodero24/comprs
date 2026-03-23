@@ -1,16 +1,16 @@
 {
-  "name": "zflate",
+  "name": "comprs",
   "version": "0.2.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
   "license": "MIT",
   "author": "derodero24",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derodero24/zflate.git"
+    "url": "git+https://github.com/derodero24/comprs.git"
   },
-  "homepage": "https://github.com/derodero24/zflate",
+  "homepage": "https://github.com/derodero24/comprs",
   "bugs": {
-    "url": "https://github.com/derodero24/zflate/issues"
+    "url": "https://github.com/derodero24/comprs/issues"
   },
   "keywords": [
     "compression",
@@ -80,7 +80,7 @@
     "browser.js"
   ],
   "napi": {
-    "binaryName": "zflate",
+    "binaryName": "comprs",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",

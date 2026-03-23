@@ -6,7 +6,7 @@ resolver = "2"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
-repository = "https://github.com/derodero24/zflate"
+repository = "https://github.com/derodero24/comprs"
 
 [workspace.dependencies]
 # napi-rs

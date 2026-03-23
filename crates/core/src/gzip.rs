@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn gzip_round_trip_basic() {
-        let original = b"Hello, zflate! This is a test of gzip compression.";
+        let original = b"Hello, comprs! This is a test of gzip compression.";
         let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();
@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn deflate_round_trip_basic() {
-        let original = b"Hello, zflate! This is a test of deflate compression.";
+        let original = b"Hello, comprs! This is a test of deflate compression.";
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
         encoder.write_all(original).unwrap();
         let compressed = encoder.finish().unwrap();

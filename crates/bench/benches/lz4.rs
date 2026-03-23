@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 
+use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 use criterion::{Criterion, criterion_group, criterion_main};
 use lz4_flex::frame::{FrameDecoder, FrameEncoder};
-use zflate_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
 
 fn compress(data: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(data.len());
