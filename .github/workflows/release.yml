@@ -249,11 +249,11 @@ jobs:
             echo ""
           done
 
-      # npm trusted publishing (OIDC) — no NPM_TOKEN needed.
-      # Requires each package to be linked to this repo on npmjs.com:
-      #   npmjs.com → Package Settings → Trusted publishers → Add GitHub Actions
-      #   Repository: derodero24/comprs | Workflow: release.yml
+      # First publish: use granular access token (NPM_TOKEN secret).
+      # After packages exist on npm, switch to OIDC trusted publishing
+      # and remove NPM_TOKEN.
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
