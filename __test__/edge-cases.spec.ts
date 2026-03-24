@@ -11,6 +11,10 @@ import {
   GzipDecompressContext,
   gzipCompress,
   gzipDecompress,
+  Lz4CompressContext,
+  Lz4DecompressContext,
+  lz4Compress,
+  lz4Decompress,
   ZstdCompressContext,
   zstdCompress,
   zstdDecompress,
@@ -20,6 +24,8 @@ import {
   createDeflateDecompressStream,
   createGzipCompressStream,
   createGzipDecompressStream,
+  createLz4CompressStream,
+  createLz4DecompressStream,
   createZstdCompressStream,
   createZstdDecompressStream,
 } from '../streams.js';
@@ -89,6 +95,19 @@ describe('decompression error handling', () => {
       const truncated = compressed.subarray(0, Math.floor(compressed.length / 2));
       expect(() => brotliDecompress(truncated)).toThrow();
     });
+
+    it('should throw or produce different output when decompressing truncated lz4 data', () => {
+      const compressed = lz4Compress(testData);
+      const truncated = compressed.subarray(0, Math.floor(compressed.length / 2));
+      let result: Buffer | null = null;
+      try {
+        result = lz4Decompress(truncated);
+      } catch {
+        // Throwing is acceptable
+        return;
+      }
+      expect(Buffer.compare(result, testData)).not.toBe(0);
+    });
   });
 
   describe('corrupted compressed data', () => {
@@ -131,6 +150,21 @@ describe('decompression error handling', () => {
       compressed.writeUInt8(compressed.readUInt8(mid) ^ 0xff, mid);
       compressed.writeUInt8(compressed.readUInt8(mid + 1) ^ 0xff, mid + 1);
       expect(() => brotliDecompress(compressed)).toThrow();
+    });
+
+    it('should throw or produce different output when decompressing corrupted lz4 data', () => {
+      const compressed = Buffer.from(lz4Compress(testData));
+      const mid = Math.floor(compressed.length / 2);
+      compressed.writeUInt8(compressed.readUInt8(mid) ^ 0xff, mid);
+      compressed.writeUInt8(compressed.readUInt8(mid + 1) ^ 0xff, mid + 1);
+      let result: Buffer | null = null;
+      try {
+        result = lz4Decompress(compressed);
+      } catch {
+        // Throwing is acceptable
+        return;
+      }
+      expect(Buffer.compare(result, testData)).not.toBe(0);
     });
   });
 
@@ -195,6 +229,10 @@ describe('decompression error handling', () => {
 
     it('should throw when decompressing empty buffer with brotli', () => {
       expect(() => brotliDecompress(Buffer.alloc(0))).toThrow();
+    });
+
+    it('should throw when decompressing empty buffer with lz4', () => {
+      expect(() => lz4Decompress(Buffer.alloc(0))).toThrow();
     });
   });
 });
@@ -333,6 +371,38 @@ describe('streaming edge cases', () => {
     });
   });
 
+  describe('transform after finish on lz4 compress context', () => {
+    it('should throw when calling transform() after finish() on Lz4CompressContext', () => {
+      const ctx = new Lz4CompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.transform(Buffer.from('more data'))).toThrow(/already finished/);
+    });
+  });
+
+  describe('transform after flush on lz4 decompress context', () => {
+    it('should still accept transform() after flush() on Lz4DecompressContext', () => {
+      const data = Buffer.from('test data');
+      const compressed = lz4Compress(data);
+      const ctx = new Lz4DecompressContext();
+      ctx.transform(compressed);
+      const result = ctx.flush();
+      expect(Buffer.compare(result, data)).toBe(0);
+      // Lz4DecompressContext has no finish() — flush() decompresses and clears buffer,
+      // so further transform() calls should still work (buffering new data)
+      expect(() => ctx.transform(Buffer.from('more data'))).not.toThrow();
+    });
+  });
+
+  describe('finish twice on lz4 compress context', () => {
+    it('should throw when calling finish() twice on Lz4CompressContext', () => {
+      const ctx = new Lz4CompressContext();
+      ctx.transform(Buffer.from('hello'));
+      ctx.finish();
+      expect(() => ctx.finish()).toThrow(/already finished/);
+    });
+  });
+
   describe('single-byte chunks through streaming', () => {
     const data = Buffer.from('Single byte chunk test data.');
 
@@ -375,6 +445,20 @@ describe('streaming edge cases', () => {
       const compressed = zstdCompress(data);
       const stream = toChunkedStream(compressed, 1);
       const decompressed = await collectStream(stream.pipeThrough(createZstdDecompressStream()));
+      expect(Buffer.compare(decompressed, data)).toBe(0);
+    });
+
+    it('should handle single-byte chunks through lz4 stream', async () => {
+      const stream = toChunkedStream(data, 1);
+      const compressed = await collectStream(stream.pipeThrough(createLz4CompressStream()));
+      const decompressed = lz4Decompress(compressed);
+      expect(Buffer.compare(decompressed, data)).toBe(0);
+    });
+
+    it('should handle single-byte decompression chunks through lz4 stream', async () => {
+      const compressed = lz4Compress(data);
+      const stream = toChunkedStream(compressed, 1);
+      const decompressed = await collectStream(stream.pipeThrough(createLz4DecompressStream()));
       expect(Buffer.compare(decompressed, data)).toBe(0);
     });
   });
@@ -466,6 +550,35 @@ describe('streaming edge cases', () => {
         },
       });
       const decompressed = await collectStream(stream.pipeThrough(createZstdDecompressStream()));
+      expect(Buffer.compare(decompressed, data)).toBe(0);
+    });
+
+    it('should handle zero-length chunk in lz4 compression stream', async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(data.subarray(0, 10));
+          controller.enqueue(new Uint8Array(0)); // zero-length chunk
+          controller.enqueue(data.subarray(10));
+          controller.close();
+        },
+      });
+      const compressed = await collectStream(stream.pipeThrough(createLz4CompressStream()));
+      const decompressed = lz4Decompress(compressed);
+      expect(Buffer.compare(decompressed, data)).toBe(0);
+    });
+
+    it('should handle zero-length chunk in lz4 decompression stream', async () => {
+      const compressed = lz4Compress(data);
+      const mid = Math.floor(compressed.length / 2);
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(compressed.subarray(0, mid));
+          controller.enqueue(new Uint8Array(0)); // zero-length chunk
+          controller.enqueue(compressed.subarray(mid));
+          controller.close();
+        },
+      });
+      const decompressed = await collectStream(stream.pipeThrough(createLz4DecompressStream()));
       expect(Buffer.compare(decompressed, data)).toBe(0);
     });
   });
