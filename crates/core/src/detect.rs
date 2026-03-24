@@ -244,7 +244,7 @@ impl Task for DecompressTask {
 /// appropriate algorithm. Returns a Promise that resolves to the
 /// decompressed data as a Buffer.
 ///
-/// Supported formats: zstd, gzip, brotli.
+/// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
 #[napi]
 pub fn decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<DecompressTask> {

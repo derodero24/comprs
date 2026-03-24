@@ -198,7 +198,7 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 
 ### Async
 
-All one-shot functions have async variants that run on the libuv thread pool, keeping the event loop free:
+All compression and decompression functions have async variants (suffix `Async`) that run on the libuv thread pool, keeping the event loop free:
 
 | Function | Description |
 | --- | --- |

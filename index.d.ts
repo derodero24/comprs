@@ -328,7 +328,7 @@ export declare function decompress(data: Buffer | Uint8Array): Buffer
  * appropriate algorithm. Returns a Promise that resolves to the
  * decompressed data as a Buffer.
  *
- * Supported formats: zstd, gzip, brotli.
+ * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  */
 export declare function decompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
