@@ -1,7 +1,7 @@
 {
   "name": "comprs",
   "version": "0.2.0",
-  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
+  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "license": "MIT",
   "author": "derodero24",
   "repository": {
@@ -20,6 +20,7 @@
     "brotli",
     "deflate",
     "decompress",
+    "lz4",
     "wasm",
     "rust",
     "napi-rs",
@@ -77,7 +78,9 @@
     "streams.d.ts",
     "node.js",
     "node.d.ts",
-    "browser.js"
+    "browser.js",
+    "browser-entry.js",
+    "browser-streaming.js"
   ],
   "napi": {
     "binaryName": "comprs",

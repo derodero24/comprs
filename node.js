@@ -10,6 +10,8 @@ const {
   DeflateDecompressContext,
   BrotliCompressContext,
   BrotliDecompressContext,
+  Lz4CompressContext,
+  Lz4DecompressContext,
   detectFormat,
 } = require('./index.js');
 
@@ -337,6 +339,8 @@ function createDecompressContext(format, maxOutputSize) {
       return new GzipDecompressContext(maxOutputSize);
     case 'brotli':
       return new BrotliDecompressContext(maxOutputSize);
+    case 'lz4':
+      return new Lz4DecompressContext(maxOutputSize);
     default:
       throw new Error('unable to detect compression format from stream data');
   }
@@ -349,7 +353,7 @@ function pushIfNonEmpty(stream, result) {
 /**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
- * Detects the compression format (zstd, gzip, or brotli) from the first
+ * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
@@ -410,6 +414,67 @@ function createDecompressTransform(maxOutputSize) {
   });
 }
 
+/**
+ * Create a Node.js stream.Transform for LZ4 frame compression.
+ *
+ * @returns {Transform}
+ */
+function createLz4CompressTransform() {
+  const ctx = new Lz4CompressContext();
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
+/**
+ * Create a Node.js stream.Transform for LZ4 frame decompression.
+ *
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
+ * @returns {Transform}
+ */
+function createLz4DecompressTransform(maxOutputSize) {
+  const ctx = new Lz4DecompressContext(maxOutputSize);
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
 module.exports = {
   createZstdCompressTransform,
   createZstdDecompressTransform,
@@ -421,5 +486,7 @@ module.exports = {
   createDeflateDecompressTransform,
   createBrotliCompressTransform,
   createBrotliDecompressTransform,
+  createLz4CompressTransform,
+  createLz4DecompressTransform,
   createDecompressTransform,
 };

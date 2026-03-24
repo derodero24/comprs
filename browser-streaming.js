@@ -9,6 +9,9 @@ import {
   brotliCompress as _brotliCompress,
   brotliDecompress as _brotliDecompress,
   brotliDecompressWithCapacity as _brotliDecompressWithCapacity,
+  lz4Compress as _lz4Compress,
+  lz4Decompress as _lz4Decompress,
+  lz4DecompressWithCapacity as _lz4DecompressWithCapacity,
   zstdCompress as _zstdCompress,
   zstdDecompress as _zstdDecompress,
   zstdDecompressWithCapacity as _zstdDecompressWithCapacity,
@@ -199,6 +202,59 @@ export class BrotliDecompressContext {
       return _brotliDecompressWithCapacity(data, this._maxOutputSize)
     }
     return _brotliDecompress(data)
+  }
+}
+
+// -- LZ4 --
+
+export class Lz4CompressContext {
+  constructor() {
+    this._chunks = []
+    this._finished = false
+  }
+
+  transform(chunk) {
+    if (this._finished) throw new Error('lz4 stream already finished')
+    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
+    return new Uint8Array(0)
+  }
+
+  flush() {
+    if (this._finished) throw new Error('lz4 stream already finished')
+    return new Uint8Array(0)
+  }
+
+  finish() {
+    if (this._finished) throw new Error('lz4 stream already finished')
+    this._finished = true
+    const data = concatChunks(this._chunks)
+    this._chunks = []
+    return _lz4Compress(data)
+  }
+}
+
+export class Lz4DecompressContext {
+  constructor(maxOutputSize) {
+    this._maxOutputSize = maxOutputSize
+    this._chunks = []
+    this._finished = false
+  }
+
+  transform(chunk) {
+    if (this._finished) throw new Error('lz4 stream already finished')
+    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
+    return new Uint8Array(0)
+  }
+
+  flush() {
+    if (this._finished) throw new Error('lz4 stream already finished')
+    this._finished = true
+    const data = concatChunks(this._chunks)
+    this._chunks = []
+    if (this._maxOutputSize != null) {
+      return _lz4DecompressWithCapacity(data, this._maxOutputSize)
+    }
+    return _lz4Decompress(data)
   }
 }
 
