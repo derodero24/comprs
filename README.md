@@ -7,14 +7,14 @@
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repo=derodero24/comprs)](https://codspeed.io/derodero24/comprs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, and **brotli** in one package.
+Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, **brotli**, and **lz4** in one package.
 
 ## Why comprs?
 
 The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. comprs consolidates this into a single, fast, well-typed library:
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
-- **Unified API** — Same interface for zstd, gzip, and brotli
+- **Unified API** — Same interface for zstd, gzip, brotli, and lz4
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
@@ -66,7 +66,7 @@ const decompressed = brotliDecompress(compressed);
 ### Streaming
 
 ```typescript
-import { createZstdCompressStream, createZstdDecompressStream } from 'comprs';
+import { createZstdCompressStream, createZstdDecompressStream } from 'comprs/streams';
 
 // Create a readable stream from data
 const input = new ReadableStream({
@@ -164,12 +164,20 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 | `brotliDecompress(data)` | Decompress brotli data (max 256 MB output) |
 | `brotliDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
 
+#### lz4
+
+| Function | Description |
+| --- | --- |
+| `lz4Compress(data)` | Compress with LZ4 frame format |
+| `lz4Decompress(data)` | Decompress LZ4 data (max 256 MB output) |
+| `lz4DecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
 #### Auto-detect
 
 | Function | Description |
 | --- | --- |
-| `decompress(data)` | Auto-detect format and decompress (zstd, gzip, brotli) |
-| `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, or `'unknown'` |
+| `decompress(data)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4) |
+| `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
 
 #### zstd Dictionary
 
@@ -193,6 +201,8 @@ All one-shot functions have async variants that run on the libuv thread pool, ke
 | `deflateDecompressAsync(data)` | Async deflate decompression |
 | `brotliCompressAsync(data, quality?)` | Async brotli compression |
 | `brotliDecompressAsync(data)` | Async brotli decompression |
+| `lz4CompressAsync(data)` | Async LZ4 compression |
+| `lz4DecompressAsync(data)` | Async LZ4 decompression |
 
 ### Streaming
 
@@ -206,6 +216,8 @@ All one-shot functions have async variants that run on the libuv thread pool, ke
 | `createDeflateDecompressStream()` | Create a raw deflate decompression `TransformStream` |
 | `createBrotliCompressStream(quality?)` | Create a brotli compression `TransformStream` |
 | `createBrotliDecompressStream()` | Create a brotli decompression `TransformStream` |
+| `createLz4CompressStream()` | Create an LZ4 compression `TransformStream` |
+| `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
 | `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
 | `createZstdDecompressDictStream(dict)` | Streaming zstd decompression with dictionary |
 
@@ -235,6 +247,8 @@ await pipeline(
 | `createDeflateDecompressTransform()` | Node.js Transform for deflate decompression |
 | `createBrotliCompressTransform(quality?)` | Node.js Transform for brotli compression |
 | `createBrotliDecompressTransform()` | Node.js Transform for brotli decompression |
+| `createLz4CompressTransform()` | Node.js Transform for LZ4 compression |
+| `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
 | `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
 | `createZstdDecompressDictTransform(dict)` | Node.js Transform for zstd dict decompression |
 
@@ -245,6 +259,7 @@ await pipeline(
 | zstd | ✅ | ✅ | Available |
 | gzip / deflate | ✅ | ✅ | Available |
 | brotli | ✅ | ✅ | Available |
+| lz4 | ✅ | ✅ | Available |
 
 ## Platform Support
 
@@ -286,6 +301,7 @@ const decompressed = gzipDecompress(compressed);
 | zstd | ✅ | ❌ | ❌ | ✅* |
 | gzip/deflate | ✅ | ✅ | ✅ | ✅ |
 | brotli | ✅ | ❌ | ❌ | ✅ |
+| lz4 | ✅ | ❌ | ❌ | ❌ |
 | Web Streams API | ✅ | ❌ | ❌ | ❌ |
 | Streaming | ✅ | ✅† | ✅ | ✅ |
 | Browser | ✅ | ✅ | ✅ | ❌ |

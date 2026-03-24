@@ -83,6 +83,24 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
 export declare function createBrotliDecompressTransform(maxOutputSize?: number): Transform;
 
 /**
+ * Create a Node.js stream.Transform for LZ4 frame compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked LZ4 compression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ */
+export declare function createLz4CompressTransform(): Transform;
+
+/**
+ * Create a Node.js stream.Transform for LZ4 frame decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createLz4DecompressTransform(maxOutputSize?: number): Transform;
+
+/**
  * Create a Node.js stream.Transform for zstd compression with a pre-trained dictionary.
  *
  * Uses Node.js `stream.Transform` to provide chunked compression with a pre-trained
@@ -112,7 +130,7 @@ export declare function createZstdDecompressDictTransform(
 /**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
- * Detects the compression format (zstd, gzip, or brotli) from the first
+ * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  *
