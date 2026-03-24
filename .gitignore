@@ -49,6 +49,7 @@ docs/*
 # Claude Code (local development only)
 CLAUDE.md
 .claude/
+.mcp.json
 test-results/
 playwright-report/
 deno.lock
