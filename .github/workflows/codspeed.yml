@@ -8,6 +8,12 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - ".github/workflows/codspeed.yml"
+      - "streams.js"
+      - "streams.d.ts"
+      - "index.mjs"
+      - "index.d.mts"
+      - "node.js"
+      - "node.d.ts"
   pull_request:
     branches: [develop]
     paths:
@@ -15,6 +21,12 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - ".github/workflows/codspeed.yml"
+      - "streams.js"
+      - "streams.d.ts"
+      - "index.mjs"
+      - "index.d.mts"
+      - "node.js"
+      - "node.d.ts"
   workflow_dispatch:
 
 concurrency:
