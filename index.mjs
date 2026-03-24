@@ -53,6 +53,14 @@ export const {
   GzipDecompressContext,
   DeflateCompressContext,
   DeflateDecompressContext,
+  lz4Compress,
+  lz4Decompress,
+  lz4DecompressWithCapacity,
+  lz4CompressAsync,
+  lz4DecompressAsync,
+  lz4DecompressWithCapacityAsync,
+  Lz4CompressContext,
+  Lz4DecompressContext,
 } = binding;
 
 export const {
@@ -66,5 +74,7 @@ export const {
   createGzipDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
+  createLz4CompressStream,
+  createLz4DecompressStream,
   createDecompressStream,
 } = streams;
