@@ -150,6 +150,8 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 | Function | Description |
 | --- | --- |
 | `gzipCompress(data, level?)` | Compress with gzip. Level: 0-9 (default: 6) |
+| `gzipCompressWithHeader(data, header, level?)` | Compress with custom gzip header (filename, mtime) |
+| `gzipReadHeader(data)` | Read gzip header metadata without decompressing |
 | `gzipDecompress(data)` | Decompress gzip data |
 | `gzipDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
 | `deflateCompress(data, level?)` | Compress with raw deflate. Level: 0-9 (default: 6) |
@@ -178,6 +180,13 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 | --- | --- |
 | `decompress(data)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4) |
 | `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
+
+#### Utilities
+
+| Function | Description |
+| --- | --- |
+| `crc32(data, initialValue?)` | Compute CRC32 checksum (supports incremental computation) |
+| `version()` | Returns the library version |
 
 #### zstd Dictionary
 
@@ -220,6 +229,7 @@ All one-shot functions have async variants that run on the libuv thread pool, ke
 | `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
 | `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
 | `createZstdDecompressDictStream(dict)` | Streaming zstd decompression with dictionary |
+| `createDecompressStream()` | Auto-detect format and create a decompression `TransformStream` |
 
 ### Node.js Transform Streams
 
@@ -251,6 +261,7 @@ await pipeline(
 | `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
 | `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
 | `createZstdDecompressDictTransform(dict)` | Node.js Transform for zstd dict decompression |
+| `createDecompressTransform()` | Auto-detect format and create a decompression Transform |
 
 ## Supported Algorithms
 

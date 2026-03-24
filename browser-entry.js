@@ -26,6 +26,8 @@ export {
   gzipCompressAsync,
   gzipDecompress,
   gzipDecompressAsync,
+  gzipCompressWithHeader,
+  gzipReadHeader,
   gzipDecompressWithCapacity,
   gzipDecompressWithCapacityAsync,
   lz4Compress,
