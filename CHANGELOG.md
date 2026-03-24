@@ -1,4 +1,16 @@
-# zflate
+# comprs
+
+## 0.3.0
+
+### Minor Changes
+
+- c23b4e6: Add brotli compression/decompression support via `brotliCompress()` and `brotliDecompress()` functions. Includes streaming API with `createBrotliCompressStream()` and `createBrotliDecompressStream()`. Quality levels 0-11 (default: 6).
+- 98e64a9: Add gzip and raw deflate compression/decompression support via `gzipCompress()`, `gzipDecompress()`, `deflateCompress()`, `deflateDecompress()` functions. Includes streaming API with `createGzipCompressStream()`, `createGzipDecompressStream()`, `createDeflateCompressStream()`, and `createDeflateDecompressStream()`.
+- 356319f: Add LZ4 frame compression/decompression support via `lz4Compress()` and `lz4Decompress()` functions. Includes streaming API with `createLz4CompressStream()` and `createLz4DecompressStream()`, and Node.js Transform streams via `createLz4CompressTransform()` and `createLz4DecompressTransform()`. Auto-detect (`decompress()`, `detectFormat()`) now recognizes LZ4 frames.
+
+### Patch Changes
+
+- 49b5c2d: Rename package from `zflate` to `comprs` to avoid npm typosquat protection.
 
 ## 0.2.0
 

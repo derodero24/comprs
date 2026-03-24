@@ -12,6 +12,7 @@ on:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
       - '.github/workflows/codeql.yml'
+      - '.github/codeql/**'
   pull_request:
     branches: [develop]
     paths:
@@ -23,6 +24,7 @@ on:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
       - '.github/workflows/codeql.yml'
+      - '.github/codeql/**'
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6 AM UTC
 
@@ -54,7 +56,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: matrix.language == 'javascript-typescript'
-      - uses: github/codeql-action/init@b1bff81932f5cdfc8695c7752dcee935dcd061c8 # v4
+      - uses: github/codeql-action/init@38697555549f1db7851b81482ff19f1fa5c4fedc # v4
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@b1bff81932f5cdfc8695c7752dcee935dcd061c8 # v4
+          config-file: .github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@38697555549f1db7851b81482ff19f1fa5c4fedc # v4

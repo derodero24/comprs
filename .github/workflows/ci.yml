@@ -6,6 +6,7 @@ on:
     paths:
       - 'crates/**'
       - '__test__/**'
+      - 'e2e/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
@@ -16,11 +17,20 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'streams.js'
+      - 'streams.d.ts'
+      - 'index.mjs'
+      - 'index.d.mts'
+      - 'node.js'
+      - 'node.d.ts'
+      - 'scripts/**'
+      - 'playwright.config.ts'
   pull_request:
     branches: [develop]
     paths:
       - 'crates/**'
       - '__test__/**'
+      - 'e2e/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
@@ -31,10 +41,21 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'streams.js'
+      - 'streams.d.ts'
+      - 'index.mjs'
+      - 'index.d.mts'
+      - 'node.js'
+      - 'node.d.ts'
+      - 'scripts/**'
+      - 'playwright.config.ts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -47,7 +68,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
@@ -56,6 +79,8 @@ jobs:
         run: git diff --exit-code index.js index.d.ts browser.js
       - run: pnpm run typecheck
       - run: pnpm run publint
+      - name: Validate TypeScript type resolution
+        run: pnpm run attw
 
   audit:
     name: Dependency Audit
@@ -72,14 +97,27 @@ jobs:
         run: pnpm audit --prod
       - name: Audit Rust dependencies
         uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # v2
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5 # v2
+        with:
+          tool: cargo-audit
+      - name: Run cargo audit
+        run: cargo audit
+      - name: Install cargo-shear
+        uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5 # v2
+        with:
+          tool: cargo-shear
+      - name: Detect unused dependencies
+        run: cargo shear
 
   rust-lint:
     name: Rust Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo fmt -- --check
@@ -90,7 +128,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test
 
@@ -127,8 +167,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.settings.target }}
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -183,6 +224,31 @@ jobs:
           sudo apt-get update && sudo apt-get install -y binaryen
           pnpm run optimize:wasm
 
+      - name: Report WASM binary size
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        run: |
+          WASM_FILE=$(ls comprs.*.wasm 2>/dev/null | head -1)
+          if [ -n "$WASM_FILE" ]; then
+            SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
+            SIZE_KB=$(( SIZE / 1024 ))
+            echo "### WASM Binary Size" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+            echo "| $WASM_FILE | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
+            mkdir -p wasm-size-report
+            echo "$WASM_FILE" > wasm-size-report/file.txt
+            echo "$SIZE_KB" > wasm-size-report/size.txt
+          fi
+
+      - name: Upload WASM size report
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: wasm-size-report
+          path: wasm-size-report/
+          if-no-files-found: ignore
+
       - name: Upload artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
@@ -200,7 +266,9 @@ jobs:
           name: bindings-wasm32
           path: |
             *.wasm
+            *.wasi.cjs
             *.wasi-browser.js
+            wasi-worker.mjs
             wasi-worker-browser.mjs
           if-no-files-found: ignore
 
@@ -237,6 +305,97 @@ jobs:
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
 
+  test-wasm:
+    name: WASM Test (Node.js)
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download native artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: .
+      - name: Download WASM artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm32
+          path: .
+      - name: Run WASM tests
+        run: pnpm run test:wasm
+
+  test-browser:
+    name: Browser WASM Test
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download WASM artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm32
+          path: .
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run browser tests
+        run: pnpm run test:browser
+
+  test-deno:
+    name: Deno WASM Test
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2
+        with:
+          deno-version: v2.x
+      - run: pnpm install --frozen-lockfile
+      - name: Download WASM artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm32
+          path: .
+      - name: Run Deno WASM tests
+        run: pnpm run test:deno
+
+  test-bun:
+    name: Bun WASM Test
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: pnpm install --frozen-lockfile
+      - name: Download WASM artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm32
+          path: .
+      - name: Run Bun WASM tests
+        run: pnpm run test:bun
+
   coverage:
     name: Coverage
     needs: [build]
@@ -245,11 +404,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Rust coverage
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
+          toolchain: stable
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: taiki-e/install-action@c5e61399de59b513f7a771ef1efd9e99b2803310
+      - uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5 # v2
         with:
           tool: cargo-llvm-cov
       - name: Rust coverage
@@ -277,3 +437,47 @@ jobs:
           files: rust-lcov.info,coverage/lcov.info
           flags: rust,javascript
           fail_ci_if_error: false
+
+  report-wasm-size:
+    name: Report WASM Size
+    if: github.event_name == 'pull_request'
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download WASM size report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wasm-size-report
+          path: wasm-size-report
+      - name: Read size data
+        id: read
+        run: |
+          echo "file=$(cat wasm-size-report/file.txt)" >> $GITHUB_OUTPUT
+          echo "size=$(cat wasm-size-report/size.txt)" >> $GITHUB_OUTPUT
+      - name: Post size comment on PR
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ### WASM Binary Size
+
+            | File | Size |
+            |------|------|
+            | ${{ steps.read.outputs.file }} | ${{ steps.read.outputs.size }} KB |
+          comment-tag: wasm-size-report
+
+  # ──── Aggregate gate: single required status check ────
+  ci-complete:
+    name: CI Complete
+    if: always()
+    needs: [lint, audit, rust-lint, rust-test, test, test-wasm, test-browser, test-deno, test-bun, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled"
+            exit 1
+          fi

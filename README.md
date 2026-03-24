@@ -1,31 +1,34 @@
-# zflate
+# comprs
 
-[![npm version](https://img.shields.io/npm/v/zflate)](https://www.npmjs.com/package/zflate)
-[![CI](https://github.com/derodero24/zflate/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/zflate/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/comprs)](https://www.npmjs.com/package/comprs)
+[![npm downloads](https://img.shields.io/npm/dm/comprs)](https://www.npmjs.com/package/comprs)
+[![CI](https://github.com/derodero24/comprs/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/comprs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/derodero24/comprs/graph/badge.svg)](https://codecov.io/gh/derodero24/comprs)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repo=derodero24/comprs)](https://codspeed.io/derodero24/comprs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, and **brotli** in one package.
+Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, **brotli**, and **lz4** in one package.
 
-## Why zflate?
+## Why comprs?
 
-The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. zflate consolidates this into a single, fast, well-typed library:
+The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. comprs consolidates this into a single, fast, well-typed library:
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
-- **Unified API** — Same interface for zstd, gzip, and brotli (gzip and brotli coming soon)
+- **Unified API** — Same interface for zstd, gzip, brotli, and lz4
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
-- **Universal** — Node.js (native), browsers, Deno, Bun, and edge runtimes (WASM)
+- **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
 
 ## Installation
 
 ```bash
-npm install zflate
+npm install comprs
 # or
-pnpm add zflate
+pnpm add comprs
 # or
-yarn add zflate
+yarn add comprs
 # or
-bun add zflate
+bun add comprs
 ```
 
 ## Quick Start
@@ -33,9 +36,9 @@ bun add zflate
 ### One-shot compression
 
 ```typescript
-import { zstdCompress, zstdDecompress } from 'zflate';
+import { zstdCompress, zstdDecompress } from 'comprs';
 
-const data = Buffer.from('Hello, zflate!');
+const data = Buffer.from('Hello, comprs!');
 
 // Compress
 const compressed = zstdCompress(data);
@@ -44,15 +47,31 @@ const compressed = zstdCompress(data);
 const decompressed = zstdDecompress(compressed);
 ```
 
+```typescript
+// Gzip
+import { gzipCompress, gzipDecompress } from 'comprs';
+
+const compressed = gzipCompress(Buffer.from('Hello, gzip!'));
+const decompressed = gzipDecompress(compressed);
+```
+
+```typescript
+// Brotli
+import { brotliCompress, brotliDecompress } from 'comprs';
+
+const compressed = brotliCompress(Buffer.from('Hello, brotli!'));
+const decompressed = brotliDecompress(compressed);
+```
+
 ### Streaming
 
 ```typescript
-import { createZstdCompressStream, createZstdDecompressStream } from 'zflate';
+import { createZstdCompressStream, createZstdDecompressStream } from 'comprs/streams';
 
 // Create a readable stream from data
 const input = new ReadableStream({
   start(controller) {
-    controller.enqueue(new TextEncoder().encode('Hello, streaming zflate!'));
+    controller.enqueue(new TextEncoder().encode('Hello, streaming comprs!'));
     controller.close();
   },
 });
@@ -68,7 +87,7 @@ await input
 ### Compression levels
 
 ```typescript
-import { zstdCompress } from 'zflate';
+import { zstdCompress } from 'comprs';
 
 // Fast compression (level 1)
 zstdCompress(data, 1);
@@ -83,15 +102,116 @@ zstdCompress(data, 22);
 zstdCompress(data, -1);
 ```
 
+### Auto-detect
+
+```typescript
+import { decompress } from 'comprs';
+
+// Works with any supported format — no need to know the algorithm
+const decompressed = decompress(compressedData);
+```
+
+### Async
+
+```typescript
+import { gzipCompressAsync, gzipDecompressAsync } from 'comprs';
+
+const compressed = await gzipCompressAsync(data);
+const decompressed = await gzipDecompressAsync(compressed);
+```
+
+### Dictionary
+
+```typescript
+import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from 'comprs';
+
+// Train from samples of similar data
+const dict = zstdTrainDictionary(samples);
+
+// Compress/decompress with dictionary
+const compressed = zstdCompressWithDict(data, dict);
+const decompressed = zstdDecompressWithDict(compressed, dict);
+```
+
 ## API
 
 ### One-shot
 
+#### zstd
+
 | Function | Description |
 | --- | --- |
-| `zstdCompress(data, level?)` | Compress data using zstd. Level: -131072 to 22 (default: 3) |
+| `zstdCompress(data, level?)` | Compress with zstd. Level: -131072 to 22 (default: 3) |
 | `zstdDecompress(data)` | Decompress zstd data (max 256 MB output) |
 | `zstdDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+#### gzip / deflate
+
+| Function | Description |
+| --- | --- |
+| `gzipCompress(data, level?)` | Compress with gzip. Level: 0-9 (default: 6) |
+| `gzipCompressWithHeader(data, header, level?)` | Compress with custom gzip header (filename, mtime) |
+| `gzipReadHeader(data)` | Read gzip header metadata without decompressing |
+| `gzipDecompress(data)` | Decompress gzip data |
+| `gzipDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `deflateCompress(data, level?)` | Compress with raw deflate. Level: 0-9 (default: 6) |
+| `deflateDecompress(data)` | Decompress raw deflate data |
+| `deflateDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+#### brotli
+
+| Function | Description |
+| --- | --- |
+| `brotliCompress(data, quality?)` | Compress with brotli. Quality: 0-11 (default: 6) |
+| `brotliDecompress(data)` | Decompress brotli data (max 256 MB output) |
+| `brotliDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+#### lz4
+
+| Function | Description |
+| --- | --- |
+| `lz4Compress(data)` | Compress with LZ4 frame format |
+| `lz4Decompress(data)` | Decompress LZ4 data (max 256 MB output) |
+| `lz4DecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+
+#### Auto-detect
+
+| Function | Description |
+| --- | --- |
+| `decompress(data)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4) |
+| `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
+
+#### Utilities
+
+| Function | Description |
+| --- | --- |
+| `crc32(data, initialValue?)` | Compute CRC32 checksum (supports incremental computation) |
+| `version()` | Returns the library version |
+
+#### zstd Dictionary
+
+| Function | Description |
+| --- | --- |
+| `zstdTrainDictionary(samples, maxDictSize?)` | Train a dictionary from sample data (default max: 110 KB) |
+| `zstdCompressWithDict(data, dict, level?)` | Compress with pre-trained dictionary |
+| `zstdDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
+
+### Async
+
+All compression and decompression functions have async variants (suffix `Async`) that run on the libuv thread pool, keeping the event loop free:
+
+| Function | Description |
+| --- | --- |
+| `zstdCompressAsync(data, level?)` | Async zstd compression |
+| `zstdDecompressAsync(data)` | Async zstd decompression |
+| `gzipCompressAsync(data, level?)` | Async gzip compression |
+| `gzipDecompressAsync(data)` | Async gzip decompression |
+| `deflateCompressAsync(data, level?)` | Async deflate compression |
+| `deflateDecompressAsync(data)` | Async deflate decompression |
+| `brotliCompressAsync(data, quality?)` | Async brotli compression |
+| `brotliDecompressAsync(data)` | Async brotli decompression |
+| `lz4CompressAsync(data)` | Async LZ4 compression |
+| `lz4DecompressAsync(data)` | Async LZ4 decompression |
 
 ### Streaming
 
@@ -99,21 +219,58 @@ zstdCompress(data, -1);
 | --- | --- |
 | `createZstdCompressStream(level?)` | Create a zstd compression `TransformStream` |
 | `createZstdDecompressStream()` | Create a zstd decompression `TransformStream` |
+| `createGzipCompressStream(level?)` | Create a gzip compression `TransformStream` |
+| `createGzipDecompressStream()` | Create a gzip decompression `TransformStream` |
+| `createDeflateCompressStream(level?)` | Create a raw deflate compression `TransformStream` |
+| `createDeflateDecompressStream()` | Create a raw deflate decompression `TransformStream` |
+| `createBrotliCompressStream(quality?)` | Create a brotli compression `TransformStream` |
+| `createBrotliDecompressStream()` | Create a brotli decompression `TransformStream` |
+| `createLz4CompressStream()` | Create an LZ4 compression `TransformStream` |
+| `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
+| `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
+| `createZstdDecompressDictStream(dict)` | Streaming zstd decompression with dictionary |
+| `createDecompressStream()` | Auto-detect format and create a decompression `TransformStream` |
 
-### Low-level
+### Node.js Transform Streams
 
-| Class | Description |
+For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
+
+```typescript
+import { createGzipCompressTransform } from 'comprs/node';
+import { pipeline } from 'node:stream/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+
+await pipeline(
+  createReadStream('input.txt'),
+  createGzipCompressTransform(),
+  createWriteStream('output.gz'),
+);
+```
+
+| Function | Description |
 | --- | --- |
-| `ZstdCompressContext` | Stateful compression context with `transform()`, `flush()`, `finish()` |
-| `ZstdDecompressContext` | Stateful decompression context with `transform()`, `flush()` |
+| `createZstdCompressTransform(level?)` | Node.js Transform for zstd compression |
+| `createZstdDecompressTransform()` | Node.js Transform for zstd decompression |
+| `createGzipCompressTransform(level?)` | Node.js Transform for gzip compression |
+| `createGzipDecompressTransform()` | Node.js Transform for gzip decompression |
+| `createDeflateCompressTransform(level?)` | Node.js Transform for deflate compression |
+| `createDeflateDecompressTransform()` | Node.js Transform for deflate decompression |
+| `createBrotliCompressTransform(quality?)` | Node.js Transform for brotli compression |
+| `createBrotliDecompressTransform()` | Node.js Transform for brotli decompression |
+| `createLz4CompressTransform()` | Node.js Transform for LZ4 compression |
+| `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
+| `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
+| `createZstdDecompressDictTransform(dict)` | Node.js Transform for zstd dict decompression |
+| `createDecompressTransform()` | Auto-detect format and create a decompression Transform |
 
 ## Supported Algorithms
 
 | Algorithm | One-shot | Streaming | Status |
 | --- | --- | --- | --- |
 | zstd | ✅ | ✅ | Available |
-| gzip / deflate | — | — | Planned |
-| brotli | — | — | Planned |
+| gzip / deflate | ✅ | ✅ | Available |
+| brotli | ✅ | ✅ | Available |
+| lz4 | ✅ | ✅ | Available |
 
 ## Platform Support
 
@@ -123,17 +280,84 @@ zstdCompress(data, -1);
 | Browsers | WASM | ✅ |
 | Deno | WASM | ✅ |
 | Bun | WASM | ✅ |
-| Cloudflare Workers | WASM | ✅ |
 
-### Native binary targets
+### Build targets
 
-`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
+`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`, `wasm32-wasip1-threads`
+
+### WASM bundle size
+
+The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during the build process. Binary size is tracked and reported in CI on every build — check the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml) for current numbers.
+
+## Browser Usage
+
+comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
+
+```typescript
+import { gzipCompress, gzipDecompress } from 'comprs';
+
+const encoder = new TextEncoder();
+const data = encoder.encode('Hello from the browser!');
+
+const compressed = gzipCompress(data);
+const decompressed = gzipDecompress(compressed);
+```
+
+> Note: WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
+
+## Comparison with Alternatives
+
+| Feature | comprs | pako | fflate | node:zlib |
+|---------|--------|------|--------|-----------|
+| zstd | ✅ | ❌ | ❌ | ✅* |
+| gzip/deflate | ✅ | ✅ | ✅ | ✅ |
+| brotli | ✅ | ❌ | ❌ | ✅ |
+| lz4 | ✅ | ❌ | ❌ | ❌ |
+| Web Streams API | ✅ | ❌ | ❌ | ❌ |
+| Streaming | ✅ | ✅† | ✅ | ✅ |
+| Browser | ✅ | ✅ | ✅ | ❌ |
+| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
+| Native performance | ✅ | ❌ | ❌ | ✅ |
+| TypeScript | ✅ | ✅ | ✅ | ✅ |
+| Zero JS deps | ✅ | ✅ | ✅ | ✅ |
+
+\* Node.js ≥ 22.15 (experimental)
+† Chunked mode via `Inflate`/`Deflate` classes, not Web Streams API
+
+## Migration
+
+### From pako
+
+```diff
+- import pako from 'pako';
+- const compressed = pako.gzip(data);
+- const decompressed = pako.ungzip(compressed);
++ import { gzipCompress, gzipDecompress } from 'comprs';
++ const compressed = gzipCompress(data);
++ const decompressed = gzipDecompress(compressed);
+```
+
+### From node:zlib
+
+```diff
+- import { gzipSync, gunzipSync } from 'node:zlib';
+- const compressed = gzipSync(data);
+- const decompressed = gunzipSync(compressed);
++ import { gzipCompress, gzipDecompress } from 'comprs';
++ const compressed = gzipCompress(data);
++ const decompressed = gzipDecompress(compressed);
+```
 
 ## Benchmarks
 
-Measured on Apple M1, Node.js v22, zflate v0.1.0 (zstd default level 3):
+<img src=".github/assets/bench-compress.svg" alt="Compression benchmark chart" width="680" />
 
-### Compression throughput
+<details>
+<summary>Raw benchmark data</summary>
+
+Measured on Apple M2, Node.js v22:
+
+### zstd compression throughput
 
 | Data type | Size | ops/sec |
 | --- | --- | --- |
@@ -146,7 +370,7 @@ Measured on Apple M1, Node.js v22, zflate v0.1.0 (zstd default level 3):
 | JSON | 84KB | 9,104 |
 | Text | 45KB | 56,757 |
 
-### Decompression throughput
+### zstd decompression throughput
 
 | Data type | Size | ops/sec |
 | --- | --- | --- |
@@ -158,6 +382,8 @@ Measured on Apple M1, Node.js v22, zflate v0.1.0 (zstd default level 3):
 | Random | 1MB | 3,797 |
 | JSON | 84KB | 15,034 |
 | Text | 45KB | 37,599 |
+
+</details>
 
 ## Contributing
 

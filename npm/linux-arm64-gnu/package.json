@@ -1,12 +1,12 @@
 {
-  "name": "zflate-linux-arm64-gnu",
-  "version": "0.2.0",
+  "name": "comprs-linux-arm64-gnu",
+  "version": "0.3.0",
   "cpu": [
     "arm64"
   ],
-  "main": "zflate.linux-arm64-gnu.node",
+  "main": "comprs.linux-arm64-gnu.node",
   "files": [
-    "zflate.linux-arm64-gnu.node"
+    "comprs.linux-arm64-gnu.node"
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
   "keywords": [
@@ -24,14 +24,14 @@
     "streaming"
   ],
   "author": "derodero24",
-  "homepage": "https://github.com/derodero24/zflate",
+  "homepage": "https://github.com/derodero24/comprs",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derodero24/zflate.git"
+    "url": "git+https://github.com/derodero24/comprs.git"
   },
   "os": [
     "linux"

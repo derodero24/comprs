@@ -70,15 +70,15 @@ function requireNative() {
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {
       try {
-        return require('./zflate.android-arm64.node')
+        return require('./comprs.android-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-android-arm64')
-        const bindingPackageVersion = require('zflate-android-arm64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-android-arm64')
+        const bindingPackageVersion = require('comprs-android-arm64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -86,15 +86,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./zflate.android-arm-eabi.node')
+        return require('./comprs.android-arm-eabi.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-android-arm-eabi')
-        const bindingPackageVersion = require('zflate-android-arm-eabi/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-android-arm-eabi')
+        const bindingPackageVersion = require('comprs-android-arm-eabi/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -107,15 +107,15 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
         try {
-        return require('./zflate.win32-x64-gnu.node')
+        return require('./comprs.win32-x64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-win32-x64-gnu')
-        const bindingPackageVersion = require('zflate-win32-x64-gnu/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-win32-x64-gnu')
+        const bindingPackageVersion = require('comprs-win32-x64-gnu/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -123,15 +123,15 @@ function requireNative() {
       }
       } else {
         try {
-        return require('./zflate.win32-x64-msvc.node')
+        return require('./comprs.win32-x64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-win32-x64-msvc')
-        const bindingPackageVersion = require('zflate-win32-x64-msvc/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-win32-x64-msvc')
+        const bindingPackageVersion = require('comprs-win32-x64-msvc/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -140,15 +140,15 @@ function requireNative() {
       }
     } else if (process.arch === 'ia32') {
       try {
-        return require('./zflate.win32-ia32-msvc.node')
+        return require('./comprs.win32-ia32-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-win32-ia32-msvc')
-        const bindingPackageVersion = require('zflate-win32-ia32-msvc/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-win32-ia32-msvc')
+        const bindingPackageVersion = require('comprs-win32-ia32-msvc/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -156,15 +156,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./zflate.win32-arm64-msvc.node')
+        return require('./comprs.win32-arm64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-win32-arm64-msvc')
-        const bindingPackageVersion = require('zflate-win32-arm64-msvc/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-win32-arm64-msvc')
+        const bindingPackageVersion = require('comprs-win32-arm64-msvc/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -175,15 +175,15 @@ function requireNative() {
     }
   } else if (process.platform === 'darwin') {
     try {
-      return require('./zflate.darwin-universal.node')
+      return require('./comprs.darwin-universal.node')
     } catch (e) {
       loadErrors.push(e)
     }
     try {
-      const binding = require('zflate-darwin-universal')
-      const bindingPackageVersion = require('zflate-darwin-universal/package.json').version
-      if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-        throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+      const binding = require('comprs-darwin-universal')
+      const bindingPackageVersion = require('comprs-darwin-universal/package.json').version
+      if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+        throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
       }
       return binding
     } catch (e) {
@@ -191,15 +191,15 @@ function requireNative() {
     }
     if (process.arch === 'x64') {
       try {
-        return require('./zflate.darwin-x64.node')
+        return require('./comprs.darwin-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-darwin-x64')
-        const bindingPackageVersion = require('zflate-darwin-x64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-darwin-x64')
+        const bindingPackageVersion = require('comprs-darwin-x64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -207,15 +207,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./zflate.darwin-arm64.node')
+        return require('./comprs.darwin-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-darwin-arm64')
-        const bindingPackageVersion = require('zflate-darwin-arm64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-darwin-arm64')
+        const bindingPackageVersion = require('comprs-darwin-arm64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -227,15 +227,15 @@ function requireNative() {
   } else if (process.platform === 'freebsd') {
     if (process.arch === 'x64') {
       try {
-        return require('./zflate.freebsd-x64.node')
+        return require('./comprs.freebsd-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-freebsd-x64')
-        const bindingPackageVersion = require('zflate-freebsd-x64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-freebsd-x64')
+        const bindingPackageVersion = require('comprs-freebsd-x64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -243,15 +243,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./zflate.freebsd-arm64.node')
+        return require('./comprs.freebsd-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-freebsd-arm64')
-        const bindingPackageVersion = require('zflate-freebsd-arm64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-freebsd-arm64')
+        const bindingPackageVersion = require('comprs-freebsd-arm64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -264,15 +264,15 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (isMusl()) {
         try {
-          return require('./zflate.linux-x64-musl.node')
+          return require('./comprs.linux-x64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-x64-musl')
-          const bindingPackageVersion = require('zflate-linux-x64-musl/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-x64-musl')
+          const bindingPackageVersion = require('comprs-linux-x64-musl/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -280,15 +280,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./zflate.linux-x64-gnu.node')
+          return require('./comprs.linux-x64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-x64-gnu')
-          const bindingPackageVersion = require('zflate-linux-x64-gnu/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-x64-gnu')
+          const bindingPackageVersion = require('comprs-linux-x64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -298,15 +298,15 @@ function requireNative() {
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         try {
-          return require('./zflate.linux-arm64-musl.node')
+          return require('./comprs.linux-arm64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-arm64-musl')
-          const bindingPackageVersion = require('zflate-linux-arm64-musl/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-arm64-musl')
+          const bindingPackageVersion = require('comprs-linux-arm64-musl/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -314,15 +314,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./zflate.linux-arm64-gnu.node')
+          return require('./comprs.linux-arm64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-arm64-gnu')
-          const bindingPackageVersion = require('zflate-linux-arm64-gnu/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-arm64-gnu')
+          const bindingPackageVersion = require('comprs-linux-arm64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -332,15 +332,15 @@ function requireNative() {
     } else if (process.arch === 'arm') {
       if (isMusl()) {
         try {
-          return require('./zflate.linux-arm-musleabihf.node')
+          return require('./comprs.linux-arm-musleabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-arm-musleabihf')
-          const bindingPackageVersion = require('zflate-linux-arm-musleabihf/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-arm-musleabihf')
+          const bindingPackageVersion = require('comprs-linux-arm-musleabihf/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -348,15 +348,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./zflate.linux-arm-gnueabihf.node')
+          return require('./comprs.linux-arm-gnueabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-arm-gnueabihf')
-          const bindingPackageVersion = require('zflate-linux-arm-gnueabihf/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-arm-gnueabihf')
+          const bindingPackageVersion = require('comprs-linux-arm-gnueabihf/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -366,15 +366,15 @@ function requireNative() {
     } else if (process.arch === 'loong64') {
       if (isMusl()) {
         try {
-          return require('./zflate.linux-loong64-musl.node')
+          return require('./comprs.linux-loong64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-loong64-musl')
-          const bindingPackageVersion = require('zflate-linux-loong64-musl/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-loong64-musl')
+          const bindingPackageVersion = require('comprs-linux-loong64-musl/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -382,15 +382,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./zflate.linux-loong64-gnu.node')
+          return require('./comprs.linux-loong64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-loong64-gnu')
-          const bindingPackageVersion = require('zflate-linux-loong64-gnu/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-loong64-gnu')
+          const bindingPackageVersion = require('comprs-linux-loong64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -400,15 +400,15 @@ function requireNative() {
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {
-          return require('./zflate.linux-riscv64-musl.node')
+          return require('./comprs.linux-riscv64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-riscv64-musl')
-          const bindingPackageVersion = require('zflate-linux-riscv64-musl/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-riscv64-musl')
+          const bindingPackageVersion = require('comprs-linux-riscv64-musl/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -416,15 +416,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./zflate.linux-riscv64-gnu.node')
+          return require('./comprs.linux-riscv64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('zflate-linux-riscv64-gnu')
-          const bindingPackageVersion = require('zflate-linux-riscv64-gnu/package.json').version
-          if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('comprs-linux-riscv64-gnu')
+          const bindingPackageVersion = require('comprs-linux-riscv64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -433,15 +433,15 @@ function requireNative() {
       }
     } else if (process.arch === 'ppc64') {
       try {
-        return require('./zflate.linux-ppc64-gnu.node')
+        return require('./comprs.linux-ppc64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-linux-ppc64-gnu')
-        const bindingPackageVersion = require('zflate-linux-ppc64-gnu/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-linux-ppc64-gnu')
+        const bindingPackageVersion = require('comprs-linux-ppc64-gnu/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -449,15 +449,15 @@ function requireNative() {
       }
     } else if (process.arch === 's390x') {
       try {
-        return require('./zflate.linux-s390x-gnu.node')
+        return require('./comprs.linux-s390x-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-linux-s390x-gnu')
-        const bindingPackageVersion = require('zflate-linux-s390x-gnu/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-linux-s390x-gnu')
+        const bindingPackageVersion = require('comprs-linux-s390x-gnu/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -469,15 +469,15 @@ function requireNative() {
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
       try {
-        return require('./zflate.openharmony-arm64.node')
+        return require('./comprs.openharmony-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-openharmony-arm64')
-        const bindingPackageVersion = require('zflate-openharmony-arm64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-openharmony-arm64')
+        const bindingPackageVersion = require('comprs-openharmony-arm64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -485,15 +485,15 @@ function requireNative() {
       }
     } else if (process.arch === 'x64') {
       try {
-        return require('./zflate.openharmony-x64.node')
+        return require('./comprs.openharmony-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-openharmony-x64')
-        const bindingPackageVersion = require('zflate-openharmony-x64/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-openharmony-x64')
+        const bindingPackageVersion = require('comprs-openharmony-x64/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -501,15 +501,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./zflate.openharmony-arm.node')
+        return require('./comprs.openharmony-arm.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('zflate-openharmony-arm')
-        const bindingPackageVersion = require('zflate-openharmony-arm/package.json').version
-        if (bindingPackageVersion !== '0.2.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 0.2.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('comprs-openharmony-arm')
+        const bindingPackageVersion = require('comprs-openharmony-arm/package.json').version
+        if (bindingPackageVersion !== '0.3.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.3.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -529,7 +529,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
   let wasiBinding = null
   let wasiBindingError = null
   try {
-    wasiBinding = require('./zflate.wasi.cjs')
+    wasiBinding = require('./comprs.wasi.cjs')
     nativeBinding = wasiBinding
   } catch (err) {
     if (process.env.NAPI_RS_FORCE_WASI) {
@@ -538,7 +538,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
   }
   if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
     try {
-      wasiBinding = require('zflate-wasm32-wasi')
+      wasiBinding = require('comprs-wasm32-wasi')
       nativeBinding = wasiBinding
     } catch (err) {
       if (process.env.NAPI_RS_FORCE_WASI) {
@@ -576,9 +576,59 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.BrotliCompressContext = nativeBinding.BrotliCompressContext
+module.exports.BrotliDecompressContext = nativeBinding.BrotliDecompressContext
+module.exports.DeflateCompressContext = nativeBinding.DeflateCompressContext
+module.exports.DeflateDecompressContext = nativeBinding.DeflateDecompressContext
+module.exports.GzipCompressContext = nativeBinding.GzipCompressContext
+module.exports.GzipDecompressContext = nativeBinding.GzipDecompressContext
+module.exports.Lz4CompressContext = nativeBinding.Lz4CompressContext
+module.exports.Lz4DecompressContext = nativeBinding.Lz4DecompressContext
 module.exports.ZstdCompressContext = nativeBinding.ZstdCompressContext
+module.exports.ZstdCompressDictContext = nativeBinding.ZstdCompressDictContext
 module.exports.ZstdDecompressContext = nativeBinding.ZstdDecompressContext
+module.exports.ZstdDecompressDictContext = nativeBinding.ZstdDecompressDictContext
+module.exports.brotliCompress = nativeBinding.brotliCompress
+module.exports.brotliCompressAsync = nativeBinding.brotliCompressAsync
+module.exports.brotliDecompress = nativeBinding.brotliDecompress
+module.exports.brotliDecompressAsync = nativeBinding.brotliDecompressAsync
+module.exports.brotliDecompressWithCapacity = nativeBinding.brotliDecompressWithCapacity
+module.exports.brotliDecompressWithCapacityAsync = nativeBinding.brotliDecompressWithCapacityAsync
+module.exports.CompressionFormat = nativeBinding.CompressionFormat
+module.exports.crc32 = nativeBinding.crc32
+module.exports.decompress = nativeBinding.decompress
+module.exports.decompressAsync = nativeBinding.decompressAsync
+module.exports.deflateCompress = nativeBinding.deflateCompress
+module.exports.deflateCompressAsync = nativeBinding.deflateCompressAsync
+module.exports.deflateDecompress = nativeBinding.deflateDecompress
+module.exports.deflateDecompressAsync = nativeBinding.deflateDecompressAsync
+module.exports.deflateDecompressWithCapacity = nativeBinding.deflateDecompressWithCapacity
+module.exports.deflateDecompressWithCapacityAsync = nativeBinding.deflateDecompressWithCapacityAsync
+module.exports.detectFormat = nativeBinding.detectFormat
+module.exports.gzipCompress = nativeBinding.gzipCompress
+module.exports.gzipCompressAsync = nativeBinding.gzipCompressAsync
+module.exports.gzipCompressWithHeader = nativeBinding.gzipCompressWithHeader
+module.exports.gzipDecompress = nativeBinding.gzipDecompress
+module.exports.gzipDecompressAsync = nativeBinding.gzipDecompressAsync
+module.exports.gzipDecompressWithCapacity = nativeBinding.gzipDecompressWithCapacity
+module.exports.gzipDecompressWithCapacityAsync = nativeBinding.gzipDecompressWithCapacityAsync
+module.exports.gzipReadHeader = nativeBinding.gzipReadHeader
+module.exports.lz4Compress = nativeBinding.lz4Compress
+module.exports.lz4CompressAsync = nativeBinding.lz4CompressAsync
+module.exports.lz4Decompress = nativeBinding.lz4Decompress
+module.exports.lz4DecompressAsync = nativeBinding.lz4DecompressAsync
+module.exports.lz4DecompressWithCapacity = nativeBinding.lz4DecompressWithCapacity
+module.exports.lz4DecompressWithCapacityAsync = nativeBinding.lz4DecompressWithCapacityAsync
 module.exports.version = nativeBinding.version
 module.exports.zstdCompress = nativeBinding.zstdCompress
+module.exports.zstdCompressAsync = nativeBinding.zstdCompressAsync
+module.exports.zstdCompressWithDict = nativeBinding.zstdCompressWithDict
+module.exports.zstdCompressWithDictAsync = nativeBinding.zstdCompressWithDictAsync
 module.exports.zstdDecompress = nativeBinding.zstdDecompress
+module.exports.zstdDecompressAsync = nativeBinding.zstdDecompressAsync
 module.exports.zstdDecompressWithCapacity = nativeBinding.zstdDecompressWithCapacity
+module.exports.zstdDecompressWithCapacityAsync = nativeBinding.zstdDecompressWithCapacityAsync
+module.exports.zstdDecompressWithDict = nativeBinding.zstdDecompressWithDict
+module.exports.zstdDecompressWithDictAsync = nativeBinding.zstdDecompressWithDictAsync
+module.exports.zstdTrainDictionary = nativeBinding.zstdTrainDictionary
+module.exports.zstdTrainDictionaryAsync = nativeBinding.zstdTrainDictionaryAsync

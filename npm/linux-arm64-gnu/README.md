@@ -1,3 +1,3 @@
-# `zflate-linux-arm64-gnu`
+# `comprs-linux-arm64-gnu`
 
-This is the **aarch64-unknown-linux-gnu** binary for `zflate`
+This is the **aarch64-unknown-linux-gnu** binary for `comprs`

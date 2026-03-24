@@ -6,14 +6,14 @@ import { version, zstdCompress, zstdDecompress, zstdDecompressWithCapacity } fro
 
 const pkgVersion = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8')).version;
 
-describe('zflate', () => {
+describe('comprs', () => {
   it('should return the package version', () => {
     expect(version()).toBe(pkgVersion);
   });
 });
 
 describe('zstdCompress', () => {
-  const data = Buffer.from('Hello, zflate! '.repeat(100));
+  const data = Buffer.from('Hello, comprs! '.repeat(100));
 
   it('should compress data with default level', () => {
     const compressed = zstdCompress(data);
@@ -119,19 +119,31 @@ describe('zstdDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a positive finite number/,
+      /capacity must be a non-negative integer/,
+    );
+  });
+
+  it('should throw with fractional capacity', () => {
+    expect(() => zstdDecompressWithCapacity(compressed, 1.5)).toThrow(
+      /capacity must be a non-negative integer/,
+    );
+  });
+
+  it('should throw with excessively large capacity', () => {
+    expect(() => zstdDecompressWithCapacity(compressed, Number.MAX_VALUE)).toThrow(
+      /capacity must be a non-negative integer/,
     );
   });
 

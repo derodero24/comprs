@@ -1,5 +1,5 @@
 {
-  "name": "zflate",
+  "name": "comprs",
   "image": "mcr.microsoft.com/devcontainers/rust:2-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {

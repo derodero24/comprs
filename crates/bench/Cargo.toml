@@ -1,0 +1,33 @@
+[package]
+name = "comprs-bench"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+criterion = { version = "4.4.1", package = "codspeed-criterion-compat" }
+flate2 = { workspace = true }
+brotli = { workspace = true }
+zstd = { workspace = true }
+lz4_flex = { workspace = true }
+
+[[bench]]
+name = "gzip"
+harness = false
+
+[[bench]]
+name = "deflate"
+harness = false
+
+[[bench]]
+name = "brotli"
+harness = false
+
+[[bench]]
+name = "zstd"
+harness = false
+
+[[bench]]
+name = "lz4"
+harness = false
