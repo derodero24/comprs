@@ -577,7 +577,9 @@ if (!nativeBinding) {
 
 module.exports = nativeBinding
 module.exports.BrotliCompressContext = nativeBinding.BrotliCompressContext
+module.exports.BrotliCompressDictContext = nativeBinding.BrotliCompressDictContext
 module.exports.BrotliDecompressContext = nativeBinding.BrotliDecompressContext
+module.exports.BrotliDecompressDictContext = nativeBinding.BrotliDecompressDictContext
 module.exports.DeflateCompressContext = nativeBinding.DeflateCompressContext
 module.exports.DeflateDecompressContext = nativeBinding.DeflateDecompressContext
 module.exports.GzipCompressContext = nativeBinding.GzipCompressContext
@@ -590,10 +592,16 @@ module.exports.ZstdDecompressContext = nativeBinding.ZstdDecompressContext
 module.exports.ZstdDecompressDictContext = nativeBinding.ZstdDecompressDictContext
 module.exports.brotliCompress = nativeBinding.brotliCompress
 module.exports.brotliCompressAsync = nativeBinding.brotliCompressAsync
+module.exports.brotliCompressWithDict = nativeBinding.brotliCompressWithDict
+module.exports.brotliCompressWithDictAsync = nativeBinding.brotliCompressWithDictAsync
 module.exports.brotliDecompress = nativeBinding.brotliDecompress
 module.exports.brotliDecompressAsync = nativeBinding.brotliDecompressAsync
 module.exports.brotliDecompressWithCapacity = nativeBinding.brotliDecompressWithCapacity
 module.exports.brotliDecompressWithCapacityAsync = nativeBinding.brotliDecompressWithCapacityAsync
+module.exports.brotliDecompressWithDict = nativeBinding.brotliDecompressWithDict
+module.exports.brotliDecompressWithDictAsync = nativeBinding.brotliDecompressWithDictAsync
+module.exports.brotliDecompressWithDictWithCapacity = nativeBinding.brotliDecompressWithDictWithCapacity
+module.exports.brotliDecompressWithDictWithCapacityAsync = nativeBinding.brotliDecompressWithDictWithCapacityAsync
 module.exports.CompressionFormat = nativeBinding.CompressionFormat
 module.exports.crc32 = nativeBinding.crc32
 module.exports.decompress = nativeBinding.decompress

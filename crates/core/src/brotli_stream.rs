@@ -172,6 +172,159 @@ impl BrotliDecompressContext {
     }
 }
 
+/// Streaming brotli compression context with custom dictionary.
+///
+/// Buffers all input and compresses with the dictionary on `finish`.
+/// This is necessary because the brotli CompressorWriter does not expose
+/// a dictionary API; dictionary compression requires the low-level encoder.
+#[napi]
+pub struct BrotliCompressDictContext {
+    dict: Option<Vec<u8>>,
+    quality: u32,
+    chunks: Vec<u8>,
+}
+
+#[napi]
+impl BrotliCompressDictContext {
+    #[napi(constructor)]
+    pub fn new(dict: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Self> {
+        let quality = quality.unwrap_or(DEFAULT_QUALITY);
+        if quality > 11 {
+            return Err(ComprsError::InvalidArg(
+                "brotli quality must be between 0 and 11".to_string(),
+            )
+            .into());
+        }
+        let dict_bytes = crate::as_bytes(&dict).to_vec();
+        Ok(Self {
+            dict: Some(dict_bytes),
+            quality,
+            chunks: Vec::new(),
+        })
+    }
+
+    /// Buffer a chunk of data for compression. Returns an empty Buffer because
+    /// all compression is deferred to `finish` (dictionary requires one-shot).
+    #[napi]
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        if self.dict.is_none() {
+            return Err(napi::Error::from(ComprsError::StreamFinished(
+                "brotli dict stream",
+            )));
+        }
+        self.chunks.extend_from_slice(crate::as_bytes(&chunk));
+        Ok(Vec::new().into())
+    }
+
+    /// Flush returns empty Buffer because all data is buffered until finish.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        if self.dict.is_none() {
+            return Err(napi::Error::from(ComprsError::StreamFinished(
+                "brotli dict stream",
+            )));
+        }
+        Ok(Vec::new().into())
+    }
+
+    /// Finalize the compression. Compresses all buffered data with the dictionary.
+    /// Must be called once after all data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        let dict = self
+            .dict
+            .take()
+            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli dict stream")))?;
+
+        let data = std::mem::take(&mut self.chunks);
+        crate::brotli_impl::brotli_compress_with_dict_inner(&data, &dict, self.quality)
+            .map(|v| v.into())
+            .map_err(|e| {
+                napi::Error::from(ComprsError::Operation {
+                    context: "brotli dict stream compress",
+                    source: e.into(),
+                })
+            })
+    }
+}
+
+/// Streaming brotli decompression context with custom dictionary.
+///
+/// Maintains internal decompression state across multiple `transform` calls,
+/// using a custom dictionary that matches the one used for compression.
+#[napi]
+pub struct BrotliDecompressDictContext {
+    decompressor: brotli::DecompressorWriter<Vec<u8>>,
+    total_output: usize,
+    max_output_size: usize,
+}
+
+#[napi]
+impl BrotliDecompressDictContext {
+    #[napi(constructor)]
+    pub fn new(dict: Either<Buffer, Uint8Array>, max_output_size: Option<f64>) -> Result<Self> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
+        let dict_bytes = crate::as_bytes(&dict).to_vec();
+        let decompressor = brotli::DecompressorWriter::new_with_custom_dictionary(
+            Vec::new(),
+            BUFFER_SIZE,
+            dict_bytes.into(),
+        );
+        Ok(Self {
+            decompressor,
+            total_output: 0,
+            max_output_size: max_size,
+        })
+    }
+
+    /// Decompress a chunk of compressed data. Returns decompressed output
+    /// (may be empty if the decompressor needs more data).
+    #[napi]
+    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+        self.decompressor
+            .write_all(crate::as_bytes(&chunk))
+            .map_err(|e| {
+                napi::Error::from(ComprsError::Operation {
+                    context: "brotli dict stream decompress",
+                    source: e.into(),
+                })
+            })?;
+
+        let data = std::mem::take(self.decompressor.get_mut());
+        self.total_output += data.len();
+        if self.total_output > self.max_output_size {
+            return Err(ComprsError::SizeLimit {
+                context: "brotli dict stream decompress",
+                limit: self.max_output_size,
+            }
+            .into());
+        }
+        Ok(data.into())
+    }
+
+    /// Flush the decompressor's internal buffer. Returns any buffered decompressed data.
+    #[napi]
+    pub fn flush(&mut self) -> Result<Buffer> {
+        self.decompressor.flush().map_err(|e| {
+            napi::Error::from(ComprsError::Operation {
+                context: "brotli dict stream flush",
+                source: e.into(),
+            })
+        })?;
+
+        let data = std::mem::take(self.decompressor.get_mut());
+        self.total_output += data.len();
+        if self.total_output > self.max_output_size {
+            return Err(ComprsError::SizeLimit {
+                context: "brotli dict stream decompress",
+                limit: self.max_output_size,
+            }
+            .into());
+        }
+        Ok(data.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};

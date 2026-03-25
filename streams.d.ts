@@ -113,6 +113,34 @@ export declare function createLz4DecompressStream(
 ): TransformStream<Uint8Array, Uint8Array>;
 
 /**
+ * Create a streaming brotli compression TransformStream with a custom dictionary.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked compression
+ * with a custom dictionary for improved compression of similar data.
+ *
+ * @param dict Custom dictionary bytes.
+ * @param quality Compression quality (0-11). Default is 6.
+ */
+export declare function createBrotliCompressDictStream(
+  dict: Buffer | Uint8Array,
+  quality?: number,
+): TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Create a streaming brotli decompression TransformStream with a custom dictionary.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked decompression
+ * with a custom dictionary. The same dictionary used for compression must be provided.
+ *
+ * @param dict Custom dictionary (must match the one used for compression).
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createBrotliDecompressDictStream(
+  dict: Buffer | Uint8Array,
+  maxOutputSize?: number,
+): TransformStream<Uint8Array, Uint8Array>;
+
+/**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked compression

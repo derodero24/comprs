@@ -9,6 +9,9 @@ import {
   brotliCompress as _brotliCompress,
   brotliDecompress as _brotliDecompress,
   brotliDecompressWithCapacity as _brotliDecompressWithCapacity,
+  brotliCompressWithDict as _brotliCompressWithDict,
+  brotliDecompressWithDict as _brotliDecompressWithDict,
+  brotliDecompressWithDictWithCapacity as _brotliDecompressWithDictWithCapacity,
   lz4Compress as _lz4Compress,
   lz4Decompress as _lz4Decompress,
   lz4DecompressWithCapacity as _lz4DecompressWithCapacity,
@@ -203,6 +206,62 @@ export class BrotliDecompressContext {
       return _brotliDecompressWithCapacity(data, this._maxOutputSize)
     }
     return _brotliDecompress(data)
+  }
+}
+
+// -- Brotli with dictionary --
+
+export class BrotliCompressDictContext {
+  constructor(dict, quality) {
+    this._dict = dict
+    this._quality = quality
+    this._chunks = []
+    this._finished = false
+  }
+
+  transform(chunk) {
+    if (this._finished) throw new Error('brotli dict stream already finished')
+    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
+    return new Uint8Array(0)
+  }
+
+  flush() {
+    if (this._finished) throw new Error('brotli dict stream already finished')
+    return new Uint8Array(0)
+  }
+
+  finish() {
+    if (this._finished) throw new Error('brotli dict stream already finished')
+    this._finished = true
+    const data = concatChunks(this._chunks)
+    this._chunks = []
+    return _brotliCompressWithDict(data, this._dict, this._quality)
+  }
+}
+
+export class BrotliDecompressDictContext {
+  constructor(dict, maxOutputSize) {
+    this._dict = dict
+    this._maxOutputSize = maxOutputSize
+    this._chunks = []
+    this._finished = false
+  }
+
+  transform(chunk) {
+    if (this._finished) throw new Error('brotli dict stream already finished')
+    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
+    return new Uint8Array(0)
+  }
+
+  flush() {
+    if (this._finished) throw new Error('brotli dict stream already finished')
+    this._finished = true
+    const data = concatChunks(this._chunks)
+    this._chunks = []
+    if (this._maxOutputSize != null) {
+      return _brotliDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
+    }
+    return _brotliDecompressWithDict(data, this._dict)
   }
 }
 
