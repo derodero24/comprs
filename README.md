@@ -262,6 +262,7 @@ import { gzipCompress } from 'comprs';
 | `zstdTrainDictionary(samples, maxDictSize?)` | Train a dictionary from sample data (default max: 110 KB) |
 | `zstdCompressWithDict(data, dict, level?)` | Compress with pre-trained dictionary |
 | `zstdDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
+| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with dictionary and explicit output size limit |
 
 #### Brotli Dictionary
 
@@ -279,16 +280,25 @@ All compression and decompression functions have async variants (suffix `Async`)
 | --- | --- |
 | `zstdCompressAsync(data, level?)` | Async zstd compression |
 | `zstdDecompressAsync(data)` | Async zstd decompression |
+| `zstdDecompressWithCapacityAsync(data, capacity)` | Async zstd decompression with explicit size limit |
+| `zstdCompressWithDictAsync(data, dict, level?)` | Async zstd compression with dictionary |
+| `zstdDecompressWithDictAsync(data, dict)` | Async zstd decompression with dictionary |
+| `zstdTrainDictionaryAsync(samples, maxDictSize?)` | Async dictionary training |
 | `gzipCompressAsync(data, level?)` | Async gzip compression |
 | `gzipDecompressAsync(data)` | Async gzip decompression |
+| `gzipDecompressWithCapacityAsync(data, capacity)` | Async gzip decompression with explicit size limit |
 | `deflateCompressAsync(data, level?)` | Async deflate compression |
 | `deflateDecompressAsync(data)` | Async deflate decompression |
+| `deflateDecompressWithCapacityAsync(data, capacity)` | Async deflate decompression with explicit size limit |
 | `brotliCompressAsync(data, quality?)` | Async brotli compression |
 | `brotliDecompressAsync(data)` | Async brotli decompression |
+| `brotliDecompressWithCapacityAsync(data, capacity)` | Async brotli decompression with explicit size limit |
 | `brotliCompressWithDictAsync(data, dict, quality?)` | Async brotli compression with dictionary |
 | `brotliDecompressWithDictAsync(data, dict)` | Async brotli decompression with dictionary |
 | `lz4CompressAsync(data)` | Async LZ4 compression |
 | `lz4DecompressAsync(data)` | Async LZ4 decompression |
+| `lz4DecompressWithCapacityAsync(data, capacity)` | Async LZ4 decompression with explicit size limit |
+| `decompressAsync(data)` | Async auto-detect format and decompress |
 
 ### Streaming
 
