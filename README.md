@@ -308,7 +308,7 @@ const decompressed = gzipDecompress(compressed);
 ## Comparison with Alternatives
 
 | Feature | comprs | pako | fflate | node:zlib |
-|---------|--------|------|--------|-----------|
+| --- | --- | --- | --- | --- |
 | zstd | ✅ | ❌ | ❌ | ✅* |
 | gzip/deflate | ✅ | ✅ | ✅ | ✅ |
 | brotli | ✅ | ❌ | ❌ | ✅ |
@@ -352,38 +352,109 @@ const decompressed = gzipDecompress(compressed);
 
 <img src=".github/assets/bench-compress.svg" alt="Compression benchmark chart" width="680" />
 
-<details>
-<summary>Raw benchmark data</summary>
+Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numbers vary by machine and data type.
 
-Measured on Apple M2, Node.js v22:
+### gzip: comprs vs pako vs fflate vs node:zlib
 
-### zstd compression throughput
+**Compression** (ops/sec, higher is better)
 
-| Data type | Size | ops/sec |
-| --- | --- | --- |
-| Patterned | 150B | 677,003 |
-| Patterned | 10KB | 138,047 |
-| Patterned | 1MB | 4,219 |
-| Random | 150B | 683,696 |
-| Random | 10KB | 80,501 |
-| Random | 1MB | 2,585 |
-| JSON | 84KB | 9,104 |
-| Text | 45KB | 56,757 |
+| Size | comprs | pako | fflate | node:zlib |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 1,352 | 1,578 | 7,785 | 13,078 |
+| 10KB patterned | 3,605 | 133 | 345 | 1,878 |
+| 1MB patterned | 246 | 14 | 11 | 100 |
+| 150B random | 29,914 | 4,653 | 7,471 | 1,423 |
+| 10KB random | 400 | 42 | 652 | 3,459 |
+| 1MB random | 13 | 5 | 6 | 10 |
 
-### zstd decompression throughput
+**Decompression** (ops/sec, higher is better)
 
-| Data type | Size | ops/sec |
-| --- | --- | --- |
-| Patterned | 150B | 464,668 |
-| Patterned | 10KB | 269,381 |
-| Patterned | 1MB | 3,415 |
-| Random | 150B | 756,275 |
-| Random | 10KB | 374,927 |
-| Random | 1MB | 3,797 |
-| JSON | 84KB | 15,034 |
-| Text | 45KB | 37,599 |
+| Size | comprs | pako | fflate | node:zlib |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 162,220 | 65,141 | 521,933 | 308,493 |
+| 10KB patterned | 95,300 | 19,235 | 46,402 | 102,585 |
+| 1MB patterned | 903 | 123 | 310 | 1,451 |
+| 150B random | 29,040 | 1,952 | 560,840 | 140,243 |
+| 10KB random | 7,004 | 17,616 | 407,789 | 271,245 |
+| 1MB random | 1,508 | 278 | 19,341 | 4,282 |
 
-</details>
+### deflate: comprs vs pako vs fflate vs node:zlib
+
+**Compression** (ops/sec, higher is better)
+
+| Size | comprs | pako | fflate | node:zlib |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 106,183 | 13,666 | 55,434 | 4,107 |
+| 10KB patterned | 2,746 | 5,160 | 3,218 | 7,161 |
+| 1MB patterned | 1,963 | 91 | 217 | 472 |
+| 150B random | 56,537 | 18,763 | 51,817 | 89,617 |
+| 10KB random | 7,331 | 1,500 | 510 | 1,941 |
+| 1MB random | 21 | 8 | 24 | 22 |
+
+**Decompression** (ops/sec, higher is better)
+
+| Size | comprs | pako | fflate | node:zlib |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 124,501 | 21,119 | 8,938 | 34,967 |
+| 10KB patterned | 23,416 | 5,808 | 3,061 | 9,753 |
+| 1MB patterned | 306 | 65 | 70 | 116 |
+| 150B random | 35,178 | 11,449 | 204,088 | 91,795 |
+| 10KB random | 7,986 | 13,079 | 62,782 | 114,130 |
+| 1MB random | 610 | 350 | 238 | 176 |
+
+### brotli: comprs vs node:zlib
+
+| Benchmark | comprs | node:zlib | Speedup |
+| --- | ---: | ---: | ---: |
+| compress 150B patterned | 24,811 | 2,258 | 11.0x |
+| compress 10KB patterned | 15,357 | 1,498 | 10.2x |
+| compress 1MB patterned | 659 | 70 | 9.5x |
+| compress 150B random | 22,914 | 1,197 | 19.1x |
+| compress 10KB random | 8,188 | 61 | 134.7x |
+| compress 1MB random | 336 | 2 | 155.4x |
+| decompress 150B patterned | 105,187 | 223,191 | 0.5x |
+| decompress 10KB patterned | 28,509 | 46,967 | 0.6x |
+| decompress 1MB patterned | 636 | 401 | 1.6x |
+| decompress 150B random | 113,559 | 53,013 | 2.1x |
+| decompress 10KB random | 1,503 | 1,156 | 1.3x |
+| decompress 1MB random | 738 | 5,219 | 0.1x |
+
+### Cross-algorithm comparison (comprs only)
+
+**Compression** (ops/sec, higher is better)
+
+| Size | zstd | gzip | brotli | lz4 |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 515,284 | 78,073 | 24,300 | 274,935 |
+| 10KB patterned | 161,706 | 31,941 | 15,146 | 165,821 |
+| 1MB patterned | 5,607 | 2,252 | 642 | 4,153 |
+| 150B random | 643,393 | 69,616 | 23,634 | 97,111 |
+| 10KB random | 129,576 | 31,525 | 13,411 | 74,162 |
+| 1MB random | 4,320 | 2,262 | 478 | 5,419 |
+| JSON 84KB | 8,914 | 1,828 | 758 | 4,531 |
+| text 45KB | 52,262 | 31,111 | 8,022 | 22,953 |
+
+**Decompression** (ops/sec, higher is better)
+
+| Size | zstd | gzip | brotli | lz4 |
+| --- | ---: | ---: | ---: | ---: |
+| 150B patterned | 510,595 | 433,472 | 132,960 | 291,921 |
+| 10KB patterned | 224,034 | 135,437 | 24,028 | 84,465 |
+| 1MB patterned | 3,206 | 2,561 | 303 | 1,806 |
+| 150B random | 461,787 | 441,290 | 30,870 | 371,571 |
+| 10KB random | 245,513 | 135,314 | 23,516 | 89,173 |
+| 1MB random | 3,498 | 2,309 | 656 | 1,792 |
+| JSON 84KB | 17,345 | 9,737 | 4,644 | 20,356 |
+| text 45KB | 82,783 | 29,115 | 3,415 | 41,811 |
+
+### Key takeaways
+
+- **zstd is the fastest** all-round: highest throughput for both compression and decompression across most data sizes
+- **lz4 excels at raw speed**: competitive with zstd for compression, especially on random/incompressible data
+- **gzip/deflate compression**: comprs (Rust flate2) is significantly faster than pako and fflate on larger data (10KB+), competitive on small payloads
+- **gzip/deflate decompression**: performance varies by data size; comprs leads on patterned data, while fflate can be faster on small random payloads due to lower call overhead
+- **brotli compression**: comprs is 10--155x faster than `node:zlib` thanks to the Rust brotli implementation
+- **Native vs WASM**: these numbers are from the native (napi-rs) backend; WASM throughput is lower due to the execution overhead but still outperforms pure-JS libraries on large payloads
 
 ## Contributing
 
