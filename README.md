@@ -583,6 +583,20 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 - **brotli compression**: comprs is 10--155x faster than `node:zlib` thanks to the Rust brotli implementation
 - **Native vs WASM**: these numbers are from the native (napi-rs) backend; WASM throughput is lower due to the execution overhead but still outperforms pure-JS libraries on large payloads
 
+## Notes
+
+> [!NOTE]
+> **Default decompression limit**: All decompression functions cap output at 256 MB by default. Use `*WithCapacity()` variants for larger data:
+> ```typescript
+> const decompressed = zstdDecompressWithCapacity(data, 1024 * 1024 * 1024); // 1 GB
+> ```
+
+> [!NOTE]
+> **Small payloads on WASM**: For data under ~1 KB, the WASM runtime overhead may exceed compression time. Consider batching small items or using the native Node.js backend where possible.
+
+> [!NOTE]
+> **Brotli decompression**: While comprs brotli *compression* is 10–155x faster than `node:zlib`, decompression performance varies by data type and size. For decompression-heavy workloads on Node.js, benchmark your specific data.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
