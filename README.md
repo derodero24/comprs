@@ -475,7 +475,11 @@ comprs adds zstd, lz4, brotli, dictionary compression, and Web Streams API — n
 
 ## Benchmarks
 
-<img src=".github/assets/bench-compress.svg" alt="Compression benchmark chart" width="680" />
+<img src=".github/assets/bench-cross-algorithm.svg" alt="Cross-algorithm compression benchmark" width="680" />
+
+<img src=".github/assets/bench-compress.svg" alt="Gzip compression benchmark chart" width="680" />
+
+<img src=".github/assets/bench-brotli.svg" alt="Brotli compression benchmark chart" width="680" />
 
 Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numbers vary by machine and data type.
 
