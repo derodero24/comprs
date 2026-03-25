@@ -128,9 +128,6 @@ fn is_likely_brotli(data: &[u8]) -> bool {
     decompressor.read_exact(&mut buf).is_ok()
 }
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 pub struct DecompressTask {
     data: Vec<u8>,
 }
@@ -144,8 +141,8 @@ impl Task for DecompressTask {
         match detect(&self.data) {
             Format::Zstd => {
                 let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-                    Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-                    _ => MAX_DECOMPRESSED_SIZE,
+                    Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+                    _ => crate::MAX_DECOMPRESSED_SIZE,
                 };
                 let capacity = capacity.max(1024);
                 zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
@@ -158,10 +155,10 @@ impl Task for DecompressTask {
             }
             Format::Gzip => {
                 let decoder = flate2::read::MultiGzDecoder::new(self.data.as_slice());
-                let init_cap = self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
+                let init_cap = self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
                 crate::decompress_with_limit(
                     decoder,
-                    MAX_DECOMPRESSED_SIZE,
+                    crate::MAX_DECOMPRESSED_SIZE,
                     init_cap,
                     "gzip decompress",
                 )
@@ -169,10 +166,10 @@ impl Task for DecompressTask {
             Format::Brotli => {
                 let decompressor =
                     brotli::Decompressor::new(self.data.as_slice(), 4096);
-                let init_cap = self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
+                let init_cap = self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
                 crate::decompress_with_limit(
                     decompressor,
-                    MAX_DECOMPRESSED_SIZE,
+                    crate::MAX_DECOMPRESSED_SIZE,
                     init_cap,
                     "brotli decompress",
                 )
@@ -180,10 +177,10 @@ impl Task for DecompressTask {
             Format::Lz4 => {
                 let decoder = lz4_flex::frame::FrameDecoder::new(self.data.as_slice());
                 let init_cap =
-                    self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
+                    self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
                 crate::decompress_with_limit(
                     decoder,
-                    MAX_DECOMPRESSED_SIZE,
+                    crate::MAX_DECOMPRESSED_SIZE,
                     init_cap,
                     "lz4 decompress",
                 )

@@ -9,9 +9,6 @@ use crate::ComprsError;
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Compress data using Zstandard.
 ///
 /// Returns the compressed data as a Buffer.
@@ -98,8 +95,8 @@ impl Task for ZstdDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-            _ => MAX_DECOMPRESSED_SIZE,
+            Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+            _ => crate::MAX_DECOMPRESSED_SIZE,
         };
         let capacity = capacity.max(1024);
 
@@ -139,8 +136,8 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 
     // Try to read the frame content size from the header
     let capacity = match zstd::zstd_safe::get_frame_content_size(input) {
-        Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-        _ => MAX_DECOMPRESSED_SIZE,
+        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+        _ => crate::MAX_DECOMPRESSED_SIZE,
     };
 
     // Use at least 1KB initial capacity
@@ -263,8 +260,8 @@ pub fn zstd_decompress_with_dict(
     let dict_bytes = crate::as_bytes(&dict);
 
     let capacity = match zstd::zstd_safe::get_frame_content_size(input) {
-        Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-        _ => MAX_DECOMPRESSED_SIZE,
+        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+        _ => crate::MAX_DECOMPRESSED_SIZE,
     };
     let capacity = capacity.max(1024);
 
@@ -432,8 +429,8 @@ impl Task for ZstdDecompressWithDictTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-            _ => MAX_DECOMPRESSED_SIZE,
+            Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+            _ => crate::MAX_DECOMPRESSED_SIZE,
         };
         let capacity = capacity.max(1024);
 
