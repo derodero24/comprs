@@ -620,6 +620,16 @@ export declare function zstdDecompressWithDict(data: Buffer | Uint8Array, dict: 
 export declare function zstdDecompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array): Promise<Buffer>
 
 /**
+ * Decompress Zstandard-compressed data that was compressed with a dictionary,
+ * with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * The same dictionary used for compression must be provided.
+ */
+export declare function zstdDecompressWithDictWithCapacity(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Buffer
+
+/**
  * Train a zstd dictionary from sample data.
  *
  * The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
