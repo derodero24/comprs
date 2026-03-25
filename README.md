@@ -75,73 +75,46 @@ bun add comprs
 
 ## Quick Start
 
-### One-shot compression
-
 ```typescript
 import { zstdCompress, zstdDecompress } from 'comprs';
 
 const data = Buffer.from('Hello, comprs!');
-
-// Compress
 const compressed = zstdCompress(data);
-
-// Decompress
 const decompressed = zstdDecompress(compressed);
 ```
 
-```typescript
-// Gzip
-import { gzipCompress, gzipDecompress } from 'comprs';
+All algorithms use the same pattern:
 
-const compressed = gzipCompress(Buffer.from('Hello, gzip!'));
-const decompressed = gzipDecompress(compressed);
+```typescript
+import { gzipCompress, brotliCompress, lz4Compress } from 'comprs';
+
+const gzipped = gzipCompress(data);    // gzip
+const brotlied = brotliCompress(data); // brotli
+const lz4ed = lz4Compress(data);       // lz4
 ```
 
-```typescript
-// Brotli
-import { brotliCompress, brotliDecompress } from 'comprs';
+### Streaming (Web Streams API)
 
-const compressed = brotliCompress(Buffer.from('Hello, brotli!'));
-const decompressed = brotliDecompress(compressed);
+```typescript
+import { createGzipCompressStream, createGzipDecompressStream } from 'comprs/streams';
+
+// Pipe through compression/decompression TransformStreams
+const compressed = response.body
+  .pipeThrough(createGzipCompressStream());
 ```
 
-### Streaming
+### Streaming (Node.js Transform)
 
 ```typescript
-import { createZstdCompressStream, createZstdDecompressStream } from 'comprs/streams';
+import { createGzipCompressTransform } from 'comprs/node';
+import { pipeline } from 'node:stream/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
 
-// Create a readable stream from data
-const input = new ReadableStream({
-  start(controller) {
-    controller.enqueue(new TextEncoder().encode('Hello, streaming comprs!'));
-    controller.close();
-  },
-});
-
-// Compress → Decompress round-trip
-const chunks: Uint8Array[] = [];
-await input
-  .pipeThrough(createZstdCompressStream())
-  .pipeThrough(createZstdDecompressStream())
-  .pipeTo(new WritableStream({ write(chunk) { chunks.push(chunk); } }));
-```
-
-### Compression levels
-
-```typescript
-import { zstdCompress } from 'comprs';
-
-// Fast compression (level 1)
-zstdCompress(data, 1);
-
-// Default (level 3)
-zstdCompress(data);
-
-// Best compression (level 22)
-zstdCompress(data, 22);
-
-// Fast mode with negative levels
-zstdCompress(data, -1);
+await pipeline(
+  createReadStream('input.txt'),
+  createGzipCompressTransform(),
+  createWriteStream('output.gz'),
+);
 ```
 
 ### Auto-detect
@@ -158,11 +131,23 @@ const decompressed = decompress(compressedData);
 ```typescript
 import { gzipCompressAsync, gzipDecompressAsync } from 'comprs';
 
-const compressed = await gzipCompressAsync(data);
+// Runs on the libuv thread pool — keeps the event loop free
+const compressed = await gzipCompressAsync(largeData);
 const decompressed = await gzipDecompressAsync(compressed);
 ```
 
-### Dictionary
+### Compression levels
+
+```typescript
+import { zstdCompress } from 'comprs';
+
+zstdCompress(data, 1);   // fast compression
+zstdCompress(data);      // default (level 3)
+zstdCompress(data, 22);  // best compression
+zstdCompress(data, -1);  // fast mode with negative levels
+```
+
+### Dictionary compression
 
 ```typescript
 import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from 'comprs';
@@ -182,6 +167,16 @@ import { brotliCompressWithDict, brotliDecompressWithDict } from 'comprs';
 const dict = Buffer.from('{"id":0,"name":"","email":"@example.com"}'.repeat(10));
 const compressed = brotliCompressWithDict(data, dict);
 const decompressed = brotliDecompressWithDict(compressed, dict);
+```
+
+### Deno / Bun
+
+```typescript
+// Deno
+import { gzipCompress } from 'npm:comprs';
+
+// Bun (same as Node.js)
+import { gzipCompress } from 'comprs';
 ```
 
 ## API
