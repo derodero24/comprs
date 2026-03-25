@@ -377,17 +377,25 @@ The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` durin
 
 ## Browser Usage
 
-comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild, or import directly from a CDN:
+comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild:
 
 ```typescript
 import { gzipCompress, gzipDecompress } from 'comprs';
 
-const encoder = new TextEncoder();
-const data = encoder.encode('Hello from the browser!');
-
+const data = new TextEncoder().encode('Hello from the browser!');
 const compressed = gzipCompress(data);
 const decompressed = gzipDecompress(compressed);
 ```
+
+> [!IMPORTANT]
+> The WASM build uses `SharedArrayBuffer` for threading, which requires these HTTP headers on your page:
+>
+> ```http
+> Cross-Origin-Opener-Policy: same-origin
+> Cross-Origin-Embedder-Policy: require-corp
+> ```
+>
+> Without these headers, you will see `SharedArrayBuffer is not defined`. See [MDN: SharedArrayBuffer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements) for details.
 
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
