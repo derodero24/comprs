@@ -1,5 +1,13 @@
 # comprs
 
+## 0.3.1
+
+### Patch Changes
+
+- 38a3787: Enforce maxOutputSize in browser WASM ZstdDecompressDictContext by adding zstdDecompressWithDictWithCapacity
+- 764ba82: Use `decompress_with_limit` in async auto-detect decompression for gzip and brotli, replacing manual chunk-read loops that performed a double-copy through an intermediate stack buffer.
+- ad5add2: Fix missing validation for maxDictSize parameter in zstdTrainDictionary
+
 ## 0.3.0
 
 ### Minor Changes
