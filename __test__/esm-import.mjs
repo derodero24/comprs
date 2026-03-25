@@ -1,13 +1,22 @@
 import assert from 'node:assert';
 import {
+  BrotliCompressDictContext,
+  BrotliDecompressDictContext,
   brotliCompress,
   brotliCompressAsync,
+  brotliCompressWithDict,
+  brotliCompressWithDictAsync,
   brotliDecompress,
   brotliDecompressAsync,
   brotliDecompressWithCapacity,
   brotliDecompressWithCapacityAsync,
+  brotliDecompressWithDict,
+  brotliDecompressWithDictAsync,
+  brotliDecompressWithDictWithCapacity,
   crc32,
+  createBrotliCompressDictStream,
   createBrotliCompressStream,
+  createBrotliDecompressDictStream,
   createBrotliDecompressStream,
   createDecompressStream,
   createDeflateCompressStream,
@@ -221,6 +230,51 @@ assert.strictEqual(
   typeof createBrotliDecompressStream,
   'function',
   'createBrotliDecompressStream should be a function',
+);
+assert.strictEqual(
+  typeof brotliCompressWithDict,
+  'function',
+  'brotliCompressWithDict should be a function',
+);
+assert.strictEqual(
+  typeof brotliCompressWithDictAsync,
+  'function',
+  'brotliCompressWithDictAsync should be a function',
+);
+assert.strictEqual(
+  typeof brotliDecompressWithDict,
+  'function',
+  'brotliDecompressWithDict should be a function',
+);
+assert.strictEqual(
+  typeof brotliDecompressWithDictAsync,
+  'function',
+  'brotliDecompressWithDictAsync should be a function',
+);
+assert.strictEqual(
+  typeof brotliDecompressWithDictWithCapacity,
+  'function',
+  'brotliDecompressWithDictWithCapacity should be a function',
+);
+assert.strictEqual(
+  typeof BrotliCompressDictContext,
+  'function',
+  'BrotliCompressDictContext should be a function',
+);
+assert.strictEqual(
+  typeof BrotliDecompressDictContext,
+  'function',
+  'BrotliDecompressDictContext should be a function',
+);
+assert.strictEqual(
+  typeof createBrotliCompressDictStream,
+  'function',
+  'createBrotliCompressDictStream should be a function',
+);
+assert.strictEqual(
+  typeof createBrotliDecompressDictStream,
+  'function',
+  'createBrotliDecompressDictStream should be a function',
 );
 assert.strictEqual(typeof lz4Compress, 'function', 'lz4Compress should be a function');
 assert.strictEqual(typeof lz4Decompress, 'function', 'lz4Decompress should be a function');

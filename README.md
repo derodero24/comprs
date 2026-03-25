@@ -133,6 +133,15 @@ const compressed = zstdCompressWithDict(data, dict);
 const decompressed = zstdDecompressWithDict(compressed, dict);
 ```
 
+```typescript
+// Brotli dictionary (no training step — provide raw dictionary bytes)
+import { brotliCompressWithDict, brotliDecompressWithDict } from 'comprs';
+
+const dict = Buffer.from('{"id":0,"name":"","email":"@example.com"}'.repeat(10));
+const compressed = brotliCompressWithDict(data, dict);
+const decompressed = brotliDecompressWithDict(compressed, dict);
+```
+
 ## API
 
 ### One-shot
@@ -196,6 +205,14 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 | `zstdCompressWithDict(data, dict, level?)` | Compress with pre-trained dictionary |
 | `zstdDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
 
+#### Brotli Dictionary
+
+| Function | Description |
+| --- | --- |
+| `brotliCompressWithDict(data, dict, quality?)` | Compress with custom dictionary |
+| `brotliDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
+| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with explicit capacity |
+
 ### Async
 
 All compression and decompression functions have async variants (suffix `Async`) that run on the libuv thread pool, keeping the event loop free:
@@ -210,6 +227,8 @@ All compression and decompression functions have async variants (suffix `Async`)
 | `deflateDecompressAsync(data)` | Async deflate decompression |
 | `brotliCompressAsync(data, quality?)` | Async brotli compression |
 | `brotliDecompressAsync(data)` | Async brotli decompression |
+| `brotliCompressWithDictAsync(data, dict, quality?)` | Async brotli compression with dictionary |
+| `brotliDecompressWithDictAsync(data, dict)` | Async brotli decompression with dictionary |
 | `lz4CompressAsync(data)` | Async LZ4 compression |
 | `lz4DecompressAsync(data)` | Async LZ4 decompression |
 
@@ -229,6 +248,8 @@ All compression and decompression functions have async variants (suffix `Async`)
 | `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
 | `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
 | `createZstdDecompressDictStream(dict)` | Streaming zstd decompression with dictionary |
+| `createBrotliCompressDictStream(dict, quality?)` | Streaming brotli compression with dictionary |
+| `createBrotliDecompressDictStream(dict)` | Streaming brotli decompression with dictionary |
 | `createDecompressStream()` | Auto-detect format and create a decompression `TransformStream` |
 
 ### Node.js Transform Streams
@@ -261,6 +282,8 @@ await pipeline(
 | `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
 | `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
 | `createZstdDecompressDictTransform(dict)` | Node.js Transform for zstd dict decompression |
+| `createBrotliCompressDictTransform(dict, quality?)` | Node.js Transform for brotli dict compression |
+| `createBrotliDecompressDictTransform(dict)` | Node.js Transform for brotli dict decompression |
 | `createDecompressTransform()` | Auto-detect format and create a decompression Transform |
 
 ## Supported Algorithms
@@ -319,6 +342,7 @@ const decompressed = gzipDecompress(compressed);
 | Deno/Bun | ✅ | ✅ | ✅ | ❌ |
 | Native performance | ✅ | ❌ | ❌ | ✅ |
 | TypeScript | ✅ | ✅ | ✅ | ✅ |
+| Dictionary | ✅ (zstd + brotli) | ❌ | ❌ | ❌ |
 | Zero JS deps | ✅ | ✅ | ✅ | ✅ |
 
 \* Node.js ≥ 22.15 (experimental)
