@@ -231,8 +231,10 @@ describe('decompression error handling', () => {
       expect(() => brotliDecompress(Buffer.alloc(0))).toThrow();
     });
 
-    it('should throw when decompressing empty buffer with lz4', () => {
-      expect(() => lz4Decompress(Buffer.alloc(0))).toThrow();
+    it('should return empty buffer when decompressing empty buffer with lz4', () => {
+      // LZ4 treats empty input as a valid empty stream (like zstd and deflate)
+      const result = lz4Decompress(Buffer.alloc(0));
+      expect(result.length).toBe(0);
     });
   });
 });
