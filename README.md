@@ -22,6 +22,7 @@ Rust-powered universal compression for JavaScript/TypeScript.
 - [Comparison with Alternatives](#comparison-with-alternatives)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Choosing an Algorithm](#choosing-an-algorithm)
 - [API](#api)
 - [Supported Algorithms](#supported-algorithms)
 - [Platform Support](#platform-support)
@@ -178,6 +179,26 @@ import { gzipCompress } from 'npm:comprs';
 // Bun (same as Node.js)
 import { gzipCompress } from 'comprs';
 ```
+
+## Choosing an Algorithm
+
+| Use case | Recommended | Why |
+| --- | --- | --- |
+| Web asset delivery (CDN, HTTP) | **brotli** | Best compression ratio; native browser `Accept-Encoding` support |
+| General-purpose file compression | **zstd** | Fastest all-round with excellent compression ratio |
+| Real-time data / logging / IPC | **lz4** | Lowest latency; optimized for speed over ratio |
+| Legacy systems / maximum compatibility | **gzip** | Universal support; every tool and platform can decompress |
+| Many small similar records (JSON, logs) | **zstd + dictionary** | Dictionary pre-seeds the compressor with expected patterns |
+| Brotli with domain-specific data | **brotli + dictionary** | Custom dictionary for repeated structures without training |
+
+### Choosing an API mode
+
+| Mode | When to use |
+| --- | --- |
+| **Sync** (`zstdCompress`) | Small data (< 1 MB), low-latency requirements, scripts |
+| **Async** (`zstdCompressAsync`) | Large data or when event loop must stay free (servers, UIs) |
+| **Streaming** (`createZstdCompressStream`) | Unknown/unbounded data size, memory-constrained environments |
+| **Dictionary** (`zstdCompressWithDict`) | Compressing many small, structurally similar items |
 
 ## API
 
