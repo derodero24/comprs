@@ -17,6 +17,7 @@ import {
   zstdDecompressWithCapacity as _zstdDecompressWithCapacity,
   zstdCompressWithDict as _zstdCompressWithDict,
   zstdDecompressWithDict as _zstdDecompressWithDict,
+  zstdDecompressWithDictWithCapacity as _zstdDecompressWithDictWithCapacity,
 } from 'comprs-wasm32-wasi'
 
 /**
@@ -361,6 +362,9 @@ export class ZstdDecompressDictContext {
     this._finished = true
     const data = concatChunks(this._chunks)
     this._chunks = []
+    if (this._maxOutputSize != null) {
+      return _zstdDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
+    }
     return _zstdDecompressWithDict(data, this._dict)
   }
 }

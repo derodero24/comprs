@@ -286,6 +286,40 @@ pub fn zstd_decompress_with_dict(
         })
 }
 
+/// Decompress Zstandard-compressed data that was compressed with a dictionary,
+/// with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn zstd_decompress_with_dict_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
+    let cap = crate::validate_capacity(capacity)?;
+    let input = crate::as_bytes(&data);
+    let dict_bytes = crate::as_bytes(&dict);
+
+    let mut decompressor = zstd::bulk::Decompressor::with_dictionary(dict_bytes).map_err(|e| {
+        napi::Error::from(ComprsError::Operation {
+            context: "zstd decompressor init",
+            source: e.into(),
+        })
+    })?;
+
+    decompressor
+        .decompress(input, cap)
+        .map(|v| v.into())
+        .map_err(|e| {
+            napi::Error::from(ComprsError::Operation {
+                context: "zstd decompress with dict",
+                source: e.into(),
+            })
+        })
+}
+
 pub struct ZstdDecompressWithCapacityTask {
     data: Vec<u8>,
     capacity: usize,
