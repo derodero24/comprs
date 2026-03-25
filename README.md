@@ -19,13 +19,13 @@ Rust-powered universal compression for JavaScript/TypeScript.
 ## Table of Contents
 
 - [Why comprs?](#why-comprs)
+- [Comparison with Alternatives](#comparison-with-alternatives)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [API](#api)
 - [Supported Algorithms](#supported-algorithms)
 - [Platform Support](#platform-support)
 - [Browser Usage](#browser-usage)
-- [Comparison with Alternatives](#comparison-with-alternatives)
 - [Migration](#migration)
 - [Benchmarks](#benchmarks)
 - [Contributing](#contributing)
@@ -39,6 +39,27 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
+
+## Comparison with Alternatives
+
+| Feature | comprs | pako | fflate | node:zlib |
+| --- | :---: | :---: | :---: | :---: |
+| zstd | ✅ | ❌ | ❌ | ⚠️ Experimental* |
+| gzip/deflate | ✅ | ✅ | ✅ | ✅ |
+| brotli | ✅ | ❌ | ❌ | ✅ |
+| lz4 | ✅ | ❌ | ❌ | ❌ |
+| Web Streams API | ✅ | ❌ | ❌ | ❌ |
+| Node.js Transform | ✅ | ❌ | ❌ | ✅ |
+| Streaming | ✅ | Chunked† | ✅ | ✅ |
+| Browser | ✅ | ✅ | ✅ | ❌ |
+| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
+| Native performance | ✅ | ❌ | ❌ | ✅ |
+| TypeScript | ✅ | ✅ | ✅ | ✅ |
+| Dictionary | ✅ (zstd + brotli) | ❌ | ❌ | ❌ |
+| Zero JS deps | ✅ | ✅ | ✅ | ✅ |
+
+\* `node:zlib` zstd support requires Node.js ≥ 22.15 and is experimental
+† pako uses chunked `Inflate`/`Deflate` classes, not the Web Streams API
 
 ## Installation
 
@@ -354,26 +375,6 @@ const decompressed = gzipDecompress(compressed);
 
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
-
-## Comparison with Alternatives
-
-| Feature | comprs | pako | fflate | node:zlib |
-| --- | --- | --- | --- | --- |
-| zstd | ✅ | ❌ | ❌ | ✅* |
-| gzip/deflate | ✅ | ✅ | ✅ | ✅ |
-| brotli | ✅ | ❌ | ❌ | ✅ |
-| lz4 | ✅ | ❌ | ❌ | ❌ |
-| Web Streams API | ✅ | ❌ | ❌ | ❌ |
-| Streaming | ✅ | ✅† | ✅ | ✅ |
-| Browser | ✅ | ✅ | ✅ | ❌ |
-| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
-| Native performance | ✅ | ❌ | ❌ | ✅ |
-| TypeScript | ✅ | ✅ | ✅ | ✅ |
-| Dictionary | ✅ (zstd + brotli) | ❌ | ❌ | ❌ |
-| Zero JS deps | ✅ | ✅ | ✅ | ✅ |
-
-\* Node.js ≥ 22.15 (experimental)
-† Chunked mode via `Inflate`/`Deflate` classes, not Web Streams API
 
 ## Migration
 
