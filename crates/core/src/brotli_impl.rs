@@ -215,6 +215,273 @@ pub fn brotli_decompress_with_capacity_async(
     }))
 }
 
+// --- Dictionary compression/decompression ---
+
+/// Compress data with a custom dictionary using the brotli crate's low-level API.
+pub(crate) fn brotli_compress_with_dict_inner(
+    input: &[u8],
+    dict: &[u8],
+    quality: u32,
+) -> std::result::Result<Vec<u8>, std::io::Error> {
+    use std::io::Cursor;
+
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: quality as i32,
+        lgwin: LG_WINDOW_SIZE as i32,
+        ..Default::default()
+    };
+
+    let mut r = Cursor::new(input);
+    let mut output = Vec::with_capacity(input.len());
+    let mut input_buffer = [0u8; BUFFER_SIZE];
+    let mut output_buffer = [0u8; BUFFER_SIZE];
+    let alloc = brotli::enc::StandardAlloc::default();
+    let mut nop =
+        |_: &mut brotli::interface::PredictionModeContextMap<brotli::InputReferenceMut>,
+         _: &mut [brotli::interface::StaticCommand],
+         _: brotli::InputPair,
+         _: &mut brotli::enc::StandardAlloc| {};
+
+    brotli::BrotliCompressCustomIoCustomDict(
+        &mut brotli::IoReaderWrapper(&mut r),
+        &mut brotli::IoWriterWrapper(&mut output),
+        &mut input_buffer[..],
+        &mut output_buffer[..],
+        &params,
+        alloc,
+        &mut nop,
+        dict,
+        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected eof"),
+    )?;
+    Ok(output)
+}
+
+/// Compress data using Brotli with a custom dictionary.
+///
+/// The same dictionary must be used for decompression via `brotliDecompressWithDict`.
+/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+#[napi]
+pub fn brotli_compress_with_dict(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    quality: Option<u32>,
+) -> Result<Buffer> {
+    let quality = quality.unwrap_or(DEFAULT_QUALITY);
+    if quality > 11 {
+        return Err(
+            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+        );
+    }
+    let input = crate::as_bytes(&data);
+    let dict_bytes = crate::as_bytes(&dict);
+
+    brotli_compress_with_dict_inner(input, dict_bytes, quality)
+        .map(|v| v.into())
+        .map_err(|e| {
+            ComprsError::Operation {
+                context: "brotli compress with dict",
+                source: e.into(),
+            }
+            .into()
+        })
+}
+
+/// Decompress Brotli-compressed data that was compressed with a custom dictionary.
+///
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn brotli_decompress_with_dict(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+) -> Result<Buffer> {
+    let input = crate::as_bytes(&data);
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    let decompressor =
+        brotli::Decompressor::new_with_custom_dict(input, BUFFER_SIZE, dict_bytes.into());
+    let init_cap = (input.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
+    crate::decompress_with_limit(
+        decompressor,
+        crate::MAX_DECOMPRESSED_SIZE,
+        init_cap,
+        "brotli decompress with dict",
+    )
+    .map(|v| v.into())
+}
+
+/// Decompress Brotli-compressed data that was compressed with a custom dictionary,
+/// with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn brotli_decompress_with_dict_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
+    let cap = crate::validate_capacity(capacity)?;
+    let input = crate::as_bytes(&data);
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    let decompressor =
+        brotli::Decompressor::new_with_custom_dict(input, BUFFER_SIZE, dict_bytes.into());
+    let init_cap = (input.len().saturating_mul(4)).min(cap);
+    crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress with dict")
+        .map(|v| v.into())
+}
+
+// --- Async tasks for dictionary compression ---
+
+pub struct BrotliCompressWithDictTask {
+    data: Vec<u8>,
+    dict: Vec<u8>,
+    quality: u32,
+}
+
+#[napi]
+impl Task for BrotliCompressWithDictTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        brotli_compress_with_dict_inner(&self.data, &self.dict, self.quality).map_err(|e| {
+            ComprsError::Operation {
+                context: "brotli compress with dict",
+                source: e.into(),
+            }
+            .into()
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously compress data using Brotli with a custom dictionary.
+///
+/// The same dictionary must be used for decompression via `brotliDecompressWithDict`.
+/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+#[napi]
+pub fn brotli_compress_with_dict_async(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    quality: Option<u32>,
+) -> Result<AsyncTask<BrotliCompressWithDictTask>> {
+    let quality = quality.unwrap_or(DEFAULT_QUALITY);
+    if quality > 11 {
+        return Err(
+            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
+        );
+    }
+    let input = crate::as_bytes(&data).to_vec();
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    Ok(AsyncTask::new(BrotliCompressWithDictTask {
+        data: input,
+        dict: dict_bytes,
+        quality,
+    }))
+}
+
+pub struct BrotliDecompressWithDictTask {
+    data: Vec<u8>,
+    dict: Vec<u8>,
+}
+
+#[napi]
+impl Task for BrotliDecompressWithDictTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let decompressor = brotli::Decompressor::new_with_custom_dict(
+            self.data.as_slice(),
+            BUFFER_SIZE,
+            self.dict.clone().into(),
+        );
+        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(
+            decompressor,
+            crate::MAX_DECOMPRESSED_SIZE,
+            init_cap,
+            "brotli decompress with dict",
+        )
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Brotli-compressed data that was compressed with a custom dictionary.
+///
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn brotli_decompress_with_dict_async(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+) -> AsyncTask<BrotliDecompressWithDictTask> {
+    let input = crate::as_bytes(&data).to_vec();
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    AsyncTask::new(BrotliDecompressWithDictTask {
+        data: input,
+        dict: dict_bytes,
+    })
+}
+
+pub struct BrotliDecompressWithDictWithCapacityTask {
+    data: Vec<u8>,
+    dict: Vec<u8>,
+    capacity: usize,
+}
+
+#[napi]
+impl Task for BrotliDecompressWithDictWithCapacityTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let decompressor = brotli::Decompressor::new_with_custom_dict(
+            self.data.as_slice(),
+            BUFFER_SIZE,
+            self.dict.clone().into(),
+        );
+        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
+        crate::decompress_with_limit(
+            decompressor,
+            self.capacity,
+            init_cap,
+            "brotli decompress with dict",
+        )
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+/// Asynchronously decompress Brotli-compressed data that was compressed with a custom dictionary,
+/// with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn brotli_decompress_with_dict_with_capacity_async(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<AsyncTask<BrotliDecompressWithDictWithCapacityTask>> {
+    let cap = crate::validate_capacity(capacity)?;
+    let input = crate::as_bytes(&data).to_vec();
+    let dict_bytes = crate::as_bytes(&dict).to_vec();
+    Ok(AsyncTask::new(BrotliDecompressWithDictWithCapacityTask {
+        data: input,
+        dict: dict_bytes,
+        capacity: cap,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -307,6 +574,22 @@ mod tests {
         // Higher quality should generally produce smaller output
         assert!(best.len() <= default.len());
         assert!(default.len() <= fast.len());
+    }
+
+    #[test]
+    fn dict_round_trip() {
+        let dict = br#"{"id":0,"name":"user","email":"@example.com"}"#.repeat(10);
+        let original = br#"{"id":42,"name":"test_user","email":"test@example.com","active":true}"#;
+        let compressed =
+            super::brotli_compress_with_dict_inner(original, &dict, DEFAULT_QUALITY).unwrap();
+        let mut decompressor = brotli::Decompressor::new_with_custom_dict(
+            compressed.as_slice(),
+            BUFFER_SIZE,
+            dict.into(),
+        );
+        let mut decompressed = Vec::new();
+        decompressor.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(original.as_slice(), decompressed.as_slice());
     }
 
     #[test]
