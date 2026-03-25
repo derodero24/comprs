@@ -439,6 +439,19 @@ On the client side, comprs automatically falls back to WASM — no additional co
 + const decompressed = gzipDecompress(compressed);
 ```
 
+### From fflate
+
+```diff
+- import { gzipSync, gunzipSync } from 'fflate';
+- const compressed = gzipSync(data);
+- const decompressed = gunzipSync(compressed);
++ import { gzipCompress, gzipDecompress } from 'comprs';
++ const compressed = gzipCompress(data);
++ const decompressed = gzipDecompress(compressed);
+```
+
+comprs adds zstd, lz4, brotli, dictionary compression, and Web Streams API — none of which are available in fflate.
+
 ### From node:zlib
 
 ```diff
