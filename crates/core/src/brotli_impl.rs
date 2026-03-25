@@ -17,9 +17,6 @@ const BUFFER_SIZE: usize = 4096;
 /// Default log2 of the sliding window size for brotli.
 const LG_WINDOW_SIZE: u32 = 22;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Compress data using Brotli.
 ///
 /// Returns the compressed data as a Buffer.
@@ -58,10 +55,10 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
 pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let input = crate::as_bytes(&data);
     let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let init_cap = (input.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
+    let init_cap = (input.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
     crate::decompress_with_limit(
         decompressor,
-        MAX_DECOMPRESSED_SIZE,
+        crate::MAX_DECOMPRESSED_SIZE,
         init_cap,
         "brotli decompress",
     )
@@ -154,10 +151,10 @@ impl Task for BrotliDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
+        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
         crate::decompress_with_limit(
             decompressor,
-            MAX_DECOMPRESSED_SIZE,
+            crate::MAX_DECOMPRESSED_SIZE,
             init_cap,
             "brotli decompress",
         )
