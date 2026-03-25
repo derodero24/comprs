@@ -1,4 +1,9 @@
+<div align="center">
+
 # comprs
+
+Rust-powered universal compression for JavaScript/TypeScript.
+**zstd**, **gzip**, **brotli**, and **lz4** in one package.
 
 [![npm version](https://img.shields.io/npm/v/comprs)](https://www.npmjs.com/package/comprs)
 [![npm downloads](https://img.shields.io/npm/dm/comprs)](https://www.npmjs.com/package/comprs)
@@ -6,8 +11,24 @@
 [![codecov](https://codecov.io/gh/derodero24/comprs/graph/badge.svg)](https://codecov.io/gh/derodero24/comprs)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repo=derodero24/comprs)](https://codspeed.io/derodero24/comprs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-ready-blue)](https://www.typescriptlang.org/)
 
-Rust-powered universal compression for JavaScript/TypeScript. **zstd**, **gzip**, **brotli**, and **lz4** in one package.
+</div>
+
+## Table of Contents
+
+- [Why comprs?](#why-comprs)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [API](#api)
+- [Supported Algorithms](#supported-algorithms)
+- [Platform Support](#platform-support)
+- [Browser Usage](#browser-usage)
+- [Comparison with Alternatives](#comparison-with-alternatives)
+- [Migration](#migration)
+- [Benchmarks](#benchmarks)
+- [Contributing](#contributing)
 
 ## Why comprs?
 
@@ -306,7 +327,12 @@ await pipeline(
 
 ### Build targets
 
-`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`, `wasm32-wasip1-threads`
+| OS | Architectures |
+| --- | --- |
+| macOS | Intel (x64), Apple Silicon (ARM64) |
+| Linux | x64, ARM64 (glibc & musl) |
+| Windows | x64, ARM64 |
+| WASM | wasm32-wasip1-threads |
 
 ### WASM bundle size
 
@@ -326,7 +352,8 @@ const compressed = gzipCompress(data);
 const decompressed = gzipDecompress(compressed);
 ```
 
-> Note: WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
+> [!TIP]
+> WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
 
 ## Comparison with Alternatives
 
@@ -378,7 +405,8 @@ const decompressed = gzipDecompress(compressed);
 
 Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numbers vary by machine and data type.
 
-### gzip: comprs vs pako vs fflate vs node:zlib
+<details>
+<summary><strong>gzip: comprs vs pako vs fflate vs node:zlib</strong></summary>
 
 **Compression** (ops/sec, higher is better)
 
@@ -402,7 +430,10 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 | 10KB random | 7,004 | 17,616 | 407,789 | 271,245 |
 | 1MB random | 1,508 | 278 | 19,341 | 4,282 |
 
-### deflate: comprs vs pako vs fflate vs node:zlib
+</details>
+
+<details>
+<summary><strong>deflate: comprs vs pako vs fflate vs node:zlib</strong></summary>
 
 **Compression** (ops/sec, higher is better)
 
@@ -426,7 +457,10 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 | 10KB random | 7,986 | 13,079 | 62,782 | 114,130 |
 | 1MB random | 610 | 350 | 238 | 176 |
 
-### brotli: comprs vs node:zlib
+</details>
+
+<details>
+<summary><strong>brotli: comprs vs node:zlib</strong></summary>
 
 | Benchmark | comprs | node:zlib | Speedup |
 | --- | ---: | ---: | ---: |
@@ -443,7 +477,10 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 | decompress 10KB random | 1,503 | 1,156 | 1.3x |
 | decompress 1MB random | 738 | 5,219 | 0.1x |
 
-### Cross-algorithm comparison (comprs only)
+</details>
+
+<details>
+<summary><strong>Cross-algorithm comparison (comprs only)</strong></summary>
 
 **Compression** (ops/sec, higher is better)
 
@@ -470,6 +507,8 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 | 1MB random | 3,498 | 2,309 | 656 | 1,792 |
 | JSON 84KB | 17,345 | 9,737 | 4,644 | 20,356 |
 | text 45KB | 82,783 | 29,115 | 3,415 | 41,811 |
+
+</details>
 
 ### Key takeaways
 
