@@ -400,6 +400,32 @@ const decompressed = gzipDecompress(compressed);
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
 
+### Framework Integration (SSR)
+
+Native modules need to be externalized in SSR frameworks:
+
+**Next.js**
+
+```js
+// next.config.js
+const nextConfig = {
+  serverExternalPackages: ['comprs'],
+};
+```
+
+**Vite SSR**
+
+```js
+// vite.config.js
+export default {
+  ssr: {
+    external: ['comprs'],
+  },
+};
+```
+
+On the client side, comprs automatically falls back to WASM — no additional configuration needed beyond the SharedArrayBuffer headers above.
+
 ## Migration
 
 ### From pako
