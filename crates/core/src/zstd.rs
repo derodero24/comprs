@@ -195,7 +195,8 @@ pub fn zstd_train_dictionary(
     max_dict_size: Option<f64>,
 ) -> Result<Buffer> {
     let max_size = max_dict_size
-        .map(|s| s as usize)
+        .map(crate::validate_capacity)
+        .transpose()?
         .unwrap_or(DEFAULT_MAX_DICT_SIZE);
 
     let sample_vecs: Vec<Vec<u8>> = samples
@@ -473,18 +474,19 @@ impl Task for ZstdTrainDictionaryTask {
 pub fn zstd_train_dictionary_async(
     samples: Vec<Either<Buffer, Uint8Array>>,
     max_dict_size: Option<f64>,
-) -> AsyncTask<ZstdTrainDictionaryTask> {
+) -> Result<AsyncTask<ZstdTrainDictionaryTask>> {
     let max_size = max_dict_size
-        .map(|s| s as usize)
+        .map(crate::validate_capacity)
+        .transpose()?
         .unwrap_or(DEFAULT_MAX_DICT_SIZE);
     let sample_vecs: Vec<Vec<u8>> = samples
         .iter()
         .map(|s| crate::as_bytes(s).to_vec())
         .collect();
-    AsyncTask::new(ZstdTrainDictionaryTask {
+    Ok(AsyncTask::new(ZstdTrainDictionaryTask {
         samples: sample_vecs,
         max_dict_size: max_size,
-    })
+    }))
 }
 
 #[cfg(test)]
