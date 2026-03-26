@@ -15,6 +15,8 @@ Rust-powered universal compression for JavaScript/TypeScript.
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-blue)](https://www.typescriptlang.org/)
 [![Playground](https://img.shields.io/badge/playground-try%20it%20live-8b5cf6)](https://derodero24.github.io/comprs/)
 
+**[→ Try the live playground](https://derodero24.github.io/comprs/)**
+
 </div>
 
 ## Table of Contents
@@ -41,6 +43,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
+- **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
 
 ## Comparison with Alternatives
 
