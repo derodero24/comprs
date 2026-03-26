@@ -23,6 +23,9 @@ export default defineConfig({
   },
   server: {
     headers: corsHeaders,
+    // Allow serving WASM files from parent directory during local development
+    // (comprs.wasm32-wasi.wasm lives in repo root, outside the playground dir)
+    fs: hasLocalWasm ? { allow: ['..'] } : {},
   },
   preview: {
     headers: corsHeaders,
