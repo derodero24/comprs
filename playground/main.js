@@ -352,6 +352,14 @@ fileInput.addEventListener('change', (e) => {
   currentFileName = file.name;
 
   const reader = new FileReader();
+  reader.onerror = () => {
+    fileError.textContent = 'Failed to read the file. Please try again.';
+    fileError.hidden = false;
+    setTimeout(() => {
+      fileError.hidden = true;
+    }, 5000);
+    fileInput.value = '';
+  };
   reader.onload = (ev) => {
     const bytes = new Uint8Array(ev.target.result);
     currentInput = bytes;
