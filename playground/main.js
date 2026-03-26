@@ -1,5 +1,16 @@
 import { Buffer } from 'buffer';
-import {
+
+// emnapi (napi-rs WASM runtime) requires globalThis.Buffer when creating
+// memory views for WASM function arguments. Browsers do not define it natively.
+// Must be set BEFORE the comprs WASM module initializes (top-level await in
+// comprs-wasm32-wasi runs __emnapiInstantiateNapiModuleSync at import time).
+// Static imports are hoisted and evaluated before any module body code, so
+// a dynamic import is used to ensure Buffer is set first.
+if (!globalThis.Buffer) {
+  globalThis.Buffer = Buffer;
+}
+
+const {
   brotliCompress,
   brotliDecompress,
   gzipCompress,
@@ -8,13 +19,7 @@ import {
   lz4Decompress,
   zstdCompress,
   zstdDecompress,
-} from 'comprs';
-
-// emnapi (napi-rs WASM runtime) requires globalThis.Buffer.
-// Browsers do not define it natively, so polyfill before any WASM call.
-if (!globalThis.Buffer) {
-  globalThis.Buffer = Buffer;
-}
+} = await import('comprs');
 
 // --- Sample data ---
 const SAMPLES = {
