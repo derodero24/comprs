@@ -13,6 +13,7 @@ Rust-powered universal compression for JavaScript/TypeScript.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-blue)](https://www.typescriptlang.org/)
+[![Playground](https://img.shields.io/badge/playground-try%20it%20live-8b5cf6)](https://derodero24.github.io/comprs/)
 
 </div>
 
@@ -75,6 +76,8 @@ bun add comprs
 ```
 
 ## Quick Start
+
+> **Try it live** → [derodero24.github.io/comprs](https://derodero24.github.io/comprs/)
 
 ```typescript
 import { zstdCompress, zstdDecompress } from 'comprs';
