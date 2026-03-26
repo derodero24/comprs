@@ -9,9 +9,6 @@ use crate::ComprsError;
 /// Default compression level for zstd (same as the C library default).
 const DEFAULT_LEVEL: i32 = 3;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Compress data using Zstandard.
 ///
 /// Returns the compressed data as a Buffer.
@@ -98,8 +95,8 @@ impl Task for ZstdDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-            _ => MAX_DECOMPRESSED_SIZE,
+            Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+            _ => crate::MAX_DECOMPRESSED_SIZE,
         };
         let capacity = capacity.max(1024);
 
@@ -139,8 +136,8 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 
     // Try to read the frame content size from the header
     let capacity = match zstd::zstd_safe::get_frame_content_size(input) {
-        Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-        _ => MAX_DECOMPRESSED_SIZE,
+        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+        _ => crate::MAX_DECOMPRESSED_SIZE,
     };
 
     // Use at least 1KB initial capacity
@@ -195,7 +192,8 @@ pub fn zstd_train_dictionary(
     max_dict_size: Option<f64>,
 ) -> Result<Buffer> {
     let max_size = max_dict_size
-        .map(|s| s as usize)
+        .map(crate::validate_capacity)
+        .transpose()?
         .unwrap_or(DEFAULT_MAX_DICT_SIZE);
 
     let sample_vecs: Vec<Vec<u8>> = samples
@@ -262,8 +260,8 @@ pub fn zstd_decompress_with_dict(
     let dict_bytes = crate::as_bytes(&dict);
 
     let capacity = match zstd::zstd_safe::get_frame_content_size(input) {
-        Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-        _ => MAX_DECOMPRESSED_SIZE,
+        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+        _ => crate::MAX_DECOMPRESSED_SIZE,
     };
     let capacity = capacity.max(1024);
 
@@ -276,6 +274,40 @@ pub fn zstd_decompress_with_dict(
 
     decompressor
         .decompress(input, capacity)
+        .map(|v| v.into())
+        .map_err(|e| {
+            napi::Error::from(ComprsError::Operation {
+                context: "zstd decompress with dict",
+                source: e.into(),
+            })
+        })
+}
+
+/// Decompress Zstandard-compressed data that was compressed with a dictionary,
+/// with explicit capacity.
+///
+/// Use this when the decompressed size exceeds the default 256 MB limit.
+/// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// The same dictionary used for compression must be provided.
+#[napi]
+pub fn zstd_decompress_with_dict_with_capacity(
+    data: Either<Buffer, Uint8Array>,
+    dict: Either<Buffer, Uint8Array>,
+    capacity: f64,
+) -> Result<Buffer> {
+    let cap = crate::validate_capacity(capacity)?;
+    let input = crate::as_bytes(&data);
+    let dict_bytes = crate::as_bytes(&dict);
+
+    let mut decompressor = zstd::bulk::Decompressor::with_dictionary(dict_bytes).map_err(|e| {
+        napi::Error::from(ComprsError::Operation {
+            context: "zstd decompressor init",
+            source: e.into(),
+        })
+    })?;
+
+    decompressor
+        .decompress(input, cap)
         .map(|v| v.into())
         .map_err(|e| {
             napi::Error::from(ComprsError::Operation {
@@ -397,8 +429,8 @@ impl Task for ZstdDecompressWithDictTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-            Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-            _ => MAX_DECOMPRESSED_SIZE,
+            Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+            _ => crate::MAX_DECOMPRESSED_SIZE,
         };
         let capacity = capacity.max(1024);
 
@@ -473,18 +505,19 @@ impl Task for ZstdTrainDictionaryTask {
 pub fn zstd_train_dictionary_async(
     samples: Vec<Either<Buffer, Uint8Array>>,
     max_dict_size: Option<f64>,
-) -> AsyncTask<ZstdTrainDictionaryTask> {
+) -> Result<AsyncTask<ZstdTrainDictionaryTask>> {
     let max_size = max_dict_size
-        .map(|s| s as usize)
+        .map(crate::validate_capacity)
+        .transpose()?
         .unwrap_or(DEFAULT_MAX_DICT_SIZE);
     let sample_vecs: Vec<Vec<u8>> = samples
         .iter()
         .map(|s| crate::as_bytes(s).to_vec())
         .collect();
-    AsyncTask::new(ZstdTrainDictionaryTask {
+    Ok(AsyncTask::new(ZstdTrainDictionaryTask {
         samples: sample_vecs,
         max_dict_size: max_size,
-    })
+    }))
 }
 
 #[cfg(test)]

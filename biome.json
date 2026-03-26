@@ -105,6 +105,31 @@
       }
     },
     {
+      "includes": ["playground/vite.config.js"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["playground/public/coi-serviceworker.js"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off",
+            "useIterableCallbackReturn": "off"
+          },
+          "complexity": {
+            "noForEach": "off",
+            "useOptionalChain": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["index.d.mts"],
       "linter": {
         "rules": {

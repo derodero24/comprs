@@ -10,6 +10,8 @@ const {
   DeflateDecompressContext,
   BrotliCompressContext,
   BrotliDecompressContext,
+  BrotliCompressDictContext,
+  BrotliDecompressDictContext,
   Lz4CompressContext,
   Lz4DecompressContext,
   detectFormat,
@@ -331,6 +333,70 @@ function createZstdDecompressDictTransform(dict, maxOutputSize) {
   });
 }
 
+/**
+ * Create a Node.js stream.Transform for brotli compression with a custom dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Custom dictionary
+ * @param {number} [quality=6] Compression quality (0-11)
+ * @returns {Transform}
+ */
+function createBrotliCompressDictTransform(dict, quality) {
+  const ctx = new BrotliCompressDictContext(dict, quality);
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
+/**
+ * Create a Node.js stream.Transform for brotli decompression with a custom dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Custom dictionary (must match the one used for compression)
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
+ * @returns {Transform}
+ */
+function createBrotliDecompressDictTransform(dict, maxOutputSize) {
+  const ctx = new BrotliDecompressDictContext(dict, maxOutputSize);
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const result = ctx.transform(chunk);
+        if (result.byteLength > 0) this.push(result);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        const flushed = ctx.flush();
+        if (flushed.byteLength > 0) this.push(flushed);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  });
+}
+
 function createDecompressContext(format, maxOutputSize) {
   switch (format) {
     case 'zstd':
@@ -486,6 +552,8 @@ module.exports = {
   createDeflateDecompressTransform,
   createBrotliCompressTransform,
   createBrotliDecompressTransform,
+  createBrotliCompressDictTransform,
+  createBrotliDecompressDictTransform,
   createLz4CompressTransform,
   createLz4DecompressTransform,
   createDecompressTransform,

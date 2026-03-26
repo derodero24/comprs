@@ -23,6 +23,29 @@ export declare class BrotliCompressContext {
 }
 
 /**
+ * Streaming brotli compression context with custom dictionary.
+ *
+ * Buffers all input and compresses with the dictionary on `finish`.
+ * This is necessary because the brotli CompressorWriter does not expose
+ * a dictionary API; dictionary compression requires the low-level encoder.
+ */
+export declare class BrotliCompressDictContext {
+  constructor(dict: Buffer | Uint8Array, quality?: number | undefined | null)
+  /**
+   * Buffer a chunk of data for compression. Returns an empty Buffer because
+   * all compression is deferred to `finish` (dictionary requires one-shot).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Flush returns empty Buffer because all data is buffered until finish. */
+  flush(): Buffer
+  /**
+   * Finalize the compression. Compresses all buffered data with the dictionary.
+   * Must be called once after all data has been transformed.
+   */
+  finish(): Buffer
+}
+
+/**
  * Streaming brotli decompression context.
  *
  * Maintains internal decompression state across multiple `transform` calls,
@@ -30,6 +53,23 @@ export declare class BrotliCompressContext {
  */
 export declare class BrotliDecompressContext {
   constructor(maxOutputSize?: number | undefined | null)
+  /**
+   * Decompress a chunk of compressed data. Returns decompressed output
+   * (may be empty if the decompressor needs more data).
+   */
+  transform(chunk: Buffer | Uint8Array): Buffer
+  /** Flush the decompressor's internal buffer. Returns any buffered decompressed data. */
+  flush(): Buffer
+}
+
+/**
+ * Streaming brotli decompression context with custom dictionary.
+ *
+ * Maintains internal decompression state across multiple `transform` calls,
+ * using a custom dictionary that matches the one used for compression.
+ */
+export declare class BrotliDecompressDictContext {
+  constructor(dict: Buffer | Uint8Array, maxOutputSize?: number | undefined | null)
   /**
    * Decompress a chunk of compressed data. Returns decompressed output
    * (may be empty if the decompressor needs more data).
@@ -260,6 +300,22 @@ export declare function brotliCompress(data: Buffer | Uint8Array, quality?: numb
 export declare function brotliCompressAsync(data: Buffer | Uint8Array, quality?: number | undefined | null): Promise<Buffer>
 
 /**
+ * Compress data using Brotli with a custom dictionary.
+ *
+ * The same dictionary must be used for decompression via `brotliDecompressWithDict`.
+ * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ */
+export declare function brotliCompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null): Buffer
+
+/**
+ * Asynchronously compress data using Brotli with a custom dictionary.
+ *
+ * The same dictionary must be used for decompression via `brotliDecompressWithDict`.
+ * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ */
+export declare function brotliCompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null): Promise<Buffer>
+
+/**
  * Decompress Brotli-compressed data.
  *
  * Returns the decompressed data as a Buffer.
@@ -290,6 +346,40 @@ export declare function brotliDecompressWithCapacity(data: Buffer | Uint8Array, 
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
 export declare function brotliDecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
+
+/**
+ * Decompress Brotli-compressed data that was compressed with a custom dictionary.
+ *
+ * The same dictionary used for compression must be provided.
+ */
+export declare function brotliDecompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array): Buffer
+
+/**
+ * Asynchronously decompress Brotli-compressed data that was compressed with a custom dictionary.
+ *
+ * The same dictionary used for compression must be provided.
+ */
+export declare function brotliDecompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array): Promise<Buffer>
+
+/**
+ * Decompress Brotli-compressed data that was compressed with a custom dictionary,
+ * with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * The same dictionary used for compression must be provided.
+ */
+export declare function brotliDecompressWithDictWithCapacity(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Buffer
+
+/**
+ * Asynchronously decompress Brotli-compressed data that was compressed with a custom dictionary,
+ * with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * The same dictionary used for compression must be provided.
+ */
+export declare function brotliDecompressWithDictWithCapacityAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 
 /** Compression format detected from input data. */
 export declare const enum CompressionFormat {
@@ -618,6 +708,16 @@ export declare function zstdDecompressWithDict(data: Buffer | Uint8Array, dict: 
  * The same dictionary used for compression must be provided.
  */
 export declare function zstdDecompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array): Promise<Buffer>
+
+/**
+ * Decompress Zstandard-compressed data that was compressed with a dictionary,
+ * with explicit capacity.
+ *
+ * Use this when the decompressed size exceeds the default 256 MB limit.
+ * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * The same dictionary used for compression must be provided.
+ */
+export declare function zstdDecompressWithDictWithCapacity(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Buffer
 
 /**
  * Train a zstd dictionary from sample data.

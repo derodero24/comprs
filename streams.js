@@ -1,6 +1,8 @@
 const {
   BrotliCompressContext,
   BrotliDecompressContext,
+  BrotliCompressDictContext,
+  BrotliDecompressDictContext,
   ZstdCompressContext,
   ZstdDecompressContext,
   ZstdCompressDictContext,
@@ -231,6 +233,60 @@ function createDeflateDecompressStream(maxOutputSize) {
 }
 
 /**
+ * Create a streaming brotli compression TransformStream with a custom dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Custom dictionary
+ * @param {number} [quality=6] Compression quality (0-11)
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createBrotliCompressDictStream(dict, quality) {
+  const ctx = new BrotliCompressDictContext(dict, quality);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
+    },
+  });
+}
+
+/**
+ * Create a streaming brotli decompression TransformStream with a custom dictionary.
+ *
+ * @param {Buffer | Uint8Array} dict Custom dictionary (must match the one used for compression)
+ * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function createBrotliDecompressDictStream(dict, maxOutputSize) {
+  const ctx = new BrotliDecompressDictContext(dict, maxOutputSize);
+  return new TransformStream({
+    transform(chunk, controller) {
+      const result = ctx.transform(chunk);
+      if (result.byteLength > 0) {
+        controller.enqueue(new Uint8Array(result));
+      }
+    },
+    flush(controller) {
+      const flushed = ctx.flush();
+      if (flushed.byteLength > 0) {
+        controller.enqueue(new Uint8Array(flushed));
+      }
+    },
+  });
+}
+
+/**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
  *
  * @param {Buffer | Uint8Array} dict Pre-trained dictionary
@@ -413,6 +469,8 @@ function createDecompressStream(maxOutputSize) {
 module.exports = {
   createBrotliCompressStream,
   createBrotliDecompressStream,
+  createBrotliCompressDictStream,
+  createBrotliDecompressDictStream,
   createZstdCompressStream,
   createZstdDecompressStream,
   createZstdCompressDictStream,

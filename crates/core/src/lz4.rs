@@ -9,9 +9,6 @@ use napi_derive::napi;
 
 use crate::ComprsError;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Compress data using LZ4 frame format.
 ///
 /// Returns the compressed data as a Buffer.
@@ -46,9 +43,17 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     let input = crate::as_bytes(&data);
     let decoder = FrameDecoder::new(input);
-    let init_cap = input.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(decoder, MAX_DECOMPRESSED_SIZE, init_cap, "lz4 decompress")
-        .map(|v| v.into())
+    let init_cap = input
+        .len()
+        .saturating_mul(4)
+        .min(crate::MAX_DECOMPRESSED_SIZE);
+    crate::decompress_with_limit(
+        decoder,
+        crate::MAX_DECOMPRESSED_SIZE,
+        init_cap,
+        "lz4 decompress",
+    )
+    .map(|v| v.into())
 }
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
@@ -121,8 +126,17 @@ impl Task for Lz4DecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = FrameDecoder::new(self.data.as_slice());
-        let init_cap = self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
-        crate::decompress_with_limit(decoder, MAX_DECOMPRESSED_SIZE, init_cap, "lz4 decompress")
+        let init_cap = self
+            .data
+            .len()
+            .saturating_mul(4)
+            .min(crate::MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(
+            decoder,
+            crate::MAX_DECOMPRESSED_SIZE,
+            init_cap,
+            "lz4 decompress",
+        )
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
