@@ -362,13 +362,35 @@ inputText.addEventListener('input', onInputChange);
 
 // --- Init ---
 function init() {
+  const loadingText = loadingOverlay.querySelector('.loading-text');
+
+  // WASM uses SharedArrayBuffer (threading), which requires Cross-Origin Isolation.
+  // The COI service worker auto-reloads the page to establish isolation on first visit.
+  // If the reload hasn't happened yet, wait rather than failing immediately.
+  if (!crossOriginIsolated) {
+    loadingText.textContent = 'Enabling security features\u2026 the page will reload shortly.';
+    setTimeout(() => {
+      if (!crossOriginIsolated) {
+        loadingText.textContent =
+          'Could not establish Cross-Origin Isolation. Please reload the page.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Reload';
+        btn.className = 'loading-reload-btn';
+        btn.addEventListener('click', () => location.reload());
+        loadingText.after(btn);
+      }
+    }, 3000);
+    return;
+  }
+
   // Test that WASM loaded correctly
   try {
     const test = new TextEncoder().encode('test');
     zstdCompress(test);
-  } catch {
-    loadingOverlay.querySelector('.loading-text').textContent =
-      'Failed to load WASM. Please try a modern browser (Chrome, Firefox, Edge, Safari 16.4+).';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loadingText.textContent = `Failed to initialize WASM (${msg}). Try reloading, or use Chrome, Firefox, Edge, or Safari 16.4+.`;
     return;
   }
 
