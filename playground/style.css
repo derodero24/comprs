@@ -248,6 +248,12 @@ main {
   font-family: var(--font-mono);
 }
 
+.file-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  font-family: var(--font-mono);
+}
+
 /* ─── Compress card ────────────────────────────────────────────── */
 .algo-row {
   display: flex;
@@ -404,6 +410,10 @@ main {
   color: var(--green);
   margin-top: 3px;
   font-family: var(--font-mono);
+}
+
+.result-ratio.is-expanded {
+  color: var(--muted-2);
 }
 
 .result-arrow {
@@ -659,8 +669,8 @@ footer {
 .loading-reload-btn {
   margin-top: 4px;
   padding: 7px 22px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--text);
+  color: var(--bg);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;

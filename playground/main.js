@@ -128,10 +128,12 @@ const compressedSizeEl = document.getElementById('compressed-size');
 const compressionRatioEl = document.getElementById('compression-ratio');
 const compressTimeEl = document.getElementById('compress-time');
 const downloadBtn = document.getElementById('download-btn');
+const downloadExtEl = document.getElementById('download-ext');
 const compareTable = document.getElementById('compare-table');
 const loadingOverlay = document.getElementById('loading-overlay');
 const sampleBtns = document.querySelectorAll('.sample-btn');
 const fileInput = document.getElementById('file-input');
+const fileError = document.getElementById('file-error');
 
 // --- Utilities ---
 function formatBytes(bytes) {
@@ -177,6 +179,8 @@ function setAlgo(algo) {
     levelRow.hidden = true;
   }
 
+  downloadExtEl.textContent = cfg.ext;
+
   compress();
 }
 
@@ -196,11 +200,17 @@ function compress() {
     const { compressed, elapsed } = compressData(currentAlgo, currentInput, currentLevel);
     currentCompressed = compressed;
 
-    const ratio = ((1 - compressed.length / currentInput.length) * 100).toFixed(1);
+    const ratio = (1 - compressed.length / currentInput.length) * 100;
 
     originalSizeEl.textContent = formatBytes(currentInput.length);
     compressedSizeEl.textContent = formatBytes(compressed.length);
-    compressionRatioEl.textContent = `${ratio}% smaller`;
+    if (ratio >= 0) {
+      compressionRatioEl.textContent = `${ratio.toFixed(1)}% smaller`;
+      compressionRatioEl.classList.remove('is-expanded');
+    } else {
+      compressionRatioEl.textContent = `${(-ratio).toFixed(1)}% larger`;
+      compressionRatioEl.classList.add('is-expanded');
+    }
     compressTimeEl.textContent = formatTime(elapsed);
     downloadBtn.hidden = false;
   } catch (err) {
@@ -327,7 +337,11 @@ fileInput.addEventListener('change', (e) => {
   if (!file) return;
 
   if (file.size > 10 * 1024 * 1024) {
-    alert('File is larger than 10 MB. Please use a smaller file for the playground.');
+    fileError.textContent = 'File exceeds the 10 MB limit. Please use a smaller file.';
+    fileError.hidden = false;
+    setTimeout(() => {
+      fileError.hidden = true;
+    }, 5000);
     fileInput.value = '';
     return;
   }
