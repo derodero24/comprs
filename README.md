@@ -255,6 +255,9 @@ import { gzipCompress } from 'comprs';
 | `crc32(data, initialValue?)` | Compute CRC32 checksum (supports incremental computation) |
 | `version()` | Returns the library version |
 
+<details>
+<summary><strong>Dictionary API</strong></summary>
+
 #### zstd Dictionary
 
 | Function | Description |
@@ -272,9 +275,19 @@ import { gzipCompress } from 'comprs';
 | `brotliDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
 | `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with explicit capacity |
 
+</details>
+
 ### Async
 
-All compression and decompression functions have async variants (suffix `Async`) that run on the libuv thread pool, keeping the event loop free:
+All one-shot functions have async variants that run on the libuv thread pool. Append `Async` to any function name:
+
+```typescript
+const compressed = await zstdCompressAsync(data, level);
+const decompressed = await gzipDecompressAsync(compressed);
+```
+
+<details>
+<summary><strong>Full async API list</strong></summary>
 
 | Function | Description |
 | --- | --- |
@@ -300,7 +313,18 @@ All compression and decompression functions have async variants (suffix `Async`)
 | `lz4DecompressWithCapacityAsync(data, capacity)` | Async LZ4 decompression with explicit size limit |
 | `decompressAsync(data)` | Async auto-detect format and decompress |
 
+</details>
+
 ### Streaming
+
+Web Streams API (`TransformStream`) for all algorithms. Import from `comprs/streams`:
+
+```typescript
+import { createGzipCompressStream } from 'comprs/streams';
+```
+
+<details>
+<summary><strong>Full streaming API list</strong></summary>
 
 | Function | Description |
 | --- | --- |
@@ -320,6 +344,8 @@ All compression and decompression functions have async variants (suffix `Async`)
 | `createBrotliDecompressDictStream(dict)` | Streaming brotli decompression with dictionary |
 | `createDecompressStream()` | Auto-detect format and create a decompression `TransformStream` |
 
+</details>
+
 ### Node.js Transform Streams
 
 For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
@@ -335,6 +361,9 @@ await pipeline(
   createWriteStream('output.gz'),
 );
 ```
+
+<details>
+<summary><strong>Full Node.js Transform API list</strong></summary>
 
 | Function | Description |
 | --- | --- |
@@ -353,6 +382,8 @@ await pipeline(
 | `createBrotliCompressDictTransform(dict, quality?)` | Node.js Transform for brotli dict compression |
 | `createBrotliDecompressDictTransform(dict)` | Node.js Transform for brotli dict decompression |
 | `createDecompressTransform()` | Auto-detect format and create a decompression Transform |
+
+</details>
 
 ## Supported Algorithms
 
