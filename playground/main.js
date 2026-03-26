@@ -240,6 +240,11 @@ function runCompare() {
   }
 
   const maxRatio = Math.max(...results.map((r) => r.ratio));
+  const fastestIdx = results.reduce(
+    (minIdx, r, idx, arr) => (r.elapsed < arr[minIdx].elapsed ? idx : minIdx),
+    0,
+  );
+  const fastestKey = results[fastestIdx].key;
 
   const rows = results
     .map((r) => {
@@ -251,8 +256,18 @@ function runCompare() {
       }
 
       const barPct = Math.max(0, Math.min(100, r.ratio));
-      const isSmallest = r.ratio === maxRatio;
+      const isBest = r.ratio === maxRatio;
+      const isFastest = r.key === fastestKey;
       const levelLabel = r.cfg.levelMin !== null ? ` L${r.cfg.levelDefault}` : '';
+
+      let badge;
+      if (isBest) {
+        badge = '<span class="compare-badge compare-badge--best">best</span>';
+      } else if (isFastest) {
+        badge = '<span class="compare-badge compare-badge--fastest">fastest</span>';
+      } else {
+        badge = '<span class="compare-badge"></span>';
+      }
 
       return `<div class="compare-row ${currentAlgo === r.key ? 'compare-row--active' : ''}">
         <span class="compare-algo compare-algo--${r.cfg.color}">${r.cfg.label}${levelLabel}</span>
@@ -262,21 +277,16 @@ function runCompare() {
         <span class="compare-ratio">${r.ratio.toFixed(1)}%</span>
         <span class="compare-size">${formatBytes(r.compressed.length)}</span>
         <span class="compare-time">${formatTime(r.elapsed)}</span>
-        ${isSmallest ? '<span class="compare-badge compare-badge--best">best ratio</span>' : '<span class="compare-badge"></span>'}
+        ${badge}
       </div>`;
     })
     .join('');
 
-  const fastestIdx = results.reduce(
-    (minIdx, r, idx, arr) => (r.elapsed < arr[minIdx].elapsed ? idx : minIdx),
-    0,
-  );
-
   compareTable.innerHTML = `
     <div class="compare-header">
       <span>Algorithm</span>
-      <span>Ratio (smaller = better)</span>
-      <span>Ratio</span>
+      <span>Savings</span>
+      <span>Saved</span>
       <span>Size</span>
       <span>Time</span>
       <span></span>
@@ -285,7 +295,6 @@ function runCompare() {
     <div class="compare-note">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       Default levels shown. Adjust level in Compress above to tune ratio vs. speed.
-      Fastest: <strong>${ALGOS[results[fastestIdx].key].label}</strong> at ${formatTime(results[fastestIdx].elapsed)}.
     </div>`;
 }
 

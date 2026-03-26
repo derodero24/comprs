@@ -457,7 +457,7 @@ main {
 
 .compare-header {
   display: grid;
-  grid-template-columns: 120px 1fr 52px 58px 54px 72px;
+  grid-template-columns: 120px 1fr 52px 58px 54px auto;
   gap: 8px;
   align-items: center;
   padding: 0 0 8px;
@@ -471,7 +471,7 @@ main {
 
 .compare-row {
   display: grid;
-  grid-template-columns: 120px 1fr 52px 58px 54px 72px;
+  grid-template-columns: 120px 1fr 52px 58px 54px auto;
   gap: 8px;
   align-items: center;
   padding: 10px 0;
@@ -560,6 +560,12 @@ main {
   background: color-mix(in srgb, var(--green) 15%, transparent);
   color: var(--green);
   border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.compare-badge--fastest {
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+  color: var(--blue);
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
 }
 
 .compare-error {
