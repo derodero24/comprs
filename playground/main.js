@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import {
   brotliCompress,
   brotliDecompress,
@@ -8,6 +9,12 @@ import {
   zstdCompress,
   zstdDecompress,
 } from 'comprs';
+
+// emnapi (napi-rs WASM runtime) requires globalThis.Buffer.
+// Browsers do not define it natively, so polyfill before any WASM call.
+if (!globalThis.Buffer) {
+  globalThis.Buffer = Buffer;
+}
 
 // --- Sample data ---
 const SAMPLES = {
