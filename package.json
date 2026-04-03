@@ -163,5 +163,9 @@
         "@codspeed/vitest-plugin>vite": "8"
       }
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
