@@ -1,5 +1,5 @@
 {
-  "name": "comprs-linux-x64-musl",
+  "name": "@derodero24/comprs-linux-x64-musl",
   "version": "0.4.0",
   "cpu": [
     "x64"
