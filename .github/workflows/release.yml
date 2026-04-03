@@ -55,7 +55,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
 
           # Skip if already published
-          if npm view "comprs@${VERSION}" version 2>/dev/null; then
+          if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
             echo "Version ${VERSION} already published, skipping release PR"
             exit 0
           fi
@@ -96,7 +96,7 @@ jobs:
         id: check
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "comprs@${VERSION}" version 2>/dev/null; then
+          if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
             echo "Version ${VERSION} already published, skipping"
             echo "should_publish=false" >> $GITHUB_OUTPUT
           else
