@@ -1,5 +1,11 @@
 # comprs
 
+## 0.4.1
+
+### Patch Changes
+
+- 5130974: Fix npm publish for scoped platform packages by adding publishConfig and release workflow permissions
+
 ## 0.4.0
 
 ### Minor Changes
