@@ -9,14 +9,14 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+comprs-core = { path = "../core-lib" }
+napi = { workspace = true }
+napi-derive = { workspace = true }
 brotli = { workspace = true }
 crc32fast = { workspace = true }
 lz4_flex = { workspace = true }
-napi = { workspace = true }
-napi-derive = { workspace = true }
 zstd = { workspace = true }
 flate2 = { workspace = true }
-thiserror = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 zstd = { workspace = true, features = ["zstdmt"] }

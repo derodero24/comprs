@@ -1,21 +1,10 @@
 //! Brotli compression and decompression.
 
-use std::io::Write;
-
 use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ComprsError;
-
-/// Default compression quality for brotli.
-const DEFAULT_QUALITY: u32 = 6;
-
-/// Default buffer size for brotli operations.
-const BUFFER_SIZE: usize = 4096;
-
-/// Default log2 of the sliding window size for brotli.
-const LG_WINDOW_SIZE: u32 = 22;
+use crate::error::to_napi_error;
 
 /// Compress data using Brotli.
 ///
@@ -23,28 +12,9 @@ const LG_WINDOW_SIZE: u32 = 22;
 /// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
 #[napi]
 pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Buffer> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(
-            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
-        );
-    }
-    let input = crate::as_bytes(&data);
-
-    let mut output = Vec::with_capacity(input.len());
-    {
-        let mut compressor =
-            brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
-        compressor.write_all(input).map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "brotli compress",
-                source: e.into(),
-            })
-        })?;
-        // Drop compressor to flush and finalize
-    }
-
-    Ok(output.into())
+    comprs_core::brotli::compress(crate::as_bytes(&data), quality)
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 /// Decompress Brotli-compressed data.
@@ -53,16 +23,9 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -
 /// The maximum decompressed size is 256 MB.
 #[napi]
 pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    let input = crate::as_bytes(&data);
-    let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let init_cap = (input.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(
-        decompressor,
-        crate::MAX_DECOMPRESSED_SIZE,
-        init_cap,
-        "brotli decompress",
-    )
-    .map(|v| v.into())
+    comprs_core::brotli::decompress(crate::as_bytes(&data))
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 /// Decompress Brotli-compressed data with explicit capacity.
@@ -74,18 +37,17 @@ pub fn brotli_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    let cap = crate::validate_capacity(capacity)?;
-    let input = crate::as_bytes(&data);
-    let decompressor = brotli::Decompressor::new(input, BUFFER_SIZE);
-    let init_cap = (input.len().saturating_mul(4)).min(cap);
-    crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress").map(|v| v.into())
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
+    comprs_core::brotli::decompress_with_capacity(crate::as_bytes(&data), cap)
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 // --- Async tasks ---
 
 pub struct BrotliCompressTask {
     data: Vec<u8>,
-    quality: u32,
+    quality: Option<u32>,
 }
 
 #[napi]
@@ -94,23 +56,7 @@ impl Task for BrotliCompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut output = Vec::with_capacity(self.data.len());
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut output,
-                BUFFER_SIZE,
-                self.quality,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(&self.data).map_err(|e| {
-                napi::Error::from(ComprsError::Operation {
-                    context: "brotli compress",
-                    source: e.into(),
-                })
-            })?;
-            // Drop compressor to flush and finalize
-        }
-        Ok(output)
+        comprs_core::brotli::compress(&self.data, self.quality).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -127,11 +73,11 @@ pub fn brotli_compress_async(
     data: Either<Buffer, Uint8Array>,
     quality: Option<u32>,
 ) -> Result<AsyncTask<BrotliCompressTask>> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(
-            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
-        );
+    let q = quality.unwrap_or(comprs_core::brotli::DEFAULT_QUALITY);
+    if q > 11 {
+        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
+            "brotli quality must be between 0 and 11".to_string(),
+        )));
     }
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(BrotliCompressTask {
@@ -150,14 +96,7 @@ impl Task for BrotliDecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-        crate::decompress_with_limit(
-            decompressor,
-            crate::MAX_DECOMPRESSED_SIZE,
-            init_cap,
-            "brotli decompress",
-        )
+        comprs_core::brotli::decompress(&self.data).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -188,9 +127,8 @@ impl Task for BrotliDecompressWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decompressor = brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
-        crate::decompress_with_limit(decompressor, self.capacity, init_cap, "brotli decompress")
+        comprs_core::brotli::decompress_with_capacity(&self.data, self.capacity)
+            .map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -207,7 +145,7 @@ pub fn brotli_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<BrotliDecompressWithCapacityTask>> {
-    let cap = crate::validate_capacity(capacity)?;
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(BrotliDecompressWithCapacityTask {
         data: input,
@@ -216,45 +154,6 @@ pub fn brotli_decompress_with_capacity_async(
 }
 
 // --- Dictionary compression/decompression ---
-
-/// Compress data with a custom dictionary using the brotli crate's low-level API.
-pub(crate) fn brotli_compress_with_dict_inner(
-    input: &[u8],
-    dict: &[u8],
-    quality: u32,
-) -> std::result::Result<Vec<u8>, std::io::Error> {
-    use std::io::Cursor;
-
-    let params = brotli::enc::BrotliEncoderParams {
-        quality: quality as i32,
-        lgwin: LG_WINDOW_SIZE as i32,
-        ..Default::default()
-    };
-
-    let mut r = Cursor::new(input);
-    let mut output = Vec::with_capacity(input.len());
-    let mut input_buffer = [0u8; BUFFER_SIZE];
-    let mut output_buffer = [0u8; BUFFER_SIZE];
-    let alloc = brotli::enc::StandardAlloc::default();
-    let mut nop =
-        |_: &mut brotli::interface::PredictionModeContextMap<brotli::InputReferenceMut>,
-         _: &mut [brotli::interface::StaticCommand],
-         _: brotli::InputPair,
-         _: &mut brotli::enc::StandardAlloc| {};
-
-    brotli::BrotliCompressCustomIoCustomDict(
-        &mut brotli::IoReaderWrapper(&mut r),
-        &mut brotli::IoWriterWrapper(&mut output),
-        &mut input_buffer[..],
-        &mut output_buffer[..],
-        &params,
-        alloc,
-        &mut nop,
-        dict,
-        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected eof"),
-    )?;
-    Ok(output)
-}
 
 /// Compress data using Brotli with a custom dictionary.
 ///
@@ -266,24 +165,9 @@ pub fn brotli_compress_with_dict(
     dict: Either<Buffer, Uint8Array>,
     quality: Option<u32>,
 ) -> Result<Buffer> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(
-            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
-        );
-    }
-    let input = crate::as_bytes(&data);
-    let dict_bytes = crate::as_bytes(&dict);
-
-    brotli_compress_with_dict_inner(input, dict_bytes, quality)
+    comprs_core::brotli::compress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict), quality)
         .map(|v| v.into())
-        .map_err(|e| {
-            ComprsError::Operation {
-                context: "brotli compress with dict",
-                source: e.into(),
-            }
-            .into()
-        })
+        .map_err(to_napi_error)
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
@@ -294,18 +178,9 @@ pub fn brotli_decompress_with_dict(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
 ) -> Result<Buffer> {
-    let input = crate::as_bytes(&data);
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    let decompressor =
-        brotli::Decompressor::new_with_custom_dict(input, BUFFER_SIZE, dict_bytes.into());
-    let init_cap = (input.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(
-        decompressor,
-        crate::MAX_DECOMPRESSED_SIZE,
-        init_cap,
-        "brotli decompress with dict",
-    )
-    .map(|v| v.into())
+    comprs_core::brotli::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict))
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary,
@@ -320,14 +195,14 @@ pub fn brotli_decompress_with_dict_with_capacity(
     dict: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    let cap = crate::validate_capacity(capacity)?;
-    let input = crate::as_bytes(&data);
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    let decompressor =
-        brotli::Decompressor::new_with_custom_dict(input, BUFFER_SIZE, dict_bytes.into());
-    let init_cap = (input.len().saturating_mul(4)).min(cap);
-    crate::decompress_with_limit(decompressor, cap, init_cap, "brotli decompress with dict")
-        .map(|v| v.into())
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
+    comprs_core::brotli::decompress_with_dict_with_capacity(
+        crate::as_bytes(&data),
+        crate::as_bytes(&dict),
+        cap,
+    )
+    .map(|v| v.into())
+    .map_err(to_napi_error)
 }
 
 // --- Async tasks for dictionary compression ---
@@ -335,7 +210,7 @@ pub fn brotli_decompress_with_dict_with_capacity(
 pub struct BrotliCompressWithDictTask {
     data: Vec<u8>,
     dict: Vec<u8>,
-    quality: u32,
+    quality: Option<u32>,
 }
 
 #[napi]
@@ -344,13 +219,8 @@ impl Task for BrotliCompressWithDictTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        brotli_compress_with_dict_inner(&self.data, &self.dict, self.quality).map_err(|e| {
-            ComprsError::Operation {
-                context: "brotli compress with dict",
-                source: e.into(),
-            }
-            .into()
-        })
+        comprs_core::brotli::compress_with_dict(&self.data, &self.dict, self.quality)
+            .map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -368,11 +238,11 @@ pub fn brotli_compress_with_dict_async(
     dict: Either<Buffer, Uint8Array>,
     quality: Option<u32>,
 ) -> Result<AsyncTask<BrotliCompressWithDictTask>> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(
-            ComprsError::InvalidArg("brotli quality must be between 0 and 11".to_string()).into(),
-        );
+    let q = quality.unwrap_or(comprs_core::brotli::DEFAULT_QUALITY);
+    if q > 11 {
+        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
+            "brotli quality must be between 0 and 11".to_string(),
+        )));
     }
     let input = crate::as_bytes(&data).to_vec();
     let dict_bytes = crate::as_bytes(&dict).to_vec();
@@ -394,18 +264,7 @@ impl Task for BrotliDecompressWithDictTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decompressor = brotli::Decompressor::new_with_custom_dict(
-            self.data.as_slice(),
-            BUFFER_SIZE,
-            self.dict.clone().into(),
-        );
-        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-        crate::decompress_with_limit(
-            decompressor,
-            crate::MAX_DECOMPRESSED_SIZE,
-            init_cap,
-            "brotli decompress with dict",
-        )
+        comprs_core::brotli::decompress_with_dict(&self.data, &self.dict).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -441,18 +300,12 @@ impl Task for BrotliDecompressWithDictWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decompressor = brotli::Decompressor::new_with_custom_dict(
-            self.data.as_slice(),
-            BUFFER_SIZE,
-            self.dict.clone().into(),
-        );
-        let init_cap = (self.data.len().saturating_mul(4)).min(self.capacity);
-        crate::decompress_with_limit(
-            decompressor,
+        comprs_core::brotli::decompress_with_dict_with_capacity(
+            &self.data,
+            &self.dict,
             self.capacity,
-            init_cap,
-            "brotli decompress with dict",
         )
+        .map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -472,7 +325,7 @@ pub fn brotli_decompress_with_dict_with_capacity_async(
     dict: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<BrotliDecompressWithDictWithCapacityTask>> {
-    let cap = crate::validate_capacity(capacity)?;
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     let dict_bytes = crate::as_bytes(&dict).to_vec();
     Ok(AsyncTask::new(BrotliDecompressWithDictWithCapacityTask {
@@ -480,136 +333,4 @@ pub fn brotli_decompress_with_dict_with_capacity_async(
         dict: dict_bytes,
         capacity: cap,
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::{Read, Write};
-
-    /// Default compression quality for brotli.
-    const DEFAULT_QUALITY: u32 = 6;
-
-    /// Default buffer size for brotli operations.
-    const BUFFER_SIZE: usize = 4096;
-
-    /// Default log2 of the sliding window size for brotli.
-    const LG_WINDOW_SIZE: u32 = 22;
-
-    #[test]
-    fn round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of brotli compression.";
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_empty() {
-        let original = b"";
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(&original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original, decompressed);
-        // Compression should actually reduce size for repetitive data
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
-    fn compression_quality_levels() {
-        let data = b"Repeating data for compression quality testing. ".repeat(100);
-        let compress_at = |q: u32| {
-            let mut compressed = Vec::new();
-            {
-                let mut compressor =
-                    brotli::CompressorWriter::new(&mut compressed, BUFFER_SIZE, q, LG_WINDOW_SIZE);
-                compressor.write_all(&data).unwrap();
-            }
-            compressed
-        };
-
-        let fast = compress_at(0);
-        let default = compress_at(DEFAULT_QUALITY);
-        let best = compress_at(11);
-
-        // Higher quality should generally produce smaller output
-        assert!(best.len() <= default.len());
-        assert!(default.len() <= fast.len());
-    }
-
-    #[test]
-    fn dict_round_trip() {
-        let dict = br#"{"id":0,"name":"user","email":"@example.com"}"#.repeat(10);
-        let original = br#"{"id":42,"name":"test_user","email":"test@example.com","active":true}"#;
-        let compressed =
-            super::brotli_compress_with_dict_inner(original, &dict, DEFAULT_QUALITY).unwrap();
-        let mut decompressor = brotli::Decompressor::new_with_custom_dict(
-            compressed.as_slice(),
-            BUFFER_SIZE,
-            dict.into(),
-        );
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn all_quality_levels_round_trip() {
-        let data = b"Quality level test data. ".repeat(50);
-        for quality in 0..=11 {
-            let mut compressed = Vec::new();
-            {
-                let mut compressor = brotli::CompressorWriter::new(
-                    &mut compressed,
-                    BUFFER_SIZE,
-                    quality,
-                    LG_WINDOW_SIZE,
-                );
-                compressor.write_all(&data).unwrap();
-            }
-            let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-            let mut decompressed = Vec::new();
-            decompressor.read_to_end(&mut decompressed).unwrap();
-            assert_eq!(data.as_slice(), decompressed.as_slice());
-        }
-    }
 }
