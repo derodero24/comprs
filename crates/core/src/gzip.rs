@@ -15,9 +15,6 @@ use crate::ComprsError;
 /// Default compression level for gzip/deflate (flate2 default = 6).
 const DEFAULT_LEVEL: u32 = 6;
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
 /// Compress data using gzip.
 ///
 /// Returns the compressed data as a Buffer.
@@ -148,7 +145,7 @@ pub fn gzip_read_header(data: Either<Buffer, Uint8Array>) -> Result<GzipHeader> 
 /// for larger data.
 #[napi]
 pub fn gzip_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    decompress_gzip_with_limit(crate::as_bytes(&data), MAX_DECOMPRESSED_SIZE)
+    decompress_gzip_with_limit(crate::as_bytes(&data), crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress gzip-compressed data with explicit capacity.
@@ -207,7 +204,7 @@ pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) ->
 /// for larger data.
 #[napi]
 pub fn deflate_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    decompress_deflate_with_limit(crate::as_bytes(&data), MAX_DECOMPRESSED_SIZE)
+    decompress_deflate_with_limit(crate::as_bytes(&data), crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress raw deflate-compressed data with explicit capacity.
@@ -297,8 +294,13 @@ impl Task for GzipDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = MultiGzDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
-        crate::decompress_with_limit(decoder, MAX_DECOMPRESSED_SIZE, init_cap, "gzip decompress")
+        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
+        crate::decompress_with_limit(
+            decoder,
+            crate::MAX_DECOMPRESSED_SIZE,
+            init_cap,
+            "gzip decompress",
+        )
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -382,10 +384,10 @@ impl Task for DeflateDecompressTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let decoder = DeflateDecoder::new(self.data.as_slice());
-        let init_cap = (self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE);
+        let init_cap = (self.data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
         crate::decompress_with_limit(
             decoder,
-            MAX_DECOMPRESSED_SIZE,
+            crate::MAX_DECOMPRESSED_SIZE,
             init_cap,
             "deflate decompress",
         )

@@ -20,7 +20,7 @@ use napi_derive::napi;
 pub use error::ComprsError;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+pub(crate) const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 
 /// Extract byte slice from Either<Buffer, Uint8Array>.
 fn as_bytes(data: &Either<Buffer, Uint8Array>) -> &[u8] {

@@ -2,8 +2,6 @@
 //!
 //! Detects the compression format from magic bytes and decompresses accordingly.
 
-use std::io::Read;
-
 use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -130,12 +128,6 @@ fn is_likely_brotli(data: &[u8]) -> bool {
     decompressor.read_exact(&mut buf).is_ok()
 }
 
-/// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
-/// Default buffer size for chunked read operations.
-const BUFFER_SIZE: usize = 4096;
-
 pub struct DecompressTask {
     data: Vec<u8>,
 }
@@ -149,8 +141,8 @@ impl Task for DecompressTask {
         match detect(&self.data) {
             Format::Zstd => {
                 let capacity = match zstd::zstd_safe::get_frame_content_size(&self.data) {
-                    Ok(Some(size)) => (size as usize).min(MAX_DECOMPRESSED_SIZE),
-                    _ => MAX_DECOMPRESSED_SIZE,
+                    Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
+                    _ => crate::MAX_DECOMPRESSED_SIZE,
                 };
                 let capacity = capacity.max(1024);
                 zstd::bulk::decompress(&self.data, capacity).map_err(|e| {
@@ -162,66 +154,33 @@ impl Task for DecompressTask {
                 })
             }
             Format::Gzip => {
-                let mut decoder =
-                    flate2::read::MultiGzDecoder::new(self.data.as_slice());
-                let mut output =
-                    Vec::with_capacity((self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE));
-                let mut buf = [0u8; BUFFER_SIZE];
-                loop {
-                    let n = decoder.read(&mut buf).map_err(|e| {
-                        napi::Error::from(ComprsError::Operation {
-                            context: "gzip decompress",
-                            source: e.into(),
-                        })
-                    })?;
-                    if n == 0 {
-                        break;
-                    }
-                    if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                        return Err(ComprsError::SizeLimit {
-                            context: "gzip decompress",
-                            limit: MAX_DECOMPRESSED_SIZE,
-                        }
-                        .into());
-                    }
-                    output.extend_from_slice(&buf[..n]);
-                }
-                Ok(output)
+                let decoder = flate2::read::MultiGzDecoder::new(self.data.as_slice());
+                let init_cap = self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
+                crate::decompress_with_limit(
+                    decoder,
+                    crate::MAX_DECOMPRESSED_SIZE,
+                    init_cap,
+                    "gzip decompress",
+                )
             }
             Format::Brotli => {
-                let mut decompressor =
-                    brotli::Decompressor::new(self.data.as_slice(), BUFFER_SIZE);
-                let mut output =
-                    Vec::with_capacity((self.data.len().saturating_mul(4)).min(MAX_DECOMPRESSED_SIZE));
-                let mut buf = [0u8; BUFFER_SIZE];
-                loop {
-                    let n = decompressor.read(&mut buf).map_err(|e| {
-                        napi::Error::from(ComprsError::Operation {
-                            context: "brotli decompress",
-                            source: e.into(),
-                        })
-                    })?;
-                    if n == 0 {
-                        break;
-                    }
-                    if output.len() + n > MAX_DECOMPRESSED_SIZE {
-                        return Err(ComprsError::SizeLimit {
-                            context: "brotli decompress",
-                            limit: MAX_DECOMPRESSED_SIZE,
-                        }
-                        .into());
-                    }
-                    output.extend_from_slice(&buf[..n]);
-                }
-                Ok(output)
+                let decompressor =
+                    brotli::Decompressor::new(self.data.as_slice(), 4096);
+                let init_cap = self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
+                crate::decompress_with_limit(
+                    decompressor,
+                    crate::MAX_DECOMPRESSED_SIZE,
+                    init_cap,
+                    "brotli decompress",
+                )
             }
             Format::Lz4 => {
                 let decoder = lz4_flex::frame::FrameDecoder::new(self.data.as_slice());
                 let init_cap =
-                    self.data.len().saturating_mul(4).min(MAX_DECOMPRESSED_SIZE);
+                    self.data.len().saturating_mul(4).min(crate::MAX_DECOMPRESSED_SIZE);
                 crate::decompress_with_limit(
                     decoder,
-                    MAX_DECOMPRESSED_SIZE,
+                    crate::MAX_DECOMPRESSED_SIZE,
                     init_cap,
                     "lz4 decompress",
                 )

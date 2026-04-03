@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>comprs Playground</title>
+  <meta name="description" content="Interactive playground for comprs — Rust-powered zstd, gzip, brotli, and lz4 compression for JavaScript.">
+  <link rel="canonical" href="https://derodero24.github.io/comprs/">
+  <meta property="og:title" content="comprs Playground">
+  <meta property="og:description" content="Try Rust-powered zstd, gzip, brotli, and lz4 compression live in your browser. No install needed.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://derodero24.github.io/comprs/">
+  <meta property="og:site_name" content="comprs">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="comprs Playground">
+  <meta name="twitter:description" content="Try Rust-powered zstd, gzip, brotli, and lz4 compression live in your browser. No install needed.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <script>window.coi = { quiet: true };</script>
+  <script src="/coi-serviceworker.js"></script>
+
+  <header>
+    <div class="header-inner">
+      <div class="header-brand">
+        <span class="header-logo">comprs</span>
+        <span class="badge">Playground</span>
+      </div>
+      <nav class="header-nav">
+        <a href="https://github.com/derodero24/comprs" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/comprs" target="_blank" rel="noopener">npm</a>
+        <a href="https://github.com/derodero24/comprs#readme" target="_blank" rel="noopener">Docs</a>
+      </nav>
+    </div>
+    <p class="header-subtitle">Rust-powered compression in the browser — try it live.</p>
+  </header>
+
+  <main>
+    <!-- Input card -->
+    <div class="card" id="input-card">
+      <div class="card-header">
+        <h2 class="card-title">Input</h2>
+        <div class="sample-row">
+          <span class="sample-label">Sample:</span>
+          <button type="button" class="sample-btn active" data-sample="json">JSON</button>
+          <button type="button" class="sample-btn" data-sample="log">Log</button>
+          <button type="button" class="sample-btn" data-sample="lorem">Text</button>
+          <label class="upload-btn" title="Upload a file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            File
+            <input type="file" id="file-input">
+          </label>
+        </div>
+      </div>
+      <textarea id="input-text" rows="8" spellcheck="false" placeholder="Enter text to compress…" aria-label="Enter text to compress"></textarea>
+      <div class="input-footer">
+        <span class="file-error" id="file-error" hidden></span>
+        <span class="input-size" id="input-size">0 B</span>
+      </div>
+    </div>
+
+    <!-- Compress card -->
+    <div class="card" id="compress-card">
+      <div class="card-header">
+        <h2 class="card-title">Compress</h2>
+      </div>
+
+      <div class="algo-row">
+        <button type="button" class="algo-btn active" data-algo="zstd">zstd</button>
+        <button type="button" class="algo-btn" data-algo="gzip">gzip</button>
+        <button type="button" class="algo-btn" data-algo="brotli">brotli</button>
+        <button type="button" class="algo-btn" data-algo="lz4">lz4</button>
+      </div>
+
+      <div class="level-row" id="level-row">
+        <label class="level-label">
+          Level
+          <span class="level-value" id="level-display">3</span>
+        </label>
+        <input type="range" id="level-slider" class="slider" min="1" max="22" value="3">
+        <span class="level-hint" id="level-hint">1 = fast, 22 = best ratio</span>
+      </div>
+
+      <div class="result-grid" id="result-grid">
+        <div class="result-box">
+          <div class="result-label">Original</div>
+          <div class="result-value" id="original-size">—</div>
+        </div>
+        <div class="result-arrow">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </div>
+        <div class="result-box result-box--accent" id="result-box-right">
+          <div class="result-label">Compressed</div>
+          <div class="result-value" id="compressed-size">—</div>
+          <div class="result-ratio" id="compression-ratio"></div>
+        </div>
+        <div class="result-meta">
+          <div class="result-time" id="compress-time"></div>
+          <button type="button" class="download-btn" id="download-btn" hidden>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download<span id="download-ext"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compare card -->
+    <div class="card" id="compare-card">
+      <div class="card-header">
+        <h2 class="card-title">Algorithm Comparison</h2>
+        <span class="card-subtitle">All algorithms on the same input</span>
+      </div>
+      <div class="compare-table" id="compare-table">
+        <div class="compare-placeholder">Enter some text above to see comparisons.</div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <p>
+        <a href="https://github.com/derodero24/comprs" target="_blank" rel="noopener">GitHub</a>
+        ·
+        <a href="https://www.npmjs.com/package/comprs" target="_blank" rel="noopener">npm</a>
+        ·
+        Rust-powered · Zero JS dependencies
+      </p>
+    </div>
+  </footer>
+
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-inner">
+      <div class="spinner"></div>
+      <p class="loading-text">Loading WASM module…</p>
+    </div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

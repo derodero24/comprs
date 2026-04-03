@@ -128,6 +128,34 @@ export declare function createZstdDecompressDictTransform(
 ): Transform;
 
 /**
+ * Create a Node.js stream.Transform for brotli compression with a custom dictionary.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked compression with a custom
+ * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param dict Custom dictionary bytes.
+ * @param quality Compression quality (0-11). Default is 6.
+ */
+export declare function createBrotliCompressDictTransform(
+  dict: Buffer | Uint8Array,
+  quality?: number,
+): Transform;
+
+/**
+ * Create a Node.js stream.Transform for brotli decompression with a custom dictionary.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked decompression with a custom
+ * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * @param dict Custom dictionary (must match the one used for compression).
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createBrotliDecompressDictTransform(
+  dict: Buffer | Uint8Array,
+  maxOutputSize?: number,
+): Transform;
+
+/**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
  * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
