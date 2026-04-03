@@ -40,7 +40,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
-- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
@@ -446,6 +446,9 @@ const decompressed = gzipDecompress(compressed);
 
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
+
+> [!NOTE]
+> **Browser streaming behavior**: In Node.js, streaming APIs process data incrementally with bounded memory. In browsers (WASM), streaming contexts buffer all chunks in memory and compress/decompress in one shot on `finish()` due to WebAssembly memory constraints. For very large data in browsers, consider processing in application-level chunks using the one-shot API.
 
 ### Framework Integration (SSR)
 
