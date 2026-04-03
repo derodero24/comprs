@@ -19,7 +19,7 @@ const {
   lz4Decompress,
   zstdCompress,
   zstdDecompress,
-} = await import('comprs');
+} = await import('@derodero24/comprs');
 
 // --- Sample data ---
 const SAMPLES = {

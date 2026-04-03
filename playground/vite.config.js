@@ -33,13 +33,13 @@ export default defineConfig({
   resolve: {
     alias: hasLocalWasm
       ? {
-          // Real WASM: point comprs to browser entry + use local WASM build
-          comprs: browserEntry,
+          // Real WASM: point @derodero24/comprs to browser entry + use local WASM build
+          '@derodero24/comprs': browserEntry,
           '@derodero24/comprs-wasm32-wasi': localWasmEntry,
         }
       : {
           // Dev mock: bypass WASM entirely with a JS fallback
-          comprs: mockEntry,
+          '@derodero24/comprs': mockEntry,
         },
   },
 });

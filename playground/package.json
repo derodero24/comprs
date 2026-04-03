@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "buffer": "^6.0.3",
-    "comprs": "file:.."
+    "@derodero24/comprs": "file:.."
   },
   "devDependencies": {
     "vite": "^8.0.0"
