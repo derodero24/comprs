@@ -40,7 +40,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
-- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
@@ -180,7 +180,7 @@ const decompressed = brotliDecompressWithDict(compressed, dict);
 
 ```typescript
 // Deno
-import { gzipCompress } from 'npm:comprs';
+import { gzipCompress } from 'npm:@derodero24/comprs';
 
 // Bun (same as Node.js)
 import { gzipCompress } from '@derodero24/comprs';
@@ -323,7 +323,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 
 ### Streaming
 
-Web Streams API (`TransformStream`) for all algorithms. Import from `comprs/streams`:
+Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24/comprs/streams`:
 
 ```typescript
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
@@ -354,7 +354,7 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
+For Node.js `stream.pipeline()` compatibility, import from `@derodero24/comprs/node`:
 
 ```typescript
 import { createGzipCompressTransform } from '@derodero24/comprs/node';
@@ -420,7 +420,14 @@ await pipeline(
 
 ### WASM bundle size
 
-The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during the build process. Binary size is tracked and reported in CI on every build — check the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml) for current numbers.
+The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during CI builds.
+
+| | Size |
+| --- | --- |
+| `comprs.wasm32-wasi.wasm` (optimized) | ~2.0 MB |
+| Gzip-compressed (typical CDN transfer) | ~800 KB |
+
+Exact sizes are tracked on every build — see the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml).
 
 ## Browser Usage
 
@@ -447,6 +454,9 @@ const decompressed = gzipDecompress(compressed);
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
 
+> [!NOTE]
+> **Browser streaming behavior**: In Node.js, streaming APIs process data incrementally with bounded memory. In browsers (WASM), streaming contexts buffer all chunks in memory and compress/decompress in one shot on `finish()` due to WebAssembly memory constraints. For very large data in browsers, consider processing in application-level chunks using the one-shot API.
+
 ### Framework Integration (SSR)
 
 Native modules need to be externalized in SSR frameworks:
@@ -456,7 +466,7 @@ Native modules need to be externalized in SSR frameworks:
 ```js
 // next.config.js
 const nextConfig = {
-  serverExternalPackages: ['comprs'],
+  serverExternalPackages: ['@derodero24/comprs'],
 };
 ```
 
@@ -466,7 +476,7 @@ const nextConfig = {
 // vite.config.js
 export default {
   ssr: {
-    external: ['comprs'],
+    external: ['@derodero24/comprs'],
   },
 };
 ```
