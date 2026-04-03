@@ -35,7 +35,7 @@ export default defineConfig({
       ? {
           // Real WASM: point comprs to browser entry + use local WASM build
           comprs: browserEntry,
-          'comprs-wasm32-wasi': localWasmEntry,
+          '@derodero24/comprs-wasm32-wasi': localWasmEntry,
         }
       : {
           // Dev mock: bypass WASM entirely with a JS fallback

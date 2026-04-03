@@ -69,13 +69,13 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 ## Installation
 
 ```bash
-npm install comprs
+npm install @derodero24/comprs
 # or
-pnpm add comprs
+pnpm add @derodero24/comprs
 # or
-yarn add comprs
+yarn add @derodero24/comprs
 # or
-bun add comprs
+bun add @derodero24/comprs
 ```
 
 ## Quick Start
@@ -83,7 +83,7 @@ bun add comprs
 > **Try it live** → [derodero24.github.io/comprs](https://derodero24.github.io/comprs/)
 
 ```typescript
-import { zstdCompress, zstdDecompress } from 'comprs';
+import { zstdCompress, zstdDecompress } from '@derodero24/comprs';
 
 const data = Buffer.from('Hello, comprs!');
 const compressed = zstdCompress(data);
@@ -93,7 +93,7 @@ const decompressed = zstdDecompress(compressed);
 All algorithms use the same pattern:
 
 ```typescript
-import { gzipCompress, brotliCompress, lz4Compress } from 'comprs';
+import { gzipCompress, brotliCompress, lz4Compress } from '@derodero24/comprs';
 
 const gzipped = gzipCompress(data);    // gzip
 const brotlied = brotliCompress(data); // brotli
@@ -103,7 +103,7 @@ const lz4ed = lz4Compress(data);       // lz4
 ### Streaming (Web Streams API)
 
 ```typescript
-import { createGzipCompressStream, createGzipDecompressStream } from 'comprs/streams';
+import { createGzipCompressStream, createGzipDecompressStream } from '@derodero24/comprs/streams';
 
 // Pipe through compression/decompression TransformStreams
 const compressed = response.body
@@ -113,7 +113,7 @@ const compressed = response.body
 ### Streaming (Node.js Transform)
 
 ```typescript
-import { createGzipCompressTransform } from 'comprs/node';
+import { createGzipCompressTransform } from '@derodero24/comprs/node';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 
@@ -127,7 +127,7 @@ await pipeline(
 ### Auto-detect
 
 ```typescript
-import { decompress } from 'comprs';
+import { decompress } from '@derodero24/comprs';
 
 // Works with any supported format — no need to know the algorithm
 const decompressed = decompress(compressedData);
@@ -136,7 +136,7 @@ const decompressed = decompress(compressedData);
 ### Async
 
 ```typescript
-import { gzipCompressAsync, gzipDecompressAsync } from 'comprs';
+import { gzipCompressAsync, gzipDecompressAsync } from '@derodero24/comprs';
 
 // Runs on the libuv thread pool — keeps the event loop free
 const compressed = await gzipCompressAsync(largeData);
@@ -146,7 +146,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 ### Compression levels
 
 ```typescript
-import { zstdCompress } from 'comprs';
+import { zstdCompress } from '@derodero24/comprs';
 
 zstdCompress(data, 1);   // fast compression
 zstdCompress(data);      // default (level 3)
@@ -157,7 +157,7 @@ zstdCompress(data, -1);  // fast mode with negative levels
 ### Dictionary compression
 
 ```typescript
-import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from 'comprs';
+import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from '@derodero24/comprs';
 
 // Train from samples of similar data
 const dict = zstdTrainDictionary(samples);
@@ -169,7 +169,7 @@ const decompressed = zstdDecompressWithDict(compressed, dict);
 
 ```typescript
 // Brotli dictionary (no training step — provide raw dictionary bytes)
-import { brotliCompressWithDict, brotliDecompressWithDict } from 'comprs';
+import { brotliCompressWithDict, brotliDecompressWithDict } from '@derodero24/comprs';
 
 const dict = Buffer.from('{"id":0,"name":"","email":"@example.com"}'.repeat(10));
 const compressed = brotliCompressWithDict(data, dict);
@@ -183,7 +183,7 @@ const decompressed = brotliDecompressWithDict(compressed, dict);
 import { gzipCompress } from 'npm:comprs';
 
 // Bun (same as Node.js)
-import { gzipCompress } from 'comprs';
+import { gzipCompress } from '@derodero24/comprs';
 ```
 
 ## Choosing an Algorithm
@@ -326,7 +326,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 Web Streams API (`TransformStream`) for all algorithms. Import from `comprs/streams`:
 
 ```typescript
-import { createGzipCompressStream } from 'comprs/streams';
+import { createGzipCompressStream } from '@derodero24/comprs/streams';
 ```
 
 <details>
@@ -357,7 +357,7 @@ import { createGzipCompressStream } from 'comprs/streams';
 For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
 
 ```typescript
-import { createGzipCompressTransform } from 'comprs/node';
+import { createGzipCompressTransform } from '@derodero24/comprs/node';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 
@@ -427,7 +427,7 @@ The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` durin
 comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild:
 
 ```typescript
-import { gzipCompress, gzipDecompress } from 'comprs';
+import { gzipCompress, gzipDecompress } from '@derodero24/comprs';
 
 const data = new TextEncoder().encode('Hello from the browser!');
 const compressed = gzipCompress(data);
@@ -481,7 +481,7 @@ On the client side, comprs automatically falls back to WASM — no additional co
 - import pako from 'pako';
 - const compressed = pako.gzip(data);
 - const decompressed = pako.ungzip(compressed);
-+ import { gzipCompress, gzipDecompress } from 'comprs';
++ import { gzipCompress, gzipDecompress } from '@derodero24/comprs';
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```
@@ -492,7 +492,7 @@ On the client side, comprs automatically falls back to WASM — no additional co
 - import { gzipSync, gunzipSync } from 'fflate';
 - const compressed = gzipSync(data);
 - const decompressed = gunzipSync(compressed);
-+ import { gzipCompress, gzipDecompress } from 'comprs';
++ import { gzipCompress, gzipDecompress } from '@derodero24/comprs';
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```
@@ -505,7 +505,7 @@ comprs adds zstd, lz4, brotli, dictionary compression, and Web Streams API — n
 - import { gzipSync, gunzipSync } from 'node:zlib';
 - const compressed = gzipSync(data);
 - const decompressed = gunzipSync(compressed);
-+ import { gzipCompress, gzipDecompress } from 'comprs';
++ import { gzipCompress, gzipDecompress } from '@derodero24/comprs';
 + const compressed = gzipCompress(data);
 + const decompressed = gzipDecompress(compressed);
 ```

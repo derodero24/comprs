@@ -1,5 +1,5 @@
 {
-  "name": "comprs-linux-arm64-gnu",
+  "name": "@derodero24/comprs-linux-arm64-gnu",
   "version": "0.4.0",
   "cpu": [
     "arm64"
