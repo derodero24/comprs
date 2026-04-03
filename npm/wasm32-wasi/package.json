@@ -12,7 +12,7 @@
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
   ],
-  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
+  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [
     "compression",
     "zstd",
