@@ -180,7 +180,7 @@ const decompressed = brotliDecompressWithDict(compressed, dict);
 
 ```typescript
 // Deno
-import { gzipCompress } from 'npm:comprs';
+import { gzipCompress } from 'npm:@derodero24/comprs';
 
 // Bun (same as Node.js)
 import { gzipCompress } from '@derodero24/comprs';
@@ -323,7 +323,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 
 ### Streaming
 
-Web Streams API (`TransformStream`) for all algorithms. Import from `comprs/streams`:
+Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24/comprs/streams`:
 
 ```typescript
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
@@ -354,7 +354,7 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
+For Node.js `stream.pipeline()` compatibility, import from `@derodero24/comprs/node`:
 
 ```typescript
 import { createGzipCompressTransform } from '@derodero24/comprs/node';
@@ -456,7 +456,7 @@ Native modules need to be externalized in SSR frameworks:
 ```js
 // next.config.js
 const nextConfig = {
-  serverExternalPackages: ['comprs'],
+  serverExternalPackages: ['@derodero24/comprs'],
 };
 ```
 
@@ -466,7 +466,7 @@ const nextConfig = {
 // vite.config.js
 export default {
   ssr: {
-    external: ['comprs'],
+    external: ['@derodero24/comprs'],
   },
 };
 ```
