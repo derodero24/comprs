@@ -63,6 +63,7 @@ import {
   zstdDecompressWithCapacityAsync,
   zstdDecompressWithDict,
   zstdDecompressWithDictAsync,
+  zstdDecompressWithDictWithCapacity,
   zstdTrainDictionary,
   zstdTrainDictionaryAsync,
 } from '../index.mjs';
@@ -188,6 +189,11 @@ assert.strictEqual(
   typeof zstdDecompressWithDictAsync,
   'function',
   'zstdDecompressWithDictAsync should be a function',
+);
+assert.strictEqual(
+  typeof zstdDecompressWithDictWithCapacity,
+  'function',
+  'zstdDecompressWithDictWithCapacity should be a function',
 );
 assert.strictEqual(typeof zstdCompressAsync, 'function', 'zstdCompressAsync should be a function');
 assert.strictEqual(

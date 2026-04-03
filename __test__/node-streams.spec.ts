@@ -5,22 +5,35 @@ import { pipeline } from 'node:stream/promises';
 import { describe, expect, it } from 'vitest';
 import {
   brotliCompress,
+  brotliCompressWithDict,
   brotliDecompress,
+  brotliDecompressWithDict,
   deflateCompress,
   deflateDecompress,
   gzipCompress,
   gzipDecompress,
+  lz4Compress,
+  lz4Decompress,
   zstdCompress,
+  zstdCompressWithDict,
   zstdDecompress,
+  zstdDecompressWithDict,
+  zstdTrainDictionary,
 } from '../index.js';
 import {
+  createBrotliCompressDictTransform,
   createBrotliCompressTransform,
+  createBrotliDecompressDictTransform,
   createBrotliDecompressTransform,
   createDeflateCompressTransform,
   createDeflateDecompressTransform,
   createGzipCompressTransform,
   createGzipDecompressTransform,
+  createLz4CompressTransform,
+  createLz4DecompressTransform,
+  createZstdCompressDictTransform,
   createZstdCompressTransform,
+  createZstdDecompressDictTransform,
   createZstdDecompressTransform,
 } from '../node.js';
 
@@ -373,6 +386,171 @@ describe('brotli node stream round-trip', () => {
     const source = toChunkedReadable(data, 64);
     const compressed = await collectTransform(source, createBrotliCompressTransform());
     const decompressed = brotliDecompress(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('lz4 node stream round-trip', () => {
+  it('should compress then decompress through pipeline', async () => {
+    const data = Buffer.from('Piped lz4 node stream test '.repeat(200));
+    const source = toChunkedReadable(data, 128);
+    const result = await collectTransform2(
+      source,
+      createLz4CompressTransform(),
+      createLz4DecompressTransform(),
+    );
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should handle small chunks', async () => {
+    const data = Buffer.from('LZ4 small chunk test '.repeat(100));
+    const source = toChunkedReadable(data, 16);
+    const result = await collectTransform2(
+      source,
+      createLz4CompressTransform(),
+      createLz4DecompressTransform(),
+    );
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot compress', async () => {
+    const data = Buffer.from('LZ4 interop test data '.repeat(50));
+    const oneShotCompressed = Buffer.from(lz4Compress(data));
+    const source = toChunkedReadable(oneShotCompressed, 32);
+    const result = await collectTransform(source, createLz4DecompressTransform());
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot decompress', async () => {
+    const data = Buffer.from('LZ4 interop test data '.repeat(50));
+    const source = toChunkedReadable(data, 64);
+    const compressed = await collectTransform(source, createLz4CompressTransform());
+    const decompressed = lz4Decompress(compressed);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('zstd dict node stream round-trip', () => {
+  const samples = Array.from({ length: 100 }, (_, i) =>
+    Buffer.from(
+      JSON.stringify({
+        id: i,
+        name: `user_${i}`,
+        email: `user${i}@example.com`,
+        active: i % 2 === 0,
+      }),
+    ),
+  );
+
+  it('should compress then decompress through pipeline with dict', async () => {
+    const dict = zstdTrainDictionary(samples);
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 500,
+        name: 'dict_stream_user',
+        email: 'dict_stream@example.com',
+        active: true,
+      }),
+    );
+    const source = toChunkedReadable(data, 32);
+    const result = await collectTransform2(
+      source,
+      createZstdCompressDictTransform(dict),
+      createZstdDecompressDictTransform(dict),
+    );
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot dict compress', async () => {
+    const dict = zstdTrainDictionary(samples);
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 123,
+        name: 'interop_dict_user',
+        email: 'interop_dict@example.com',
+        active: false,
+      }),
+    );
+    const oneShotCompressed = Buffer.from(zstdCompressWithDict(data, dict));
+    const source = toChunkedReadable(oneShotCompressed, 16);
+    const result = await collectTransform(source, createZstdDecompressDictTransform(dict));
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot dict decompress', async () => {
+    const dict = zstdTrainDictionary(samples);
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 456,
+        name: 'interop_dict_user_2',
+        email: 'interop_dict2@example.com',
+        active: true,
+      }),
+    );
+    const source = toChunkedReadable(data, 32);
+    const compressed = await collectTransform(source, createZstdCompressDictTransform(dict));
+    const decompressed = zstdDecompressWithDict(compressed, dict);
+    expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('brotli dict node stream round-trip', () => {
+  const dict = Buffer.from(
+    Array.from({ length: 20 }, (_, i) =>
+      JSON.stringify({
+        id: i,
+        name: `user_${i}`,
+        email: `user${i}@example.com`,
+        active: i % 2 === 0,
+      }),
+    ).join(''),
+  );
+
+  it('should compress then decompress through pipeline with dict', async () => {
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 500,
+        name: 'dict_stream_user',
+        email: 'dict_stream@example.com',
+        active: true,
+      }),
+    );
+    const source = toChunkedReadable(data, 32);
+    const result = await collectTransform2(
+      source,
+      createBrotliCompressDictTransform(dict),
+      createBrotliDecompressDictTransform(dict),
+    );
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot dict compress', async () => {
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 123,
+        name: 'interop_dict_user',
+        email: 'interop_dict@example.com',
+        active: false,
+      }),
+    );
+    const oneShotCompressed = Buffer.from(brotliCompressWithDict(data, dict));
+    const source = toChunkedReadable(oneShotCompressed, 16);
+    const result = await collectTransform(source, createBrotliDecompressDictTransform(dict));
+    expect(Buffer.compare(result, data)).toBe(0);
+  });
+
+  it('should interop with one-shot dict decompress', async () => {
+    const data = Buffer.from(
+      JSON.stringify({
+        id: 456,
+        name: 'interop_dict_user_2',
+        email: 'interop_dict2@example.com',
+        active: true,
+      }),
+    );
+    const source = toChunkedReadable(data, 32);
+    const compressed = await collectTransform(source, createBrotliCompressDictTransform(dict));
+    const decompressed = brotliDecompressWithDict(compressed, dict);
     expect(Buffer.compare(decompressed, data)).toBe(0);
   });
 });
