@@ -21,8 +21,6 @@ pub fn crc32(data: Either<Buffer, Uint8Array>, initial_value: Option<u32>) -> u3
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     fn compute(data: &[u8], init: Option<u32>) -> u32 {
         let mut hasher = match init {
             Some(v) => crc32fast::Hasher::new_with_initial(v),
