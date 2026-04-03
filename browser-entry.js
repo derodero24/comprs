@@ -53,6 +53,7 @@ export {
   zstdDecompressWithCapacityAsync,
   zstdDecompressWithDict,
   zstdDecompressWithDictAsync,
+  zstdDecompressWithDictWithCapacity,
   zstdTrainDictionary,
   zstdTrainDictionaryAsync,
 } from './browser.js'
