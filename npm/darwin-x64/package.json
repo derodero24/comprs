@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs-darwin-x64",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "cpu": [
     "x64"
   ],
@@ -35,5 +35,9 @@
   },
   "os": [
     "darwin"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }
