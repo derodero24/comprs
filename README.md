@@ -420,7 +420,14 @@ await pipeline(
 
 ### WASM bundle size
 
-The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during the build process. Binary size is tracked and reported in CI on every build — check the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml) for current numbers.
+The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during CI builds.
+
+| | Size |
+| --- | --- |
+| `comprs.wasm32-wasi.wasm` (optimized) | ~2.0 MB |
+| Gzip-compressed (typical CDN transfer) | ~800 KB |
+
+Exact sizes are tracked on every build — see the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml).
 
 ## Browser Usage
 
