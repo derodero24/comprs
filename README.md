@@ -416,16 +416,16 @@ await pipeline(
 | macOS | Intel (x64), Apple Silicon (ARM64) |
 | Linux | x64, ARM64 (glibc & musl) |
 | Windows | x64, ARM64 |
-| WASM | wasm32-wasip1-threads |
+| WASM | wasm32-unknown-unknown (wasm-bindgen) |
 
 ### WASM bundle size
 
-The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during CI builds.
+The browser WASM binary (`wasm32-unknown-unknown`) is built via `wasm-pack` and optimized with `wasm-opt -O3` during CI builds.
 
 | | Size |
 | --- | --- |
-| `comprs.wasm32-wasi.wasm` (optimized) | ~2.0 MB |
-| Gzip-compressed (typical CDN transfer) | ~800 KB |
+| `comprs-wasm_bg.wasm` (optimized) | ~1.5 MB |
+| Gzip-compressed (typical CDN transfer) | ~600 KB |
 
 Exact sizes are tracked on every build — see the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml).
 
@@ -441,21 +441,8 @@ const compressed = gzipCompress(data);
 const decompressed = gzipDecompress(compressed);
 ```
 
-> [!IMPORTANT]
-> The WASM build uses `SharedArrayBuffer` for threading, which requires these HTTP headers on your page:
->
-> ```http
-> Cross-Origin-Opener-Policy: same-origin
-> Cross-Origin-Embedder-Policy: require-corp
-> ```
->
-> Without these headers, you will see `SharedArrayBuffer is not defined`. See [MDN: SharedArrayBuffer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements) for details.
-
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
-
-> [!NOTE]
-> **Browser streaming behavior**: In Node.js, streaming APIs process data incrementally with bounded memory. In browsers (WASM), streaming contexts buffer all chunks in memory and compress/decompress in one shot on `finish()` due to WebAssembly memory constraints. For very large data in browsers, consider processing in application-level chunks using the one-shot API.
 
 ### Framework Integration (SSR)
 
@@ -481,7 +468,7 @@ export default {
 };
 ```
 
-On the client side, comprs automatically falls back to WASM — no additional configuration needed beyond the SharedArrayBuffer headers above.
+On the client side, comprs automatically falls back to WASM — no additional configuration needed.
 
 ## Migration
 
