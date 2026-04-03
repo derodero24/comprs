@@ -4,6 +4,7 @@ import {
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompressWithDict,
+  zstdDecompressWithDictWithCapacity,
   zstdTrainDictionary,
 } from '../index.js';
 import { createZstdCompressDictStream, createZstdDecompressDictStream } from '../streams.js';
@@ -79,6 +80,63 @@ describe('zstd dictionary compression', () => {
     const withDict = zstdCompressWithDict(small, dict);
     const withoutDict = zstdCompress(small);
     expect(withDict.length).toBeLessThan(withoutDict.length);
+  });
+});
+
+describe('zstdDecompressWithDictWithCapacity', () => {
+  const samples = Array.from({ length: 100 }, (_, i) =>
+    Buffer.from(
+      JSON.stringify({
+        id: i,
+        name: `user_${i}`,
+        email: `user${i}@example.com`,
+        active: i % 2 === 0,
+      }),
+    ),
+  );
+
+  it('should decompress with exact capacity', () => {
+    const dict = zstdTrainDictionary(samples);
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 999,
+        name: 'capacity_test',
+        email: 'capacity@example.com',
+        active: true,
+      }),
+    );
+    const compressed = zstdCompressWithDict(original, dict);
+    const decompressed = zstdDecompressWithDictWithCapacity(compressed, dict, original.length);
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should decompress with oversized capacity', () => {
+    const dict = zstdTrainDictionary(samples);
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 888,
+        name: 'oversized_test',
+        email: 'oversized@example.com',
+        active: false,
+      }),
+    );
+    const compressed = zstdCompressWithDict(original, dict);
+    const decompressed = zstdDecompressWithDictWithCapacity(compressed, dict, original.length * 10);
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should throw with insufficient capacity', () => {
+    const dict = zstdTrainDictionary(samples);
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 777,
+        name: 'insufficient_test',
+        email: 'insufficient@example.com',
+        active: true,
+      }),
+    );
+    const compressed = zstdCompressWithDict(original, dict);
+    expect(() => zstdDecompressWithDictWithCapacity(compressed, dict, 1)).toThrow();
   });
 });
 
