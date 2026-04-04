@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs-wasm32-wasi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "cpu": [
     "wasm32"
   ],
