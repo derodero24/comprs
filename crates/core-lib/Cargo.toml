@@ -8,6 +8,10 @@ repository.workspace = true
 [lib]
 crate-type = ["lib"]
 
+[features]
+default = []
+zstdmt = ["zstd/zstdmt"]
+
 [dependencies]
 brotli = { workspace = true }
 zstd = { workspace = true }
