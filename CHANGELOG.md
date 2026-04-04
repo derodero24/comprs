@@ -1,5 +1,11 @@
 # comprs
 
+## 1.0.1
+
+### Patch Changes
+
+- af5c0b8: Fix missing zstdDecompressWithDictWithCapacityAsync ESM export and sync Cargo.toml versions
+
 ## 1.0.0
 
 ### Major Changes
