@@ -114,7 +114,7 @@
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
     "artifacts": "napi artifacts",
-    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
+    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && node scripts/patch-browser-js.js && pnpm run format",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version",
     "check": "biome ci",
