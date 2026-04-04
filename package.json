@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs",
-  "version": "0.4.1",
+  "version": "1.0.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "license": "MIT",
   "author": "derodero24",
