@@ -8,7 +8,10 @@ import { defineConfig } from 'vite';
 const wasmBgFile = fileURLToPath(new URL('../comprs-wasm_bg.wasm', import.meta.url));
 const hasLocalWasm = existsSync(wasmBgFile);
 const mockEntry = fileURLToPath(new URL('./comprs-mock.js', import.meta.url));
-const browserEntry = fileURLToPath(new URL('../browser-entry.js', import.meta.url));
+
+// Use the playground's wasm-loader.js which manually instantiates the WASM binary.
+// This bypasses the ESM WASM import that Vite 8 does not support.
+const wasmLoader = fileURLToPath(new URL('./wasm-loader.js', import.meta.url));
 
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/comprs/' : '/',
@@ -24,8 +27,8 @@ export default defineConfig({
   resolve: {
     alias: hasLocalWasm
       ? {
-          // Real WASM: point @derodero24/comprs to browser entry (which imports from ./comprs-wasm.js)
-          '@derodero24/comprs': browserEntry,
+          // Real WASM: use manual instantiation loader (Vite 8 ESM WASM workaround)
+          '@derodero24/comprs': wasmLoader,
         }
       : {
           // Dev mock: bypass WASM entirely with a JS fallback

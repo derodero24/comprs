@@ -49,4 +49,8 @@ for (const file of files) {
 // Clean up wasm-pack output directory (it generates a package.json we don't want)
 rmSync(OUT_DIR, { recursive: true });
 
+// Patch browser.js — napi build/version regenerates this file to point at the
+// WASI WASM package, but we need it to point at the wasm-bindgen output.
+execSync('node scripts/patch-browser-js.js', { stdio: 'inherit', cwd: ROOT });
+
 console.log('Done.');
