@@ -13,6 +13,7 @@ const INITIAL_BUF_SIZE: usize = 128 * 1024;
 /// Streaming zstd compression context.
 pub struct CompressContext {
     encoder: Option<Encoder<'static>>,
+    output_buf: Vec<u8>,
 }
 
 impl CompressContext {
@@ -29,6 +30,7 @@ impl CompressContext {
         })?;
         Ok(Self {
             encoder: Some(encoder),
+            output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
         })
     }
 
@@ -39,13 +41,14 @@ impl CompressContext {
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
         let bound = zstd::zstd_safe::compress_bound(chunk.len());
-        let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
+        self.output_buf.clear();
+        self.output_buf.resize(bound.max(INITIAL_BUF_SIZE), 0);
 
         let mut in_buf = InBuffer::around(chunk);
         let mut total_written = 0;
 
         while in_buf.pos() < in_buf.src.len() {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             encoder
                 .run(&mut in_buf, &mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -53,13 +56,12 @@ impl CompressContext {
                     source: e.into(),
                 })?;
             total_written = out_buf.pos();
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -68,11 +70,12 @@ impl CompressContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining = encoder
                 .flush(&mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -83,13 +86,12 @@ impl CompressContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -98,11 +100,12 @@ impl CompressContext {
             .take()
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 encoder
                     .finish(&mut out_buf, true)
@@ -114,19 +117,19 @@ impl CompressContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 }
 
 /// Streaming zstd decompression context.
 pub struct DecompressContext {
     decoder: Decoder<'static>,
+    output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
 }
@@ -140,19 +143,21 @@ impl DecompressContext {
         })?;
         Ok(Self {
             decoder,
+            output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
             total_output: 0,
             max_output_size: max_size,
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let mut output = vec![0u8; chunk.len().max(INITIAL_BUF_SIZE)];
+        self.output_buf.clear();
+        self.output_buf.resize(chunk.len().max(INITIAL_BUF_SIZE), 0);
 
         let mut in_buf = InBuffer::around(chunk);
         let mut total_written = 0;
 
         while in_buf.pos() < in_buf.src.len() {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             self.decoder
                 .run(&mut in_buf, &mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -166,22 +171,22 @@ impl DecompressContext {
                     limit: self.max_output_size,
                 });
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
         self.total_output += total_written;
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 self.decoder
                     .flush(&mut out_buf)
@@ -193,19 +198,19 @@ impl DecompressContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 }
 
 /// Streaming zstd compression context with dictionary.
 pub struct CompressDictContext {
     encoder: Option<Encoder<'static>>,
+    output_buf: Vec<u8>,
 }
 
 impl CompressDictContext {
@@ -222,6 +227,7 @@ impl CompressDictContext {
         })?;
         Ok(Self {
             encoder: Some(encoder),
+            output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
         })
     }
 
@@ -232,13 +238,14 @@ impl CompressDictContext {
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
         let bound = zstd::zstd_safe::compress_bound(chunk.len());
-        let mut output = vec![0u8; bound.max(INITIAL_BUF_SIZE)];
+        self.output_buf.clear();
+        self.output_buf.resize(bound.max(INITIAL_BUF_SIZE), 0);
 
         let mut in_buf = InBuffer::around(chunk);
         let mut total_written = 0;
 
         while in_buf.pos() < in_buf.src.len() {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             encoder
                 .run(&mut in_buf, &mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -246,13 +253,12 @@ impl CompressDictContext {
                     source: e.into(),
                 })?;
             total_written = out_buf.pos();
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -261,11 +267,12 @@ impl CompressDictContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining = encoder
                 .flush(&mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -276,13 +283,12 @@ impl CompressDictContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -291,11 +297,12 @@ impl CompressDictContext {
             .take()
             .ok_or(ComprsError::StreamFinished("zstd stream"))?;
 
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 encoder
                     .finish(&mut out_buf, true)
@@ -307,19 +314,19 @@ impl CompressDictContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 }
 
 /// Streaming zstd decompression context with dictionary.
 pub struct DecompressDictContext {
     decoder: Decoder<'static>,
+    output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
 }
@@ -333,19 +340,21 @@ impl DecompressDictContext {
         })?;
         Ok(Self {
             decoder,
+            output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
             total_output: 0,
             max_output_size: max_size,
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let mut output = vec![0u8; chunk.len().max(INITIAL_BUF_SIZE)];
+        self.output_buf.clear();
+        self.output_buf.resize(chunk.len().max(INITIAL_BUF_SIZE), 0);
 
         let mut in_buf = InBuffer::around(chunk);
         let mut total_written = 0;
 
         while in_buf.pos() < in_buf.src.len() {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             self.decoder
                 .run(&mut in_buf, &mut out_buf)
                 .map_err(|e| ComprsError::Operation {
@@ -359,22 +368,22 @@ impl DecompressDictContext {
                     limit: self.max_output_size,
                 });
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
         self.total_output += total_written;
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let mut output = vec![0u8; INITIAL_BUF_SIZE];
+        self.output_buf.clear();
+        self.output_buf.resize(INITIAL_BUF_SIZE, 0);
         let mut total_written = 0;
 
         loop {
-            let mut out_buf = OutBuffer::around_pos(&mut output, total_written);
+            let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 self.decoder
                     .flush(&mut out_buf)
@@ -386,13 +395,12 @@ impl DecompressDictContext {
             if remaining == 0 {
                 break;
             }
-            if total_written >= output.len() {
-                output.resize(output.len() * 2, 0);
+            if total_written >= self.output_buf.len() {
+                self.output_buf.resize(self.output_buf.len() * 2, 0);
             }
         }
 
-        output.truncate(total_written);
-        Ok(output)
+        Ok(self.output_buf[..total_written].to_vec())
     }
 }
 

@@ -115,7 +115,21 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 
 fn decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, ComprsError> {
     let decoder = MultiGzDecoder::new(input);
-    let init_cap = (input.len().saturating_mul(4)).min(max_size);
+    // Try to read ISIZE from the gzip footer (last 4 bytes, little-endian uint32,
+    // RFC 1952 §2.3.1) for optimal buffer pre-allocation. ISIZE is the original
+    // uncompressed size mod 2^32, so it wraps for data > 4GB — fall back to 4x
+    // heuristic in that case.
+    let init_cap = if input.len() >= 18 {
+        // Minimum gzip size: 10 (header) + 8 (trailer) = 18 bytes
+        let isize_val = u32::from_le_bytes(input[input.len() - 4..].try_into().unwrap()) as usize;
+        if isize_val > 0 {
+            isize_val.min(max_size)
+        } else {
+            (input.len().saturating_mul(4)).min(max_size)
+        }
+    } else {
+        (input.len().saturating_mul(4)).min(max_size)
+    };
     crate::decompress_with_limit(decoder, max_size, init_cap, "gzip decompress")
 }
 

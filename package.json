@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "license": "MIT",
   "author": "derodero24",
@@ -13,19 +13,23 @@
     "url": "https://github.com/derodero24/comprs/issues"
   },
   "keywords": [
+    "compress",
     "compression",
+    "decompress",
     "zstd",
     "zstandard",
     "gzip",
     "brotli",
     "deflate",
-    "decompress",
     "lz4",
     "wasm",
+    "wasm-bindgen",
     "rust",
     "napi-rs",
+    "native",
     "typescript",
-    "streaming"
+    "streaming",
+    "web-streams"
   ],
   "sideEffects": false,
   "type": "commonjs",
@@ -114,7 +118,7 @@
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
     "artifacts": "napi artifacts",
-    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
+    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && node scripts/patch-browser-js.js && pnpm run format",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version",
     "check": "biome ci",
