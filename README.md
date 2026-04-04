@@ -302,6 +302,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 | `zstdDecompressWithCapacityAsync(data, capacity)` | Async zstd decompression with explicit size limit |
 | `zstdCompressWithDictAsync(data, dict, level?)` | Async zstd compression with dictionary |
 | `zstdDecompressWithDictAsync(data, dict)` | Async zstd decompression with dictionary |
+| `zstdDecompressWithDictWithCapacityAsync(data, dict, capacity)` | Async zstd decompression with dictionary and size limit |
 | `zstdTrainDictionaryAsync(samples, maxDictSize?)` | Async dictionary training |
 | `gzipCompressAsync(data, level?)` | Async gzip compression |
 | `gzipDecompressAsync(data)` | Async gzip decompression |
@@ -314,6 +315,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 | `brotliDecompressWithCapacityAsync(data, capacity)` | Async brotli decompression with explicit size limit |
 | `brotliCompressWithDictAsync(data, dict, quality?)` | Async brotli compression with dictionary |
 | `brotliDecompressWithDictAsync(data, dict)` | Async brotli decompression with dictionary |
+| `brotliDecompressWithDictWithCapacityAsync(data, dict, capacity)` | Async brotli decompression with dictionary and size limit |
 | `lz4CompressAsync(data)` | Async LZ4 compression |
 | `lz4DecompressAsync(data)` | Async LZ4 decompression |
 | `lz4DecompressWithCapacityAsync(data, capacity)` | Async LZ4 decompression with explicit size limit |
