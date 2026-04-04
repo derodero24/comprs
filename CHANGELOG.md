@@ -1,5 +1,11 @@
 # comprs
 
+## 1.1.0
+
+### Minor Changes
+
+- 673c726: Performance improvements: gzip ISIZE buffer pre-allocation, zstd multi-threaded compression (zstdmt), streaming buffer reuse
+
 ## 1.0.1
 
 ### Patch Changes
