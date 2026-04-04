@@ -25,12 +25,17 @@ cargo test
 ```
 comprs/
 ├── crates/
-│   └── core/        ← Rust core library (zstd, gzip, brotli)
+│   ├── core-lib/    ← Pure Rust compression logic (no FFI dependencies)
+│   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
+│   ├── wasm/        ← wasm-bindgen bindings for browsers
+│   └── bench/       ← Rust benchmarks (Criterion)
 ├── __test__/        ← Vitest tests and JS benchmarks
+├── e2e/             ← Browser and runtime E2E tests (Playwright, Deno, Bun)
 ├── npm/             ← Platform-specific binary packages
+├── playground/      ← Interactive playground (GitHub Pages)
 ├── scripts/         ← Build and optimization scripts
 └── .github/
-    └── workflows/   ← CI, Release, CodeQL, Renovate
+    └── workflows/   ← CI, Release, CodeQL, Renovate, Playground
 ```
 
 ## Workflow
@@ -130,4 +135,4 @@ pnpm run build
 
 ## Questions?
 
-Open a GitHub Discussion or file an issue.
+File an issue on [GitHub](https://github.com/derodero24/comprs/issues).

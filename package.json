@@ -13,19 +13,23 @@
     "url": "https://github.com/derodero24/comprs/issues"
   },
   "keywords": [
+    "compress",
     "compression",
+    "decompress",
     "zstd",
     "zstandard",
     "gzip",
     "brotli",
     "deflate",
-    "decompress",
     "lz4",
     "wasm",
+    "wasm-bindgen",
     "rust",
     "napi-rs",
+    "native",
     "typescript",
-    "streaming"
+    "streaming",
+    "web-streams"
   ],
   "sideEffects": false,
   "type": "commonjs",
