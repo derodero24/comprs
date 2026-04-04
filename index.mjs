@@ -40,6 +40,7 @@ export const {
   zstdCompressWithDict,
   zstdDecompressWithDict,
   zstdDecompressWithDictWithCapacity,
+  zstdDecompressWithDictWithCapacityAsync,
   CompressionFormat,
   decompress,
   decompressAsync,
