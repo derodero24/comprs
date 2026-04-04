@@ -80,7 +80,7 @@ jobs:
       - run: pnpm run check
       - run: pnpm run build
       - name: Verify generated binding files are up to date
-        run: git diff --exit-code index.js index.d.ts browser.js
+        run: git diff --exit-code index.js index.d.ts
       - run: pnpm run typecheck
       - run: pnpm run publint
       - name: Validate TypeScript type resolution

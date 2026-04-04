@@ -252,15 +252,10 @@ dependencies = [
 name = "comprs"
 version = "0.4.1"
 dependencies = [
- "brotli",
  "comprs-core",
- "crc32fast",
- "flate2",
- "lz4_flex",
  "napi",
  "napi-build",
  "napi-derive",
- "zstd",
 ]
 
 [[package]]
