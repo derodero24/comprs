@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 target/
 dist/
+.wasm-pack-out/
 *.node
 
 # napi-rs generated files (tracked via git add -f for npm package)
@@ -20,6 +21,12 @@ browser-streaming.js
 *.wasi-browser.js
 wasi-worker.mjs
 wasi-worker-browser.mjs
+
+# wasm-bindgen output (build output, tracked via git add -f for npm package)
+comprs-wasm.js
+comprs-wasm_bg.js
+comprs-wasm.d.ts
+comprs-wasm_bg.wasm.d.ts
 
 # Logs
 *.log

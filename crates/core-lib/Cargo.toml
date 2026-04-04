@@ -1,0 +1,17 @@
+[package]
+name = "comprs-core"
+version = "0.4.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+brotli = { workspace = true }
+zstd = { workspace = true }
+flate2 = { workspace = true }
+lz4_flex = { workspace = true }
+crc32fast = { workspace = true }
+thiserror = { workspace = true }

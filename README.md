@@ -5,8 +5,8 @@
 Rust-powered universal compression for JavaScript/TypeScript.
 **zstd**, **gzip**, **brotli**, and **lz4** in one package.
 
-[![npm version](https://img.shields.io/npm/v/comprs)](https://www.npmjs.com/package/comprs)
-[![npm downloads](https://img.shields.io/npm/dm/comprs)](https://www.npmjs.com/package/comprs)
+[![npm version](https://img.shields.io/npm/v/%40derodero24%2Fcomprs)](https://www.npmjs.com/package/@derodero24/comprs)
+[![npm downloads](https://img.shields.io/npm/dm/%40derodero24%2Fcomprs)](https://www.npmjs.com/package/@derodero24/comprs)
 [![CI](https://github.com/derodero24/comprs/actions/workflows/ci.yml/badge.svg)](https://github.com/derodero24/comprs/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/derodero24/comprs/graph/badge.svg)](https://codecov.io/gh/derodero24/comprs)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repo=derodero24/comprs)](https://codspeed.io/derodero24/comprs)
@@ -40,7 +40,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 
 - **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
-- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js
 - **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
@@ -180,7 +180,7 @@ const decompressed = brotliDecompressWithDict(compressed, dict);
 
 ```typescript
 // Deno
-import { gzipCompress } from 'npm:comprs';
+import { gzipCompress } from 'npm:@derodero24/comprs';
 
 // Bun (same as Node.js)
 import { gzipCompress } from '@derodero24/comprs';
@@ -323,7 +323,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 
 ### Streaming
 
-Web Streams API (`TransformStream`) for all algorithms. Import from `comprs/streams`:
+Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24/comprs/streams`:
 
 ```typescript
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
@@ -354,7 +354,7 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `comprs/node`:
+For Node.js `stream.pipeline()` compatibility, import from `@derodero24/comprs/node`:
 
 ```typescript
 import { createGzipCompressTransform } from '@derodero24/comprs/node';
@@ -416,11 +416,18 @@ await pipeline(
 | macOS | Intel (x64), Apple Silicon (ARM64) |
 | Linux | x64, ARM64 (glibc & musl) |
 | Windows | x64, ARM64 |
-| WASM | wasm32-wasip1-threads |
+| WASM | wasm32-unknown-unknown (wasm-bindgen) |
 
 ### WASM bundle size
 
-The WASM binary (`wasm32-wasip1-threads`) is optimized with `wasm-opt -O3` during the build process. Binary size is tracked and reported in CI on every build — check the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml) for current numbers.
+The browser WASM binary (`wasm32-unknown-unknown`) is built via `wasm-pack` and optimized with `wasm-opt -O3` during CI builds.
+
+| | Size |
+| --- | --- |
+| `comprs-wasm_bg.wasm` (optimized) | ~1.5 MB |
+| Gzip-compressed (typical CDN transfer) | ~600 KB |
+
+Exact sizes are tracked on every build — see the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml).
 
 ## Browser Usage
 
@@ -434,16 +441,6 @@ const compressed = gzipCompress(data);
 const decompressed = gzipDecompress(compressed);
 ```
 
-> [!IMPORTANT]
-> The WASM build uses `SharedArrayBuffer` for threading, which requires these HTTP headers on your page:
->
-> ```http
-> Cross-Origin-Opener-Policy: same-origin
-> Cross-Origin-Embedder-Policy: require-corp
-> ```
->
-> Without these headers, you will see `SharedArrayBuffer is not defined`. See [MDN: SharedArrayBuffer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements) for details.
-
 > [!TIP]
 > WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
 
@@ -456,7 +453,7 @@ Native modules need to be externalized in SSR frameworks:
 ```js
 // next.config.js
 const nextConfig = {
-  serverExternalPackages: ['comprs'],
+  serverExternalPackages: ['@derodero24/comprs'],
 };
 ```
 
@@ -466,12 +463,12 @@ const nextConfig = {
 // vite.config.js
 export default {
   ssr: {
-    external: ['comprs'],
+    external: ['@derodero24/comprs'],
   },
 };
 ```
 
-On the client side, comprs automatically falls back to WASM — no additional configuration needed beyond the SharedArrayBuffer headers above.
+On the client side, comprs automatically falls back to WASM — no additional configuration needed.
 
 ## Migration
 

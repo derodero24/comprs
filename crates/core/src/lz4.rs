@@ -1,37 +1,19 @@
 //! LZ4 frame compression and decompression.
 
-use std::io::Write;
-
-use lz4_flex::frame::{FrameDecoder, FrameEncoder};
 use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ComprsError;
+use crate::error::to_napi_error;
 
 /// Compress data using LZ4 frame format.
 ///
 /// Returns the compressed data as a Buffer.
 #[napi]
 pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    let input = crate::as_bytes(&data);
-
-    let mut output = Vec::with_capacity(input.len());
-    let mut encoder = FrameEncoder::new(&mut output);
-    encoder.write_all(input).map_err(|e| {
-        napi::Error::from(ComprsError::Operation {
-            context: "lz4 compress",
-            source: e.into(),
-        })
-    })?;
-    encoder.finish().map_err(|e| {
-        napi::Error::from(ComprsError::Operation {
-            context: "lz4 compress",
-            source: e.into(),
-        })
-    })?;
-
-    Ok(output.into())
+    comprs_core::lz4::compress(crate::as_bytes(&data))
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 /// Decompress LZ4 frame-compressed data.
@@ -41,19 +23,9 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// for larger data.
 #[napi]
 pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    let input = crate::as_bytes(&data);
-    let decoder = FrameDecoder::new(input);
-    let init_cap = input
-        .len()
-        .saturating_mul(4)
-        .min(crate::MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(
-        decoder,
-        crate::MAX_DECOMPRESSED_SIZE,
-        init_cap,
-        "lz4 decompress",
-    )
-    .map(|v| v.into())
+    comprs_core::lz4::decompress(crate::as_bytes(&data))
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
@@ -65,11 +37,10 @@ pub fn lz4_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
-    let cap = crate::validate_capacity(capacity)?;
-    let input = crate::as_bytes(&data);
-    let decoder = FrameDecoder::new(input);
-    let init_cap = input.len().saturating_mul(4).min(cap);
-    crate::decompress_with_limit(decoder, cap, init_cap, "lz4 decompress").map(|v| v.into())
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
+    comprs_core::lz4::decompress_with_capacity(crate::as_bytes(&data), cap)
+        .map(|v| v.into())
+        .map_err(to_napi_error)
 }
 
 // --- Async tasks ---
@@ -84,21 +55,7 @@ impl Task for Lz4CompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut output = Vec::with_capacity(self.data.len());
-        let mut encoder = FrameEncoder::new(&mut output);
-        encoder.write_all(&self.data).map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "lz4 compress",
-                source: e.into(),
-            })
-        })?;
-        encoder.finish().map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "lz4 compress",
-                source: e.into(),
-            })
-        })?;
-        Ok(output)
+        comprs_core::lz4::compress(&self.data).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -125,18 +82,7 @@ impl Task for Lz4DecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decoder = FrameDecoder::new(self.data.as_slice());
-        let init_cap = self
-            .data
-            .len()
-            .saturating_mul(4)
-            .min(crate::MAX_DECOMPRESSED_SIZE);
-        crate::decompress_with_limit(
-            decoder,
-            crate::MAX_DECOMPRESSED_SIZE,
-            init_cap,
-            "lz4 decompress",
-        )
+        comprs_core::lz4::decompress(&self.data).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -166,9 +112,7 @@ impl Task for Lz4DecompressWithCapacityTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let decoder = FrameDecoder::new(self.data.as_slice());
-        let init_cap = self.data.len().saturating_mul(4).min(self.capacity);
-        crate::decompress_with_limit(decoder, self.capacity, init_cap, "lz4 decompress")
+        comprs_core::lz4::decompress_with_capacity(&self.data, self.capacity).map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -185,71 +129,10 @@ pub fn lz4_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<AsyncTask<Lz4DecompressWithCapacityTask>> {
-    let cap = crate::validate_capacity(capacity)?;
+    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(Lz4DecompressWithCapacityTask {
         data: input,
         capacity: cap,
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Read;
-
-    use super::*;
-
-    #[test]
-    fn round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of LZ4 compression.";
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_empty() {
-        let original = b"";
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(&original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original, decompressed);
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
-    fn lz4_frame_magic_bytes() {
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(b"test").unwrap();
-        encoder.finish().unwrap();
-
-        assert!(compressed.len() >= 4);
-        assert_eq!(&compressed[..4], &[0x04, 0x22, 0x4D, 0x18]);
-    }
 }

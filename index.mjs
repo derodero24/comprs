@@ -39,6 +39,7 @@ export const {
   zstdTrainDictionary,
   zstdCompressWithDict,
   zstdDecompressWithDict,
+  zstdDecompressWithDictWithCapacity,
   CompressionFormat,
   decompress,
   decompressAsync,

@@ -7,81 +7,73 @@
   const log = (msg) => { document.getElementById('log').textContent += `${msg}\n`; };
 
   try {
-    // Buffer polyfill required by emnapi (napi-rs WASM runtime)
-    const { Buffer } = await import('buffer');
-    globalThis.Buffer = Buffer;
+    // Vite 8 does not support the TC39 WebAssembly ESM integration proposal,
+    // so we cannot import comprs-wasm.js directly (it contains
+    // `import * as wasm from './file.wasm'` which Vite rejects).
+    //
+    // Instead, import the background bindings and instantiate WASM manually.
+    const [mod, { default: wasmUrl }] = await Promise.all([
+      import('../comprs-wasm_bg.js'),
+      import('../comprs-wasm_bg.wasm?url'),
+    ]);
 
-    log('Loading WASM module...');
-    const wasm = await import('../comprs.wasi-browser.js');
-    log(`Loaded. Exports: ${Object.keys(wasm).length}`);
+    const bytes = await fetch(wasmUrl).then(r => r.arrayBuffer());
+    const { instance } = await WebAssembly.instantiate(bytes, {
+      './comprs-wasm_bg.js': mod,
+    });
+    mod.__wbg_set_wasm(instance.exports);
+
+    log('WASM module loaded.');
 
     const results = {};
     const testData = new TextEncoder().encode('Hello, browser WASM comprs! '.repeat(100));
 
     // zstd round-trip
-    const zstdCompressed = wasm.zstdCompress(testData);
-    const zstdDecompressed = wasm.zstdDecompress(zstdCompressed);
+    const zstdCompressed = mod.zstdCompress(testData);
+    const zstdDecompressed = mod.zstdDecompress(zstdCompressed);
     results.zstdRoundTrip = arrayEqual(zstdDecompressed, testData);
     log(`zstd round-trip: ${results.zstdRoundTrip}`);
 
     // gzip round-trip
-    const gzipCompressed = wasm.gzipCompress(testData);
-    const gzipDecompressed = wasm.gzipDecompress(gzipCompressed);
+    const gzipCompressed = mod.gzipCompress(testData);
+    const gzipDecompressed = mod.gzipDecompress(gzipCompressed);
     results.gzipRoundTrip = arrayEqual(gzipDecompressed, testData);
     log(`gzip round-trip: ${results.gzipRoundTrip}`);
 
     // deflate round-trip
-    const deflateCompressed = wasm.deflateCompress(testData);
-    const deflateDecompressed = wasm.deflateDecompress(deflateCompressed);
+    const deflateCompressed = mod.deflateCompress(testData);
+    const deflateDecompressed = mod.deflateDecompress(deflateCompressed);
     results.deflateRoundTrip = arrayEqual(deflateDecompressed, testData);
     log(`deflate round-trip: ${results.deflateRoundTrip}`);
 
     // brotli round-trip
-    const brotliCompressed = wasm.brotliCompress(testData);
-    const brotliDecompressed = wasm.brotliDecompress(brotliCompressed);
+    const brotliCompressed = mod.brotliCompress(testData);
+    const brotliDecompressed = mod.brotliDecompress(brotliCompressed);
     results.brotliRoundTrip = arrayEqual(brotliDecompressed, testData);
     log(`brotli round-trip: ${results.brotliRoundTrip}`);
 
+    // lz4 round-trip
+    const lz4Compressed = mod.lz4Compress(testData);
+    const lz4Decompressed = mod.lz4Decompress(lz4Compressed);
+    results.lz4RoundTrip = arrayEqual(lz4Decompressed, testData);
+    log(`lz4 round-trip: ${results.lz4RoundTrip}`);
+
     // auto-detect decompression
-    const autoDecompressed = wasm.decompress(zstdCompressed);
+    const autoDecompressed = mod.decompress(zstdCompressed);
     results.autoDetect = arrayEqual(autoDecompressed, testData);
     log(`auto-detect: ${results.autoDetect}`);
 
     // version
-    results.version = wasm.version();
+    results.version = mod.version();
     log(`version: ${results.version}`);
 
-    // streaming compression via one-shot adapter (avoids WASM memory growth issue)
-    // This tests the same pattern as browser-streaming.js but inline to avoid
-    // import resolution issues with the comprs-wasm32-wasi package in e2e.
-    try {
-      const chunks = [];
-      chunks.push(new Uint8Array(testData.slice(0, 100)));
-      chunks.push(new Uint8Array(testData.slice(100)));
-      const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-      const combined = new Uint8Array(total);
-      let off = 0;
-      for (const c of chunks) { combined.set(c, off); off += c.byteLength; }
-      const compressed = wasm.gzipCompress(combined);
-      const decompressed = wasm.gzipDecompress(compressed);
-      results.streaming = arrayEqual(decompressed, testData);
-      log(`streaming adapter: ${results.streaming}`);
-    } catch (e) {
-      log(`streaming adapter error: ${e.message}`);
-      results.streaming = false;
-      results.streamingError = e.message;
-    }
+    // crc32
+    results.crc32 = mod.crc32(testData);
+    log(`crc32: ${results.crc32}`);
 
-    // streaming decompression via one-shot adapter
-    try {
-      const decompressed = wasm.gzipDecompress(gzipCompressed);
-      results.streamingDecompress = arrayEqual(decompressed, testData);
-      log(`streaming decompress adapter: ${results.streamingDecompress}`);
-    } catch (e) {
-      log(`streaming decompress adapter error: ${e.message}`);
-      results.streamingDecompress = false;
-      results.streamingDecompressError = e.message;
-    }
+    // detect format
+    results.detectFormat = mod.detectFormat(zstdCompressed);
+    log(`detect format: ${results.detectFormat}`);
 
     window.__results = results;
     window.__ready = true;
