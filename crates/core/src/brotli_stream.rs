@@ -1,20 +1,9 @@
 //! Brotli streaming compression and decompression.
 
-use std::io::Write;
-
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::ComprsError;
-
-/// Default compression quality for brotli.
-const DEFAULT_QUALITY: u32 = 6;
-
-/// Default buffer size for brotli operations.
-const BUFFER_SIZE: usize = 4096;
-
-/// Default log2 of the sliding window size for brotli.
-const LG_WINDOW_SIZE: u32 = 22;
+use crate::error::to_napi_error;
 
 /// Streaming brotli compression context.
 ///
@@ -22,24 +11,16 @@ const LG_WINDOW_SIZE: u32 = 22;
 /// enabling chunked compression without losing cross-chunk context.
 #[napi]
 pub struct BrotliCompressContext {
-    compressor: Option<brotli::CompressorWriter<Vec<u8>>>,
+    inner: comprs_core::brotli_stream::CompressContext,
 }
 
 #[napi]
 impl BrotliCompressContext {
     #[napi(constructor)]
     pub fn new(quality: Option<u32>) -> Result<Self> {
-        let quality = quality.unwrap_or(DEFAULT_QUALITY);
-        if quality > 11 {
-            return Err(ComprsError::InvalidArg(
-                "brotli quality must be between 0 and 11".to_string(),
-            )
-            .into());
-        }
-        let compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
         Ok(Self {
-            compressor: Some(compressor),
+            inner: comprs_core::brotli_stream::CompressContext::new(quality)
+                .map_err(to_napi_error)?,
         })
     }
 
@@ -47,55 +28,23 @@ impl BrotliCompressContext {
     /// the compressor is buffering data internally).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        let compressor = self
-            .compressor
-            .as_mut()
-            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
-
-        compressor.write_all(crate::as_bytes(&chunk)).map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "brotli stream compress",
-                source: e.into(),
-            })
-        })?;
-
-        // Drain whatever the compressor has flushed to the inner Vec
-        let data = std::mem::take(compressor.get_mut());
-        Ok(data.into())
+        self.inner
+            .transform(crate::as_bytes(&chunk))
+            .map(|v| v.into())
+            .map_err(to_napi_error)
     }
 
     /// Flush the compressor's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
-        let compressor = self
-            .compressor
-            .as_mut()
-            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
-
-        compressor.flush().map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "brotli stream flush",
-                source: e.into(),
-            })
-        })?;
-
-        let data = std::mem::take(compressor.get_mut());
-        Ok(data.into())
+        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
     }
 
     /// Finalize the compression stream. Writes the brotli stream footer.
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
-        let compressor = self
-            .compressor
-            .take()
-            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli stream")))?;
-
-        // into_inner drops the CompressorWriter, which flushes remaining data
-        // and writes the brotli stream end marker
-        let output = compressor.into_inner();
-        Ok(output.into())
+        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
     }
 }
 
@@ -105,21 +54,16 @@ impl BrotliCompressContext {
 /// enabling chunked decompression of a brotli stream.
 #[napi]
 pub struct BrotliDecompressContext {
-    decompressor: brotli::DecompressorWriter<Vec<u8>>,
-    total_output: usize,
-    max_output_size: usize,
+    inner: comprs_core::brotli_stream::DecompressContext,
 }
 
 #[napi]
 impl BrotliDecompressContext {
     #[napi(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<Self> {
-        let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
         Ok(Self {
-            decompressor,
-            total_output: 0,
-            max_output_size: max_size,
+            inner: comprs_core::brotli_stream::DecompressContext::new(max_output_size)
+                .map_err(to_napi_error)?,
         })
     }
 
@@ -127,48 +71,16 @@ impl BrotliDecompressContext {
     /// (may be empty if the decompressor needs more data).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        self.decompressor
-            .write_all(crate::as_bytes(&chunk))
-            .map_err(|e| {
-                napi::Error::from(ComprsError::Operation {
-                    context: "brotli stream decompress",
-                    source: e.into(),
-                })
-            })?;
-
-        // Drain whatever the decompressor has written to the inner Vec
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli stream decompress",
-                limit: self.max_output_size,
-            }
-            .into());
-        }
-        Ok(data.into())
+        self.inner
+            .transform(crate::as_bytes(&chunk))
+            .map(|v| v.into())
+            .map_err(to_napi_error)
     }
 
     /// Flush the decompressor's internal buffer. Returns any buffered decompressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
-        self.decompressor.flush().map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "brotli stream flush",
-                source: e.into(),
-            })
-        })?;
-
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli stream decompress",
-                limit: self.max_output_size,
-            }
-            .into());
-        }
-        Ok(data.into())
+        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
     }
 }
 
@@ -179,27 +91,19 @@ impl BrotliDecompressContext {
 /// a dictionary API; dictionary compression requires the low-level encoder.
 #[napi]
 pub struct BrotliCompressDictContext {
-    dict: Option<Vec<u8>>,
-    quality: u32,
-    chunks: Vec<u8>,
+    inner: comprs_core::brotli_stream::CompressDictContext,
 }
 
 #[napi]
 impl BrotliCompressDictContext {
     #[napi(constructor)]
     pub fn new(dict: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Self> {
-        let quality = quality.unwrap_or(DEFAULT_QUALITY);
-        if quality > 11 {
-            return Err(ComprsError::InvalidArg(
-                "brotli quality must be between 0 and 11".to_string(),
-            )
-            .into());
-        }
-        let dict_bytes = crate::as_bytes(&dict).to_vec();
         Ok(Self {
-            dict: Some(dict_bytes),
-            quality,
-            chunks: Vec::new(),
+            inner: comprs_core::brotli_stream::CompressDictContext::new(
+                crate::as_bytes(&dict),
+                quality,
+            )
+            .map_err(to_napi_error)?,
         })
     }
 
@@ -207,44 +111,23 @@ impl BrotliCompressDictContext {
     /// all compression is deferred to `finish` (dictionary requires one-shot).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        if self.dict.is_none() {
-            return Err(napi::Error::from(ComprsError::StreamFinished(
-                "brotli dict stream",
-            )));
-        }
-        self.chunks.extend_from_slice(crate::as_bytes(&chunk));
-        Ok(Vec::new().into())
+        self.inner
+            .transform(crate::as_bytes(&chunk))
+            .map(|v| v.into())
+            .map_err(to_napi_error)
     }
 
     /// Flush returns empty Buffer because all data is buffered until finish.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
-        if self.dict.is_none() {
-            return Err(napi::Error::from(ComprsError::StreamFinished(
-                "brotli dict stream",
-            )));
-        }
-        Ok(Vec::new().into())
+        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
     }
 
     /// Finalize the compression. Compresses all buffered data with the dictionary.
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
-        let dict = self
-            .dict
-            .take()
-            .ok_or_else(|| napi::Error::from(ComprsError::StreamFinished("brotli dict stream")))?;
-
-        let data = std::mem::take(&mut self.chunks);
-        crate::brotli_impl::brotli_compress_with_dict_inner(&data, &dict, self.quality)
-            .map(|v| v.into())
-            .map_err(|e| {
-                napi::Error::from(ComprsError::Operation {
-                    context: "brotli dict stream compress",
-                    source: e.into(),
-                })
-            })
+        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
     }
 }
 
@@ -254,26 +137,19 @@ impl BrotliCompressDictContext {
 /// using a custom dictionary that matches the one used for compression.
 #[napi]
 pub struct BrotliDecompressDictContext {
-    decompressor: brotli::DecompressorWriter<Vec<u8>>,
-    total_output: usize,
-    max_output_size: usize,
+    inner: comprs_core::brotli_stream::DecompressDictContext,
 }
 
 #[napi]
 impl BrotliDecompressDictContext {
     #[napi(constructor)]
     pub fn new(dict: Either<Buffer, Uint8Array>, max_output_size: Option<f64>) -> Result<Self> {
-        let max_size = crate::validate_max_output_size(max_output_size)?;
-        let dict_bytes = crate::as_bytes(&dict).to_vec();
-        let decompressor = brotli::DecompressorWriter::new_with_custom_dictionary(
-            Vec::new(),
-            BUFFER_SIZE,
-            dict_bytes.into(),
-        );
         Ok(Self {
-            decompressor,
-            total_output: 0,
-            max_output_size: max_size,
+            inner: comprs_core::brotli_stream::DecompressDictContext::new(
+                crate::as_bytes(&dict),
+                max_output_size,
+            )
+            .map_err(to_napi_error)?,
         })
     }
 
@@ -281,116 +157,15 @@ impl BrotliDecompressDictContext {
     /// (may be empty if the decompressor needs more data).
     #[napi]
     pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-        self.decompressor
-            .write_all(crate::as_bytes(&chunk))
-            .map_err(|e| {
-                napi::Error::from(ComprsError::Operation {
-                    context: "brotli dict stream decompress",
-                    source: e.into(),
-                })
-            })?;
-
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli dict stream decompress",
-                limit: self.max_output_size,
-            }
-            .into());
-        }
-        Ok(data.into())
+        self.inner
+            .transform(crate::as_bytes(&chunk))
+            .map(|v| v.into())
+            .map_err(to_napi_error)
     }
 
     /// Flush the decompressor's internal buffer. Returns any buffered decompressed data.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
-        self.decompressor.flush().map_err(|e| {
-            napi::Error::from(ComprsError::Operation {
-                context: "brotli dict stream flush",
-                source: e.into(),
-            })
-        })?;
-
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli dict stream decompress",
-                limit: self.max_output_size,
-            }
-            .into());
-        }
-        Ok(data.into())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::{Read, Write};
-
-    /// Default compression quality for brotli.
-    const DEFAULT_QUALITY: u32 = 6;
-
-    /// Default buffer size for brotli operations.
-    const BUFFER_SIZE: usize = 4096;
-
-    /// Default log2 of the sliding window size for brotli.
-    const LG_WINDOW_SIZE: u32 = 22;
-
-    #[test]
-    fn stream_round_trip() {
-        let original = b"Hello, comprs streaming! ".repeat(100);
-
-        // Compress in chunks using CompressorWriter<Vec<u8>>
-        let mut compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        for chunk in original.chunks(256) {
-            compressor.write_all(chunk).unwrap();
-        }
-        let compressed = compressor.into_inner();
-
-        // Decompress using Decompressor
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn stream_empty_input() {
-        let compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        let compressed = compressor.into_inner();
-
-        // Should produce a valid (empty) brotli stream
-        assert!(!compressed.is_empty());
-
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert!(decompressed.is_empty());
-    }
-
-    #[test]
-    fn stream_decompressor_writer_round_trip() {
-        let original = b"DecompressorWriter test data ".repeat(100);
-
-        // Compress
-        let mut compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        compressor.write_all(&original).unwrap();
-        let compressed = compressor.into_inner();
-
-        // Decompress in chunks using DecompressorWriter<Vec<u8>>
-        let mut decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
-        for chunk in compressed.chunks(64) {
-            decompressor.write_all(chunk).unwrap();
-        }
-        decompressor.flush().unwrap();
-        let decompressed = decompressor.into_inner().unwrap();
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
+        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
     }
 }

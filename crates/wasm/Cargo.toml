@@ -1,17 +1,17 @@
 [package]
-name = "comprs"
+name = "comprs-wasm"
 version = "0.4.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 comprs-core = { path = "../core-lib" }
-napi = { workspace = true }
-napi-derive = { workspace = true }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
 
-[build-dependencies]
-napi-build = { workspace = true }
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

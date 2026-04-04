@@ -639,5 +639,6 @@ module.exports.zstdDecompressWithCapacityAsync = nativeBinding.zstdDecompressWit
 module.exports.zstdDecompressWithDict = nativeBinding.zstdDecompressWithDict
 module.exports.zstdDecompressWithDictAsync = nativeBinding.zstdDecompressWithDictAsync
 module.exports.zstdDecompressWithDictWithCapacity = nativeBinding.zstdDecompressWithDictWithCapacity
+module.exports.zstdDecompressWithDictWithCapacityAsync = nativeBinding.zstdDecompressWithDictWithCapacityAsync
 module.exports.zstdTrainDictionary = nativeBinding.zstdTrainDictionary
 module.exports.zstdTrainDictionaryAsync = nativeBinding.zstdTrainDictionaryAsync

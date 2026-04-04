@@ -80,7 +80,12 @@
     "node.d.ts",
     "browser.js",
     "browser-entry.js",
-    "browser-streaming.js"
+    "browser-streaming.js",
+    "comprs-wasm.js",
+    "comprs-wasm_bg.js",
+    "comprs-wasm_bg.wasm",
+    "comprs-wasm.d.ts",
+    "comprs-wasm_bg.wasm.d.ts"
   ],
   "napi": {
     "binaryName": "comprs",
@@ -105,6 +110,8 @@
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
     "build:wasm": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir . --target wasm32-wasip1-threads",
     "postbuild:wasm": "node scripts/optimize-wasm.js",
+    "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
+    "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
     "artifacts": "napi artifacts",
     "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
