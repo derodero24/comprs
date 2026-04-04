@@ -9,9 +9,12 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-comprs-core = { path = "../core-lib" }
+comprs-core = { path = "../core-lib", features = ["zstdmt"] }
 napi = { workspace = true }
 napi-derive = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+comprs-core = { path = "../core-lib", default-features = false }
 
 [build-dependencies]
 napi-build = { workspace = true }
