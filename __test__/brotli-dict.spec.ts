@@ -5,6 +5,8 @@ import {
   brotliCompressWithDictAsync,
   brotliDecompressWithDict,
   brotliDecompressWithDictAsync,
+  brotliDecompressWithDictWithCapacity,
+  brotliDecompressWithDictWithCapacityAsync,
 } from '../index.js';
 import { createBrotliCompressDictStream, createBrotliDecompressDictStream } from '../streams.js';
 
@@ -92,6 +94,108 @@ describe('brotli dictionary compression', () => {
     const compressed = await brotliCompressWithDictAsync(original, dict);
     const decompressed = await brotliDecompressWithDictAsync(compressed, dict);
     expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+});
+
+describe('brotliDecompressWithDictWithCapacity', () => {
+  const dict = buildDict();
+
+  it('should decompress with exact capacity', () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 999,
+        name: 'capacity_test',
+        email: 'capacity@example.com',
+        active: true,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    const decompressed = brotliDecompressWithDictWithCapacity(compressed, dict, original.length);
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should decompress with oversized capacity', () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 888,
+        name: 'oversized_test',
+        email: 'oversized@example.com',
+        active: false,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    const decompressed = brotliDecompressWithDictWithCapacity(
+      compressed,
+      dict,
+      original.length * 10,
+    );
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should throw with insufficient capacity', () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 777,
+        name: 'insufficient_test',
+        email: 'insufficient@example.com',
+        active: true,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    expect(() => brotliDecompressWithDictWithCapacity(compressed, dict, 1)).toThrow();
+  });
+});
+
+describe('brotliDecompressWithDictWithCapacityAsync', () => {
+  const dict = buildDict();
+
+  it('should decompress async with exact capacity', async () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 999,
+        name: 'async_capacity_test',
+        email: 'async_capacity@example.com',
+        active: true,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    const decompressed = await brotliDecompressWithDictWithCapacityAsync(
+      compressed,
+      dict,
+      original.length,
+    );
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should decompress async with oversized capacity', async () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 888,
+        name: 'async_oversized_test',
+        email: 'async_oversized@example.com',
+        active: false,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    const decompressed = await brotliDecompressWithDictWithCapacityAsync(
+      compressed,
+      dict,
+      original.length * 10,
+    );
+    expect(Buffer.compare(decompressed, original)).toBe(0);
+  });
+
+  it('should reject with insufficient capacity', async () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        id: 777,
+        name: 'async_insufficient_test',
+        email: 'async_insufficient@example.com',
+        active: true,
+      }),
+    );
+    const compressed = brotliCompressWithDict(original, dict);
+    await expect(brotliDecompressWithDictWithCapacityAsync(compressed, dict, 1)).rejects.toThrow();
   });
 });
 

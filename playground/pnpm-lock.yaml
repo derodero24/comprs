@@ -8,18 +8,22 @@ importers:
 
   .:
     dependencies:
+      '@derodero24/comprs':
+        specifier: file:..
+        version: file:..
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
-      comprs:
-        specifier: file:..
-        version: file:..
     devDependencies:
       vite:
         specifier: ^8.0.0
         version: 8.0.3
 
 packages:
+
+  '@derodero24/comprs@file:..':
+    resolution: {directory: .., type: directory}
+    engines: {node: '>=20.0.0'}
 
   '@emnapi/core@1.9.1':
     resolution: {integrity: sha512-mukuNALVsoix/w1BJwFzwXBN/dHeejQtuVzcDsfOEsdpCumXb/E9j8w11h5S54tT1xhifGfbbSm/ICrObRb3KA==}
@@ -142,10 +146,6 @@ packages:
 
   buffer@6.0.3:
     resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
-
-  comprs@file:..:
-    resolution: {directory: .., type: directory}
-    engines: {node: '>=20.0.0'}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -319,6 +319,8 @@ packages:
 
 snapshots:
 
+  '@derodero24/comprs@file:..': {}
+
   '@emnapi/core@1.9.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.0
@@ -404,8 +406,6 @@ snapshots:
     dependencies:
       base64-js: 1.5.1
       ieee754: 1.2.1
-
-  comprs@file:..: {}
 
   detect-libc@2.1.2: {}
 

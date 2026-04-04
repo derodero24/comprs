@@ -1,5 +1,11 @@
 # comprs
 
+## 1.0.0
+
+### Major Changes
+
+- 796774f: First stable release with wasm-bindgen browser support (no SharedArrayBuffer required), three-crate architecture, and full algorithm coverage (zstd, gzip, brotli, lz4)
+
 ## 0.4.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs-linux-arm64-gnu",
-  "version": "0.4.1",
+  "version": "1.0.0",
   "cpu": [
     "arm64"
   ],
@@ -8,7 +8,7 @@
   "files": [
     "comprs.linux-arm64-gnu.node"
   ],
-  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, and brotli in one package.",
+  "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [
     "compression",
     "zstd",

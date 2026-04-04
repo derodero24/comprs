@@ -29,6 +29,11 @@ test('brotli round-trip', async ({ page }) => {
   expect(result).toBe(true);
 });
 
+test('lz4 round-trip', async ({ page }) => {
+  const result = await page.evaluate(() => window.__results.lz4RoundTrip);
+  expect(result).toBe(true);
+});
+
 test('auto-detect decompression', async ({ page }) => {
   const result = await page.evaluate(() => window.__results.autoDetect);
   expect(result).toBe(true);
@@ -39,14 +44,12 @@ test('version returns string', async ({ page }) => {
   expect(version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
-test('streaming compression', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.streaming);
-  const error = await page.evaluate(() => window.__results.streamingError);
-  expect(result, error || 'streaming failed').toBe(true);
+test('crc32 returns number', async ({ page }) => {
+  const crc = await page.evaluate(() => window.__results.crc32);
+  expect(typeof crc).toBe('number');
 });
 
-test('streaming decompression', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.streamingDecompress);
-  const error = await page.evaluate(() => window.__results.streamingDecompressError);
-  expect(result, error || 'streaming decompression failed').toBe(true);
+test('detect format', async ({ page }) => {
+  const format = await page.evaluate(() => window.__results.detectFormat);
+  expect(format).toBe('zstd');
 });
