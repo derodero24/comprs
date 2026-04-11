@@ -300,8 +300,26 @@ jobs:
       # First publish: use granular access token (NPM_TOKEN secret).
       # After packages exist on npm, switch to OIDC trusted publishing
       # and remove NPM_TOKEN.
-      - name: Publish to npm
+      - name: Publish core to npm
         run: npm publish --provenance --access public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build and publish middleware
+        run: |
+          MIDDLEWARE_DIR="packages/middleware"
+          if [ -d "$MIDDLEWARE_DIR" ]; then
+            MIDDLEWARE_VERSION=$(node -p "require('./$MIDDLEWARE_DIR/package.json').version")
+            if npm view "@derodero24/comprs-middleware@${MIDDLEWARE_VERSION}" version 2>/dev/null; then
+              echo "Middleware v${MIDDLEWARE_VERSION} already published, skipping"
+            else
+              echo "Publishing middleware v${MIDDLEWARE_VERSION}"
+              pnpm --filter @derodero24/comprs-middleware build
+              cd "$MIDDLEWARE_DIR"
+              npm publish --provenance --access public
+            fi
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
