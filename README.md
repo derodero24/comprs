@@ -651,7 +651,7 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 
 ### [`@derodero24/comprs-middleware`](packages/middleware/)
 
-HTTP compression middleware for Express. The first Express middleware with zstd support.
+HTTP compression middleware for Express with zstd, brotli, gzip, and deflate support.
 
 ```bash
 npm install @derodero24/comprs @derodero24/comprs-middleware

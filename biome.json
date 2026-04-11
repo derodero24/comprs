@@ -115,7 +115,7 @@
       }
     },
     {
-      "includes": ["packages/*/src/index.ts"],
+      "includes": ["packages/middleware/src/index.ts"],
       "linter": {
         "rules": {
           "performance": {

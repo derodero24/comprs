@@ -9,7 +9,7 @@ const DEFAULT_THRESHOLD = 1024;
 
 /** MIME types that are compressible by default. */
 function isCompressibleType(contentType: string | undefined): boolean {
-  if (!contentType) return true;
+  if (!contentType) return false;
   const ct = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
   if (ct.startsWith('text/')) return true;
   if (ct === 'application/json') return true;
@@ -84,6 +84,10 @@ function initCompression(
   stream.on('end', () => {
     // biome-ignore lint/suspicious/noExplicitAny: calling original end to finalize response
     (originalEnd as any).call(res);
+  });
+  stream.on('error', (err) => {
+    res.removeHeader('Content-Encoding');
+    res.destroy(err);
   });
 
   return stream;

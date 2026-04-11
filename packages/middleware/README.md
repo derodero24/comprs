@@ -1,6 +1,6 @@
 # @derodero24/comprs-middleware
 
-HTTP compression middleware powered by [comprs](https://github.com/derodero24/comprs). The first Express middleware with **zstd** support.
+HTTP compression middleware powered by [comprs](https://github.com/derodero24/comprs). Express middleware with **zstd**, **brotli**, **gzip**, and **deflate** support.
 
 ## Features
 
@@ -8,7 +8,7 @@ HTTP compression middleware powered by [comprs](https://github.com/derodero24/co
 - **Accept-Encoding negotiation** — automatically selects the best encoding
 - **Configurable priority** — control which algorithm is preferred
 - **Threshold support** — skip compression for small responses
-- **Content-Type filtering** — only compress text-based responses by default
+- **Content-Type filtering** — only compresses responses with known compressible types (text, JSON, XML, etc.); skips responses without a Content-Type header
 - **Rust-powered** — uses comprs native bindings for maximum throughput
 
 ## Installation

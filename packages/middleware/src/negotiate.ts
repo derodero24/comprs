@@ -75,17 +75,11 @@ export function negotiate(
   const accepted = parseAcceptEncoding(acceptEncoding);
   if (accepted.length === 0) return null;
 
-  const wildcardEntry = accepted.find((e) => e.name === '*');
   const clientAccepts = buildClientAccepts(accepted, preferred);
 
   // Select the first preferred encoding accepted by the client
   for (const enc of preferred) {
     if (clientAccepts.has(enc)) return enc;
-  }
-
-  // Fallback: check if wildcard with positive quality is present
-  if (wildcardEntry && wildcardEntry.quality > 0 && preferred.length > 0) {
-    return preferred[0] ?? null;
   }
 
   return null;

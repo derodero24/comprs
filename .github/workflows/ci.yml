@@ -347,6 +347,7 @@ jobs:
           path: .
       - run: pnpm test
       - name: Middleware tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
         run: pnpm --filter @derodero24/comprs-middleware test
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs

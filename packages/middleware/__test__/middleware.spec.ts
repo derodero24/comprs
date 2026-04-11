@@ -34,18 +34,26 @@ function createApp(options?: Parameters<typeof comprs>[0]) {
   return app;
 }
 
+interface RawRequestOptions {
+  method?: string;
+  acceptEncoding?: string;
+}
+
 /**
  * Raw HTTP request that does NOT auto-decompress Content-Encoding.
  * Node.js fetch auto-decompresses, which makes testing compression impossible.
  */
-function rawGet(
+function rawRequest(
   baseUrl: string,
   path: string,
-  acceptEncoding: string,
+  options: RawRequestOptions = {},
 ): Promise<{ status: number; headers: Record<string, string | undefined>; body: Buffer }> {
+  const { method = 'GET', acceptEncoding } = options;
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
-    const req = httpRequest(url, { headers: { 'Accept-Encoding': acceptEncoding } }, (res) => {
+    const headers: Record<string, string> = {};
+    if (acceptEncoding) headers['Accept-Encoding'] = acceptEncoding;
+    const req = httpRequest(url, { method, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
@@ -66,6 +74,11 @@ function rawGet(
     req.on('error', reject);
     req.end();
   });
+}
+
+/** Shorthand for GET with Accept-Encoding. */
+function rawGet(baseUrl: string, path: string, acceptEncoding: string) {
+  return rawRequest(baseUrl, path, { acceptEncoding });
 }
 
 let baseUrl: string;
@@ -130,6 +143,12 @@ describe('comprs middleware', () => {
   });
 
   describe('skip conditions', () => {
+    it('should not compress HEAD requests', async () => {
+      const res = await rawRequest(baseUrl, '/text', { method: 'HEAD', acceptEncoding: 'gzip' });
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.body.toString()).toBe('');
+    });
+
     it('should not compress small responses below threshold', async () => {
       const res = await rawGet(baseUrl, '/small', 'gzip');
       expect(res.headers['content-encoding']).toBeUndefined();
