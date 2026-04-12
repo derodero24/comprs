@@ -647,6 +647,32 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 > [!NOTE]
 > **Brotli decompression**: While comprs brotli *compression* is 10–155x faster than `node:zlib`, decompression performance varies by data type and size. For decompression-heavy workloads on Node.js, benchmark your specific data.
 
+## Ecosystem
+
+### [`@derodero24/comprs-middleware`](packages/middleware/)
+
+HTTP compression middleware for Express, Fastify, and Hono.
+
+```bash
+npm install @derodero24/comprs @derodero24/comprs-middleware
+```
+
+```ts
+// Express
+import { comprs } from '@derodero24/comprs-middleware/express';
+app.use(comprs());
+
+// Fastify
+import { comprs } from '@derodero24/comprs-middleware/fastify';
+app.register(comprs);
+
+// Hono
+import { comprs } from '@derodero24/comprs-middleware/hono';
+app.use(comprs());
+```
+
+See the [middleware README](packages/middleware/README.md) for full documentation.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.

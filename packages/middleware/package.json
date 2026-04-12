@@ -1,0 +1,100 @@
+{
+  "name": "@derodero24/comprs-middleware",
+  "version": "0.3.0",
+  "description": "HTTP compression middleware powered by comprs. Supports Express, Fastify, and Hono with zstd, brotli, gzip, and deflate.",
+  "license": "MIT",
+  "author": "derodero24",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derodero24/comprs.git",
+    "directory": "packages/middleware"
+  },
+  "homepage": "https://github.com/derodero24/comprs/tree/develop/packages/middleware",
+  "bugs": {
+    "url": "https://github.com/derodero24/comprs/issues"
+  },
+  "keywords": [
+    "compression",
+    "middleware",
+    "express",
+    "fastify",
+    "hono",
+    "zstd",
+    "brotli",
+    "gzip",
+    "http",
+    "content-encoding"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      }
+    },
+    "./fastify": {
+      "import": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
+      }
+    },
+    "./hono": {
+      "import": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "biome ci",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@derodero24/comprs": "^1.0.0",
+    "express": "^4.21.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@derodero24/comprs": "workspace:*",
+    "@types/express": "^5.0.0",
+    "express": "^5.1.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

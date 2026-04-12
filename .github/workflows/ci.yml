@@ -27,6 +27,8 @@ on:
       - 'node.d.ts'
       - 'scripts/**'
       - 'playwright.config.ts'
+      - 'packages/**'
+      - 'pnpm-workspace.yaml'
   pull_request:
     branches: [develop]
     paths:
@@ -53,6 +55,8 @@ on:
       - 'node.d.ts'
       - 'scripts/**'
       - 'playwright.config.ts'
+      - 'packages/**'
+      - 'pnpm-workspace.yaml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -82,6 +86,8 @@ jobs:
       - name: Verify generated binding files are up to date
         run: git diff --exit-code index.js index.d.ts
       - run: pnpm run typecheck
+      - name: Middleware typecheck
+        run: pnpm --filter @derodero24/comprs-middleware typecheck
       - run: pnpm run publint
       - name: Validate TypeScript type resolution
         run: pnpm run attw
@@ -100,15 +106,15 @@ jobs:
       - name: Audit npm dependencies
         run: pnpm audit --prod
       - name: Audit Rust dependencies
-        uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # v2
+        uses: EmbarkStudios/cargo-deny-action@175dc7fd4fb85ec8f46948fb98f44db001149081 # v2
       - name: Install cargo-audit
-        uses: taiki-e/install-action@d858f8113943481093e02986a7586a4819a3bfd6 # v2
+        uses: taiki-e/install-action@97a5807a604e12de3a13b52d868ebecaeeea757c # v2
         with:
           tool: cargo-audit
       - name: Run cargo audit
         run: cargo audit
       - name: Install cargo-shear
-        uses: taiki-e/install-action@d858f8113943481093e02986a7586a4819a3bfd6 # v2
+        uses: taiki-e/install-action@97a5807a604e12de3a13b52d868ebecaeeea757c # v2
         with:
           tool: cargo-shear
       - name: Detect unused dependencies
@@ -340,6 +346,9 @@ jobs:
           name: ${{ matrix.artifact }}
           path: .
       - run: pnpm test
+      - name: Middleware tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: pnpm --filter @derodero24/comprs-middleware test
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
 
@@ -447,7 +456,7 @@ jobs:
           toolchain: stable
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: taiki-e/install-action@d858f8113943481093e02986a7586a4819a3bfd6 # v2
+      - uses: taiki-e/install-action@97a5807a604e12de3a13b52d868ebecaeeea757c # v2
         with:
           tool: cargo-llvm-cov
       - name: Rust coverage

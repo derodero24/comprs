@@ -3,6 +3,7 @@
   "extends": ["config:recommended"],
   "baseBranchPatterns": ["develop"],
   "schedule": ["at any time"],
+  "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 0,
   "lockFileMaintenance": {
     "enabled": false
