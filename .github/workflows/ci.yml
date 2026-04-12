@@ -27,6 +27,8 @@ on:
       - 'node.d.ts'
       - 'scripts/**'
       - 'playwright.config.ts'
+      - 'packages/**'
+      - 'pnpm-workspace.yaml'
   pull_request:
     branches: [develop]
     paths:
@@ -53,6 +55,8 @@ on:
       - 'node.d.ts'
       - 'scripts/**'
       - 'playwright.config.ts'
+      - 'packages/**'
+      - 'pnpm-workspace.yaml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -82,6 +86,8 @@ jobs:
       - name: Verify generated binding files are up to date
         run: git diff --exit-code index.js index.d.ts
       - run: pnpm run typecheck
+      - name: Middleware typecheck
+        run: pnpm --filter @derodero24/comprs-middleware typecheck
       - run: pnpm run publint
       - name: Validate TypeScript type resolution
         run: pnpm run attw
@@ -340,6 +346,9 @@ jobs:
           name: ${{ matrix.artifact }}
           path: .
       - run: pnpm test
+      - name: Middleware tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: pnpm --filter @derodero24/comprs-middleware test
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
 
