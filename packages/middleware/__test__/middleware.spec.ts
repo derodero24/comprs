@@ -4,7 +4,7 @@ import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/co
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { comprs } from '../src/middleware.js';
+import { comprs } from '../src/express.js';
 
 const TEST_BODY = 'Hello, World! '.repeat(200); // ~2.8 KB, above default threshold
 

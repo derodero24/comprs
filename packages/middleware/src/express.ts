@@ -3,26 +3,8 @@ import type { Transform } from 'node:stream';
 
 import { createCompressTransform } from './compress.js';
 import { negotiate } from './negotiate.js';
+import { appendVary, DEFAULT_ENCODINGS, DEFAULT_THRESHOLD, isCompressibleType } from './shared.js';
 import type { ComprsOptions, Encoding } from './types.js';
-
-const DEFAULT_THRESHOLD = 1024;
-
-/** MIME types that are compressible by default. */
-function isCompressibleType(contentType: string | undefined): boolean {
-  if (!contentType) return false;
-  const ct = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (ct.startsWith('text/')) return true;
-  if (ct === 'application/json') return true;
-  if (ct === 'application/javascript') return true;
-  if (ct === 'application/xml') return true;
-  if (ct === 'application/xhtml+xml') return true;
-  if (ct === 'application/rss+xml') return true;
-  if (ct === 'application/atom+xml') return true;
-  if (ct === 'application/graphql-response+json') return true;
-  if (ct === 'image/svg+xml') return true;
-  if (ct.endsWith('+json') || ct.endsWith('+xml')) return true;
-  return false;
-}
 
 /** Check if compression should be skipped for this response. */
 function shouldSkip(
@@ -34,7 +16,8 @@ function shouldSkip(
   if (res.getHeader('content-encoding')) return true;
 
   const cacheControl = res.getHeader('cache-control');
-  if (typeof cacheControl === 'string' && cacheControl.includes('no-transform')) return true;
+  if (typeof cacheControl === 'string' && cacheControl.toLowerCase().includes('no-transform'))
+    return true;
 
   if (filter && !filter(req, res)) return true;
 
@@ -50,17 +33,10 @@ function shouldSkip(
   return false;
 }
 
-/** Set the Vary: Accept-Encoding header, appending if needed. */
 function ensureVaryHeader(res: ServerResponse): void {
   const vary = res.getHeader('vary');
-  if (!vary) {
-    res.setHeader('Vary', 'Accept-Encoding');
-    return;
-  }
-  const varyStr = Array.isArray(vary) ? vary.join(', ') : String(vary);
-  if (!varyStr.toLowerCase().includes('accept-encoding')) {
-    res.setHeader('Vary', `${varyStr}, Accept-Encoding`);
-  }
+  const varyStr = Array.isArray(vary) ? vary.join(', ') : (vary as string | undefined);
+  res.setHeader('Vary', appendVary(varyStr));
 }
 
 /** Set up the compression stream and wire it to the response. */
@@ -94,15 +70,12 @@ function initCompression(
 }
 
 /**
- * Create an HTTP compression middleware.
- *
- * Works with Express (v4/v5), Connect, and any framework using the
- * `(req, res, next)` middleware pattern.
+ * Create an Express/Connect HTTP compression middleware.
  *
  * @example
  * ```ts
  * import express from 'express';
- * import { comprs } from '@derodero24/comprs-middleware';
+ * import { comprs } from '@derodero24/comprs-middleware/express';
  *
  * const app = express();
  * app.use(comprs({ encodings: ['zstd', 'br', 'gzip'] }));
@@ -110,7 +83,7 @@ function initCompression(
  */
 export function comprs(options: ComprsOptions = {}) {
   const {
-    encodings = ['zstd', 'br', 'gzip', 'deflate'] as Encoding[],
+    encodings = [...DEFAULT_ENCODINGS] as Encoding[],
     threshold = DEFAULT_THRESHOLD,
     level,
     filter,
@@ -127,7 +100,6 @@ export function comprs(options: ComprsOptions = {}) {
       next();
       return;
     }
-    // Store in a const that TypeScript can narrow (closures don't narrow the outer variable)
     const selectedEncoding: Encoding = negotiated;
 
     const originalWrite = res.write;

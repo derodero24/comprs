@@ -651,18 +651,24 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 
 ### [`@derodero24/comprs-middleware`](packages/middleware/)
 
-HTTP compression middleware for Express with zstd, brotli, gzip, and deflate support.
+HTTP compression middleware for Express, Fastify, and Hono.
 
 ```bash
 npm install @derodero24/comprs @derodero24/comprs-middleware
 ```
 
 ```ts
-import express from 'express';
-import { comprs } from '@derodero24/comprs-middleware';
+// Express
+import { comprs } from '@derodero24/comprs-middleware/express';
+app.use(comprs());
 
-const app = express();
-app.use(comprs({ encodings: ['zstd', 'br', 'gzip'] }));
+// Fastify
+import { comprs } from '@derodero24/comprs-middleware/fastify';
+app.register(comprs);
+
+// Hono
+import { comprs } from '@derodero24/comprs-middleware/hono';
+app.use(comprs());
 ```
 
 See the [middleware README](packages/middleware/README.md) for full documentation.
