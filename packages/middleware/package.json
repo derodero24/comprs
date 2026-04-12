@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs-middleware",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "HTTP compression middleware powered by comprs. Supports Express, Fastify, and Hono with zstd, brotli, gzip, and deflate.",
   "license": "MIT",
   "author": "derodero24",
