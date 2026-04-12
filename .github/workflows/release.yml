@@ -52,29 +52,42 @@ jobs:
       - name: Create or update release PR
         if: steps.changesets.outputs.hasChangesets == 'false'
         run: |
+          CORE_NAME=$(node -p "require('./package.json').name")
           CORE_VERSION=$(node -p "require('./package.json').version")
+          MW_NAME=$(node -p "require('./packages/middleware/package.json').name")
           MW_VERSION=$(node -p "require('./packages/middleware/package.json').version")
-          NEEDS_RELEASE=false
 
-          # Check if any package has an unpublished version
-          if ! npm view "@derodero24/comprs@${CORE_VERSION}" version 2>/dev/null; then
-            echo "Core v${CORE_VERSION} not yet published"
-            NEEDS_RELEASE=true
-          fi
-          if ! npm view "@derodero24/comprs-middleware@${MW_VERSION}" version 2>/dev/null; then
-            echo "Middleware v${MW_VERSION} not yet published"
-            NEEDS_RELEASE=true
-          fi
+          # Check publish status (distinguish E404 "not found" from other errors)
+          check_published() {
+            local pkg="$1" ver="$2"
+            local err
+            if err=$(npm view "${pkg}@${ver}" version 2>&1); then
+              echo "published"
+            elif echo "$err" | grep -q "E404"; then
+              echo "unpublished"
+            else
+              echo "Error checking ${pkg}@${ver}: $err" >&2
+              exit 1
+            fi
+          }
 
-          if [ "$NEEDS_RELEASE" = "false" ]; then
+          CORE_STATUS=$(check_published "$CORE_NAME" "$CORE_VERSION")
+          MW_STATUS=$(check_published "$MW_NAME" "$MW_VERSION")
+
+          if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ]; then
             echo "All packages already published, skipping release PR"
             exit 0
           fi
 
+          echo "Core: ${CORE_NAME}@${CORE_VERSION} → ${CORE_STATUS}"
+          echo "Middleware: ${MW_NAME}@${MW_VERSION} → ${MW_STATUS}"
+
           EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
-          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| @derodero24/comprs | %s | %s |\n| @derodero24/comprs-middleware | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
-            "$CORE_VERSION" "$(npm view "@derodero24/comprs@${CORE_VERSION}" version 2>/dev/null && echo 'published' || echo '**new**')" \
-            "$MW_VERSION" "$(npm view "@derodero24/comprs-middleware@${MW_VERSION}" version 2>/dev/null && echo 'published' || echo '**new**')")
+          CORE_BADGE=$([ "$CORE_STATUS" = "published" ] && echo "published" || echo "**new**")
+          MW_BADGE=$([ "$MW_STATUS" = "published" ] && echo "published" || echo "**new**")
+          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
+            "$CORE_NAME" "$CORE_VERSION" "$CORE_BADGE" \
+            "$MW_NAME" "$MW_VERSION" "$MW_BADGE")
 
           if [ -n "$EXISTING" ]; then
             gh pr edit "$EXISTING" --title "chore(release): release packages" --body "$BODY"
