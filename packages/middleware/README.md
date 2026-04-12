@@ -73,7 +73,7 @@ Returns an Express-compatible middleware function `(req, res, next) => void`.
 | `encodings` | `Encoding[]` | `['zstd', 'br', 'gzip', 'deflate']` | Algorithm priority order |
 | `threshold` | `number` | `1024` | Minimum response size (bytes) to compress |
 | `level` | `LevelOptions` | `{}` | Per-algorithm compression levels |
-| `filter` | `(req, res) => boolean` | Content-Type check | Custom filter function |
+| `filter` | `(req, res) => boolean` | Compressible types | Custom filter function |
 
 ### `negotiate(acceptEncoding, preferred?)`
 

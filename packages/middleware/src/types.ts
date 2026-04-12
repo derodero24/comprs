@@ -37,7 +37,7 @@ export interface ComprsOptions {
    * Filter function to decide whether to compress a response.
    * Return `true` to compress, `false` to skip.
    * Called after headers are set but before response body is sent.
-   * @default Compresses text-based content types
+   * @default Compresses responses with known compressible types (text, JSON, XML, etc.); skips if Content-Type is not set
    */
   filter?: (req: IncomingMessage, res: ServerResponse) => boolean;
 }
