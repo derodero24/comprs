@@ -253,14 +253,14 @@ jobs:
 
       - name: Upload WASM size report
         if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-size-report
           path: wasm-size-report/
           if-no-files-found: ignore
 
       - name: Upload artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bindings-${{ matrix.settings.target }}
           path: |
@@ -271,7 +271,7 @@ jobs:
 
       - name: Upload WASM artifact
         if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bindings-wasm32
           path: |
@@ -305,7 +305,7 @@ jobs:
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
       - name: Upload wasm-bindgen artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bindings-wasm-bindgen
           path: |
