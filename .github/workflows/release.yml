@@ -52,25 +52,51 @@ jobs:
       - name: Create or update release PR
         if: steps.changesets.outputs.hasChangesets == 'false'
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          CORE_NAME=$(node -p "require('./package.json').name")
+          CORE_VERSION=$(node -p "require('./package.json').version")
+          MW_NAME=$(node -p "require('./packages/middleware/package.json').name")
+          MW_VERSION=$(node -p "require('./packages/middleware/package.json').version")
 
-          # Skip if already published
-          if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
-            echo "Version ${VERSION} already published, skipping release PR"
+          # Check publish status (distinguish E404 "not found" from other errors)
+          check_published() {
+            local pkg="$1" ver="$2"
+            local err
+            if err=$(npm view "${pkg}@${ver}" version 2>&1); then
+              echo "published"
+            elif echo "$err" | grep -q "E404"; then
+              echo "unpublished"
+            else
+              echo "Error checking ${pkg}@${ver}: $err" >&2
+              exit 1
+            fi
+          }
+
+          CORE_STATUS=$(check_published "$CORE_NAME" "$CORE_VERSION")
+          MW_STATUS=$(check_published "$MW_NAME" "$MW_VERSION")
+
+          if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ]; then
+            echo "All packages already published, skipping release PR"
             exit 0
           fi
 
+          echo "Core: ${CORE_NAME}@${CORE_VERSION} → ${CORE_STATUS}"
+          echo "Middleware: ${MW_NAME}@${MW_VERSION} → ${MW_STATUS}"
+
           EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
-          BODY=$(printf '## Release v%s\n\nMerging this PR will:\n1. Build native binaries for all 9 platforms\n2. Publish to npm with provenance\n\n### Changelog\n\n```\n%s\n```' "$VERSION" "$(head -50 CHANGELOG.md)")
+          CORE_BADGE=$([ "$CORE_STATUS" = "published" ] && echo "published" || echo "**new**")
+          MW_BADGE=$([ "$MW_STATUS" = "published" ] && echo "published" || echo "**new**")
+          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
+            "$CORE_NAME" "$CORE_VERSION" "$CORE_BADGE" \
+            "$MW_NAME" "$MW_VERSION" "$MW_BADGE")
 
           if [ -n "$EXISTING" ]; then
-            gh pr edit "$EXISTING" --title "chore(release): release v${VERSION}" --body "$BODY"
+            gh pr edit "$EXISTING" --title "chore(release): release packages" --body "$BODY"
             echo "Updated existing release PR #${EXISTING}"
           else
             gh pr create --base main --head develop \
-              --title "chore(release): release v${VERSION}" \
+              --title "chore(release): release packages" \
               --body "$BODY"
-            echo "Created release PR for v${VERSION}"
+            echo "Created release PR"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
