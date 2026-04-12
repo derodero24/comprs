@@ -115,6 +115,19 @@
       }
     },
     {
+      "includes": [
+        "packages/middleware/src/fastify.ts",
+        "packages/middleware/__test__/fastify.spec.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "useAwait": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["packages/middleware/src/index.ts"],
       "linter": {
         "rules": {
