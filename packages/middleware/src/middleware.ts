@@ -136,6 +136,22 @@ export function comprs(options: ComprsOptions = {}) {
     let started = false;
     let ended = false;
 
+    // biome-ignore lint/suspicious/noExplicitAny: normalizing Node.js stream overloads
+    function normalizeArgs(chunkOrCb?: any, encodingOrCb?: any, cb?: any) {
+      const callback =
+        typeof chunkOrCb === 'function'
+          ? chunkOrCb
+          : typeof encodingOrCb === 'function'
+            ? encodingOrCb
+            : typeof cb === 'function'
+              ? cb
+              : undefined;
+      const chunk = typeof chunkOrCb === 'function' ? undefined : chunkOrCb;
+      const encoding =
+        typeof encodingOrCb === 'string' ? (encodingOrCb as BufferEncoding) : undefined;
+      return { chunk, encoding, callback };
+    }
+
     function trySetup(): boolean {
       if (started) return compressStream !== null;
       started = true;
@@ -146,31 +162,37 @@ export function comprs(options: ComprsOptions = {}) {
 
     // biome-ignore lint/suspicious/noExplicitAny: Express res.write has complex overloads
     res.write = function patchedWrite(chunk: any, ...args: any[]): boolean {
+      const n = normalizeArgs(chunk, args[0], args[1]);
       if (ended) return false;
       if (!started && !trySetup()) {
         // biome-ignore lint/suspicious/noExplicitAny: passing through original args
-        return (originalWrite as any).call(res, chunk, ...args);
+        return (originalWrite as any).call(res, n.chunk, n.encoding, n.callback);
       }
       if (compressStream) {
-        const enc = typeof args[0] === 'string' ? (args[0] as BufferEncoding) : undefined;
-        return enc ? compressStream.write(chunk, enc) : compressStream.write(chunk);
+        return n.encoding
+          ? compressStream.write(n.chunk, n.encoding, n.callback)
+          : compressStream.write(n.chunk, n.callback);
       }
       // biome-ignore lint/suspicious/noExplicitAny: passing through original args
-      return (originalWrite as any).call(res, chunk, ...args);
+      return (originalWrite as any).call(res, n.chunk, n.encoding, n.callback);
     };
 
     // biome-ignore lint/suspicious/noExplicitAny: Express res.end has complex overloads
     res.end = function patchedEnd(chunk?: any, ...args: any[]): ServerResponse {
-      if (ended) return res;
+      const n = normalizeArgs(chunk, args[0], args[1]);
+      if (ended) {
+        n.callback?.();
+        return res;
+      }
       ended = true;
 
-      if (!started && chunk) {
-        const enc = typeof args[0] === 'string' ? (args[0] as BufferEncoding) : 'utf8';
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, enc);
+      if (!started && n.chunk != null) {
+        const enc = n.encoding ?? 'utf8';
+        const buf = Buffer.isBuffer(n.chunk) ? n.chunk : Buffer.from(n.chunk, enc);
         if (buf.length < threshold) {
           ensureVaryHeader(res);
           // biome-ignore lint/suspicious/noExplicitAny: passing through original args
-          return (originalEnd as any).call(res, chunk, ...args);
+          return (originalEnd as any).call(res, n.chunk, n.encoding, n.callback);
         }
         if (!res.getHeader('content-length')) {
           res.setHeader('content-length', buf.length);
@@ -180,21 +202,22 @@ export function comprs(options: ComprsOptions = {}) {
       if (!started && !trySetup()) {
         ensureVaryHeader(res);
         // biome-ignore lint/suspicious/noExplicitAny: passing through original args
-        return (originalEnd as any).call(res, chunk, ...args);
+        return (originalEnd as any).call(res, n.chunk, n.encoding, n.callback);
       }
 
       if (compressStream) {
-        if (chunk) {
-          const enc = typeof args[0] === 'string' ? (args[0] as BufferEncoding) : undefined;
-          enc ? compressStream.end(chunk, enc) : compressStream.end(chunk);
+        if (n.chunk != null) {
+          n.encoding
+            ? compressStream.end(n.chunk, n.encoding, n.callback)
+            : compressStream.end(n.chunk, n.callback);
         } else {
-          compressStream.end();
+          compressStream.end(n.callback);
         }
         return res;
       }
 
       // biome-ignore lint/suspicious/noExplicitAny: passing through original args
-      return (originalEnd as any).call(res, chunk, ...args);
+      return (originalEnd as any).call(res, n.chunk, n.encoding, n.callback);
     };
 
     next();
