@@ -356,15 +356,23 @@ jobs:
 
       - name: Check and publish middleware
         run: |
-          MIDDLEWARE_VERSION=$(node -p "require('./packages/middleware/package.json').version")
-          if npm view "@derodero24/comprs-middleware@${MIDDLEWARE_VERSION}" version 2>/dev/null; then
-            echo "Middleware v${MIDDLEWARE_VERSION} already published, skipping"
-          else
-            echo "Publishing middleware v${MIDDLEWARE_VERSION}"
-            pnpm --filter @derodero24/comprs-middleware build
-            cd packages/middleware
-            npm publish --provenance --access public
+          MW_NAME=$(node -p "require('./packages/middleware/package.json').name")
+          MW_VERSION=$(node -p "require('./packages/middleware/package.json').version")
+
+          # Check publish status (distinguish E404 from other errors)
+          ERR=$(npm view "${MW_NAME}@${MW_VERSION}" version 2>&1) && {
+            echo "${MW_NAME}@${MW_VERSION} already published, skipping"
+            exit 0
+          }
+          if ! echo "$ERR" | grep -q "E404"; then
+            echo "Error checking ${MW_NAME}@${MW_VERSION}: $ERR"
+            exit 1
           fi
+
+          echo "Publishing ${MW_NAME}@${MW_VERSION}"
+          pnpm --filter "${MW_NAME}" build
+          cd packages/middleware
+          npm publish --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
