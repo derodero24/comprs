@@ -658,9 +658,17 @@ npm install @derodero24/comprs @derodero24/comprs-middleware
 ```
 
 ```ts
-import { comprs } from '@derodero24/comprs-middleware/express';  // Express
-import { comprs } from '@derodero24/comprs-middleware/fastify';  // Fastify
-import { comprs } from '@derodero24/comprs-middleware/hono';     // Hono
+// Express
+import { comprs } from '@derodero24/comprs-middleware/express';
+app.use(comprs());
+
+// Fastify
+import { comprs } from '@derodero24/comprs-middleware/fastify';
+app.register(comprs);
+
+// Hono
+import { comprs } from '@derodero24/comprs-middleware/hono';
+app.use(comprs());
 ```
 
 See the [middleware README](packages/middleware/README.md) for full documentation.

@@ -21,6 +21,7 @@ export function isCompressibleType(contentType: string | undefined): boolean {
 /** Append Accept-Encoding to a Vary header value. Returns the new Vary value. */
 export function appendVary(current: string | undefined): string {
   if (!current) return 'Accept-Encoding';
+  if (current.trim() === '*') return '*';
   if (current.toLowerCase().includes('accept-encoding')) return current;
   return `${current}, Accept-Encoding`;
 }

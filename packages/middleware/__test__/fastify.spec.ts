@@ -130,6 +130,12 @@ describe('comprs fastify plugin', () => {
       const res = await rawGet(baseUrl, '/no-transform', 'gzip');
       expect(res.headers['content-encoding']).toBeUndefined();
     });
+
+    it('should not compress when client only accepts identity', async () => {
+      const res = await rawGet(baseUrl, '/text', 'identity');
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.body.toString()).toBe(TEST_BODY);
+    });
   });
 
   describe('headers', () => {

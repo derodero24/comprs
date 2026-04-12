@@ -62,12 +62,18 @@ const plugin: FastifyPluginAsync<ComprsOptions> = async (fastify, options) => {
     if (!encoding) return payload;
     if (shouldSkipHeaders(reply, filter, request)) return payload;
 
-    // Handle stream payloads
+    // Stream payloads: compress on the fly without threshold check (size is unknown).
+    // Content-Length is removed since compressed size differs from original.
     if (payload instanceof Readable) {
       const stream = createCompressTransform(encoding, level);
       reply.header('Content-Encoding', encoding);
       reply.removeHeader('Content-Length');
-      pipeline(payload, stream).catch(() => {});
+      pipeline(payload, stream).catch((err: NodeJS.ErrnoException) => {
+        // Premature close is expected when clients disconnect mid-stream
+        if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+          fastify.log.debug(err, 'comprs: compression pipeline error');
+        }
+      });
       return stream;
     }
 

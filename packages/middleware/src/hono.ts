@@ -26,6 +26,15 @@ function compressBuffer(encoding: Encoding, data: Uint8Array, level?: LevelOptio
   }
 }
 
+function shouldSkip(c: Context, filter?: (c: Context) => boolean): boolean {
+  if (c.res.headers.has('content-encoding')) return true;
+  const cacheControl = c.res.headers.get('cache-control');
+  if (cacheControl?.includes('no-transform')) return true;
+  if (filter && !filter(c)) return true;
+  if (!isCompressibleType(c.res.headers.get('content-type') ?? undefined)) return true;
+  return false;
+}
+
 /**
  * Hono compression middleware.
  *
@@ -60,13 +69,14 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
     c.header('Vary', appendVary(c.res.headers.get('vary') ?? undefined));
 
     if (!encoding) return;
+    if (shouldSkip(c, filter)) return;
 
-    // Skip conditions
-    if (c.res.headers.has('content-encoding')) return;
-    const cacheControl = c.res.headers.get('cache-control');
-    if (cacheControl?.includes('no-transform')) return;
-    if (filter && !filter(c)) return;
-    if (!isCompressibleType(c.res.headers.get('content-type') ?? undefined)) return;
+    // Early threshold check via Content-Length to avoid reading the body
+    const contentLength = c.res.headers.get('content-length');
+    if (contentLength) {
+      const len = Number.parseInt(contentLength, 10);
+      if (Number.isFinite(len) && len < threshold) return;
+    }
 
     // Clone before reading body so we can fall back to original if below threshold
     const cloned = c.res.clone();
@@ -75,10 +85,8 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
 
     if (data.length < threshold) return;
 
-    // Compress
     const compressed = compressBuffer(encoding, data, level);
 
-    // Build new response with compressed body
     const headers = new Headers(c.res.headers);
     headers.set('Content-Encoding', encoding);
     headers.delete('Content-Length');
