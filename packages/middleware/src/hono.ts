@@ -29,7 +29,7 @@ function compressBuffer(encoding: Encoding, data: Uint8Array, level?: LevelOptio
 function shouldSkip(c: Context, filter?: (c: Context) => boolean): boolean {
   if (c.res.headers.has('content-encoding')) return true;
   const cacheControl = c.res.headers.get('cache-control');
-  if (cacheControl?.includes('no-transform')) return true;
+  if (cacheControl?.toLowerCase().includes('no-transform')) return true;
   if (filter && !filter(c)) return true;
   if (!isCompressibleType(c.res.headers.get('content-type') ?? undefined)) return true;
   return false;
@@ -61,13 +61,12 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
   return async (c, next) => {
     await next();
 
+    // Always set Vary, even for HEAD requests
+    c.header('Vary', appendVary(c.res.headers.get('vary') ?? undefined));
+
     if (c.req.method === 'HEAD') return;
 
     const encoding = negotiate(c.req.header('accept-encoding'), encodings);
-
-    // Always set Vary
-    c.header('Vary', appendVary(c.res.headers.get('vary') ?? undefined));
-
     if (!encoding) return;
     if (shouldSkip(c, filter)) return;
 
@@ -78,23 +77,27 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
       if (Number.isFinite(len) && len < threshold) return;
     }
 
-    // Clone before reading body so we can fall back to original if below threshold
-    const cloned = c.res.clone();
-    const body = await cloned.arrayBuffer();
-    const data = new Uint8Array(body);
+    // Clone before reading body so we can fall back to original on error or below threshold
+    try {
+      const cloned = c.res.clone();
+      const body = await cloned.arrayBuffer();
+      const data = new Uint8Array(body);
 
-    if (data.length < threshold) return;
+      if (data.length < threshold) return;
 
-    const compressed = compressBuffer(encoding, data, level);
+      const compressed = compressBuffer(encoding, data, level);
 
-    const headers = new Headers(c.res.headers);
-    headers.set('Content-Encoding', encoding);
-    headers.delete('Content-Length');
+      const headers = new Headers(c.res.headers);
+      headers.set('Content-Encoding', encoding);
+      headers.delete('Content-Length');
 
-    c.res = new Response(compressed, {
-      status: c.res.status,
-      statusText: c.res.statusText,
-      headers,
-    });
+      c.res = new Response(compressed, {
+        status: c.res.status,
+        statusText: c.res.statusText,
+        headers,
+      });
+    } catch {
+      // Compression failed — fall back to original unmodified response
+    }
   };
 }

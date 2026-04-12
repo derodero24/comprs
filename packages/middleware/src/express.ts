@@ -16,7 +16,8 @@ function shouldSkip(
   if (res.getHeader('content-encoding')) return true;
 
   const cacheControl = res.getHeader('cache-control');
-  if (typeof cacheControl === 'string' && cacheControl.includes('no-transform')) return true;
+  if (typeof cacheControl === 'string' && cacheControl.toLowerCase().includes('no-transform'))
+    return true;
 
   if (filter && !filter(req, res)) return true;
 

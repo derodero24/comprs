@@ -16,7 +16,7 @@ function shouldSkipHeaders(
   if (reply.getHeader('content-encoding')) return true;
 
   const cacheControl = reply.getHeader('cache-control') as string | undefined;
-  if (cacheControl?.includes('no-transform')) return true;
+  if (cacheControl?.toLowerCase().includes('no-transform')) return true;
 
   if (filter && !filter(request.raw, reply.raw)) return true;
 
