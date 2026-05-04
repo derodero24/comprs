@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs-darwin-x64",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "cpu": [
     "x64"
   ],
@@ -27,7 +27,7 @@
   "homepage": "https://github.com/derodero24/comprs",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",

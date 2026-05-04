@@ -20,7 +20,8 @@
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "pinDigests": true,
-      "automerge": true
+      "automerge": true,
+      "minimumReleaseAge": "0 days"
     },
     {
       "description": "Group Rust crate updates",

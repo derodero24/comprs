@@ -1,5 +1,12 @@
 # @derodero24/comprs-middleware
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [da8d285]
+  - @derodero24/comprs@2.0.0
+
 ## 0.3.0
 
 ### Minor Changes
