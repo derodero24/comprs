@@ -406,7 +406,7 @@ await pipeline(
 
 | Platform | Backend | Status |
 | --- | --- | --- |
-| Node.js ≥ 20 | Native (napi-rs) | ✅ |
+| Node.js ≥ 22 | Native (napi-rs) | ✅ |
 | Browsers | WASM | ✅ |
 | Deno | WASM | ✅ |
 | Bun | WASM | ✅ |
