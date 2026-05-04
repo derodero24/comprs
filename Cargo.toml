@@ -10,7 +10,7 @@ repository = "https://github.com/derodero24/comprs"
 
 [workspace.dependencies]
 # napi-rs
-napi = { version = "3", default-features = false, features = ["napi6"] }
+napi = { version = "3", default-features = false, features = ["napi9"] }
 napi-build = "2"
 napi-derive = { version = "3", default-features = false, features = ["type-def"] }
 
