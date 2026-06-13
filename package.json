@@ -142,13 +142,13 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
-    "@biomejs/biome": "^2.5.0",
+    "@biomejs/biome": "^2.4.16",
     "@changesets/cli": "^2.31.0",
     "@codspeed/vitest-plugin": "^5.5.0",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
-    "@emnapi/core": "^1.11.1",
-    "@emnapi/runtime": "^1.11.1",
+    "@emnapi/core": "^1.11.0",
+    "@emnapi/runtime": "^1.11.0",
     "@napi-rs/cli": "^3.7.1",
     "@napi-rs/wasm-runtime": "^1.1.5",
     "@playwright/test": "^1.60.0",
@@ -173,6 +173,11 @@
       "allowedVersions": {
         "@codspeed/vitest-plugin>vite": "8"
       }
+    },
+    "overrides": {
+      "emnapi": "1.11.0",
+      "es-toolkit": "1.47.0",
+      "form-data": "4.0.5"
     }
   },
   "publishConfig": {
