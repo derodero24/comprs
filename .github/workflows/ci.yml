@@ -394,8 +394,34 @@ jobs:
         with:
           name: bindings-wasm-bindgen
           path: .
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps chromium
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright browser install attempt ${attempt}/3"
+            # Bound each attempt so a stalled download/extraction is killed and
+            # retried, instead of hanging until the step timeout fires.
+            if timeout 180 pnpm exec playwright install chromium; then
+              exit 0
+            fi
+            echo "Playwright browser install failed or timed out (attempt ${attempt}); retrying..."
+            rm -rf ~/.cache/ms-playwright
+            sleep 5
+          done
+          echo "Playwright browser install failed after 3 attempts"
+          exit 1
       - name: Run browser tests
         run: pnpm run test:browser
 
