@@ -395,7 +395,18 @@ jobs:
           name: bindings-wasm-bindgen
           path: .
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright install attempt ${attempt}/3"
+            if pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Playwright install failed (attempt ${attempt}); retrying..."
+            sleep 5
+          done
+          echo "Playwright install failed after 3 attempts"
+          exit 1
       - name: Run browser tests
         run: pnpm run test:browser
 
