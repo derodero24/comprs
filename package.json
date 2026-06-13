@@ -108,7 +108,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@11.6.0",
   "scripts": {
     "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
@@ -164,21 +164,6 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "lefthook"
-    ],
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "@codspeed/vitest-plugin>vite": "8"
-      }
-    },
-    "overrides": {
-      "emnapi": "1.11.0",
-      "es-toolkit": "1.47.0",
-      "form-data": "4.0.5"
-    }
   },
   "publishConfig": {
     "access": "public",
