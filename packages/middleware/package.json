@@ -68,7 +68,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@derodero24/comprs": "^2.0.0",
+    "@derodero24/comprs": "^2.0.1",
     "express": "^4.21.0 || ^5.0.0",
     "fastify": "^5.0.0",
     "hono": "^4.0.0"
@@ -89,7 +89,7 @@
     "@types/express": "^5.0.0",
     "express": "^5.1.0",
     "fastify": "^5.0.0",
-    "hono": "^4.0.0",
+    "hono": "^4.12.25",
     "typescript": "^6.0.0",
     "vitest": "^4.1.0"
   },

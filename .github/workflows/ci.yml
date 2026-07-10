@@ -70,13 +70,13 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -96,8 +96,8 @@ jobs:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
@@ -106,15 +106,15 @@ jobs:
       - name: Audit npm dependencies
         run: pnpm audit --prod
       - name: Audit Rust dependencies
-        uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2
+        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
       - name: Install cargo-audit
-        uses: taiki-e/install-action@db5fb34fa772531a3ece57ca434f579eb334e0fb # v2
+        uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: cargo-audit
       - name: Run cargo audit
         run: cargo audit
       - name: Install cargo-shear
-        uses: taiki-e/install-action@db5fb34fa772531a3ece57ca434f579eb334e0fb # v2
+        uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: cargo-shear
       - name: Detect unused dependencies
@@ -124,8 +124,8 @@ jobs:
     name: Rust Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -137,8 +137,8 @@ jobs:
     name: Rust Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -171,13 +171,13 @@ jobs:
             target: wasm32-wasip1-threads
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
@@ -286,13 +286,13 @@ jobs:
     name: Build - wasm-bindgen
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -333,8 +333,8 @@ jobs:
           - os: windows-latest
             artifact: bindings-x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ matrix.node }}
@@ -357,8 +357,8 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
@@ -382,8 +382,8 @@ jobs:
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
@@ -394,8 +394,34 @@ jobs:
         with:
           name: bindings-wasm-bindgen
           path: .
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps chromium
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright browser install attempt ${attempt}/3"
+            # Bound each attempt so a stalled download/extraction is killed and
+            # retried, instead of hanging until the step timeout fires.
+            if timeout 180 pnpm exec playwright install chromium; then
+              exit 0
+            fi
+            echo "Playwright browser install failed or timed out (attempt ${attempt}); retrying..."
+            rm -rf ~/.cache/ms-playwright
+            sleep 5
+          done
+          echo "Playwright browser install failed after 3 attempts"
+          exit 1
       - name: Run browser tests
         run: pnpm run test:browser
 
@@ -404,13 +430,13 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
       - run: pnpm install --frozen-lockfile
@@ -427,8 +453,8 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
@@ -448,22 +474,22 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       # Rust coverage
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: taiki-e/install-action@db5fb34fa772531a3ece57ca434f579eb334e0fb # v2
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: cargo-llvm-cov
       - name: Rust coverage
         run: cargo llvm-cov --lcov --output-path rust-lcov.info
 
       # JS coverage
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .nvmrc
@@ -479,7 +505,7 @@ jobs:
 
       # Upload to Codecov
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: rust-lcov.info,coverage/lcov.info
           flags: rust,javascript

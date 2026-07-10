@@ -1,3 +1,13 @@
 packages:
   - '.'
   - 'packages/*'
+allowBuilds:
+  lefthook: true
+peerDependencyRules:
+  allowedVersions:
+    '@codspeed/vitest-plugin>vite': '8'
+overrides:
+  emnapi: 1.11.2
+  es-toolkit: 1.47.0
+  form-data: 4.0.5
+  obug: 2.1.2

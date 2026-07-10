@@ -1,5 +1,23 @@
 # comprs
 
+## 2.0.1
+
+### Patch Changes
+
+- aa90292: Regenerate the napi-rs loader with `@napi-rs/cli` 3.7.2. The generated
+  `index.js` drops the `node:` import prefix and optional chaining (`?.`) from
+  its native-binding loader, improving compatibility with older Node.js
+  versions and bundlers that don't support these syntax forms.
+- 5099f17: Regenerate the napi-rs loader with `@napi-rs/cli` 3.7. The generated
+  `index.js` now treats `NAPI_RS_FORCE_WASI` as a tri-state flag: only `'true'`
+  or `'error'` force the WASI fallback, so values like `NAPI_RS_FORCE_WASI=false`
+  or `=0` no longer inadvertently trigger the WASI path (which could fail with
+  ENOENT for packages shipped without a `.wasi.cjs` file).
+- 3f50b0a: Update Rust crate dependencies to their latest semver-compatible versions
+  (brotli, lz4_flex, napi/napi-derive/napi-build, wasm-bindgen, js-sys,
+  criterion, and transitive crates). These compile into the published native
+  binary and WASM build.
+
 ## 2.0.0
 
 ### Major Changes
