@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  emnapi: 1.11.0
+  emnapi: 1.11.2
   es-toolkit: 1.47.0
   form-data: 4.0.5
   obug: 2.1.2
@@ -1636,8 +1636,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  emnapi@1.11.0:
-    resolution: {integrity: sha512-3+AyVLAzk2jr9FPnCT9fgU4/gGoHrB3MpYxqNG6JdmkWmFPpKAhArQgfK/WEiT9kExX2ecXVA6DoPceDShR47g==}
+  emnapi@1.11.2:
+    resolution: {integrity: sha512-iMt/XQc69fFn2EvcU6tm14HmXKwyy0lnABugsQlqp6xFuZIUuO+ONVSg2mz+MTVF8WbC+bic65AvRXdoldALKg==}
     peerDependencies:
       node-addon-api: '>= 6.1.0'
     peerDependenciesMeta:
@@ -3578,7 +3578,7 @@ snapshots:
       '@octokit/rest': 22.0.1
       clipanion: 4.0.0-rc.4(typanion@3.14.0)
       colorette: 2.0.20
-      emnapi: 1.11.0
+      emnapi: 1.11.2
       es-toolkit: 1.47.0
       js-yaml: 4.2.0
       obug: 2.1.2
@@ -4494,7 +4494,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  emnapi@1.11.0: {}
+  emnapi@1.11.2: {}
 
   emoji-regex@10.6.0: {}
 
