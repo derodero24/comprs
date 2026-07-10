@@ -29,6 +29,11 @@
       "groupName": "rust-dependencies"
     },
     {
+      "description": "Group emnapi family updates (napi-rs's WASI build requires them to stay version-locked)",
+      "matchPackageNames": ["emnapi", "@emnapi/core", "@emnapi/runtime"],
+      "groupName": "emnapi"
+    },
+    {
       "description": "Automerge non-major Rust crate updates",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
