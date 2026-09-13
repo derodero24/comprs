@@ -6,7 +6,7 @@ settings:
 
 overrides:
   emnapi: 1.11.2
-  es-toolkit: 1.47.0
+  es-toolkit: 1.52.0
   form-data: 4.0.5
   obug: 2.1.2
 
@@ -1656,8 +1656,8 @@ packages:
     resolution: {integrity: sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA==}
     engines: {node: '>= 0.4'}
 
-  es-toolkit@1.47.0:
-    resolution: {integrity: sha512-n1GuoD0WEQZMBk5tttoZSqwgyLx01oqa5XsBmCHwPyNe1S9jPBEmtR2pSgp2kJuWE3ciFZ6yRHmY4pM4C3OOkw==}
+  es-toolkit@1.52.0:
+    resolution: {integrity: sha512-XTNEJQh1tY1ZJVcf6ayP/2n4ZPyaHlW2FWs7xvw5ddPuhUVjLD3olQVQS7kf58JbAB48iL0uL/jerTrjtV3lDA==}
 
   escalade@3.2.0:
     resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
@@ -3188,7 +3188,7 @@ snapshots:
   '@commitlint/ensure@21.0.1':
     dependencies:
       '@commitlint/types': 21.0.1
-      es-toolkit: 1.47.0
+      es-toolkit: 1.52.0
 
   '@commitlint/execute-rule@21.0.1': {}
 
@@ -3217,7 +3217,7 @@ snapshots:
       '@commitlint/types': 21.0.1
       cosmiconfig: 9.0.2(typescript@6.0.3)
       cosmiconfig-typescript-loader: 6.3.0(@types/node@24.13.2)(cosmiconfig@9.0.2(typescript@6.0.3))(typescript@6.0.3)
-      es-toolkit: 1.47.0
+      es-toolkit: 1.52.0
       is-plain-obj: 4.1.0
       picocolors: 1.1.1
     transitivePeerDependencies:
@@ -3246,7 +3246,7 @@ snapshots:
     dependencies:
       '@commitlint/config-validator': 21.0.1
       '@commitlint/types': 21.0.1
-      es-toolkit: 1.47.0
+      es-toolkit: 1.52.0
       global-directory: 5.0.0
       resolve-from: 5.0.0
 
@@ -3503,7 +3503,7 @@ snapshots:
       clipanion: 4.0.0-rc.4(typanion@3.14.0)
       colorette: 2.0.20
       emnapi: 1.11.2
-      es-toolkit: 1.47.0
+      es-toolkit: 1.52.0
       js-yaml: 4.3.0
       obug: 2.1.2
       semver: 7.8.5
@@ -4412,7 +4412,7 @@ snapshots:
       has-tostringtag: 1.0.2
       hasown: 2.0.4
 
-  es-toolkit@1.47.0: {}
+  es-toolkit@1.52.0: {}
 
   escalade@3.2.0: {}
 
