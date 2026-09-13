@@ -21,7 +21,7 @@ pre-push:
     test:
       run: pnpm test
     clippy:
-      run: $HOME/.cargo/bin/cargo clippy -- -W clippy::all
+      run: $HOME/.cargo/bin/cargo clippy --all-targets -- -W clippy::all
     cargo-test:
       run: $HOME/.cargo/bin/cargo test
     cargo-deny:
