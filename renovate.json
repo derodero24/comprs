@@ -5,6 +5,8 @@
   "schedule": ["at any time"],
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "rebaseWhen": "conflicted",
   "lockFileMaintenance": {
     "enabled": false
   },
