@@ -136,7 +136,7 @@
     "bench:ci": "vitest bench --exclude '**/*.compare.bench.ts'",
     "attw": "attw --pack .",
     "publint": "publint",
-    "verify": "pnpm run check && cargo clippy -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
+    "verify": "pnpm run check && cargo clippy --all-targets -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
     "clean": "rm -rf target coverage *.node *.wasm",
     "prepare": "lefthook install"
   },

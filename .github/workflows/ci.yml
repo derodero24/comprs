@@ -131,7 +131,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
-      - run: cargo clippy -- -W clippy::all
+      - run: cargo clippy --all-targets -- -W clippy::all
 
   rust-test:
     name: Rust Test
