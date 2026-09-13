@@ -337,20 +337,20 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 | Function | Description |
 | --- | --- |
 | `createZstdCompressStream(level?)` | Create a zstd compression `TransformStream` |
-| `createZstdDecompressStream()` | Create a zstd decompression `TransformStream` |
+| `createZstdDecompressStream(maxOutputSize?)` | Create a zstd decompression `TransformStream` |
 | `createGzipCompressStream(level?)` | Create a gzip compression `TransformStream` |
-| `createGzipDecompressStream()` | Create a gzip decompression `TransformStream` |
+| `createGzipDecompressStream(maxOutputSize?)` | Create a gzip decompression `TransformStream` |
 | `createDeflateCompressStream(level?)` | Create a raw deflate compression `TransformStream` |
-| `createDeflateDecompressStream()` | Create a raw deflate decompression `TransformStream` |
+| `createDeflateDecompressStream(maxOutputSize?)` | Create a raw deflate decompression `TransformStream` |
 | `createBrotliCompressStream(quality?)` | Create a brotli compression `TransformStream` |
-| `createBrotliDecompressStream()` | Create a brotli decompression `TransformStream` |
+| `createBrotliDecompressStream(maxOutputSize?)` | Create a brotli decompression `TransformStream` |
 | `createLz4CompressStream()` | Create an LZ4 compression `TransformStream` |
 | `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
 | `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
-| `createZstdDecompressDictStream(dict)` | Streaming zstd decompression with dictionary |
+| `createZstdDecompressDictStream(dict, maxOutputSize?)` | Streaming zstd decompression with dictionary |
 | `createBrotliCompressDictStream(dict, quality?)` | Streaming brotli compression with dictionary |
-| `createBrotliDecompressDictStream(dict)` | Streaming brotli decompression with dictionary |
-| `createDecompressStream()` | Auto-detect format and create a decompression `TransformStream` |
+| `createBrotliDecompressDictStream(dict, maxOutputSize?)` | Streaming brotli decompression with dictionary |
+| `createDecompressStream(maxOutputSize?)` | Auto-detect format and create a decompression `TransformStream` |
 
 </details>
 
@@ -376,20 +376,20 @@ await pipeline(
 | Function | Description |
 | --- | --- |
 | `createZstdCompressTransform(level?)` | Node.js Transform for zstd compression |
-| `createZstdDecompressTransform()` | Node.js Transform for zstd decompression |
+| `createZstdDecompressTransform(maxOutputSize?)` | Node.js Transform for zstd decompression |
 | `createGzipCompressTransform(level?)` | Node.js Transform for gzip compression |
-| `createGzipDecompressTransform()` | Node.js Transform for gzip decompression |
+| `createGzipDecompressTransform(maxOutputSize?)` | Node.js Transform for gzip decompression |
 | `createDeflateCompressTransform(level?)` | Node.js Transform for deflate compression |
-| `createDeflateDecompressTransform()` | Node.js Transform for deflate decompression |
+| `createDeflateDecompressTransform(maxOutputSize?)` | Node.js Transform for deflate decompression |
 | `createBrotliCompressTransform(quality?)` | Node.js Transform for brotli compression |
-| `createBrotliDecompressTransform()` | Node.js Transform for brotli decompression |
+| `createBrotliDecompressTransform(maxOutputSize?)` | Node.js Transform for brotli decompression |
 | `createLz4CompressTransform()` | Node.js Transform for LZ4 compression |
 | `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
 | `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
-| `createZstdDecompressDictTransform(dict)` | Node.js Transform for zstd dict decompression |
+| `createZstdDecompressDictTransform(dict, maxOutputSize?)` | Node.js Transform for zstd dict decompression |
 | `createBrotliCompressDictTransform(dict, quality?)` | Node.js Transform for brotli dict compression |
-| `createBrotliDecompressDictTransform(dict)` | Node.js Transform for brotli dict decompression |
-| `createDecompressTransform()` | Auto-detect format and create a decompression Transform |
+| `createBrotliDecompressDictTransform(dict, maxOutputSize?)` | Node.js Transform for brotli dict decompression |
+| `createDecompressTransform(maxOutputSize?)` | Auto-detect format and create a decompression Transform |
 
 </details>
 
@@ -409,7 +409,7 @@ await pipeline(
 | Node.js ≥ 22 | Native (napi-rs) | ✅ |
 | Browsers | WASM | ✅ |
 | Deno | WASM | ✅ |
-| Bun | WASM | ✅ |
+| Bun | Native (napi-rs) | ✅ |
 
 ### Build targets
 
