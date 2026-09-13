@@ -8,9 +8,7 @@ on:
       - '**/*.js'
       - '**/*.json'
       - '**/*.rs'
-      - 'pnpm-lock.yaml'
       - '**/Cargo.toml'
-      - '**/Cargo.lock'
       - '.github/workflows/codeql.yml'
       - '.github/codeql/**'
   pull_request:
@@ -20,9 +18,7 @@ on:
       - '**/*.js'
       - '**/*.json'
       - '**/*.rs'
-      - 'pnpm-lock.yaml'
       - '**/Cargo.toml'
-      - '**/Cargo.lock'
       - '.github/workflows/codeql.yml'
       - '.github/codeql/**'
   schedule:
