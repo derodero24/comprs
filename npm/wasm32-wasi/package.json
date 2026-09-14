@@ -8,6 +8,7 @@
   "files": [
     "comprs.wasm32-wasi.wasm",
     "comprs.wasi.cjs",
+    "comprs.wasi.d.cts",
     "comprs.wasi-browser.js",
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
