@@ -1,0 +1,4 @@
+# Make the playground its own pnpm root. Without this, pnpm 12 walks up to the
+# repository workspace and cannot resolve the file:.. dependency (issue #522).
+packages:
+  - '.'
