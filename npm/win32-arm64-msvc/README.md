@@ -1,3 +1,3 @@
-# `comprs-win32-arm64-msvc`
+# `@derodero24/comprs-win32-arm64-msvc`
 
-This is the **aarch64-pc-windows-msvc** binary for `comprs`
+This is the **aarch64-pc-windows-msvc** binary for `@derodero24/comprs`

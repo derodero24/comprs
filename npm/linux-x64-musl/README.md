@@ -1,3 +1,3 @@
-# `comprs-linux-x64-musl`
+# `@derodero24/comprs-linux-x64-musl`
 
-This is the **x86_64-unknown-linux-musl** binary for `comprs`
+This is the **x86_64-unknown-linux-musl** binary for `@derodero24/comprs`

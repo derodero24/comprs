@@ -10,18 +10,23 @@
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [
+    "compress",
     "compression",
+    "decompress",
     "zstd",
     "zstandard",
     "gzip",
     "brotli",
     "deflate",
-    "decompress",
+    "lz4",
     "wasm",
+    "wasm-bindgen",
     "rust",
     "napi-rs",
+    "native",
     "typescript",
-    "streaming"
+    "streaming",
+    "web-streams"
   ],
   "author": "derodero24",
   "homepage": "https://github.com/derodero24/comprs",
@@ -33,14 +38,17 @@
     "type": "git",
     "url": "git+https://github.com/derodero24/comprs.git"
   },
+  "bugs": {
+    "url": "https://github.com/derodero24/comprs/issues"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "os": [
     "linux"
   ],
   "libc": [
     "musl"
-  ],
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  }
+  ]
 }

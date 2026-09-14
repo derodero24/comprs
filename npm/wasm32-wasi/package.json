@@ -1,9 +1,6 @@
 {
   "name": "@derodero24/comprs-wasm32-wasi",
   "version": "2.0.2",
-  "cpu": [
-    "wasm32"
-  ],
   "main": "comprs.wasi.cjs",
   "files": [
     "comprs.wasm32-wasi.wasm",
@@ -15,35 +12,47 @@
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [
+    "compress",
     "compression",
+    "decompress",
     "zstd",
     "zstandard",
     "gzip",
     "brotli",
     "deflate",
-    "decompress",
+    "lz4",
     "wasm",
+    "wasm-bindgen",
     "rust",
     "napi-rs",
+    "native",
     "typescript",
-    "streaming"
+    "streaming",
+    "web-streams"
   ],
   "author": "derodero24",
   "homepage": "https://github.com/derodero24/comprs",
   "license": "MIT",
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=22.13.0 <23.0.0-0 || >=23.5.0"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/derodero24/comprs.git"
   },
-  "browser": "comprs.wasi-browser.js",
-  "dependencies": {
-    "@napi-rs/wasm-runtime": "^1.1.1"
+  "bugs": {
+    "url": "https://github.com/derodero24/comprs/issues"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "types": "comprs.wasi.d.cts",
+  "browser": "comprs.wasi-browser.js",
+  "type": "module",
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "~1.2.4",
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3"
   }
 }
