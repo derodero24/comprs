@@ -225,6 +225,7 @@ jobs:
             comprs.*.node
             comprs.*.wasm
             comprs.wasi*.cjs
+            comprs.wasi*.d.cts
             comprs.wasi*.js
             wasi-worker*.mjs
           if-no-files-found: error
