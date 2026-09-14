@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { deflateRawSync as nodeDeflate, inflateRawSync as nodeInflate } from 'node:zlib';
 import { deflateSync, inflateSync } from 'fflate';
-import pako from 'pako';
+import * as pako from 'pako';
 import { bench, describe } from 'vitest';
 import { deflateCompress, deflateDecompress } from '../index.js';
 
