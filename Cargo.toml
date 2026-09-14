@@ -10,9 +10,13 @@ repository = "https://github.com/derodero24/comprs"
 
 [workspace.dependencies]
 # napi-rs
-napi = { version = "3", default-features = false, features = ["napi9"] }
-napi-build = "2"
-napi-derive = { version = "3", default-features = false, features = ["type-def"] }
+# napi 3.12 / napi-derive 3.6 / napi-build 2.4 export emnapi_create_env and
+# emnapi_delete_env for the WASI target, which only @emnapi/core 2 (still
+# alpha) provides, and the three crates only compile as a matched set. Pin the
+# last set that links against emnapi 1 until emnapi 2 is stable (issue #518).
+napi = { version = "=3.9.1", default-features = false, features = ["napi9"] }
+napi-build = "=2.3.2"
+napi-derive = { version = "=3.5.6", default-features = false, features = ["type-def"] }
 
 # Compression
 brotli = { version = "8", default-features = false, features = ["std"] }
