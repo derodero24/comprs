@@ -209,6 +209,7 @@ jobs:
         run: |
           export CFLAGS_wasm32_wasip1_threads="--sysroot=${WASI_SYSROOT}"
           pnpm run build --target wasm32-wasip1-threads
+          node scripts/patch-wasi-browser-js.js
 
       - name: Optimize WASM with wasm-opt
         if: matrix.settings.target == 'wasm32-wasip1-threads'

@@ -108,12 +108,12 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "pnpm@11.6.0",
+  "packageManager": "pnpm@11.26.0",
   "scripts": {
     "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
     "build:wasm": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir . --target wasm32-wasip1-threads",
-    "postbuild:wasm": "node scripts/optimize-wasm.js",
+    "postbuild:wasm": "node scripts/patch-wasi-browser-js.js && node scripts/optimize-wasm.js",
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
