@@ -161,7 +161,7 @@
     "lefthook": "^2.1.9",
     "pako": "^3.0.0",
     "publint": "^0.3.21",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   },
