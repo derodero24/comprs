@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "comprs"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "comprs-core",
  "napi",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "comprs-core"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "brotli",
  "crc32fast",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "comprs-wasm"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "comprs-core",
  "js-sys",
