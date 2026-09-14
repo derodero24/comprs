@@ -28,6 +28,12 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Hold the napi crates on the emnapi 1 compatible line until emnapi 2 is stable (issue #518)",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["napi", "napi-derive", "napi-build"],
+      "enabled": false
+    },
+    {
       "description": "Group Rust crate updates",
       "matchManagers": ["cargo"],
       "groupName": "rust-dependencies"
