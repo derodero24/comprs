@@ -11,7 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 zstd = { version = "0.14", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-brotli = "8"
+brotli = "9"
 
 # Prevent this from interfering with workspace members
 [workspace]
