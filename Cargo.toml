@@ -19,7 +19,7 @@ napi-build = "=2.3.2"
 napi-derive = { version = "=3.5.6", default-features = false, features = ["type-def"] }
 
 # Compression
-brotli = { version = "8", default-features = false, features = ["std"] }
+brotli = { version = "9", default-features = false, features = ["std"] }
 zstd = { version = "0.14", default-features = false, features = ["zdict_builder"] }
 # flate2 1.1.10 makes gzip decompression ~3-4x and gzip/deflate compression
 # ~1.5-2x slower with the zlib-rs backend (see issue #509). Keep 1.1.9 until
