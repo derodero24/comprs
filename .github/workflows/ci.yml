@@ -66,11 +66,77 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect native changes
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+      build_settings: ${{ steps.filter.outputs.build_settings }}
+      test_matrix: ${{ steps.filter.outputs.test_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Decide which build and test matrix to run
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          # Pushes to develop always run the full matrix. Pull requests run it
+          # only when something that ends up in the native binary changed;
+          # JS-only or lockfile-only PRs build and test on Linux alone.
+          native=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+              | grep -qE '^(crates/|npm/|scripts/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/ci\.yml$)'; then
+              native=false
+            fi
+          fi
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+          if [ "$native" = "true" ]; then
+            build_settings='[
+              {"host":"macos-latest","target":"x86_64-apple-darwin"},
+              {"host":"macos-latest","target":"aarch64-apple-darwin"},
+              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-musl"},
+              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-gnu"},
+              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-musl"},
+              {"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
+              {"host":"windows-latest","target":"aarch64-pc-windows-msvc"},
+              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
+            ]'
+            test_matrix='{
+              "node":[22,24],
+              "os":["ubuntu-latest","macos-latest","windows-latest"],
+              "include":[
+                {"os":"ubuntu-latest","artifact":"bindings-x86_64-unknown-linux-gnu"},
+                {"os":"macos-latest","artifact":"bindings-aarch64-apple-darwin"},
+                {"os":"windows-latest","artifact":"bindings-x86_64-pc-windows-msvc"}
+              ]
+            }'
+          else
+            build_settings='[
+              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
+            ]'
+            test_matrix='{
+              "node":[22,24],
+              "os":["ubuntu-latest"],
+              "include":[
+                {"os":"ubuntu-latest","artifact":"bindings-x86_64-unknown-linux-gnu"}
+              ]
+            }'
+          fi
+          echo "build_settings=$(echo "$build_settings" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "test_matrix=$(echo "$test_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "native=$native"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -96,7 +162,7 @@ jobs:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -124,20 +190,20 @@ jobs:
     name: Rust Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
-      - run: cargo clippy -- -W clippy::all
+      - run: cargo clippy --all-targets -- -W clippy::all
 
   rust-test:
     name: Rust Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
@@ -146,32 +212,17 @@ jobs:
 
   build:
     name: Build - ${{ matrix.settings.target }}
+    needs: [changes]
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
       matrix:
-        settings:
-          - host: macos-latest
-            target: x86_64-apple-darwin
-          - host: macos-latest
-            target: aarch64-apple-darwin
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
-          - host: windows-latest
-            target: aarch64-pc-windows-msvc
-          - host: ubuntu-latest
-            target: wasm32-wasip1-threads
+        # Full target list on pushes and native changes; Linux + WASI only
+        # for JS/lockfile-only pull requests (see the `changes` job).
+        settings: ${{ fromJSON(needs.changes.outputs.build_settings) }}
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -286,7 +337,7 @@ jobs:
     name: Build - wasm-bindgen
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -318,22 +369,15 @@ jobs:
 
   test:
     name: Test - Node ${{ matrix.node }} / ${{ matrix.os }}
-    needs: [build]
+    needs: [changes, build]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        node: [22, 24]
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            artifact: bindings-x86_64-unknown-linux-gnu
-          - os: macos-latest
-            artifact: bindings-aarch64-apple-darwin
-          - os: windows-latest
-            artifact: bindings-x86_64-pc-windows-msvc
+      # 3 OS x 2 Node on pushes and native changes; Ubuntu x 2 Node otherwise
+      # (see the `changes` job).
+      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -357,7 +401,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -382,7 +426,7 @@ jobs:
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -399,7 +443,7 @@ jobs:
         run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
@@ -430,7 +474,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -453,7 +497,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -474,7 +518,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Rust coverage
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
