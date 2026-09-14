@@ -15,6 +15,10 @@ allow = [
 
 [bans]
 multiple-versions = "deny"
+# thiserror-impl and wasm-bindgen moved to syn 3 while napi-derive, serde_derive
+# and futures-macro still use syn 2. Both are proc-macro-only crates, so the
+# duplicate does not reach the published binary. Drop once the rest catch up.
+skip = [{ name = "syn", version = "2" }]
 
 [sources]
 unknown-registry = "deny"

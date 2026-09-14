@@ -10,15 +10,22 @@ repository = "https://github.com/derodero24/comprs"
 
 [workspace.dependencies]
 # napi-rs
-napi = { version = "3", default-features = false, features = ["napi9"] }
-napi-build = "2"
-napi-derive = { version = "3", default-features = false, features = ["type-def"] }
+# napi 3.12 / napi-derive 3.6 / napi-build 2.4 export emnapi_create_env and
+# emnapi_delete_env for the WASI target, which only @emnapi/core 2 (still
+# alpha) provides, and the three crates only compile as a matched set. Pin the
+# last set that links against emnapi 1 until emnapi 2 is stable (issue #518).
+napi = { version = "=3.9.1", default-features = false, features = ["napi9"] }
+napi-build = "=2.3.2"
+napi-derive = { version = "=3.5.6", default-features = false, features = ["type-def"] }
 
 # Compression
-brotli = { version = "8", default-features = false, features = ["std"] }
-zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
-flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-lz4_flex = { version = "0.13", default-features = false, features = ["std", "frame"] }
+brotli = { version = "9", default-features = false, features = ["std"] }
+zstd = { version = "0.14", default-features = false, features = ["zdict_builder"] }
+# flate2 1.1.10 makes gzip decompression ~3-4x and gzip/deflate compression
+# ~1.5-2x slower with the zlib-rs backend (see issue #509). Keep 1.1.9 until
+# upstream resolves it.
+flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 
 # Utilities
 crc32fast = "1"

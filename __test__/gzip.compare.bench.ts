@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { gunzipSync as nodeGunzip, gzipSync as nodeGzip } from 'node:zlib';
 import { decompressSync, gzipSync } from 'fflate';
-import pako from 'pako';
+import * as pako from 'pako';
 import { bench, describe } from 'vitest';
 import { gzipCompress, gzipDecompress } from '../index.js';
 

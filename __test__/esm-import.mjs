@@ -1,6 +1,8 @@
 import assert from 'node:assert';
 import {
+  BrotliCompressContext,
   BrotliCompressDictContext,
+  BrotliDecompressContext,
   BrotliDecompressDictContext,
   brotliCompress,
   brotliCompressAsync,
@@ -13,6 +15,8 @@ import {
   brotliDecompressWithDict,
   brotliDecompressWithDictAsync,
   brotliDecompressWithDictWithCapacity,
+  brotliDecompressWithDictWithCapacityAsync,
+  CompressionFormat,
   crc32,
   createBrotliCompressDictStream,
   createBrotliCompressStream,
@@ -29,6 +33,8 @@ import {
   createZstdCompressStream,
   createZstdDecompressDictStream,
   createZstdDecompressStream,
+  DeflateCompressContext,
+  DeflateDecompressContext,
   decompress,
   decompressAsync,
   deflateCompress,
@@ -38,6 +44,8 @@ import {
   deflateDecompressWithCapacity,
   deflateDecompressWithCapacityAsync,
   detectFormat,
+  GzipCompressContext,
+  GzipDecompressContext,
   gzipCompress,
   gzipCompressAsync,
   gzipCompressWithHeader,
@@ -46,6 +54,8 @@ import {
   gzipDecompressWithCapacity,
   gzipDecompressWithCapacityAsync,
   gzipReadHeader,
+  Lz4CompressContext,
+  Lz4DecompressContext,
   lz4Compress,
   lz4CompressAsync,
   lz4Decompress,
@@ -53,6 +63,10 @@ import {
   lz4DecompressWithCapacity,
   lz4DecompressWithCapacityAsync,
   version,
+  ZstdCompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
   zstdCompress,
   zstdCompressAsync,
   zstdCompressWithDict,
@@ -68,6 +82,8 @@ import {
   zstdTrainDictionary,
   zstdTrainDictionaryAsync,
 } from '../index.mjs';
+import * as nodeStreams from '../node.js';
+import * as webStreams from '../streams.js';
 
 assert.strictEqual(typeof version, 'function', 'version should be a function');
 assert.strictEqual(typeof zstdCompress, 'function', 'zstdCompress should be a function');
@@ -334,6 +350,63 @@ const input = Buffer.from('ESM smoke test');
 const compressed = zstdCompress(input);
 const decompressed = zstdDecompress(compressed);
 assert.deepStrictEqual(decompressed, input, 'zstd round-trip should produce identical output');
+
+assert.strictEqual(
+  typeof brotliDecompressWithDictWithCapacityAsync,
+  'function',
+  'brotliDecompressWithDictWithCapacityAsync should be a function',
+);
+
+// Streaming context classes and the CompressionFormat enum
+const contextClasses = {
+  BrotliCompressContext,
+  BrotliDecompressContext,
+  DeflateCompressContext,
+  DeflateDecompressContext,
+  GzipCompressContext,
+  GzipDecompressContext,
+  Lz4CompressContext,
+  Lz4DecompressContext,
+  ZstdCompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
+};
+for (const [name, value] of Object.entries(contextClasses)) {
+  assert.strictEqual(typeof value, 'function', `${name} should be a function`);
+}
+assert.strictEqual(typeof CompressionFormat, 'object', 'CompressionFormat should be an object');
+assert.strictEqual(CompressionFormat.Zstd, 'zstd', 'CompressionFormat.Zstd should be "zstd"');
+
+// Subpath entries must be importable from ESM and expose every helper
+const streamHelpers = [
+  'createZstdCompressStream',
+  'createZstdDecompressStream',
+  'createGzipCompressStream',
+  'createGzipDecompressStream',
+  'createDeflateCompressStream',
+  'createDeflateDecompressStream',
+  'createBrotliCompressStream',
+  'createBrotliDecompressStream',
+  'createLz4CompressStream',
+  'createLz4DecompressStream',
+  'createZstdCompressDictStream',
+  'createZstdDecompressDictStream',
+  'createBrotliCompressDictStream',
+  'createBrotliDecompressDictStream',
+  'createDecompressStream',
+];
+const webStreamExports = { ...webStreams };
+const nodeStreamExports = { ...nodeStreams };
+for (const name of streamHelpers) {
+  assert.strictEqual(typeof webStreamExports[name], 'function', `streams.js should export ${name}`);
+  const transformName = name.replace(/Stream$/, 'Transform');
+  assert.strictEqual(
+    typeof nodeStreamExports[transformName],
+    'function',
+    `node.js should export ${transformName}`,
+  );
+}
 
 // Gzip round-trip test
 const gzCompressed = gzipCompress(input);

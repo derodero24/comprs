@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "license": "MIT",
   "author": "derodero24",
@@ -108,12 +108,12 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "pnpm@11.6.0",
+  "packageManager": "pnpm@12.4.1",
   "scripts": {
     "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
     "build:wasm": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir . --target wasm32-wasip1-threads",
-    "postbuild:wasm": "node scripts/optimize-wasm.js",
+    "postbuild:wasm": "node scripts/patch-wasi-browser-js.js && node scripts/optimize-wasm.js",
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
@@ -136,14 +136,14 @@
     "bench:ci": "vitest bench --exclude '**/*.compare.bench.ts'",
     "attw": "attw --pack .",
     "publint": "publint",
-    "verify": "pnpm run check && cargo clippy -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
+    "verify": "pnpm run check && cargo clippy --all-targets -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
     "clean": "rm -rf target coverage *.node *.wasm",
     "prepare": "lefthook install"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
     "@biomejs/biome": "^2.4.16",
-    "@changesets/cli": "^2.31.0",
+    "@changesets/cli": "^3.0.0",
     "@codspeed/vitest-plugin": "^5.5.0",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
@@ -154,14 +154,13 @@
     "@playwright/test": "^1.60.0",
     "@tybys/wasm-util": "^0.10.2",
     "@types/node": "^24.13.2",
-    "@types/pako": "^2.0.4",
     "@vitest/coverage-v8": "^4.1.8",
     "buffer": "^6.0.3",
     "fflate": "^0.8.3",
     "lefthook": "^2.1.9",
-    "pako": "^2.1.0",
+    "pako": "^3.0.0",
     "publint": "^0.3.21",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   },

@@ -5,33 +5,38 @@
   "schedule": ["at any time"],
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "rebaseWhen": "conflicted",
   "lockFileMaintenance": {
     "enabled": false
   },
   "packageRules": [
     {
-      "description": "Automerge non-major devDependency updates",
-      "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "description": "Group and automerge non-major npm updates (devDependencies, pnpm overrides, packageManager)",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "npm dependencies (non-major)",
       "automerge": true
     },
     {
-      "description": "Pin GitHub Actions digests and automerge non-major updates",
+      "description": "Pin GitHub Actions digests; group and automerge non-major updates",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "github-actions (non-major)",
       "pinDigests": true,
       "automerge": true,
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Hold the napi crates on the emnapi 1 compatible line until emnapi 2 is stable (issue #518)",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["napi", "napi-derive", "napi-build"],
+      "enabled": false
+    },
+    {
       "description": "Group Rust crate updates",
       "matchManagers": ["cargo"],
       "groupName": "rust-dependencies"
-    },
-    {
-      "description": "Group emnapi family updates (napi-rs's WASI build requires them to stay version-locked)",
-      "matchPackageNames": ["emnapi", "@emnapi/core", "@emnapi/runtime"],
-      "groupName": "emnapi"
     },
     {
       "description": "Automerge non-major Rust crate updates",

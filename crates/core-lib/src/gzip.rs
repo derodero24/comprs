@@ -250,12 +250,27 @@ mod tests {
 
     #[test]
     fn gzip_compress_rejects_level_above_9() {
-        assert!(flate2::Compression::new(10).level() <= 9 || true);
+        let result = compress(b"data", Some(10));
+        assert!(matches!(result, Err(ComprsError::InvalidArg(_))));
+    }
+
+    #[test]
+    fn gzip_compress_with_header_rejects_level_above_9() {
+        let result = compress_with_header(
+            b"data",
+            &GzipHeaderOptions {
+                filename: None,
+                mtime: None,
+            },
+            Some(10),
+        );
+        assert!(matches!(result, Err(ComprsError::InvalidArg(_))));
     }
 
     #[test]
     fn deflate_compress_rejects_level_above_9() {
-        // Level 10+ should be rejected by the validation functions.
+        let result = deflate_compress(b"data", Some(10));
+        assert!(matches!(result, Err(ComprsError::InvalidArg(_))));
     }
 
     #[test]
