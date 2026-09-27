@@ -24,7 +24,7 @@ zstd = { version = "0.14", default-features = false, features = ["zdict_builder"
 # flate2 1.1.10 makes gzip decompression ~3-4x and gzip/deflate compression
 # ~1.5-2x slower with the zlib-rs backend (see issue #509). Keep 1.1.9 until
 # upstream resolves it.
-flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
+flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 
 # Utilities
