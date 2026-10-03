@@ -87,6 +87,8 @@ impl CompressContext {
 pub struct DecompressContext {
     buffer: Vec<u8>,
     max_output_size: usize,
+    /// Whether any compressed input has been received.
+    received_input: bool,
 }
 
 impl DecompressContext {
@@ -95,6 +97,7 @@ impl DecompressContext {
         Ok(Self {
             buffer: Vec::new(),
             max_output_size: max_size,
+            received_input: false,
         })
     }
 
@@ -102,12 +105,19 @@ impl DecompressContext {
     /// Returns an empty Vec (decompressed output is produced in `flush()`).
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
         self.buffer.extend_from_slice(chunk);
+        self.received_input |= !chunk.is_empty();
         Ok(Vec::new())
     }
 
     /// Decompress all buffered data and return the result.
+    ///
+    /// Fails with [`ComprsError::Truncated`] when no input was received at
+    /// all. Calling it again after a successful call returns an empty Vec.
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         if self.buffer.is_empty() {
+            if !self.received_input {
+                return Err(ComprsError::Truncated("lz4"));
+            }
             return Ok(Vec::new());
         }
 
@@ -133,6 +143,22 @@ mod tests {
     use std::io::Read;
 
     use super::*;
+
+    #[test]
+    fn decompress_context_rejects_empty_input() {
+        let mut ctx = DecompressContext::new(None).unwrap();
+        ctx.transform(&[]).unwrap();
+        assert!(matches!(ctx.flush(), Err(ComprsError::Truncated("lz4"))));
+    }
+
+    #[test]
+    fn decompress_context_flush_is_repeatable() {
+        let compressed = crate::lz4::compress(b"lz4 stream").unwrap();
+        let mut ctx = DecompressContext::new(None).unwrap();
+        ctx.transform(&compressed).unwrap();
+        assert_eq!(ctx.flush().unwrap(), b"lz4 stream");
+        assert!(ctx.flush().unwrap().is_empty());
+    }
 
     #[test]
     fn stream_round_trip() {

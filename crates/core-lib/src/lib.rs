@@ -7,6 +7,7 @@ pub mod detect;
 pub mod error;
 pub mod gzip;
 pub mod gzip_stream;
+mod limited;
 pub mod lz4;
 pub mod lz4_stream;
 pub mod zstd;
@@ -49,6 +50,15 @@ pub fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize, C
             }
         }
     }
+}
+
+/// Reject empty input to a decompressor: no supported format has a valid
+/// zero-length encoding, so empty input is treated as truncated.
+pub(crate) fn require_input(data: &[u8], format: &'static str) -> Result<(), ComprsError> {
+    if data.is_empty() {
+        return Err(ComprsError::Truncated(format));
+    }
+    Ok(())
 }
 
 /// Decompress data from a reader with a size limit.

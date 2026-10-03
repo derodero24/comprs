@@ -315,6 +315,10 @@ impl ZstdDecompressContext {
     pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
         self.inner.flush().map_err(to_js_error)
     }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
+        self.inner.finish().map_err(to_js_error)
+    }
 }
 
 #[wasm_bindgen]
@@ -369,6 +373,10 @@ impl ZstdDecompressDictContext {
 
     pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
         self.inner.flush().map_err(to_js_error)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
+        self.inner.finish().map_err(to_js_error)
     }
 }
 
@@ -546,6 +554,10 @@ impl BrotliDecompressContext {
     pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
         self.inner.flush().map_err(to_js_error)
     }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
+        self.inner.finish().map_err(to_js_error)
+    }
 }
 
 #[wasm_bindgen]
@@ -600,6 +612,10 @@ impl BrotliDecompressDictContext {
 
     pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
         self.inner.flush().map_err(to_js_error)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
+        self.inner.finish().map_err(to_js_error)
     }
 }
 

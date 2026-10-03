@@ -16,6 +16,9 @@ export declare function createBrotliCompressStream(
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression.
  *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createBrotliDecompressStream(
@@ -39,6 +42,9 @@ export declare function createZstdCompressStream(
  * Create a streaming zstd decompression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression.
+ *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -64,6 +70,9 @@ export declare function createGzipCompressStream(
  * Uses the Web Streams API (`TransformStream`) to provide chunked gzip decompression.
  * Verifies CRC32 integrity on finalization.
  *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createGzipDecompressStream(
@@ -88,6 +97,9 @@ export declare function createDeflateCompressStream(
  * Uses the Web Streams API (`TransformStream`) to provide chunked raw deflate
  * decompression.
  *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createDeflateDecompressStream(
@@ -105,6 +117,8 @@ export declare function createLz4CompressStream(): TransformStream<Uint8Array, U
  * Create a streaming LZ4 frame decompression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
+ *
+ * The stream errors on empty input.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -131,6 +145,9 @@ export declare function createBrotliCompressDictStream(
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression
  * with a custom dictionary. The same dictionary used for compression must be provided.
+ *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
  *
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
@@ -160,6 +177,9 @@ export declare function createZstdCompressDictStream(
  * Uses the Web Streams API (`TransformStream`) to provide chunked decompression
  * with a pre-trained dictionary. The same dictionary used for compression must be provided.
  *
+ * The stream errors if the input ends before the compressed stream does,
+ * including empty input.
+ *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -174,6 +194,9 @@ export declare function createZstdDecompressDictStream(
  * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * The stream errors on empty input, which has no format to detect, and on
+ * zstd, gzip or brotli input that ends before the compressed stream does.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */

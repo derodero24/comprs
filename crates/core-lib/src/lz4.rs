@@ -26,6 +26,7 @@ pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 
 /// Decompress LZ4 frame-compressed data.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "lz4")?;
     let decoder = FrameDecoder::new(data);
     let init_cap = data
         .len()
@@ -41,6 +42,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "lz4")?;
     let decoder = FrameDecoder::new(data);
     let init_cap = data.len().saturating_mul(4).min(capacity);
     crate::decompress_with_limit(decoder, capacity, init_cap, "lz4 decompress")
@@ -51,6 +53,18 @@ mod tests {
     use std::io::Read;
 
     use super::*;
+
+    #[test]
+    fn decompress_rejects_empty_input() {
+        assert!(matches!(
+            decompress(&[]),
+            Err(ComprsError::Truncated("lz4"))
+        ));
+        assert!(matches!(
+            decompress_with_capacity(&[], 1024),
+            Err(ComprsError::Truncated("lz4"))
+        ));
+    }
 
     #[test]
     fn round_trip_basic() {

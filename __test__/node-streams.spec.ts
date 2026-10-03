@@ -36,6 +36,7 @@ import {
   createZstdDecompressDictTransform,
   createZstdDecompressTransform,
 } from '../node.js';
+import { BOMB_FORMATS, type BombFormat, makeBomb, peakRssKiB } from './bomb-fixtures.js';
 
 /** Collect output from source piped through a single transform into a Buffer. */
 async function collectTransform(source: Readable, transform: Transform): Promise<Buffer> {
@@ -552,5 +553,32 @@ describe('brotli dict node stream round-trip', () => {
     const compressed = await collectTransform(source, createBrotliCompressDictTransform(dict));
     const decompressed = brotliDecompressWithDict(compressed, dict);
     expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('Node transform decompression of a single highly compressible chunk', () => {
+  const limit = 64 * 1024;
+  const bombMiB = 128;
+  const createTransform: Record<BombFormat, (maxOutputSize: number) => Transform> = {
+    gzip: createGzipDecompressTransform,
+    deflate: createDeflateDecompressTransform,
+    brotli: createBrotliDecompressTransform,
+    zstd: createZstdDecompressTransform,
+  };
+
+  it('should stop inflating once maxOutputSize is reached', async () => {
+    const bombs = await Promise.all(
+      BOMB_FORMATS.map(async (format) => ({ format, bomb: await makeBomb(format, bombMiB) })),
+    );
+    const peakBefore = peakRssKiB();
+
+    for (const { format, bomb } of bombs) {
+      await expect(
+        collectTransform(Readable.from([bomb]), createTransform[format](limit)),
+      ).rejects.toThrow(`exceeded maximum size of ${limit} bytes`);
+    }
+
+    // Inflating any one of the chunks completely would add 128 MiB.
+    expect(peakRssKiB() - peakBefore).toBeLessThan(32 * 1024);
   });
 });

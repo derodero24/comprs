@@ -40,6 +40,7 @@ pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsErro
 
 /// Decompress Brotli-compressed data.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "brotli")?;
     let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
     let init_cap = (data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
     crate::decompress_with_limit(
@@ -52,6 +53,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 
 /// Decompress Brotli-compressed data with explicit capacity.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "brotli")?;
     let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
     let init_cap = (data.len().saturating_mul(4)).min(capacity);
     crate::decompress_with_limit(decompressor, capacity, init_cap, "brotli decompress")
@@ -117,6 +119,7 @@ pub fn compress_with_dict_inner(
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "brotli")?;
     let dict_bytes = dict.to_vec();
     let decompressor =
         brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
@@ -135,6 +138,7 @@ pub fn decompress_with_dict_with_capacity(
     dict: &[u8],
     capacity: usize,
 ) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "brotli")?;
     let dict_bytes = dict.to_vec();
     let decompressor =
         brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
@@ -152,6 +156,19 @@ mod tests {
     use std::io::{Read, Write};
 
     use super::*;
+
+    #[test]
+    fn decompress_rejects_empty_input() {
+        let dict = b"brotli dictionary content";
+        for result in [
+            decompress(&[]),
+            decompress_with_capacity(&[], 1024),
+            decompress_with_dict(&[], dict),
+            decompress_with_dict_with_capacity(&[], dict, 1024),
+        ] {
+            assert!(matches!(result, Err(ComprsError::Truncated("brotli"))));
+        }
+    }
 
     #[test]
     fn round_trip_basic() {

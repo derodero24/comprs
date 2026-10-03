@@ -71,6 +71,8 @@ function createZstdDecompressTransform(maxOutputSize) {
       try {
         const flushed = ctx.flush();
         if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
         callback();
       } catch (err) {
         callback(err);
@@ -261,6 +263,8 @@ function createBrotliDecompressTransform(maxOutputSize) {
       try {
         const flushed = ctx.flush();
         if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
         callback();
       } catch (err) {
         callback(err);
@@ -325,6 +329,8 @@ function createZstdDecompressDictTransform(dict, maxOutputSize) {
       try {
         const flushed = ctx.flush();
         if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
         callback();
       } catch (err) {
         callback(err);
@@ -389,6 +395,8 @@ function createBrotliDecompressDictTransform(dict, maxOutputSize) {
       try {
         const flushed = ctx.flush();
         if (flushed.byteLength > 0) this.push(flushed);
+        const finished = ctx.finish();
+        if (finished.byteLength > 0) this.push(finished);
         callback();
       } catch (err) {
         callback(err);
@@ -460,16 +468,15 @@ function createDecompressTransform(maxOutputSize) {
     },
     flush(callback) {
       try {
-        if (!ctx && buffer && buffer.length > 0) {
-          detectAndReplay(this, buffer);
-        }
         if (!ctx) {
-          callback();
-          return;
+          // Fewer than 4 bytes arrived. Empty input has no detectable format and throws.
+          detectAndReplay(this, buffer ?? Buffer.alloc(0));
         }
 
         pushIfNonEmpty(this, ctx.flush());
-        if (ctx instanceof GzipDecompressContext) {
+        // LZ4 decodes everything in flush(); the other contexts verify in
+        // finish() that the input contained the whole stream.
+        if (!(ctx instanceof Lz4DecompressContext)) {
           pushIfNonEmpty(this, ctx.finish());
         }
         callback();

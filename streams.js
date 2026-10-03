@@ -64,6 +64,10 @@ function createBrotliDecompressStream(maxOutputSize) {
       if (flushed.byteLength > 0) {
         controller.enqueue(new Uint8Array(flushed));
       }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
     },
   });
 }
@@ -115,6 +119,10 @@ function createZstdDecompressStream(maxOutputSize) {
       const flushed = ctx.flush();
       if (flushed.byteLength > 0) {
         controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
       }
     },
   });
@@ -282,6 +290,10 @@ function createBrotliDecompressDictStream(dict, maxOutputSize) {
       if (flushed.byteLength > 0) {
         controller.enqueue(new Uint8Array(flushed));
       }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
+      }
     },
   });
 }
@@ -335,6 +347,10 @@ function createZstdDecompressDictStream(dict, maxOutputSize) {
       const flushed = ctx.flush();
       if (flushed.byteLength > 0) {
         controller.enqueue(new Uint8Array(flushed));
+      }
+      const finished = ctx.finish();
+      if (finished.byteLength > 0) {
+        controller.enqueue(new Uint8Array(finished));
       }
     },
   });
@@ -453,13 +469,15 @@ function createDecompressStream(maxOutputSize) {
       detectAndReplay(buffer, controller);
     },
     flush(controller) {
-      if (!ctx && buffer && buffer.length > 0) {
-        detectAndReplay(buffer, controller);
+      if (!ctx) {
+        // Fewer than 4 bytes arrived. Empty input has no detectable format and throws.
+        detectAndReplay(buffer ?? new Uint8Array(0), controller);
       }
-      if (!ctx) return;
 
       enqueueIfNonEmpty(controller, ctx.flush());
-      if (ctx instanceof GzipDecompressContext) {
+      // LZ4 decodes everything in flush(); the other contexts verify in
+      // finish() that the input contained the whole stream.
+      if (!(ctx instanceof Lz4DecompressContext)) {
         enqueueIfNonEmpty(controller, ctx.finish());
       }
     },

@@ -20,6 +20,7 @@ import {
   createZstdDecompressDictStream,
   createZstdDecompressStream,
 } from '../streams.js';
+import { BOMB_FORMATS, type BombFormat, makeBomb, peakRssKiB } from './bomb-fixtures.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
 async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -75,6 +76,17 @@ describe('maxOutputSize on decompression contexts', () => {
       const result = decompressAll(ctx, compressed);
       expect(result.byteLength).toBe(4096);
     });
+
+    it('should count the output returned by finish()', () => {
+      // flate2 keeps up to 32 KiB of output internally, so all of it comes out
+      // of finish() when flush() is skipped.
+      const ctx = new GzipDecompressContext(1000);
+      const compressed = gzipCompress(Buffer.alloc(30_000, 'a'));
+      expect(() => {
+        ctx.transform(compressed);
+        ctx.finish();
+      }).toThrow('gzip stream decompress exceeded maximum size of 1000 bytes');
+    });
   });
 
   describe('DeflateDecompressContext', () => {
@@ -95,6 +107,15 @@ describe('maxOutputSize on decompression contexts', () => {
       const ctx = new DeflateDecompressContext(8192);
       const result = decompressAll(ctx, compressed);
       expect(result.byteLength).toBe(4096);
+    });
+
+    it('should count the output returned by finish()', () => {
+      const ctx = new DeflateDecompressContext(1000);
+      const compressed = deflateCompress(Buffer.alloc(30_000, 'a'));
+      expect(() => {
+        ctx.transform(compressed);
+        ctx.finish();
+      }).toThrow('deflate stream decompress exceeded maximum size of 1000 bytes');
     });
   });
 
@@ -300,5 +321,45 @@ describe('streaming factory functions with maxOutputSize', () => {
     await expect(
       collectStream(input.pipeThrough(createZstdDecompressDictStream(dict, 100))),
     ).rejects.toThrow(/exceeded maximum size/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maxOutputSize bounds memory, not only the returned output
+// ---------------------------------------------------------------------------
+
+describe('streaming decompression of a single highly compressible chunk', () => {
+  const limit = 64 * 1024;
+  const bombMiB = 128;
+  const createStream: Record<
+    BombFormat,
+    (maxOutputSize: number) => TransformStream<Uint8Array, Uint8Array>
+  > = {
+    gzip: createGzipDecompressStream,
+    deflate: createDeflateDecompressStream,
+    brotli: createBrotliDecompressStream,
+    zstd: createZstdDecompressStream,
+  };
+
+  it('should stop inflating once maxOutputSize is reached', async () => {
+    const bombs = await Promise.all(
+      BOMB_FORMATS.map(async (format) => ({ format, bomb: await makeBomb(format, bombMiB) })),
+    );
+    const peakBefore = peakRssKiB();
+
+    for (const { format, bomb } of bombs) {
+      const input = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(bomb));
+          controller.close();
+        },
+      });
+      await expect(collectStream(input.pipeThrough(createStream[format](limit)))).rejects.toThrow(
+        `exceeded maximum size of ${limit} bytes`,
+      );
+    }
+
+    // Inflating any one of the chunks completely would add 128 MiB.
+    expect(peakRssKiB() - peakBefore).toBeLessThan(32 * 1024);
   });
 });
