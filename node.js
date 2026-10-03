@@ -17,19 +17,27 @@ const {
   detectFormat,
 } = require('./index.js');
 
+function pushIfNonEmpty(stream, result) {
+  if (result.byteLength > 0) stream.push(result);
+}
+
 /**
- * Create a Node.js stream.Transform for zstd compression.
+ * Create a Transform from `transform` and `flush`, which call stream
+ * contexts. `close` closes the contexts once the stream is destroyed, which
+ * happens when it ends, fails or is destroyed early, and releases their
+ * native memory right away instead of when the garbage collector gets to
+ * them.
  *
- * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
+ * @param {(stream: Transform, chunk: Buffer) => void} transform
+ * @param {(stream: Transform) => void} flush
+ * @param {() => void} close
  * @returns {Transform}
  */
-function createZstdCompressTransform(level) {
-  const ctx = new ZstdCompressContext(level);
+function closingTransform(transform, flush, close) {
   return new Transform({
     transform(chunk, _encoding, callback) {
       try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
+        transform(this, chunk);
         callback();
       } catch (err) {
         callback(err);
@@ -37,16 +45,44 @@ function createZstdCompressTransform(level) {
     },
     flush(callback) {
       try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
+        flush(this);
         callback();
       } catch (err) {
         callback(err);
       }
     },
+    destroy(err, callback) {
+      close();
+      callback(err);
+    },
   });
+}
+
+/**
+ * Create a Transform that feeds its input through `ctx`.
+ *
+ * @param {{ transform(chunk: Buffer): Buffer, flush(): Buffer, finish(): Buffer, close(): void }} ctx
+ * @returns {Transform}
+ */
+function contextTransform(ctx) {
+  return closingTransform(
+    (stream, chunk) => pushIfNonEmpty(stream, ctx.transform(chunk)),
+    (stream) => {
+      pushIfNonEmpty(stream, ctx.flush());
+      pushIfNonEmpty(stream, ctx.finish());
+    },
+    () => ctx.close(),
+  );
+}
+
+/**
+ * Create a Node.js stream.Transform for zstd compression.
+ *
+ * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
+ * @returns {Transform}
+ */
+function createZstdCompressTransform(level) {
+  return contextTransform(new ZstdCompressContext(level));
 }
 
 /**
@@ -56,29 +92,7 @@ function createZstdCompressTransform(level) {
  * @returns {Transform}
  */
 function createZstdDecompressTransform(maxOutputSize) {
-  const ctx = new ZstdDecompressContext(maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new ZstdDecompressContext(maxOutputSize));
 }
 
 /**
@@ -88,29 +102,7 @@ function createZstdDecompressTransform(maxOutputSize) {
  * @returns {Transform}
  */
 function createGzipCompressTransform(level) {
-  const ctx = new GzipCompressContext(level);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new GzipCompressContext(level));
 }
 
 /**
@@ -120,29 +112,7 @@ function createGzipCompressTransform(level) {
  * @returns {Transform}
  */
 function createGzipDecompressTransform(maxOutputSize) {
-  const ctx = new GzipDecompressContext(maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new GzipDecompressContext(maxOutputSize));
 }
 
 /**
@@ -152,29 +122,7 @@ function createGzipDecompressTransform(maxOutputSize) {
  * @returns {Transform}
  */
 function createDeflateCompressTransform(level) {
-  const ctx = new DeflateCompressContext(level);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new DeflateCompressContext(level));
 }
 
 /**
@@ -184,29 +132,7 @@ function createDeflateCompressTransform(level) {
  * @returns {Transform}
  */
 function createDeflateDecompressTransform(maxOutputSize) {
-  const ctx = new DeflateDecompressContext(maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new DeflateDecompressContext(maxOutputSize));
 }
 
 /**
@@ -216,29 +142,7 @@ function createDeflateDecompressTransform(maxOutputSize) {
  * @returns {Transform}
  */
 function createBrotliCompressTransform(quality) {
-  const ctx = new BrotliCompressContext(quality);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new BrotliCompressContext(quality));
 }
 
 /**
@@ -248,29 +152,7 @@ function createBrotliCompressTransform(quality) {
  * @returns {Transform}
  */
 function createBrotliDecompressTransform(maxOutputSize) {
-  const ctx = new BrotliDecompressContext(maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new BrotliDecompressContext(maxOutputSize));
 }
 
 /**
@@ -281,29 +163,7 @@ function createBrotliDecompressTransform(maxOutputSize) {
  * @returns {Transform}
  */
 function createZstdCompressDictTransform(dict, level) {
-  const ctx = new ZstdCompressDictContext(dict, level);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new ZstdCompressDictContext(dict, level));
 }
 
 /**
@@ -314,29 +174,7 @@ function createZstdCompressDictTransform(dict, level) {
  * @returns {Transform}
  */
 function createZstdDecompressDictTransform(dict, maxOutputSize) {
-  const ctx = new ZstdDecompressDictContext(dict, maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new ZstdDecompressDictContext(dict, maxOutputSize));
 }
 
 /**
@@ -347,29 +185,7 @@ function createZstdDecompressDictTransform(dict, maxOutputSize) {
  * @returns {Transform}
  */
 function createBrotliCompressDictTransform(dict, quality) {
-  const ctx = new BrotliCompressDictContext(dict, quality);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new BrotliCompressDictContext(dict, quality));
 }
 
 /**
@@ -380,29 +196,7 @@ function createBrotliCompressDictTransform(dict, quality) {
  * @returns {Transform}
  */
 function createBrotliDecompressDictTransform(dict, maxOutputSize) {
-  const ctx = new BrotliDecompressDictContext(dict, maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new BrotliDecompressDictContext(dict, maxOutputSize));
 }
 
 function createDecompressContext(format, maxOutputSize) {
@@ -418,10 +212,6 @@ function createDecompressContext(format, maxOutputSize) {
     default:
       throw new Error('unable to detect compression format from stream data');
   }
-}
-
-function pushIfNonEmpty(stream, result) {
-  if (result.byteLength > 0) stream.push(result);
 }
 
 /**
@@ -463,60 +253,46 @@ function createDecompressTransform(maxOutputSize) {
     pushIfNonEmpty(stream, ctx.transform(data));
   }
 
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        if (ctx) {
-          pushIfNonEmpty(this, ctx.transform(chunk));
-          callback();
-          return;
-        }
+  return closingTransform(
+    (stream, chunk) => {
+      if (ctx) {
+        pushIfNonEmpty(stream, ctx.transform(chunk));
+        return;
+      }
 
-        const copy = Buffer.from(chunk);
-        buffered.push(copy);
-        bufferedLength += copy.length;
-        if (bufferedLength < detectAt) {
-          callback();
-          return;
-        }
+      const copy = Buffer.from(chunk);
+      buffered.push(copy);
+      bufferedLength += copy.length;
+      if (bufferedLength < detectAt) return;
 
+      const data = Buffer.concat(buffered, bufferedLength);
+      const format = detectFormat(data);
+      // More input may still reveal the format, as for the start of a
+      // brotli stream or of a skippable frame.
+      if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
+        buffered = [data];
+        detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
+        return;
+      }
+      start(stream, format, data);
+    },
+    (stream) => {
+      if (!ctx) {
+        // The input ended before its format was detected. Empty input has
+        // no detectable format and throws.
         const data = Buffer.concat(buffered, bufferedLength);
-        const format = detectFormat(data);
-        // More input may still reveal the format, as for the start of a
-        // brotli stream or of a skippable frame.
-        if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
-          buffered = [data];
-          detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
-          callback();
-          return;
-        }
-        start(this, format, data);
-        callback();
-      } catch (err) {
-        callback(err);
+        start(stream, detectFormat(data), data);
       }
-    },
-    flush(callback) {
-      try {
-        if (!ctx) {
-          // The input ended before its format was detected. Empty input has
-          // no detectable format and throws.
-          const data = Buffer.concat(buffered, bufferedLength);
-          start(this, detectFormat(data), data);
-        }
 
-        pushIfNonEmpty(this, ctx.flush());
-        // LZ4 decodes everything in flush(); the other contexts verify in
-        // finish() that the input contained the whole stream.
-        if (!(ctx instanceof Lz4DecompressContext)) {
-          pushIfNonEmpty(this, ctx.finish());
-        }
-        callback();
-      } catch (err) {
-        callback(err);
-      }
+      pushIfNonEmpty(stream, ctx.flush());
+      // finish() verifies that the input contained the whole stream.
+      pushIfNonEmpty(stream, ctx.finish());
     },
-  });
+    () => {
+      ctx?.close();
+      buffered = null;
+    },
+  );
 }
 
 /**
@@ -525,29 +301,7 @@ function createDecompressTransform(maxOutputSize) {
  * @returns {Transform}
  */
 function createLz4CompressTransform() {
-  const ctx = new Lz4CompressContext();
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        const finished = ctx.finish();
-        if (finished.byteLength > 0) this.push(finished);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new Lz4CompressContext());
 }
 
 /**
@@ -557,27 +311,7 @@ function createLz4CompressTransform() {
  * @returns {Transform}
  */
 function createLz4DecompressTransform(maxOutputSize) {
-  const ctx = new Lz4DecompressContext(maxOutputSize);
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        const result = ctx.transform(chunk);
-        if (result.byteLength > 0) this.push(result);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-    flush(callback) {
-      try {
-        const flushed = ctx.flush();
-        if (flushed.byteLength > 0) this.push(flushed);
-        callback();
-      } catch (err) {
-        callback(err);
-      }
-    },
-  });
+  return contextTransform(new Lz4DecompressContext(maxOutputSize));
 }
 
 module.exports = {

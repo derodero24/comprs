@@ -33,6 +33,10 @@ pub enum ComprsError {
     #[error("{0} already finished")]
     StreamFinished(&'static str),
 
+    /// Stream context has been closed, which released its state.
+    #[error("{0} already closed")]
+    StreamClosed(&'static str),
+
     /// Input ended before the end of the compressed stream, including empty
     /// input. Holds the format name.
     #[error("{0} stream is truncated: unexpected end of input")]
