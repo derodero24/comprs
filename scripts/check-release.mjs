@@ -15,20 +15,24 @@
  *      publish (the prepublishOnly script) must;
  *   3. `npm pack --dry-run` of each platform package includes its binary and
  *      every file its manifest names;
- *   4. the root package, packed into a temporary tarball, includes every file
+ *   4. no platform binary needs more from the system than its package
+ *      promises: the glibc builds need at most glibc 2.17, the musl builds
+ *      no glibc, and the Windows builds link the C runtime statically
+ *      instead of needing the Visual C++ Redistributable;
+ *   5. the root package, packed into a temporary tarball, includes every file
  *      and entry point its package.json names and no platform binary, and
  *      its browser entry works with bundlers (#564): it only loads files from
  *      the package itself, as ES modules, down to the wasm-bindgen
  *      WebAssembly module, which it fetches through
  *      `new URL('…', import.meta.url)` rather than importing it, and no
  *      `sideEffects` field lets a bundler drop its initialisation;
- *   5. publint and attw accept that tarball.
+ *   6. publint and attw accept that tarball.
  *
  * Usage:
  *   node scripts/check-release.mjs [--allow-missing-targets]
  *
  *   --allow-missing-targets  Skip the platform packages whose binary was not
- *                            built (steps 2 and 3), for CI runs that build
+ *                            built (steps 2 to 4), for CI runs that build
  *                            some targets. Without it, a missing binary is an
  *                            error.
  */
@@ -54,6 +58,7 @@ import {
 
 /** @typedef {import('./release-utils.mjs').Release} Release */
 /** @typedef {import('./release-utils.mjs').ReleaseTarget} ReleaseTarget */
+/** @typedef {{ major: number, minor: number }} GlibcVersion */
 
 /** ESTree nodes whose `source` names a module that the module loads. */
 const MODULE_NODE_TYPES = new Set([
@@ -62,6 +67,23 @@ const MODULE_NODE_TYPES = new Set([
   'ExportAllDeclaration',
   'ExportNamedDeclaration',
 ]);
+
+/**
+ * Newest glibc that the glibc binaries may need. napi-cross (build.yml) links
+ * them against glibc 2.17, as for every release so far. A build linked
+ * against the build machine's own glibc needs that version instead (2.34 on
+ * Ubuntu 24.04) and fails to load on older distributions.
+ *
+ * @type {GlibcVersion}
+ */
+const MAX_GLIBC = { major: 2, minor: 17 };
+
+/**
+ * DLLs of the dynamically linked Microsoft C runtime. A binary that imports
+ * them fails to load where the Visual C++ Redistributable is not installed;
+ * .cargo/config.toml links the C runtime statically instead.
+ */
+const DYNAMIC_CRT_DLL = /\b(?:vcruntime\d+|msvcp\d+|ucrtbased?|api-ms-win-crt-[a-z\d-]+)\.dll\b/gi;
 
 /**
  * Problems found so far; any of them fails the run at the end.
@@ -95,6 +117,11 @@ await runMain(async () => {
   for (const target of targets) {
     await step(`npm pack ${relative(ROOT, target.packageDir)}`, () => checkPlatformPackage(target));
   }
+  await step('Platform binary requirements', () => {
+    for (const target of targets) {
+      checkBinaryRequirements(target);
+    }
+  });
 
   const workDir = mkdtempSync(join(tmpdir(), 'comprs-pack-'));
   try {
@@ -162,7 +189,7 @@ function selectTargets(targets, allowMissing) {
   annotate(
     'notice',
     `Partial release dry run. Built: ${built.map((target) => target.abi).join(', ')}. ` +
-      `Not built, so napi prepublish and npm pack skip them: ` +
+      `Not built, so napi prepublish, npm pack and the binary checks skip them: ` +
       `${missing.map((target) => target.abi).join(', ')}. The root package is checked in full.`,
   );
   return built;
@@ -240,6 +267,64 @@ function checkPlatformPackage(target) {
     }
   }
   console.log(packed.join('\n'));
+}
+
+/**
+ * Check what a platform binary needs from the system at load time. Symbol
+ * versions such as `GLIBC_2.17` and the names of imported DLLs are plain
+ * strings in the binary, so a scan for them works for every target on any
+ * host.
+ *
+ * @param {ReleaseTarget} target
+ */
+function checkBinaryRequirements(target) {
+  const binary = relative(ROOT, join(target.packageDir, target.artifact));
+  const contents = readFileSync(join(target.packageDir, target.artifact)).toString('latin1');
+  const glibc = [...contents.matchAll(/\bGLIBC_(\d+)\.(\d+)/g)]
+    .map(([, major, minor]) => ({ major: Number(major), minor: Number(minor) }))
+    .sort(compareVersions);
+  if (target.abi.endsWith('-gnu')) {
+    const newest = glibc.at(-1);
+    if (newest === undefined) {
+      problems.push(`${binary} needs no versioned glibc symbol, so it is not a glibc build`);
+    } else if (compareVersions(newest, MAX_GLIBC) > 0) {
+      problems.push(
+        `${binary} needs glibc ${formatVersion(newest)}, newer than ` +
+          `${formatVersion(MAX_GLIBC)}; build it with napi-cross, as build.yml does`,
+      );
+    } else {
+      console.log(`${binary} needs glibc ${formatVersion(newest)}.`);
+    }
+  } else if (target.abi.endsWith('-musl')) {
+    if (glibc.length > 0) {
+      problems.push(`${binary} needs versioned glibc symbols, so it is not a musl build`);
+    } else {
+      console.log(`${binary} needs no glibc.`);
+    }
+  } else if (target.abi.endsWith('-msvc')) {
+    const dlls = [...new Set(contents.match(DYNAMIC_CRT_DLL) ?? [])];
+    if (dlls.length > 0) {
+      problems.push(
+        `${binary} imports the dynamic C runtime (${dlls.join(', ')}), so it needs the ` +
+          'Visual C++ Redistributable; link it with +crt-static in .cargo/config.toml',
+      );
+    } else {
+      console.log(`${binary} imports no dynamic C runtime DLL.`);
+    }
+  }
+}
+
+/**
+ * @param {GlibcVersion} a
+ * @param {GlibcVersion} b
+ */
+function compareVersions(a, b) {
+  return a.major - b.major || a.minor - b.minor;
+}
+
+/** @param {GlibcVersion} version */
+function formatVersion({ major, minor }) {
+  return `${major}.${minor}`;
 }
 
 /**
