@@ -1,3 +1,8 @@
+// Smoke test of the ES module entry points. It imports them by the package
+// name, which Node.js resolves from inside the package through the `import`
+// conditions of its `exports`, as it does for an application. The fixtures
+// in e2e/ test the packed package.
+
 import assert from 'node:assert';
 import {
   BrotliCompressContext,
@@ -81,9 +86,9 @@ import {
   zstdDecompressWithDictWithCapacityAsync,
   zstdTrainDictionary,
   zstdTrainDictionaryAsync,
-} from '../index.mjs';
-import * as nodeStreams from '../node.js';
-import * as webStreams from '../streams.js';
+} from '@derodero24/comprs';
+import * as nodeStreams from '@derodero24/comprs/node';
+import * as webStreams from '@derodero24/comprs/streams';
 
 assert.strictEqual(typeof version, 'function', 'version should be a function');
 assert.strictEqual(typeof zstdCompress, 'function', 'zstdCompress should be a function');

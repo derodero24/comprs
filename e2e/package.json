@@ -1,0 +1,18 @@
+{
+  "name": "comprs-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:node": "node native/import.mjs && node native/require.cjs",
+    "test:deno": "deno run --allow-ffi --allow-read --allow-env native/import.mjs && deno run --allow-ffi --allow-read --allow-env native/require.cjs",
+    "test:bun": "bun native/import.mjs && bun native/require.cjs",
+    "build": "node browser/build.mjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.28.2",
+    "vite": "8.3.1",
+    "webpack": "5.111.1"
+  }
+}

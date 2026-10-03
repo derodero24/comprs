@@ -31,7 +31,7 @@ comprs/
 │   └── bench/       ← Rust benchmarks (Criterion)
 ├── browser/         ← Browser entry, and the wasm-bindgen build it loads
 ├── __test__/        ← Vitest tests and JS benchmarks
-├── e2e/             ← Browser and runtime E2E tests (Playwright, Deno, Bun)
+├── e2e/             ← Tests of the packed package in Node.js, Deno, Bun and browsers
 ├── npm/             ← Platform-specific binary packages
 ├── playground/      ← Interactive playground (GitHub Pages)
 ├── scripts/         ← Build, packaging and optimization scripts
@@ -71,15 +71,14 @@ cargo clippy          # Rust lint
 pnpm run build        # napi-rs build
 ```
 
-CI also runs the package in other runtimes. To run these checks locally:
+CI also tests the WebAssembly build. To run these tests locally:
 
 ```bash
-pnpm run test:bun             # Bun, through the native addon
-pnpm run test:deno            # Deno, through the native addon
 pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
 pnpm run test:wasm            # WebAssembly build, compared with the native addon
-pnpm run test:browser         # WebAssembly build in Chromium (Playwright)
 ```
+
+CI then tests the package as it would be published (see [Package tests](#package-tests)).
 
 ## Commit messages
 
@@ -108,6 +107,29 @@ node scripts/check-release.mjs
 ```
 
 Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
+
+## Package tests
+
+The `Package E2E` CI job installs the packages that the release would publish into the fixtures in `e2e/`, which import `@derodero24/comprs` by name, as applications do: in Node.js (with `import` and `require()`), Deno and Bun, which load the native addon, and in browser builds made with esbuild, webpack, Vite (`vite build` and `vite dev`) and an import map, which load the WebAssembly build in Chromium, Firefox and WebKit. `e2e/` is a pnpm project of its own, with its own lockfile, which pins the bundlers.
+
+To run the fixtures locally, assemble the packages with `scripts/prepare-release.mjs`, from the artifacts of a CI run (see [Release packaging](#release-packaging)) or from your own build, then install them into the fixtures with `e2e/install-package.mjs`:
+
+```bash
+pnpm run build && pnpm run build:wasm-bindgen
+mkdir -p artifacts/native artifacts/bindings-wasm-bindgen
+cp comprs.*.node artifacts/native/
+cp browser/comprs-wasm* artifacts/bindings-wasm-bindgen/
+node scripts/prepare-release.mjs --allow-missing-targets
+pnpm --dir e2e install --frozen-lockfile
+node e2e/install-package.mjs
+pnpm exec tsc -p e2e && pnpm exec tsc -p e2e/browser   # against the installed declarations
+pnpm --dir e2e run test:node          # also test:deno and test:bun
+pnpm --dir e2e run build              # the browser bundles, into e2e/dist
+pnpm --dir e2e exec playwright install --only-shell chromium firefox webkit
+pnpm --dir e2e run test:browser       # --project=chromium for one browser
+```
+
+The fixtures use the installed copy of the package, not the working tree: run `node e2e/install-package.mjs` again after changing the package, and the steps before it after rebuilding it.
 
 ## Pull request checklist
 

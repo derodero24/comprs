@@ -41,10 +41,10 @@ import { parseArgs } from 'node:util';
 import { parseAst } from 'vite';
 import {
   annotate,
-  capture,
   group,
   isRecord,
   napiTargetArgs,
+  npmPack,
   ROOT,
   readJson,
   readRelease,
@@ -586,40 +586,6 @@ function exportTargets(value, condition, matched = condition === undefined) {
   return Object.entries(value).flatMap(([key, item]) =>
     exportTargets(item, condition, matched || key === condition),
   );
-}
-
-/**
- * Run `npm pack` for a single package and return the tarball's name and the
- * paths it holds. Like `npm publish`, it runs the package's prepack, prepare
- * and postpack scripts (npm runs prepare even with --ignore-scripts); only
- * prepublishOnly, the real `napi prepublish`, is left out. Their output is
- * captured rather than printed, so that it stays out of the JSON.
- *
- * @param {string} cwd Package directory.
- * @param {string[]} args
- * @returns {{ filename: string, files: string[] }}
- */
-function npmPack(cwd, args) {
-  const output = capture('npm', ['pack', '--json', '--foreground-scripts=false', ...args], { cwd });
-  /** @type {unknown} */
-  const parsed = JSON.parse(output);
-  /** @type {unknown} */
-  const result = Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : undefined;
-  /** @type {Record<string, unknown>} */
-  const fields = isRecord(result) ? result : {};
-  const { filename, files } = fields;
-  if (typeof filename !== 'string' || !Array.isArray(files)) {
-    throw new Error(`Unexpected npm pack output: ${output}`);
-  }
-  /** @type {unknown[]} */
-  const entries = files;
-  return {
-    filename,
-    files: entries
-      .map((entry) => (isRecord(entry) ? entry.path : undefined))
-      .filter((path) => typeof path === 'string')
-      .sort(),
-  };
 }
 
 /**
