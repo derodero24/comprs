@@ -10,6 +10,14 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
 
+`rust-version` in `Cargo.toml` is the minimum supported Rust version. The `Rust MSRV` CI job checks the workspace with exactly that version, so a dependency update that needs a newer Rust fails there. Such an update raises `rust-version`, and the Rust version in this section, in the same pull request. To run the check locally:
+
+```bash
+rustup toolchain install 1.88 --profile minimal --target wasm32-unknown-unknown
+cargo +1.88 check --workspace --all-targets --locked
+cargo +1.88 check -p comprs-wasm --target wasm32-unknown-unknown --locked
+```
+
 ## Development setup
 
 ```bash

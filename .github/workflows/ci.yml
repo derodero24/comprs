@@ -265,6 +265,38 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo test
 
+  # Checks the workspace with the oldest Rust it supports, the rust-version in
+  # Cargo.toml; the other jobs use the latest stable. Cargo refuses a
+  # dependency that declares a newer rust-version, so an update that raises
+  # the minimum fails here until rust-version is raised with it. The
+  # WebAssembly crate is checked for wasm32 too, where its dependencies differ.
+  # Each cargo call names the toolchain, so the job cannot pass on the stable
+  # toolchain that the runner image already has.
+  rust-msrv:
+    name: Rust MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Read rust-version from Cargo.toml
+        run: |
+          version=$(sed -n 's/^rust-version = "\([0-9.]*\)"$/\1/p' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error file=Cargo.toml::No rust-version in [workspace.package]"
+            exit 1
+          fi
+          echo "rust-version: $version"
+          echo "MSRV=$version" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: ${{ env.MSRV }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo +"$MSRV" check --workspace --all-targets --locked
+      - run: cargo +"$MSRV" check -p comprs-wasm --target wasm32-unknown-unknown --locked
+
   # Builds the native binaries with build.yml, as release.yml does, so the
   # test jobs load the binaries the release would publish.
   build:
@@ -642,7 +674,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, audit, rust-lint, rust-test, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage, release-dry-run]
+    needs: [changes, lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
