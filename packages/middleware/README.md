@@ -112,6 +112,16 @@ All adapters automatically:
   - Request method is `HEAD`
   - Client does not accept any supported encoding
 
+### Express
+
+The Express adapter decides whether to compress when the response headers are sent: by `res.writeHead()`, `res.flushHeaders()`, or the first `res.write()` or `res.end()`. Handlers may therefore send headers before the body, and header fields passed to `res.writeHead()` are taken into account. Responses with status 204 or 304 are never compressed, and `Vary: Accept-Encoding` is only added to responses that could be compressed.
+
+A compressed response keeps the behavior of a plain `ServerResponse`:
+
+- `res.write()` returns `false` while the client reads more slowly than the handler writes, and `'drain'` follows, so `stream.pipe(res)` pauses instead of buffering the body.
+- Writes after `res.end()` fail with `ERR_STREAM_WRITE_AFTER_END`, and callbacks passed to `res.end()` run once the response has finished.
+- A compression error aborts the response, and the compressor is released when the response closes, including when the client disconnects.
+
 ## License
 
 [MIT](../../LICENSE)

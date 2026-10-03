@@ -18,6 +18,25 @@ export function isCompressibleType(contentType: string | undefined): boolean {
   return false;
 }
 
+/**
+ * Read a header value that may be a number or a list (as `getHeader()` returns
+ * it) as one string, joining list values with `, `.
+ */
+export function headerValue(
+  value: number | string | readonly string[] | undefined,
+): string | undefined {
+  if (value === undefined || typeof value === 'string') return value;
+  return typeof value === 'number' ? String(value) : value.join(', ');
+}
+
+/** Check whether a Cache-Control value contains the `no-transform` directive. */
+export function hasNoTransform(cacheControl: string | undefined): boolean {
+  if (!cacheControl) return false;
+  return cacheControl
+    .split(',')
+    .some((directive) => directive.trim().toLowerCase() === 'no-transform');
+}
+
 /** Append Accept-Encoding to a Vary header value. Returns the new Vary value. */
 export function appendVary(current: string | undefined): string {
   if (!current) return 'Accept-Encoding';
