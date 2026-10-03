@@ -11,33 +11,41 @@ concurrency:
 
 permissions: {}
 
+# Jobs here restore no caches: develop is the default branch, so caches saved
+# by other workflows' develop runs are readable from runs on main, and a
+# poisoned cache would reach the published packages. setup-node's
+# package-manager-cache is off explicitly, in case a later setup-node release
+# starts caching pnpm by default. Installs pass --ignore-scripts: the only
+# install scripts pnpm would run here set up the lefthook git hooks, which CI
+# does not need.
 jobs:
   # ──── On develop push: manage version PR and create release PR ────
   version:
     name: Version
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write # changesets/action commits the version PR branch
+      pull-requests: write # create or update the version and release PRs
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       LEFTHOOK: "0"
     steps:
+      # changesets/action pushes through the GitHub API with its github-token
+      # input, so the checkout token need not stay in .git/config.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: release-version
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Create version PR or detect release
         id: changesets
@@ -101,18 +109,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ──── On main push: check if publish is needed ────
+  # Manual dispatches publish only from main as well; on any other ref this
+  # job and every job that needs it are skipped.
   check:
     name: Check Version
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       should_publish: ${{ steps.check.outputs.should_publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -123,10 +134,10 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
             echo "Version ${VERSION} already published, skipping"
-            echo "should_publish=false" >> $GITHUB_OUTPUT
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "Version ${VERSION} not yet published, proceeding"
-            echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
   # ──── Build native binaries for all platforms ────
@@ -163,27 +174,34 @@ jobs:
           - host: ubuntu-latest
             target: wasm32-wasip1-threads
     runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: release-${{ matrix.settings.target }}
 
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install cargo-zigbuild
         if: ${{ matrix.settings.use-zig }}
-        run: pip3 install ziglang && cargo install cargo-zigbuild
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-zigbuild@0.23.4
+          fallback: none
+
+      - name: Install Zig
+        if: ${{ matrix.settings.use-zig }}
+        run: pip3 install ziglang==0.16.0
 
       - name: Setup WASI SDK
         if: matrix.settings.target == 'wasm32-wasip1-threads'
@@ -238,23 +256,26 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: wasm-bindgen
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: wasm-pack@0.15.0
+          fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
       - name: Upload wasm-bindgen artifact
@@ -273,21 +294,24 @@ jobs:
   publish:
     name: Publish
     needs: [check, build, build-wasm-bindgen]
-    if: needs.check.outputs.should_publish == 'true'
+    if: github.ref == 'refs/heads/main' && needs.check.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: npm-publish
     permissions:
-      contents: write
-      id-token: write
+      contents: write # napi prepublish creates the GitHub release
+      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org/
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -306,14 +330,28 @@ jobs:
       - name: Copy wasm-bindgen files to workspace root
         run: |
           WB_DIR="artifacts/bindings-wasm-bindgen"
-          if [ -d "$WB_DIR" ]; then
-            cp "$WB_DIR"/comprs-wasm* . 2>/dev/null || true
-            echo "Copied wasm-bindgen files from $WB_DIR"
-            ls -la comprs-wasm* 2>/dev/null
+          if ! compgen -G "$WB_DIR/comprs-wasm*" > /dev/null; then
+            echo "::error::No wasm-bindgen files in $WB_DIR; the browser build is missing"
+            exit 1
           fi
+          cp "$WB_DIR"/comprs-wasm* .
+          ls -la comprs-wasm*
 
       - name: Move artifacts to platform packages
         run: pnpm napi artifacts --output-dir artifacts
+
+      # npm publish skips `files` entries that do not exist instead of failing,
+      # so a missing build output would otherwise ship a broken package.
+      - name: Verify every published file exists
+        run: |
+          node -e '
+            const { existsSync } = require("node:fs");
+            const missing = require("./package.json").files.filter((f) => !existsSync(f));
+            if (missing.length > 0) {
+              console.log("::error::Missing files listed in package.json: " + missing.join(", "));
+              process.exit(1);
+            }
+          '
 
       - name: List packages
         run: |
@@ -337,23 +375,24 @@ jobs:
   publish-middleware:
     name: Publish Middleware
     needs: [check]
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: npm-publish
     permissions:
       contents: read
-      id-token: write
+      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org/
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Check and publish middleware
         run: |
@@ -384,9 +423,11 @@ jobs:
     needs: [publish, publish-middleware]
     if: always() && github.ref == 'refs/heads/main'
     permissions:
-      contents: write
+      contents: write # push the merge commit to develop
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      # Credentials stay in .git/config: this job pushes with git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: develop

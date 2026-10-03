@@ -29,27 +29,36 @@ on:
       - "node.d.ts"
   workflow_dispatch:
 
+# A newer pull request push supersedes the running benchmarks. Pushes to
+# develop get a group per commit, so every develop commit gets the baseline
+# that later pull requests compare against.
 concurrency:
-  group: codspeed-${{ github.ref }}
-  cancel-in-progress: true
+  group: codspeed-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
-  id-token: write
+permissions: {}
 
 jobs:
   rust-benchmarks:
     name: Rust Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # CodSpeedHQ/action authenticates the upload with OIDC
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: codspeed
 
       - name: Install cargo-codspeed
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
           tool: cargo-codspeed
 
@@ -57,7 +66,7 @@ jobs:
         run: cargo codspeed build -p comprs-bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v5
+        uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
         with:
           mode: simulation
           run: cargo codspeed run -p comprs-bench
