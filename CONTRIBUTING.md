@@ -33,7 +33,7 @@ comprs/
 ├── e2e/             ← Browser and runtime E2E tests (Playwright, Deno, Bun)
 ├── npm/             ← Platform-specific binary packages
 ├── playground/      ← Interactive playground (GitHub Pages)
-├── scripts/         ← Build and optimization scripts
+├── scripts/         ← Build, packaging and optimization scripts
 └── .github/
     └── workflows/   ← CI, Release, CodeQL, Renovate, Playground
 ```
@@ -85,6 +85,18 @@ Required for changes to `crates/`:
 ```bash
 pnpm changeset
 ```
+
+## Release packaging
+
+The `Release Dry Run` CI job assembles the npm packages from the build artifacts with `scripts/prepare-release.mjs`, the script the release workflow runs before `npm publish`, then checks them with `scripts/check-release.mjs`. Nothing is published. To reproduce a failure locally, download the run's `bindings-*` artifacts into `artifacts/`, one directory per artifact, and run both scripts:
+
+```bash
+gh run download <run-id> --pattern 'bindings-*' --dir artifacts
+node scripts/prepare-release.mjs --artifacts-dir artifacts
+node scripts/check-release.mjs
+```
+
+Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux and WASI (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
 
 ## Pull request checklist
 

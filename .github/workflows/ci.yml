@@ -634,6 +634,43 @@ jobs:
             | ${{ steps.read.outputs.file }} | ${{ steps.read.outputs.size }} KB |
           comment-tag: wasm-size-report
 
+  # ──── Release packaging, without publishing ────
+  # Assembles the npm packages from this run's artifacts with the script the
+  # publish job of release.yml uses (scripts/prepare-release.mjs), then checks
+  # them as npm would publish them (scripts/check-release.mjs). The artifacts
+  # come from this workflow's build jobs, so keep their uploads in line with
+  # those of release.yml.
+  release-dry-run:
+    name: Release Dry Run
+    needs: [changes, build, build-wasm-bindgen]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: bindings-*
+          path: artifacts
+      # JS-only pull requests build Linux and WASI only (see the `changes`
+      # job): --allow-missing-targets limits the platform packages to those.
+      - name: Assemble the npm packages
+        run: >-
+          node scripts/prepare-release.mjs --artifacts-dir artifacts
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
+      - name: Check the packages
+        run: >-
+          node scripts/check-release.mjs
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
+
   # ──── Aggregate gate: single required status check ────
   # Every job listed here is expected to run, so anything other than success
   # fails the gate. A job is skipped when a job it needs fails (e.g. a build
@@ -641,7 +678,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, audit, rust-lint, rust-test, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage]
+    needs: [changes, lint, audit, rust-lint, rust-test, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

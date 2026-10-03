@@ -6,6 +6,7 @@ target/
 dist/
 .wasm-pack-out/
 *.node
+/artifacts/
 
 # napi-rs generated files (tracked via git add -f for npm package)
 # Biome ignores these via useIgnoreFile
