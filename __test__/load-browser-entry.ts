@@ -10,16 +10,16 @@ import { vi } from 'vitest';
  */
 export const HAS_WASM_BUILD = existsSync(resolve(__dirname, '../browser/comprs-wasm_bg.wasm'));
 
-/**
- * The wasm-bindgen glue. Its type declarations exist only once the build has
- * run, so it is imported by a specifier that TypeScript does not resolve.
- */
-const GLUE_MODULE: string = '../browser/comprs-wasm.js';
+/** The memory of the WebAssembly instance that the browser entry created. */
+let entryMemory: WasmMemory | undefined;
 
 /**
  * Import a module that loads the browser entry, which fetches the
  * WebAssembly module next to it when it is imported. Node's fetch does not
- * support file: URLs, so serve them from disk, as a web server would.
+ * support file: URLs, so serve them from disk, as a web server would, with
+ * the type that lets the glue compile the response as it streams in. Record
+ * the memory of the instance that the entry creates, which it does not
+ * export.
  */
 async function withFileFetch<T>(load: () => Promise<T>): Promise<T> {
   vi.stubGlobal(
@@ -27,9 +27,25 @@ async function withFileFetch<T>(load: () => Promise<T>): Promise<T> {
     async (url: URL) =>
       new Response(await readFile(url), { headers: { 'content-type': 'application/wasm' } }),
   );
+  const webAssembly: unknown = Reflect.get(globalThis, 'WebAssembly');
+  if (!isWebAssemblyApi(webAssembly)) {
+    throw new Error('This runtime has no WebAssembly.instantiateStreaming()');
+  }
+  const instantiateStreaming = webAssembly.instantiateStreaming.bind(webAssembly);
+  const spy = vi
+    .spyOn(webAssembly, 'instantiateStreaming')
+    .mockImplementation(async (source, imports) => {
+      const result = await instantiateStreaming(source, imports);
+      const { memory } = result.instance.exports;
+      if (isWasmMemory(memory)) {
+        entryMemory = memory;
+      }
+      return result;
+    });
   try {
     return await load();
   } finally {
+    spy.mockRestore();
     vi.unstubAllGlobals();
   }
 }
@@ -60,25 +76,33 @@ export interface WasmMemory {
   grow(pages: number): number;
 }
 
+/**
+ * The member of the `WebAssembly` namespace that the glue instantiates the
+ * module with. The type check has no declarations for the namespace.
+ */
+interface WebAssemblyApi {
+  instantiateStreaming(
+    source: Response | PromiseLike<Response>,
+    imports?: object,
+  ): Promise<{ instance: { exports: Record<string, unknown> } }>;
+}
+
+function isWebAssemblyApi(value: unknown): value is WebAssemblyApi {
+  return isRecord(value) && typeof value.instantiateStreaming === 'function';
+}
+
 function isWasmMemory(value: unknown): value is WasmMemory {
   return isRecord(value) && value.buffer instanceof ArrayBuffer && typeof value.grow === 'function';
 }
 
 /**
  * Return the memory of the WebAssembly instance that the browser entry
- * created. Load the entry first: the glue's init function, which the entry
- * called, returns the exports of that instance when it is called again.
+ * created when {@link importBrowserEntry} or {@link importBrowserStreams}
+ * loaded it.
  */
-export async function wasmMemory(): Promise<WasmMemory> {
-  const glue: unknown = await import(GLUE_MODULE);
-  const init = isRecord(glue) ? glue.default : undefined;
-  if (typeof init !== 'function') {
-    throw new Error(`${GLUE_MODULE} has no init function`);
+export function wasmMemory(): WasmMemory {
+  if (entryMemory === undefined) {
+    throw new Error('The browser entry has not instantiated a WebAssembly module with a memory');
   }
-  const exports: unknown = await init();
-  const memory = isRecord(exports) ? exports.memory : undefined;
-  if (!isWasmMemory(memory)) {
-    throw new Error('The WebAssembly instance exports no memory');
-  }
-  return memory;
+  return entryMemory;
 }
