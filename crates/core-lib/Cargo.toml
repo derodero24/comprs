@@ -18,4 +18,5 @@ zstd = { workspace = true }
 flate2 = { workspace = true }
 lz4_flex = { workspace = true }
 crc32fast = { workspace = true }
+twox-hash = { workspace = true }
 thiserror = { workspace = true }

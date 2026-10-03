@@ -277,6 +277,7 @@ dependencies = [
  "flate2",
  "lz4_flex",
  "thiserror",
+ "twox-hash",
  "zstd",
 ]
 

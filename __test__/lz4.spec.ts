@@ -3,6 +3,7 @@ import {
   decompress,
   decompressAsync,
   detectFormat,
+  Lz4DecompressContext,
   lz4Compress,
   lz4CompressAsync,
   lz4Decompress,
@@ -183,6 +184,15 @@ describe('lz4 streaming', () => {
     expect(decompressed).toEqual(input);
   });
 
+  it('should write a content checksum', async () => {
+    const compressed = await collectStream(
+      toChunkedStream(Buffer.from('LZ4 stream checksum '.repeat(50)), 256).pipeThrough(
+        createLz4CompressStream(),
+      ),
+    );
+    expect(compressed[4]).toBe(0x64);
+  });
+
   it('should auto-detect LZ4 in decompress stream', async () => {
     const input = Buffer.from('Auto-detect LZ4 stream test');
     const compressed = lz4Compress(input);
@@ -190,5 +200,70 @@ describe('lz4 streaming', () => {
       toChunkedStream(compressed, compressed.length).pipeThrough(createDecompressStream()),
     );
     expect(decompressed).toEqual(input);
+  });
+});
+
+describe('lz4 frames', () => {
+  const hello = lz4Compress(Buffer.from('Hello '));
+  const world = lz4Compress(Buffer.from('World'));
+  const skippable = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 1, 2, 3]);
+  const truncated = 'lz4 stream is truncated: unexpected end of input';
+
+  it('should write a content checksum', () => {
+    // FLG: version 01, independent blocks, content checksum.
+    expect(hello[4]).toBe(0x64);
+  });
+
+  it('should detect corrupted block data', () => {
+    const corrupted = Buffer.from(lz4Compress(Buffer.from('The quick brown fox. '.repeat(20))));
+    // The last 5 bytes of a block are literals; the end mark and the content
+    // checksum follow them.
+    const lastLiteral = corrupted.length - 9;
+    corrupted.writeUInt8(corrupted.readUInt8(lastLiteral) ^ 0x01, lastLiteral);
+    expect(() => lz4Decompress(corrupted)).toThrow(/ContentChecksumError/);
+  });
+
+  it('should decode concatenated frames', async () => {
+    const input = Buffer.concat([hello, world]);
+    expect(lz4Decompress(input).toString()).toBe('Hello World');
+    expect((await lz4DecompressAsync(input)).toString()).toBe('Hello World');
+    expect(decompress(input).toString()).toBe('Hello World');
+    expect(lz4DecompressWithCapacity(input, 11).toString()).toBe('Hello World');
+    expect(() => lz4DecompressWithCapacity(input, 10)).toThrow(
+      'lz4 decompress exceeded maximum size of 10 bytes',
+    );
+    const streamed = await collectStream(
+      toChunkedStream(input, 5).pipeThrough(createLz4DecompressStream()),
+    );
+    expect(streamed.toString()).toBe('Hello World');
+  });
+
+  it('should skip skippable frames', () => {
+    const input = Buffer.concat([skippable, hello, skippable, world, skippable]);
+    expect(lz4Decompress(input).toString()).toBe('Hello World');
+    expect(lz4Decompress(skippable)).toEqual(Buffer.alloc(0));
+  });
+
+  it('should reject a frame cut short', () => {
+    // Every prefix, including the one that stops right before the end mark.
+    for (let length = 1; length < hello.length; length++) {
+      expect(() => lz4Decompress(hello.subarray(0, length))).toThrow(truncated);
+    }
+    expect(() => lz4Decompress(Buffer.concat([hello, world.subarray(0, 10)]))).toThrow(truncated);
+  });
+
+  it('should reject data after the last frame', async () => {
+    const input = Buffer.concat([hello, Buffer.from('garbage')]);
+    expect(() => lz4Decompress(input)).toThrow(
+      'lz4 decompress failed: unexpected data after the end of a frame',
+    );
+    const ctx = new Lz4DecompressContext();
+    ctx.transform(input);
+    expect(() => ctx.flush()).toThrow(
+      'lz4 stream decompress failed: unexpected data after the end of a frame',
+    );
+    await expect(
+      collectStream(toChunkedStream(input, 4).pipeThrough(createLz4DecompressStream())),
+    ).rejects.toThrow('lz4 stream decompress failed: unexpected data after the end of a frame');
   });
 });

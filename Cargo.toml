@@ -25,6 +25,9 @@ lz4_flex = { version = "0.14", default-features = false, features = ["std", "fra
 
 # Utilities
 crc32fast = "1"
+# xxHash32, which the LZ4 frame format uses for its checksums; lz4_flex uses
+# the same crate.
+twox-hash = { version = "2", default-features = false, features = ["xxhash32"] }
 
 # Error handling
 thiserror = "2"
