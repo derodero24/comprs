@@ -426,6 +426,8 @@ On any other platform, loading comprs in Node.js, Deno, or Bun throws `Cannot fi
 | Windows | x64, ARM64 |
 | WASM | wasm32-unknown-unknown (wasm-bindgen) |
 
+The Windows binaries link the C runtime statically, so they do not need the Visual C++ Redistributable.
+
 ### WASM bundle size
 
 The browser WASM binary (`wasm32-unknown-unknown`) is built via `wasm-pack` and optimized with `wasm-opt -O3` during CI builds.
