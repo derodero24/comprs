@@ -17,7 +17,10 @@ pub struct BrotliCompressContext {
 #[napi]
 impl BrotliCompressContext {
     #[napi(constructor)]
-    pub fn new(quality: Option<u32>) -> Result<Self> {
+    pub fn new(quality: Option<f64>) -> Result<Self> {
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::brotli_stream::CompressContext::new(quality)
                 .map_err(to_napi_error)?,
@@ -105,7 +108,10 @@ pub struct BrotliCompressDictContext {
 #[napi]
 impl BrotliCompressDictContext {
     #[napi(constructor)]
-    pub fn new(dict: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Self> {
+    pub fn new(dict: Either<Buffer, Uint8Array>, quality: Option<f64>) -> Result<Self> {
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::brotli_stream::CompressDictContext::new(
                 crate::as_bytes(&dict),

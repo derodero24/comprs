@@ -9,9 +9,13 @@ use crate::error::to_napi_error;
 /// Compress data using Brotli.
 ///
 /// Returns the compressed data as a Buffer.
-/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+/// Quality is an integer from 0 (fastest) to 11 (best compression). Default
+/// is 6.
 #[napi]
-pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<u32>) -> Result<Buffer> {
+pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<f64>) -> Result<Buffer> {
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_napi_error)?;
     comprs_core::brotli::compress(crate::as_bytes(&data), quality)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -67,18 +71,16 @@ impl Task for BrotliCompressTask {
 /// Asynchronously compress data using Brotli.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+/// Quality is an integer from 0 (fastest) to 11 (best compression). Default
+/// is 6.
 #[napi]
 pub fn brotli_compress_async(
     data: Either<Buffer, Uint8Array>,
-    quality: Option<u32>,
+    quality: Option<f64>,
 ) -> Result<AsyncTask<BrotliCompressTask>> {
-    let q = quality.unwrap_or(comprs_core::brotli::DEFAULT_QUALITY);
-    if q > 11 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "brotli quality must be between 0 and 11".to_string(),
-        )));
-    }
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(BrotliCompressTask {
         data: input,
@@ -158,13 +160,17 @@ pub fn brotli_decompress_with_capacity_async(
 /// Compress data using Brotli with a custom dictionary.
 ///
 /// The same dictionary must be used for decompression via `brotliDecompressWithDict`.
-/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+/// Quality is an integer from 0 (fastest) to 11 (best compression). Default
+/// is 6.
 #[napi]
 pub fn brotli_compress_with_dict(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
-    quality: Option<u32>,
+    quality: Option<f64>,
 ) -> Result<Buffer> {
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_napi_error)?;
     comprs_core::brotli::compress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict), quality)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -231,19 +237,17 @@ impl Task for BrotliCompressWithDictTask {
 /// Asynchronously compress data using Brotli with a custom dictionary.
 ///
 /// The same dictionary must be used for decompression via `brotliDecompressWithDict`.
-/// Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+/// Quality is an integer from 0 (fastest) to 11 (best compression). Default
+/// is 6.
 #[napi]
 pub fn brotli_compress_with_dict_async(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
-    quality: Option<u32>,
+    quality: Option<f64>,
 ) -> Result<AsyncTask<BrotliCompressWithDictTask>> {
-    let q = quality.unwrap_or(comprs_core::brotli::DEFAULT_QUALITY);
-    if q > 11 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "brotli quality must be between 0 and 11".to_string(),
-        )));
-    }
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     let dict_bytes = crate::as_bytes(&dict).to_vec();
     Ok(AsyncTask::new(BrotliCompressWithDictTask {

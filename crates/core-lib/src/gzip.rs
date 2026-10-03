@@ -6,11 +6,31 @@ use flate2::read::{GzDecoder, MultiGzDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder};
 use flate2::{Compression, Decompress, FlushDecompress, GzBuilder, Status};
 
-use crate::ComprsError;
 use crate::limited::LimitedVec;
+use crate::{ComprsError, IntArg};
 
 /// Default compression level for gzip/deflate (flate2 default = 6).
 pub const DEFAULT_LEVEL: u32 = 6;
+
+/// gzip compression levels: 0 (no compression) to 9 (best compression).
+pub const LEVEL: IntArg<u32> = IntArg {
+    name: "gzip compression level",
+    min: 0,
+    max: 9,
+};
+
+/// Raw deflate compression levels, the same as [`LEVEL`].
+pub const DEFLATE_LEVEL: IntArg<u32> = IntArg {
+    name: "deflate compression level",
+    ..LEVEL
+};
+
+/// The modification time in the gzip header, in seconds since the Unix epoch.
+pub const MTIME: IntArg<u32> = IntArg {
+    name: "mtime",
+    min: 0,
+    max: u32::MAX,
+};
 
 /// Longest header filename, in bytes, that [`compress_with_header`] writes.
 /// flate2's decoder, and therefore [`decompress`] and [`read_header`],
@@ -36,12 +56,7 @@ pub struct GzipHeader {
 
 /// Compress data using gzip.
 pub fn compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, ComprsError> {
-    let level = level.unwrap_or(DEFAULT_LEVEL);
-    if level > 9 {
-        return Err(ComprsError::InvalidArg(
-            "gzip compression level must be between 0 and 9".to_string(),
-        ));
-    }
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
     let mut encoder = GzEncoder::new(Vec::with_capacity(data.len()), Compression::new(level));
     encoder
@@ -62,12 +77,7 @@ pub fn compress_with_header(
     header: &GzipHeaderOptions,
     level: Option<u32>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let level = level.unwrap_or(DEFAULT_LEVEL);
-    if level > 9 {
-        return Err(ComprsError::InvalidArg(
-            "gzip compression level must be between 0 and 9".to_string(),
-        ));
-    }
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
     let mut builder = GzBuilder::new();
     if let Some(ref filename) = header.filename {
@@ -180,12 +190,7 @@ fn initial_capacity(input: &[u8], max_size: usize) -> usize {
 
 /// Compress data using raw deflate (no gzip header/trailer).
 pub fn deflate_compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, ComprsError> {
-    let level = level.unwrap_or(DEFAULT_LEVEL);
-    if level > 9 {
-        return Err(ComprsError::InvalidArg(
-            "deflate compression level must be between 0 and 9".to_string(),
-        ));
-    }
+    let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
     let mut encoder = DeflateEncoder::new(Vec::with_capacity(data.len()), Compression::new(level));
     encoder
@@ -381,8 +386,12 @@ mod tests {
 
     #[test]
     fn gzip_compress_rejects_level_above_9() {
-        let result = compress(b"data", Some(10));
-        assert!(matches!(result, Err(ComprsError::InvalidArg(_))));
+        let err = compress(b"data", Some(10)).unwrap_err();
+        assert!(matches!(err, ComprsError::InvalidArg(_)));
+        assert_eq!(
+            err.to_string(),
+            "gzip compression level must be an integer between 0 and 9"
+        );
     }
 
     #[test]
@@ -400,8 +409,12 @@ mod tests {
 
     #[test]
     fn deflate_compress_rejects_level_above_9() {
-        let result = deflate_compress(b"data", Some(10));
-        assert!(matches!(result, Err(ComprsError::InvalidArg(_))));
+        let err = deflate_compress(b"data", Some(10)).unwrap_err();
+        assert!(matches!(err, ComprsError::InvalidArg(_)));
+        assert_eq!(
+            err.to_string(),
+            "deflate compression level must be an integer between 0 and 9"
+        );
     }
 
     #[test]

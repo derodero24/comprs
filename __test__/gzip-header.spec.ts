@@ -50,7 +50,9 @@ describe('gzipCompressWithHeader', () => {
 
   it('should throw on invalid level', () => {
     const data = Buffer.from('test');
-    expect(() => gzipCompressWithHeader(data, {}, 10)).toThrow(/level must be between 0 and 9/);
+    expect(() => gzipCompressWithHeader(data, {}, 10)).toThrow(
+      /level must be an integer between 0 and 9/,
+    );
   });
 
   it('should reject a filename with a NUL character', () => {

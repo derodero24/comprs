@@ -17,7 +17,10 @@ pub struct GzipCompressContext {
 #[napi]
 impl GzipCompressContext {
     #[napi(constructor)]
-    pub fn new(level: Option<u32>) -> Result<Self> {
+    pub fn new(level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::gzip::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::gzip_stream::GzipCompressContext::new(level)
                 .map_err(to_napi_error)?,
@@ -104,7 +107,10 @@ pub struct DeflateCompressContext {
 #[napi]
 impl DeflateCompressContext {
     #[napi(constructor)]
-    pub fn new(level: Option<u32>) -> Result<Self> {
+    pub fn new(level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::gzip::DEFLATE_LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::gzip_stream::DeflateCompressContext::new(level)
                 .map_err(to_napi_error)?,

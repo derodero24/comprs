@@ -321,7 +321,8 @@ export declare class ZstdDecompressDictContext {
  * Compress data using Brotli.
  *
  * Returns the compressed data as a Buffer.
- * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ * Quality is an integer from 0 (fastest) to 11 (best compression). Default
+ * is 6.
  */
 export declare function brotliCompress(data: Buffer | Uint8Array, quality?: number | undefined | null): Buffer
 
@@ -329,7 +330,8 @@ export declare function brotliCompress(data: Buffer | Uint8Array, quality?: numb
  * Asynchronously compress data using Brotli.
  *
  * Returns a Promise that resolves to the compressed data as a Buffer.
- * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ * Quality is an integer from 0 (fastest) to 11 (best compression). Default
+ * is 6.
  */
 export declare function brotliCompressAsync(data: Buffer | Uint8Array, quality?: number | undefined | null): Promise<Buffer>
 
@@ -337,7 +339,8 @@ export declare function brotliCompressAsync(data: Buffer | Uint8Array, quality?:
  * Compress data using Brotli with a custom dictionary.
  *
  * The same dictionary must be used for decompression via `brotliDecompressWithDict`.
- * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ * Quality is an integer from 0 (fastest) to 11 (best compression). Default
+ * is 6.
  */
 export declare function brotliCompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null): Buffer
 
@@ -345,7 +348,8 @@ export declare function brotliCompressWithDict(data: Buffer | Uint8Array, dict: 
  * Asynchronously compress data using Brotli with a custom dictionary.
  *
  * The same dictionary must be used for decompression via `brotliDecompressWithDict`.
- * Quality ranges from 0 (fastest) to 11 (best compression). Default is 6.
+ * Quality is an integer from 0 (fastest) to 11 (best compression). Default
+ * is 6.
  */
 export declare function brotliCompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null): Promise<Buffer>
 
@@ -429,7 +433,7 @@ export declare const enum CompressionFormat {
  *
  * Optionally accepts an initial CRC value for incremental computation:
  * split data into chunks, pass the result of each chunk as `initial_value`
- * for the next.
+ * for the next. `initial_value` is an integer from 0 to 4294967295.
  */
 export declare function crc32(data: Buffer | Uint8Array, initialValue?: number | undefined | null): number
 
@@ -461,7 +465,8 @@ export declare function decompressAsync(data: Buffer | Uint8Array): Promise<Buff
  * Compress data using raw deflate (no gzip header/trailer).
  *
  * Returns the compressed data as a Buffer.
- * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ * Level is an integer from 0 (no compression) to 9 (best compression).
+ * Default is 6.
  */
 export declare function deflateCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
@@ -469,7 +474,8 @@ export declare function deflateCompress(data: Buffer | Uint8Array, level?: numbe
  * Asynchronously compress data using raw deflate (no gzip header/trailer).
  *
  * Returns a Promise that resolves to the compressed data as a Buffer.
- * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ * Level is an integer from 0 (no compression) to 9 (best compression).
+ * Default is 6.
  */
 export declare function deflateCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
 
@@ -526,7 +532,8 @@ export declare function detectFormat(data: Buffer | Uint8Array): CompressionForm
  * Compress data using gzip.
  *
  * Returns the compressed data as a Buffer.
- * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ * Level is an integer from 0 (no compression) to 9 (best compression).
+ * Default is 6.
  */
 export declare function gzipCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
@@ -534,7 +541,8 @@ export declare function gzipCompress(data: Buffer | Uint8Array, level?: number |
  * Asynchronously compress data using gzip.
  *
  * Returns a Promise that resolves to the compressed data as a Buffer.
- * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ * Level is an integer from 0 (no compression) to 9 (best compression).
+ * Default is 6.
  */
 export declare function gzipCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
 
@@ -544,7 +552,8 @@ export declare function gzipCompressAsync(data: Buffer | Uint8Array, level?: num
  * Allows setting header fields such as `filename` and `mtime`. Throws if
  * `filename` contains a NUL character or is longer than 65535 bytes in UTF-8.
  * Returns the compressed data as a Buffer.
- * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+ * Level is an integer from 0 (no compression) to 9 (best compression).
+ * Default is 6.
  */
 export declare function gzipCompressWithHeader(data: Buffer | Uint8Array, header: GzipHeaderOptions, level?: number | undefined | null): Buffer
 
@@ -603,7 +612,10 @@ export interface GzipHeaderOptions {
    * characters and must be at most 65535 bytes long in UTF-8.
    */
   filename?: string
-  /** Modification time as a Unix timestamp (seconds since epoch). */
+  /**
+   * Modification time as a Unix timestamp (seconds since epoch), an
+   * integer from 0 to 4294967295.
+   */
   mtime?: number
 }
 
@@ -673,8 +685,8 @@ export declare function version(): string
  * Compress data using Zstandard.
  *
  * Returns the compressed data as a Buffer.
- * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
- * Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+ * Level is an integer from 1 (fastest) to 22 (best compression). Default is
+ * 3. Negative levels (-1 to -131072) enable fast mode, trading compression
  * ratio for speed. Level 0 is equivalent to the default level (3).
  */
 export declare function zstdCompress(data: Buffer | Uint8Array, level?: number | undefined | null): Buffer
@@ -683,8 +695,8 @@ export declare function zstdCompress(data: Buffer | Uint8Array, level?: number |
  * Asynchronously compress data using Zstandard.
  *
  * Returns a Promise that resolves to the compressed data as a Buffer.
- * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
- * Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+ * Level is an integer from 1 (fastest) to 22 (best compression). Default is
+ * 3. Negative levels (-1 to -131072) enable fast mode, trading compression
  * ratio for speed. Level 0 is equivalent to the default level (3).
  */
 export declare function zstdCompressAsync(data: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
@@ -693,7 +705,8 @@ export declare function zstdCompressAsync(data: Buffer | Uint8Array, level?: num
  * Compress data using Zstandard with a pre-trained dictionary.
  *
  * The same dictionary must be used for decompression via `zstdDecompressWithDict`.
- * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ * Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
+ * 3.
  */
 export declare function zstdCompressWithDict(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null): Buffer
 
@@ -701,7 +714,8 @@ export declare function zstdCompressWithDict(data: Buffer | Uint8Array, dict: Bu
  * Asynchronously compress data using Zstandard with a pre-trained dictionary.
  *
  * The same dictionary must be used for decompression via `zstdDecompressWithDict`.
- * Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+ * Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
+ * 3.
  */
 export declare function zstdCompressWithDictAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null): Promise<Buffer>
 

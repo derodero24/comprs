@@ -6,6 +6,8 @@ import {
   deflateCompress,
   GzipDecompressContext,
   gzipCompress,
+  Lz4DecompressContext,
+  lz4Compress,
   ZstdDecompressContext,
   ZstdDecompressDictContext,
   zstdCompress,
@@ -190,44 +192,72 @@ describe('maxOutputSize on decompression contexts', () => {
 describe('maxOutputSize validation', () => {
   it('should throw for NaN', () => {
     expect(() => new GzipDecompressContext(Number.NaN)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw for Infinity', () => {
     expect(() => new GzipDecompressContext(Number.POSITIVE_INFINITY)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw for negative Infinity', () => {
     expect(() => new GzipDecompressContext(Number.NEGATIVE_INFINITY)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw for negative values', () => {
     expect(() => new GzipDecompressContext(-1)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
   });
 
-  it('should accept zero as maxOutputSize', () => {
-    // Zero means "no output allowed" — valid edge case
-    const ctx = new GzipDecompressContext(0);
-    const compressed = gzipCompress(Buffer.alloc(1024, 0x42));
-    expect(() => decompressAll(ctx, compressed)).toThrow(/exceeded maximum size/);
+  it('should throw for fractions instead of truncating them', () => {
+    for (const maxOutputSize of [0.5, 1.7, 4096.5]) {
+      expect(() => new GzipDecompressContext(maxOutputSize)).toThrow(
+        'maxOutputSize must be an integer between 0 and 9007199254740991',
+      );
+    }
+  });
+
+  it('should throw for values above Number.MAX_SAFE_INTEGER', () => {
+    for (const maxOutputSize of [2 ** 53, 2 ** 64, Number.MAX_VALUE]) {
+      expect(() => new GzipDecompressContext(maxOutputSize)).toThrow(
+        'maxOutputSize must be an integer between 0 and 9007199254740991',
+      );
+    }
+    expect(() => new GzipDecompressContext(Number.MAX_SAFE_INTEGER)).not.toThrow();
+  });
+
+  it('should accept zero, which allows only streams that decompress to nothing', () => {
+    const empty = Buffer.alloc(0);
+    const data = Buffer.alloc(1024, 0x42);
+    const contexts = [
+      [gzipCompress, () => new GzipDecompressContext(0)],
+      [deflateCompress, () => new DeflateDecompressContext(0)],
+      [zstdCompress, () => new ZstdDecompressContext(0)],
+      [brotliCompress, () => new BrotliDecompressContext(0)],
+      [lz4Compress, () => new Lz4DecompressContext(0)],
+    ] as const;
+    for (const [compress, createContext] of contexts) {
+      expect(decompressAll(createContext(), compress(empty))).toEqual(empty);
+      expect(() => decompressAll(createContext(), compress(data))).toThrow(
+        'exceeded maximum size of 0 bytes',
+      );
+    }
   });
 
   it('should validate on all context types', () => {
     expect(() => new DeflateDecompressContext(Number.NaN)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
     expect(() => new ZstdDecompressContext(Number.NaN)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
     expect(() => new BrotliDecompressContext(Number.NaN)).toThrow(
-      /maxOutputSize must be a positive finite number/,
+      /maxOutputSize must be an integer between 0 and 9007199254740991/,
     );
   });
 });
