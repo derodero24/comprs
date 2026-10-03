@@ -2,13 +2,17 @@ import { Buffer } from 'node:buffer';
 
 // --- Deterministic pseudo-random data generator ---
 // Uses a linear congruential generator for reproducible benchmark inputs:
-// randomBytes would give every run different data to compress.
-const deterministicBytes = (size: number, seed: number): Buffer => {
+// randomBytes would give every run different data to compress. Each byte is
+// the top 8 bits of the 32-bit state: the low k bits of the state repeat
+// every 2^k steps, so the low byte would repeat every 256 bytes and compress
+// almost as well as the patterned data.
+// Matches deterministic_bytes in crates/bench/src/lib.rs.
+export const deterministicBytes = (size: number, seed: number): Buffer => {
   const out = Buffer.alloc(size);
   let x = seed >>> 0;
   for (let i = 0; i < size; i++) {
-    x = (1664525 * x + 1013904223) >>> 0;
-    out[i] = x & 0xff;
+    x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+    out[i] = x >>> 24;
   }
   return out;
 };
