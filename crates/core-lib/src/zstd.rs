@@ -1,5 +1,8 @@
 //! Zstandard compression and decompression.
 
+use zstd::stream::raw::Decoder;
+use zstd::zstd_safe;
+
 use crate::ComprsError;
 
 /// Default compression level for zstd (same as the C library default).
@@ -7,6 +10,10 @@ pub const DEFAULT_LEVEL: i32 = 3;
 
 /// Default maximum dictionary size (110 KB, zstd default).
 pub const DEFAULT_MAX_DICT_SIZE: usize = 110 * 1024;
+
+/// The most that a zstd frame can expand: a 4-byte RLE block (a 3-byte block
+/// header and the byte to repeat) decodes to at most 128 KiB.
+const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 
 /// Compress data using Zstandard.
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
@@ -25,29 +32,18 @@ pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError>
 
 /// Decompress Zstandard-compressed data.
 ///
-/// Uses the frame content size header to determine initial capacity,
-/// capped at MAX_DECOMPRESSED_SIZE.
+/// The input may hold several frames, including skippable ones. The output
+/// is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "zstd")?;
-    let capacity = match zstd::zstd_safe::get_frame_content_size(data) {
-        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
-        _ => crate::MAX_DECOMPRESSED_SIZE,
-    };
-    let capacity = capacity.max(1024);
-
-    zstd::bulk::decompress(data, capacity).map_err(|e| ComprsError::Operation {
-        context: "zstd decompress",
-        source: e.into(),
-    })
+    decompress_with_limit(data, &[], crate::MAX_DECOMPRESSED_SIZE, "zstd decompress")
 }
 
 /// Decompress Zstandard-compressed data with explicit capacity.
+///
+/// `capacity` limits the output size; the output buffer grows with the
+/// decompressed data instead of being allocated at that size.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "zstd")?;
-    zstd::bulk::decompress(data, capacity).map_err(|e| ComprsError::Operation {
-        context: "zstd decompress",
-        source: e.into(),
-    })
+    decompress_with_limit(data, &[], capacity, "zstd decompress")
 }
 
 /// Train a zstd dictionary from sample data.
@@ -87,47 +83,103 @@ pub fn compress_with_dict(
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
+///
+/// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes.
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "zstd")?;
-    let capacity = match zstd::zstd_safe::get_frame_content_size(data) {
-        Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
-        _ => crate::MAX_DECOMPRESSED_SIZE,
-    };
-    let capacity = capacity.max(1024);
-
-    let mut decompressor =
-        zstd::bulk::Decompressor::with_dictionary(dict).map_err(|e| ComprsError::Operation {
-            context: "zstd decompressor init",
-            source: e.into(),
-        })?;
-
-    decompressor
-        .decompress(data, capacity)
-        .map_err(|e| ComprsError::Operation {
-            context: "zstd decompress with dict",
-            source: e.into(),
-        })
+    decompress_with_limit(
+        data,
+        dict,
+        crate::MAX_DECOMPRESSED_SIZE,
+        "zstd decompress with dict",
+    )
 }
 
 /// Decompress Zstandard-compressed data with a dictionary and explicit capacity.
+///
+/// `capacity` limits the output size, as in [`decompress_with_capacity`].
 pub fn decompress_with_dict_with_capacity(
     data: &[u8],
     dict: &[u8],
     capacity: usize,
 ) -> Result<Vec<u8>, ComprsError> {
+    decompress_with_limit(data, dict, capacity, "zstd decompress with dict")
+}
+
+/// Decompress `data` with `dict` (empty for none) into at most `limit` bytes.
+///
+/// When [`trusted_output_size`] knows the exact output size, the frames are
+/// decoded straight into a buffer of that size. Otherwise the streaming
+/// decoder grows the output as it decodes, so frames without a content size
+/// never reserve `limit` bytes up front.
+fn decompress_with_limit(
+    data: &[u8],
+    dict: &[u8],
+    limit: usize,
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "zstd")?;
-    let mut decompressor =
-        zstd::bulk::Decompressor::with_dictionary(dict).map_err(|e| ComprsError::Operation {
-            context: "zstd decompressor init",
+    let init_error = |e: std::io::Error| ComprsError::Operation {
+        context: "zstd decompressor init",
+        source: e.into(),
+    };
+
+    let Some(size) = trusted_output_size(data, limit, context)? else {
+        let decoder = Decoder::with_dictionary(dict).map_err(init_error)?;
+        // Start at the input size: incompressible data then fits as is, and
+        // compressible data grows the buffer geometrically.
+        return crate::zstd_stream::decompress_all(decoder, data, limit, data.len(), context);
+    };
+
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(size)
+        .map_err(|e| ComprsError::Operation {
+            context,
             source: e.into(),
         })?;
-
-    decompressor
-        .decompress(data, capacity)
+    zstd::bulk::Decompressor::with_dictionary(dict)
+        .map_err(init_error)?
+        .decompress_to_buffer(data, &mut output)
         .map_err(|e| ComprsError::Operation {
-            context: "zstd decompress with dict",
+            context,
             source: e.into(),
-        })
+        })?;
+    Ok(output)
+}
+
+/// The total content size that the frames in `data` declare, if it can size
+/// the output buffer: every frame declares its content size (skippable frames
+/// declare 0), the frames span all of `data`, and the total is no more than
+/// `data` can expand to, so forged headers cannot reserve more memory than
+/// valid input of the same length could fill.
+///
+/// Fails with [`ComprsError::SizeLimit`] if the declared total exceeds
+/// `limit`.
+fn trusted_output_size(
+    data: &[u8],
+    limit: usize,
+    context: &'static str,
+) -> Result<Option<usize>, ComprsError> {
+    let mut total: u64 = 0;
+    let mut rest = data;
+    while !rest.is_empty() {
+        let frame_len = match zstd_safe::find_frame_compressed_size(rest) {
+            Ok(len) if len > 0 && len <= rest.len() => len,
+            _ => return Ok(None),
+        };
+        let Ok(Some(size)) = zstd_safe::get_frame_content_size(rest) else {
+            return Ok(None);
+        };
+        total = total.saturating_add(size);
+        rest = &rest[frame_len..];
+    }
+    if total > limit as u64 {
+        return Err(ComprsError::SizeLimit { context, limit });
+    }
+    if total > (data.len() as u64).saturating_mul(MAX_EXPANSION) {
+        return Ok(None);
+    }
+    Ok(Some(total as usize))
 }
 
 #[cfg(test)]
@@ -145,6 +197,306 @@ mod tests {
         ] {
             assert!(matches!(result, Err(ComprsError::Truncated("zstd"))));
         }
+    }
+
+    const DICT: &[u8] = b"zstd dictionary content, zstd dictionary content, zstd";
+
+    /// Compress `data` the way streaming encoders do: the frame does not
+    /// declare its content size.
+    fn compress_without_content_size(data: &[u8]) -> Vec<u8> {
+        let mut ctx = crate::zstd_stream::CompressContext::new(None).unwrap();
+        let mut frame = ctx.transform(data).unwrap();
+        frame.extend(ctx.finish().unwrap());
+        assert!(matches!(
+            zstd::zstd_safe::get_frame_content_size(&frame),
+            Ok(None)
+        ));
+        frame
+    }
+
+    /// Like [`compress_without_content_size`], with [`DICT`].
+    fn compress_with_dict_without_content_size(data: &[u8]) -> Vec<u8> {
+        let mut ctx = crate::zstd_stream::CompressDictContext::new(DICT, None).unwrap();
+        let mut frame = ctx.transform(data).unwrap();
+        frame.extend(ctx.finish().unwrap());
+        frame
+    }
+
+    /// A skippable frame (RFC 8878, section 3.1.2) carrying `payload`.
+    fn skippable_frame(payload: &[u8]) -> Vec<u8> {
+        let mut frame = 0x184D_2A50u32.to_le_bytes().to_vec();
+        frame.extend((payload.len() as u32).to_le_bytes());
+        frame.extend(payload);
+        frame
+    }
+
+    /// Text that compresses well but is not a single repeated byte.
+    fn text(len: usize) -> Vec<u8> {
+        b"comprs sizes zstd output from the data. "
+            .iter()
+            .copied()
+            .cycle()
+            .take(len)
+            .collect()
+    }
+
+    /// A frame that holds `content` in one raw block but declares
+    /// `content_size` as its content size.
+    fn frame_declaring(content_size: u64, content: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD];
+        // Frame header descriptor (8-byte content size), 1 KiB window.
+        frame.extend([0xC0, 0x00]);
+        frame.extend(content_size.to_le_bytes());
+        // Block header: last block, raw, `content.len()` bytes.
+        let block_header = 1 | ((content.len() as u32) << 3);
+        frame.extend(&block_header.to_le_bytes()[..3]);
+        frame.extend(content);
+        frame
+    }
+
+    #[test]
+    fn trusted_output_size_sums_declared_sizes_of_complete_frames() {
+        let a = compress(&text(1000), None).unwrap();
+        let b = compress(&text(3000), None).unwrap();
+        let skippable = skippable_frame(b"metadata");
+        let input = [&a[..], &skippable[..], &b[..]].concat();
+        assert_eq!(
+            trusted_output_size(&input, 4000, "test").unwrap(),
+            Some(4000)
+        );
+        assert_eq!(trusted_output_size(&skippable, 0, "test").unwrap(), Some(0));
+
+        let without_size = compress_without_content_size(b"hello");
+        let mixed = [&a[..], &without_size[..]].concat();
+        let trailing = [&a[..], &[0]].concat();
+        for input in [&without_size[..], &mixed, &a[..a.len() - 1], &trailing] {
+            assert_eq!(
+                trusted_output_size(input, usize::MAX, "test").unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_output_size_rejects_sizes_over_the_limit() {
+        let frame = frame_declaring(5, b"hello");
+        assert_eq!(decompress(&frame).unwrap(), b"hello");
+        assert!(matches!(
+            trusted_output_size(&frame, 4, "zstd decompress"),
+            Err(ComprsError::SizeLimit { limit: 4, .. })
+        ));
+        assert!(matches!(
+            decompress_with_capacity(&frame, 4),
+            Err(ComprsError::SizeLimit { limit: 4, .. })
+        ));
+    }
+
+    #[test]
+    fn trusted_output_size_ignores_sizes_the_frames_cannot_fill() {
+        // 22 bytes of input decode to at most 22 * 32 KiB, so the declared
+        // 200 MiB must not be allocated before decoding finds the frame
+        // corrupt.
+        let forged = frame_declaring(200 * 1024 * 1024, b"hello");
+        assert_eq!(
+            trusted_output_size(&forged, usize::MAX, "test").unwrap(),
+            None
+        );
+        assert!(matches!(
+            decompress(&forged),
+            Err(ComprsError::Operation { .. })
+        ));
+    }
+
+    #[test]
+    fn decompress_sizes_output_from_the_data_without_a_content_size() {
+        let small = compress_without_content_size(b"hello");
+        let small_dict = compress_with_dict_without_content_size(b"hello");
+        for output in [
+            decompress(&small).unwrap(),
+            decompress_with_capacity(&small, 1 << 40).unwrap(),
+            decompress_with_dict(&small_dict, DICT).unwrap(),
+            decompress_with_dict_with_capacity(&small_dict, DICT, 1 << 40).unwrap(),
+            crate::detect::decompress(&small).unwrap(),
+        ] {
+            assert_eq!(output, b"hello");
+            assert!(output.capacity() < 1024, "capacity {}", output.capacity());
+        }
+
+        let original = text(200_000);
+        let output = decompress(&compress_without_content_size(&original)).unwrap();
+        assert_eq!(output, original);
+        assert!(
+            output.capacity() <= 2 * original.len(),
+            "capacity {}",
+            output.capacity()
+        );
+    }
+
+    #[test]
+    fn decompress_allocates_the_declared_content_size_exactly() {
+        let original = text(200_000);
+        let output = decompress(&compress(&original, None).unwrap()).unwrap();
+        assert_eq!(output, original);
+        assert_eq!(output.capacity(), original.len());
+    }
+
+    #[test]
+    fn decompress_treats_capacity_as_a_limit_only() {
+        // Capacities that cannot be allocated used to abort the process.
+        for frame in [
+            compress(b"hello", None).unwrap(),
+            compress_without_content_size(b"hello"),
+        ] {
+            for capacity in [1 << 40, usize::MAX] {
+                let output = decompress_with_capacity(&frame, capacity).unwrap();
+                assert_eq!(output, b"hello");
+                assert!(output.capacity() < 1024, "capacity {}", output.capacity());
+            }
+        }
+        for frame in [
+            compress_with_dict(b"hello", DICT, None).unwrap(),
+            compress_with_dict_without_content_size(b"hello"),
+        ] {
+            for capacity in [1 << 40, usize::MAX] {
+                let output = decompress_with_dict_with_capacity(&frame, DICT, capacity).unwrap();
+                assert_eq!(output, b"hello");
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_reports_output_over_the_limit() {
+        let original = text(4096);
+        for frame in [
+            compress(&original, None).unwrap(),
+            compress_without_content_size(&original),
+        ] {
+            assert_eq!(decompress_with_capacity(&frame, 4096).unwrap(), original);
+            let err = decompress_with_capacity(&frame, 4095).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "zstd decompress exceeded maximum size of 4095 bytes"
+            );
+        }
+        for frame in [
+            compress_with_dict(&original, DICT, None).unwrap(),
+            compress_with_dict_without_content_size(&original),
+        ] {
+            assert_eq!(
+                decompress_with_dict_with_capacity(&frame, DICT, 4096).unwrap(),
+                original
+            );
+            let err = decompress_with_dict_with_capacity(&frame, DICT, 4095).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "zstd decompress with dict exceeded maximum size of 4095 bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_stops_a_bomb_without_a_content_size_at_the_limit() {
+        let bomb = compress_without_content_size(&vec![0u8; 8 * 1024 * 1024]);
+        assert!(matches!(
+            decompress_with_capacity(&bomb, 64 * 1024),
+            Err(ComprsError::SizeLimit { limit: 65536, .. })
+        ));
+    }
+
+    #[test]
+    fn decompress_accepts_concatenated_frames() {
+        let (a, b) = (vec![b'a'; 4096], vec![b'b'; 4096]);
+        let expected = [&a[..], &b[..]].concat();
+        let inputs = [
+            [compress(&a, None).unwrap(), compress(&b, None).unwrap()].concat(),
+            [
+                compress(&a, None).unwrap(),
+                compress_without_content_size(&b),
+            ]
+            .concat(),
+            [
+                compress_without_content_size(&a),
+                compress_without_content_size(&b),
+            ]
+            .concat(),
+        ];
+        for input in &inputs {
+            assert_eq!(decompress(input).unwrap(), expected);
+            assert_eq!(
+                decompress_with_capacity(input, expected.len()).unwrap(),
+                expected
+            );
+            assert!(matches!(
+                decompress_with_capacity(input, expected.len() - 1),
+                Err(ComprsError::SizeLimit { .. })
+            ));
+            assert_eq!(crate::detect::decompress(input).unwrap(), expected);
+        }
+
+        let with_size = compress_with_dict(&a, DICT, None).unwrap();
+        for second in [
+            compress_with_dict(&b, DICT, None).unwrap(),
+            compress_with_dict_without_content_size(&b),
+        ] {
+            let input = [&with_size[..], &second[..]].concat();
+            assert_eq!(decompress_with_dict(&input, DICT).unwrap(), expected);
+            assert_eq!(
+                decompress_with_dict_with_capacity(&input, DICT, expected.len()).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_skips_skippable_frames() {
+        let skippable = skippable_frame(b"metadata");
+        let original = text(4096);
+        for frame in [
+            compress(&original, None).unwrap(),
+            compress_without_content_size(&original),
+        ] {
+            for (input, frames) in [
+                ([&skippable[..], &frame[..]].concat(), 1),
+                ([&frame[..], &skippable[..]].concat(), 1),
+                ([&frame[..], &skippable[..], &frame[..]].concat(), 2),
+            ] {
+                assert_eq!(decompress(&input).unwrap(), original.repeat(frames));
+            }
+        }
+        assert_eq!(decompress(&skippable).unwrap(), b"");
+    }
+
+    #[test]
+    fn decompress_rejects_truncated_input() {
+        let original = text(8000);
+        for frame in [
+            compress(&original, None).unwrap(),
+            compress_without_content_size(&original),
+        ] {
+            let concatenated = [&frame[..], &frame[..frame.len() / 2]].concat();
+            for input in [
+                &frame[..1],
+                &frame[..frame.len() / 2],
+                &frame[..frame.len() - 1],
+                &concatenated[..],
+            ] {
+                assert!(
+                    matches!(decompress(input), Err(ComprsError::Truncated("zstd"))),
+                    "input of {} bytes",
+                    input.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_rejects_data_after_the_last_frame() {
+        let mut input = compress(b"complete", None).unwrap();
+        input.extend(b"trailing garbage");
+        assert!(matches!(
+            decompress(&input),
+            Err(ComprsError::Operation { .. })
+        ));
     }
 
     #[test]

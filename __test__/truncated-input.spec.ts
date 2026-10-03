@@ -316,6 +316,40 @@ describe('one-shot deflate decompression', () => {
 });
 
 // ---------------------------------------------------------------------------
+// One-shot zstd
+// ---------------------------------------------------------------------------
+
+describe('one-shot zstd decompression', () => {
+  const dictCompressed = zstdCompressWithDict(data, zstdDict);
+
+  it.each(cutsOf(zstdCompressed))('should reject input cut to %i bytes', async (length) => {
+    const input = zstdCompressed.subarray(0, length);
+    expect(() => zstdDecompress(input)).toThrow(truncated('zstd'));
+    expect(() => zstdDecompressWithCapacity(input, data.length)).toThrow(truncated('zstd'));
+    await expect(zstdDecompressAsync(input)).rejects.toThrow(truncated('zstd'));
+  });
+
+  it.each(cutsOf(zstdCompressed).slice(1))(
+    'auto-detection should reject input cut to %i bytes',
+    async (length) => {
+      const input = zstdCompressed.subarray(0, length);
+      expect(() => decompress(input)).toThrow(truncated('zstd'));
+      await expect(decompressAsync(input)).rejects.toThrow(truncated('zstd'));
+    },
+  );
+
+  it.each(cutsOf(dictCompressed))('should reject dictionary input cut to %i bytes', (length) => {
+    const input = dictCompressed.subarray(0, length);
+    expect(() => zstdDecompressWithDict(input, zstdDict)).toThrow(truncated('zstd'));
+  });
+
+  it('should reject a complete frame followed by a truncated one', () => {
+    const input = Buffer.concat([zstdCompressed, zstdCompressed.subarray(0, 10)]);
+    expect(() => zstdDecompress(input)).toThrow(truncated('zstd'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Empty input: no format has a valid zero-length encoding
 // ---------------------------------------------------------------------------
 

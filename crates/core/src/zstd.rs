@@ -81,8 +81,9 @@ impl Task for ZstdDecompressTask {
 /// Asynchronously decompress Zstandard-compressed data.
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable
+/// frames. The maximum decompressed size is 256 MB. Use
+/// `zstdDecompressWithCapacity` for larger data.
 #[napi]
 pub fn zstd_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<ZstdDecompressTask> {
     let input = crate::as_bytes(&data).to_vec();
@@ -92,8 +93,9 @@ pub fn zstd_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Zstd
 /// Decompress Zstandard-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `zstdDecompressWithCapacity`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable
+/// frames. The maximum decompressed size is 256 MB. Use
+/// `zstdDecompressWithCapacity` for larger data.
 #[napi]
 pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::zstd::decompress(crate::as_bytes(&data))
@@ -105,6 +107,8 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// It is only a limit: the output buffer grows with the decompressed data, so
+/// a large `capacity` reserves no memory up front.
 #[napi]
 pub fn zstd_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
@@ -175,6 +179,8 @@ pub fn zstd_decompress_with_dict(
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// It is only a limit: the output buffer grows with the decompressed data, so
+/// a large `capacity` reserves no memory up front.
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity(
@@ -216,6 +222,8 @@ impl Task for ZstdDecompressWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// It is only a limit: the output buffer grows with the decompressed data, so
+/// a large `capacity` reserves no memory up front.
 #[napi]
 pub fn zstd_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,
@@ -382,6 +390,8 @@ impl Task for ZstdDecompressWithDictWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// It is only a limit: the output buffer grows with the decompressed data, so
+/// a large `capacity` reserves no memory up front.
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity_async(
