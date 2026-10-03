@@ -26,6 +26,7 @@ cargo test
 comprs/
 ├── crates/
 │   ├── core-lib/    ← Pure Rust compression logic (no FFI dependencies)
+│   │   └── fuzz/    ← cargo-fuzz targets for core-lib
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
@@ -78,6 +79,36 @@ pnpm run test:deno            # Deno, through the native addon
 pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
 pnpm run test:wasm            # WebAssembly build, compared with the native addon
 pnpm run test:browser         # WebAssembly build in Chromium (Playwright)
+```
+
+## Fuzzing
+
+`crates/core-lib/fuzz` holds [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) targets for `comprs-core`:
+
+| Target | What it runs |
+| ------ | ------------ |
+| `zstd`, `gzip`, `deflate`, `brotli`, `lz4` | Every one-shot function and stream context of the format, including the dictionary variants, on random bytes or on a damaged valid stream, with small output limits and fuzzer-chosen chunk boundaries |
+| `detect` | Format detection, auto-detecting decompression and `gzip::read_header` |
+| `round_trip` | Compression in one call or in chunks, then every way of decompressing the result |
+
+A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations).
+
+To fuzz locally (Linux or macOS), install a nightly toolchain and cargo-fuzz, then run a target for as long as you like:
+
+```bash
+rustup toolchain install nightly --profile minimal
+cargo install cargo-fuzz --locked
+cargo +nightly fuzz list --fuzz-dir crates/core-lib/fuzz
+cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd -- -max_total_time=60
+```
+
+The corpus and failing inputs go to `corpus/` and `artifacts/` in the fuzz crate, which git ignores.
+
+The fuzz crate is a workspace of its own, as cargo-fuzz sets it up, so that it builds with its own release profile and stays out of the cargo commands run on the comprs workspace. Its `Cargo.lock` must keep the versions of the workspace's `Cargo.lock`, so that the fuzzers build the dependencies that comprs ships. After changing `Cargo.lock` or the dependencies of `comprs-core`, update it:
+
+```bash
+cp Cargo.lock crates/core-lib/fuzz/Cargo.lock
+cargo update --workspace --manifest-path crates/core-lib/fuzz/Cargo.toml
 ```
 
 ## Commit messages
