@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   test: {
     include: ['__test__/**/*.spec.ts'],
     alias: [
@@ -16,6 +16,10 @@ export default defineConfig({
     exclude: ['node_modules', 'target', '.claude'],
     benchmark: {
       include: ['__test__/**/*.bench.ts'],
+      // `pnpm run bench:ci` (`vitest bench --mode ci`) leaves out the
+      // comparisons with other libraries. The --exclude option cannot:
+      // Vitest collects benchmark files with these two settings alone.
+      exclude: mode === 'ci' ? [...defaultExclude, '**/*.compare.bench.ts'] : defaultExclude,
     },
     coverage: {
       provider: 'v8',
@@ -29,4 +33,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
