@@ -6,7 +6,7 @@ HTTP compression middleware powered by [comprs](https://github.com/derodero24/co
 
 - **Multi-framework** — Express, Fastify, and Hono via subpath imports
 - **zstd, brotli, gzip, deflate** — all algorithms via a single package
-- **Accept-Encoding negotiation** — automatically selects the best encoding
+- **Accept-Encoding negotiation** — parses `Accept-Encoding` as RFC 9110 defines it and picks the preferred encoding the client accepts
 - **Configurable priority** — control which algorithm is preferred
 - **Threshold support** — skip compression for small responses
 - **Content-Type filtering** — only compresses known compressible types; skips responses without a Content-Type header
@@ -63,6 +63,8 @@ comprs({
 })
 ```
 
+The options are checked when the middleware is created: an unsupported encoding, an empty `encodings` list, a level that is not an integer in its range or that names an unknown encoding, a `threshold` that is not a finite number of 0 or more, or a `filter` that is not a function throws a `TypeError` or `RangeError` (for Fastify, `register()` rejects with it).
+
 ## API
 
 ### Subpath exports
@@ -78,23 +80,40 @@ comprs({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `encodings` | `Encoding[]` | `['zstd', 'br', 'gzip', 'deflate']` | Algorithm priority order |
-| `threshold` | `number` | `1024` | Minimum response size (bytes) to compress |
-| `level` | `LevelOptions` | `{}` | Per-algorithm compression levels |
-| `filter` | `(req, res) => boolean` | Compressible types | Custom filter (Express/Fastify) |
+| `encodings` | `readonly Encoding[]` | `['zstd', 'br', 'gzip', 'deflate']` | Algorithm priority order; must not be empty |
+| `threshold` | `number` | `1024` | Minimum response size (bytes) to compress; finite, 0 or more |
+| `level` | `LevelOptions` | `{}` | Per-algorithm compression levels (integers) |
+| `filter` | `(req, res) => boolean` | — | Custom filter (Express/Fastify), applied on top of the built-in checks |
 
 > Hono adapter accepts `filter: (c: Context) => boolean` instead.
 
+| Level | Range | Default |
+|-------|-------|---------|
+| `zstd` | -131072 to 19 | 3 |
+| `br` | 0 to 11 | 6 |
+| `gzip` | 0 to 9 | 6 |
+| `deflate` | 0 to 9 | 6 |
+
+zstd levels 20 to 22 are rejected: they need a window larger than the 8 MiB that [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659#section-3) allows for the `zstd` content coding, and Chromium-based browsers refuse such responses.
+
+The filter narrows the built-in checks rather than replacing them: a response whose Content-Type is not compressible stays uncompressed even when the filter returns `true`. Since the filter also decides whether `Vary` is added, it is called for requests that do not get compressed as well, such as `HEAD` requests and requests that accept none of the encodings.
+
 ### `negotiate(acceptEncoding, preferred?)`
 
-Low-level Accept-Encoding negotiation. Returns the best encoding or `null`.
+Low-level Accept-Encoding negotiation. Returns the first encoding of `preferred` that the client accepts, or `null`.
 
 ```ts
 import { negotiate } from '@derodero24/comprs-middleware';
 
 negotiate('gzip, br;q=0.8, zstd');
 // => 'zstd' (highest server preference accepted by client)
+negotiate('gzip;q=0, *');
+// => 'zstd' (* covers every encoding not listed; gzip is excluded)
 ```
+
+The field is parsed as [RFC 9110, section 12.5.3](https://www.rfc-editor.org/rfc/rfc9110#section-12.5.3) defines it: coding names and the `q` parameter are case-insensitive, `q=0` excludes an encoding, `*` stands for every encoding that is not listed, and an element whose weight is not a valid `qvalue` (0 to 1 with at most three decimals) is ignored. Without the field, or with an empty one, the result is `null`.
+
+The server's order decides among the encodings the client accepts; the client's weights only rule encodings out. This is a deliberate choice, as in `@fastify/compress`: browsers send equal weights, and the server knows best which encoding it can produce efficiently.
 
 ## Behavior
 
@@ -102,19 +121,23 @@ All adapters automatically:
 
 - Set `Content-Encoding` header
 - Remove `Content-Length` (compressed size is unknown)
-- Set `Vary: Accept-Encoding` for caching correctness
+- Turn a strong `ETag` into a weak one (`W/"..."`) on compressed responses, since a strong tag must differ between the compressed and the uncompressed representation ([RFC 9110, section 8.8.3.3](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3.3))
+- Send `deflate` in the zlib format (RFC 1950), as [RFC 9110, section 8.4.1.2](https://www.rfc-editor.org/rfc/rfc9110#section-8.4.1.2) defines the coding
+- Set `Vary: Accept-Encoding` on every response whose headers allow compression (none of the first four conditions below applies, and the `filter` returns `true`), whether or not this request gets compressed: also for `HEAD` requests, requests without `Accept-Encoding`, 304 responses and responses below the threshold. Other responses are never compressed and do not get it.
 - Skip compression when:
   - Response already has `Content-Encoding`
   - `Cache-Control: no-transform` is set
-  - Content-Type is not compressible (images, etc.)
+  - Content-Type is not compressible (images, etc.) or is `text/event-stream`, whose events would otherwise be held back by the compressor
   - Content-Type is not set
+  - Response has no content: status 1xx, 204 or 304, or an empty body
+  - Response is a range: status 206 or a `Content-Range` header, whose offsets count uncompressed bytes
   - Response body is below threshold
   - Request method is `HEAD`
   - Client does not accept any supported encoding
 
 ### Express
 
-The Express adapter decides whether to compress when the response headers are sent: by `res.writeHead()`, `res.flushHeaders()`, or the first `res.write()` or `res.end()`. Handlers may therefore send headers before the body, and header fields passed to `res.writeHead()` are taken into account. Responses with status 204 or 304 are never compressed, and `Vary: Accept-Encoding` is only added to responses that could be compressed.
+The Express adapter decides whether to compress when the response headers are sent: by `res.writeHead()`, `res.flushHeaders()`, or the first `res.write()` or `res.end()`. Handlers may therefore send headers before the body, and header fields passed to `res.writeHead()` are taken into account.
 
 A compressed response keeps the behavior of a plain `ServerResponse`:
 

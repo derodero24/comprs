@@ -5,24 +5,35 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { createCompressTransform } from './compress.js';
 import { negotiate } from './negotiate.js';
-import { appendVary, DEFAULT_ENCODINGS, DEFAULT_THRESHOLD, isCompressibleType } from './shared.js';
+import { resolveOptions } from './options.js';
+import {
+  appendVary,
+  canCompressBody,
+  headerValue,
+  isCandidate,
+  meetsThreshold,
+  weakenEtag,
+} from './shared.js';
 import type { ComprsOptions, Encoding } from './types.js';
 
-function shouldSkipHeaders(
+/** Check whether the reply could be compressed, adding Vary if so. */
+function varyIfCandidate(
+  request: FastifyRequest,
   reply: FastifyReply,
   filter: ComprsOptions['filter'],
-  request: FastifyRequest,
 ): boolean {
-  if (reply.getHeader('content-encoding')) return true;
+  const header = (name: string): string | undefined => headerValue(reply.getHeader(name));
+  if (!isCandidate(header, () => !filter || filter(request.raw, reply.raw))) return false;
+  reply.header('Vary', appendVary(header('vary')));
+  return true;
+}
 
-  const cacheControl = reply.getHeader('cache-control') as string | undefined;
-  if (cacheControl?.toLowerCase().includes('no-transform')) return true;
-
-  if (filter && !filter(request.raw, reply.raw)) return true;
-
-  if (!isCompressibleType(reply.getHeader('content-type') as string | undefined)) return true;
-
-  return false;
+/** Mark the reply as compressed with `encoding`. */
+function setEncodingHeaders(reply: FastifyReply, encoding: Encoding): void {
+  reply.header('Content-Encoding', encoding);
+  reply.removeHeader('Content-Length');
+  const etag = headerValue(reply.getHeader('etag'));
+  if (etag) reply.header('ETag', weakenEtag(etag));
 }
 
 function payloadToBuffer(payload: unknown): Buffer | null {
@@ -34,6 +45,8 @@ function payloadToBuffer(payload: unknown): Buffer | null {
 /**
  * Fastify compression plugin.
  *
+ * Registration fails with a TypeError or RangeError when an option is invalid.
+ *
  * @example
  * ```ts
  * import Fastify from 'fastify';
@@ -44,30 +57,22 @@ function payloadToBuffer(payload: unknown): Buffer | null {
  * ```
  */
 const plugin: FastifyPluginAsync<ComprsOptions> = async (fastify, options) => {
-  const {
-    encodings = [...DEFAULT_ENCODINGS] as Encoding[],
-    threshold = DEFAULT_THRESHOLD,
-    level,
-    filter,
-  } = options;
+  const { encodings, threshold, level } = resolveOptions(options);
+  const { filter } = options;
 
   fastify.addHook('onSend', async (request, reply, payload) => {
+    if (!varyIfCandidate(request, reply, filter)) return payload;
     if (request.method === 'HEAD') return payload;
+    if (!canCompressBody(reply.statusCode, reply.hasHeader('content-range'))) return payload;
 
     const encoding = negotiate(request.headers['accept-encoding'], encodings);
-
-    // Always set Vary
-    reply.header('Vary', appendVary(reply.getHeader('vary') as string | undefined));
-
     if (!encoding) return payload;
-    if (shouldSkipHeaders(reply, filter, request)) return payload;
 
     // Stream payloads: compress on the fly without threshold check (size is unknown).
     // Content-Length is removed since compressed size differs from original.
     if (payload instanceof Readable) {
       const stream = createCompressTransform(encoding, level);
-      reply.header('Content-Encoding', encoding);
-      reply.removeHeader('Content-Length');
+      setEncodingHeaders(reply, encoding);
       pipeline(payload, stream).catch((err: NodeJS.ErrnoException) => {
         // Premature close is expected when clients disconnect mid-stream
         if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
@@ -79,12 +84,10 @@ const plugin: FastifyPluginAsync<ComprsOptions> = async (fastify, options) => {
 
     // Handle string/Buffer payloads
     const buf = payloadToBuffer(payload);
-    if (!buf) return payload;
-    if (buf.length < threshold) return payload;
+    if (!buf || !meetsThreshold(buf.length, threshold)) return payload;
 
     const stream = createCompressTransform(encoding, level);
-    reply.header('Content-Encoding', encoding);
-    reply.removeHeader('Content-Length');
+    setEncodingHeaders(reply, encoding);
 
     // Write data on next tick so Fastify has time to set up piping
     process.nextTick(() => {

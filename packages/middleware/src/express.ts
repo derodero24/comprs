@@ -8,13 +8,15 @@ import type { Transform } from 'node:stream';
 
 import { createCompressTransform } from './compress.js';
 import { negotiate } from './negotiate.js';
+import { resolveOptions } from './options.js';
 import {
   appendVary,
-  DEFAULT_ENCODINGS,
-  DEFAULT_THRESHOLD,
-  hasNoTransform,
+  canCompressBody,
+  hasBody,
   headerValue,
-  isCompressibleType,
+  isCandidate,
+  meetsThreshold,
+  weakenEtag,
 } from './shared.js';
 import type { ComprsOptions, Encoding } from './types.js';
 
@@ -30,22 +32,29 @@ interface EndArgs {
 }
 
 interface Settings {
-  encoding: Encoding;
+  /** The negotiated encoding; null when the response must not be compressed. */
+  encoding: Encoding | null;
   threshold: number;
   level: ComprsOptions['level'];
   filter: ComprsOptions['filter'];
 }
 
-/** Check whether the response may be compressed at all, whatever its size. */
-function isEligible(
-  req: IncomingMessage,
+/** The headers a decision to compress changes, to restore if it is undone. */
+interface Snapshot {
+  statusCode: number;
+  contentLength: OutgoingHttpHeader | undefined;
+  etag: OutgoingHttpHeader | undefined;
+}
+
+/** Restore a header to a value read with `getHeader()`, removing it if there was none. */
+function restoreHeader(
   res: ServerResponse,
-  filter: ComprsOptions['filter'],
-): boolean {
-  if (res.getHeader('content-encoding')) return false;
-  if (hasNoTransform(headerValue(res.getHeader('cache-control')))) return false;
-  if (filter && !filter(req, res)) return false;
-  return isCompressibleType(headerValue(res.getHeader('content-type')));
+  name: string,
+  value: OutgoingHttpHeader | undefined,
+): void {
+  if (res.getHeader(name) === value) return;
+  if (value === undefined) res.removeHeader(name);
+  else res.setHeader(name, value);
 }
 
 /** Pair up a flat `[name, value, ...]` header array; undefined if malformed. */
@@ -84,18 +93,20 @@ function setHeaderFields(res: ServerResponse, fields: HeaderFields): boolean {
   return true;
 }
 
-/** Check whether a response with this status can have a body. */
-function hasBody(statusCode: number): boolean {
-  return statusCode >= 200 && statusCode !== 204 && statusCode !== 304;
-}
-
 /**
  * Restore the Content-Length that Node derives from `end(body)`. Node only
  * does so when `end()` emits the headers itself, and here `writeHead()` has
- * already been called to make the compression decision.
+ * already been called to make the compression decision. Like Node, leave out
+ * responses without content and responses to HEAD requests, whose
+ * Content-Length would have to be that of the GET response.
  */
-function keepBodyLength(res: ServerResponse, statusCode: number, length: number): void {
-  if (!hasBody(statusCode)) return;
+function keepBodyLength(
+  req: IncomingMessage,
+  res: ServerResponse,
+  statusCode: number,
+  length: number,
+): void {
+  if (req.method === 'HEAD' || !hasBody(statusCode)) return;
   for (const name of ['content-length', 'transfer-encoding', 'trailer']) {
     if (res.hasHeader(name)) return;
   }
@@ -151,7 +162,9 @@ function failWriteAfterEnd(res: ServerResponse, callback: WriteCallback | undefi
  * Every way of emitting headers (`writeHead()`, `flushHeaders()`, the first
  * `write()` or `end()`) goes through `res.writeHead()`, which is where the
  * decision is made, like the `on-headers` hook of `compression`. The body
- * methods then feed either the compressor or the original methods.
+ * methods then feed either the compressor or the original methods. Without
+ * an encoding, the decision only adds Vary to a response that could have
+ * been compressed.
  */
 function compressResponse(req: IncomingMessage, res: ServerResponse, settings: Settings): void {
   const writeHead = res.writeHead.bind(res);
@@ -212,54 +225,58 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
 
   /** Start compressing if the response qualifies; called before headers go out. */
   function startCompression(): Transform | undefined {
-    if (!isEligible(req, res, settings.filter)) return undefined;
-    res.setHeader('Vary', appendVary(headerValue(res.getHeader('vary'))));
-    if (!hasBody(res.statusCode)) return undefined;
+    const header = (name: string): string | undefined => headerValue(res.getHeader(name));
+    const filter = (): boolean => !settings.filter || settings.filter(req, res);
+    if (!isCandidate(header, filter)) return undefined;
+    // Set even when this request gets no encoding: other requests may.
+    res.setHeader('Vary', appendVary(header('vary')));
+    if (!settings.encoding) return undefined;
+    if (!canCompressBody(res.statusCode, res.hasHeader('content-range'))) return undefined;
 
-    const declared = headerValue(res.getHeader('content-length'));
+    const declared = header('content-length');
     const length = declared === undefined ? bodyLength : Number.parseInt(declared, 10);
-    if (length !== undefined && length < settings.threshold) return undefined;
+    if (length !== undefined && !meetsThreshold(length, settings.threshold)) return undefined;
 
     const stream = createCompressTransform(settings.encoding, settings.level);
     res.setHeader('Content-Encoding', settings.encoding);
     res.removeHeader('Content-Length');
+    const etag = header('etag');
+    if (etag) res.setHeader('ETag', weakenEtag(etag));
     pipeToResponse(stream);
     return stream;
   }
 
   /** Revert what the decision changed, for headers that were never emitted. */
-  function undoDecision(
-    previousStatus: number,
-    previousLength: OutgoingHttpHeader | undefined,
-  ): void {
+  function undoDecision(snapshot: Snapshot): void {
     if (compressor) {
       compressor.destroy();
       compressor = undefined;
       res.removeHeader('Content-Encoding');
+      restoreHeader(res, 'etag', snapshot.etag);
     }
-    if (res.getHeader('content-length') !== previousLength) {
-      if (previousLength === undefined) res.removeHeader('Content-Length');
-      else res.setHeader('Content-Length', previousLength);
-    }
-    res.statusCode = previousStatus;
+    restoreHeader(res, 'content-length', snapshot.contentLength);
+    res.statusCode = snapshot.statusCode;
     decided = false;
   }
 
   /** Decide on compression, then emit the headers. */
   function emitHeaders(statusCode: number, reason: string | undefined): ServerResponse {
-    const previousStatus = res.statusCode;
-    const previousLength = res.getHeader('content-length');
+    const snapshot: Snapshot = {
+      statusCode: res.statusCode,
+      contentLength: res.getHeader('content-length'),
+      etag: res.getHeader('etag'),
+    };
     decided = true;
     res.statusCode = statusCode;
     compressor = startCompression();
-    if (!compressor && bodyLength !== undefined) keepBodyLength(res, statusCode, bodyLength);
+    if (!compressor && bodyLength !== undefined) keepBodyLength(req, res, statusCode, bodyLength);
 
     try {
       return reason === undefined ? writeHead(statusCode) : writeHead(statusCode, reason);
     } catch (err) {
       // writeHead() rejected its arguments before emitting anything, so the
       // error response that usually follows gets a decision of its own.
-      if (!res.headersSent) undoDecision(previousStatus, previousLength);
+      if (!res.headersSent) undoDecision(snapshot);
       throw err;
     }
   }
@@ -336,6 +353,8 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
  * the body. `res.write()` reports backpressure from the client as usual, so
  * `stream.pipe(res)` pauses while the client is slow.
  *
+ * @throws {TypeError | RangeError} When an option is invalid.
+ *
  * @example
  * ```ts
  * import express from 'express';
@@ -346,18 +365,16 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
  * ```
  */
 export function comprs(options: ComprsOptions = {}) {
-  const {
-    encodings = [...DEFAULT_ENCODINGS],
-    threshold = DEFAULT_THRESHOLD,
-    level,
-    filter,
-  } = options;
+  const { encodings, threshold, level } = resolveOptions(options);
+  const { filter } = options;
 
   return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-    if (req.method !== 'HEAD') {
-      const encoding = negotiate(req.headers['accept-encoding'], encodings);
-      if (encoding) compressResponse(req, res, { encoding, threshold, level, filter });
-    }
+    // Every response is hooked: one that could be compressed gets Vary even
+    // when this request is not compressed (a HEAD request, or one that
+    // accepts none of the encodings).
+    const encoding =
+      req.method === 'HEAD' ? null : negotiate(req.headers['accept-encoding'], encodings);
+    compressResponse(req, res, { encoding, threshold, level, filter });
     next();
   };
 }
