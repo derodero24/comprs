@@ -425,22 +425,41 @@ function pushIfNonEmpty(stream, result) {
 }
 
 /**
+ * How much input the auto-detecting transform waits for at most before it
+ * decides on the format: detectFormat decodes up to the first 64 KiB to
+ * recognize brotli.
+ */
+const DETECT_LIMIT = 64 * 1024;
+
+/** The length of the zstd and LZ4 magic numbers, the longest ones. */
+const MAGIC_LENGTH = 4;
+
+/**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
- * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
- * few bytes and delegates to the appropriate decompression context.
+ * Detects the compression format (zstd, gzip, brotli, or lz4) like
+ * detectFormat and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * The input is buffered until the format is detected: up to 64 KiB, or the
+ * whole input if it is shorter. The transform emits an error if the format
+ * is still unknown then.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {Transform}
  */
 function createDecompressTransform(maxOutputSize) {
   let ctx = null;
-  let buffer = null;
+  // The input received before the format is detected.
+  let buffered = [];
+  let bufferedLength = 0;
+  // Detection runs once this much input has arrived, then each time the
+  // input doubles, so that small chunks do not make it run on every chunk.
+  let detectAt = MAGIC_LENGTH;
 
-  function detectAndReplay(stream, data) {
-    ctx = createDecompressContext(detectFormat(data), maxOutputSize);
-    buffer = null;
+  function start(stream, format, data) {
+    ctx = createDecompressContext(format, maxOutputSize);
+    buffered = null;
     pushIfNonEmpty(stream, ctx.transform(data));
   }
 
@@ -453,14 +472,25 @@ function createDecompressTransform(maxOutputSize) {
           return;
         }
 
-        buffer = buffer === null ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
-
-        if (buffer.length < 4) {
+        const copy = Buffer.from(chunk);
+        buffered.push(copy);
+        bufferedLength += copy.length;
+        if (bufferedLength < detectAt) {
           callback();
           return;
         }
 
-        detectAndReplay(this, buffer);
+        const data = Buffer.concat(buffered, bufferedLength);
+        const format = detectFormat(data);
+        // More input may still reveal the format, as for the start of a
+        // brotli stream or of a skippable frame.
+        if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
+          buffered = [data];
+          detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
+          callback();
+          return;
+        }
+        start(this, format, data);
         callback();
       } catch (err) {
         callback(err);
@@ -469,8 +499,10 @@ function createDecompressTransform(maxOutputSize) {
     flush(callback) {
       try {
         if (!ctx) {
-          // Fewer than 4 bytes arrived. Empty input has no detectable format and throws.
-          detectAndReplay(this, buffer ?? Buffer.alloc(0));
+          // The input ended before its format was detected. Empty input has
+          // no detectable format and throws.
+          const data = Buffer.concat(buffered, bufferedLength);
+          start(this, detectFormat(data), data);
         }
 
         pushIfNonEmpty(this, ctx.flush());

@@ -181,9 +181,14 @@ export declare function createBrotliDecompressDictTransform(
 /**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
- * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
- * few bytes and delegates to the appropriate decompression context.
+ * Detects the compression format (zstd, gzip, brotli, or lz4) like
+ * `detectFormat` and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * The input is buffered until the format is detected: up to 64 KiB, or the
+ * whole input if it is shorter, since brotli has no magic bytes and its
+ * detection may need that much. The transform emits an error if the format
+ * is still unknown then.
  *
  * The transform emits an error on empty input, which has no format to detect,
  * and on zstd, gzip or brotli input that ends before the compressed stream does.
