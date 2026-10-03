@@ -3,6 +3,7 @@
 use zstd::stream::raw::{Decoder, Encoder, InBuffer, Operation, OutBuffer};
 
 use crate::ComprsError;
+use crate::zstd::LEVEL;
 
 /// Default compression level for zstd (same as the C library default).
 pub const DEFAULT_LEVEL: i32 = 3;
@@ -18,12 +19,7 @@ pub struct CompressContext {
 
 impl CompressContext {
     pub fn new(level: Option<i32>) -> Result<Self, ComprsError> {
-        let level = level.unwrap_or(DEFAULT_LEVEL);
-        if !(-131072..=22).contains(&level) {
-            return Err(ComprsError::InvalidArg(
-                "zstd compression level must be between -131072 and 22".to_string(),
-            ));
-        }
+        let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = Encoder::new(level).map_err(|e| ComprsError::Creation {
             context: "zstd encoder",
             source: e.into(),
@@ -168,12 +164,7 @@ pub struct CompressDictContext {
 
 impl CompressDictContext {
     pub fn new(dict: &[u8], level: Option<i32>) -> Result<Self, ComprsError> {
-        let level = level.unwrap_or(DEFAULT_LEVEL);
-        if !(-131072..=22).contains(&level) {
-            return Err(ComprsError::InvalidArg(
-                "zstd compression level must be between -131072 and 22".to_string(),
-            ));
-        }
+        let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = Encoder::with_dictionary(level, dict).map_err(|e| ComprsError::Creation {
             context: "zstd dict encoder",
             source: e.into(),

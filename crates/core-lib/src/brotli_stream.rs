@@ -6,7 +6,7 @@ use brotli::enc::StandardAlloc;
 use brotli::{BrotliDecompressStream, BrotliResult, BrotliState};
 
 use crate::ComprsError;
-use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE};
+use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE, QUALITY};
 use crate::limited::LimitedVec;
 
 /// Streaming brotli compression context.
@@ -16,12 +16,7 @@ pub struct CompressContext {
 
 impl CompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self, ComprsError> {
-        let quality = quality.unwrap_or(DEFAULT_QUALITY);
-        if quality > 11 {
-            return Err(ComprsError::InvalidArg(
-                "brotli quality must be between 0 and 11".to_string(),
-            ));
-        }
+        let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
         let compressor =
             brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
         Ok(Self {
@@ -121,12 +116,7 @@ pub struct CompressDictContext {
 
 impl CompressDictContext {
     pub fn new(dict: &[u8], quality: Option<u32>) -> Result<Self, ComprsError> {
-        let quality = quality.unwrap_or(DEFAULT_QUALITY);
-        if quality > 11 {
-            return Err(ComprsError::InvalidArg(
-                "brotli quality must be between 0 and 11".to_string(),
-            ));
-        }
+        let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
         Ok(Self {
             dict: Some(dict.to_vec()),
             quality,

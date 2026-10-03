@@ -1,5 +1,14 @@
 //! CRC32 (IEEE polynomial) utility.
 
+use crate::IntArg;
+
+/// The initial value of [`crc32`]: any 32-bit CRC.
+pub const INITIAL_VALUE: IntArg<u32> = IntArg {
+    name: "crc32 initial value",
+    min: 0,
+    max: u32::MAX,
+};
+
 /// Compute CRC32 checksum of the given data.
 ///
 /// Optionally accepts an initial CRC value for incremental computation:

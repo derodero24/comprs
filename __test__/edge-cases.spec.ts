@@ -617,11 +617,13 @@ describe('compression level edge cases', () => {
     });
 
     it('should throw with quality 12 (above max)', () => {
-      expect(() => brotliCompress(data, 12)).toThrow(/quality must be between 0 and 11/);
+      expect(() => brotliCompress(data, 12)).toThrow(/quality must be an integer between 0 and 11/);
     });
 
     it('should throw with BrotliCompressContext quality 12', () => {
-      expect(() => new BrotliCompressContext(12)).toThrow(/quality must be between 0 and 11/);
+      expect(() => new BrotliCompressContext(12)).toThrow(
+        /quality must be an integer between 0 and 11/,
+      );
     });
   });
 });

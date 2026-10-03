@@ -9,11 +9,14 @@ use crate::error::to_napi_error;
 /// Compress data using Zstandard.
 ///
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
-/// Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+/// Level is an integer from 1 (fastest) to 22 (best compression). Default is
+/// 3. Negative levels (-1 to -131072) enable fast mode, trading compression
 /// ratio for speed. Level 0 is equivalent to the default level (3).
 #[napi]
-pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Buffer> {
+pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Buffer> {
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     comprs_core::zstd::compress(crate::as_bytes(&data), level)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -41,21 +44,18 @@ impl Task for ZstdCompressTask {
 /// Asynchronously compress data using Zstandard.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
-/// Negative levels (e.g., -1 to -131072) enable fast mode, trading compression
+/// Level is an integer from 1 (fastest) to 22 (best compression). Default is
+/// 3. Negative levels (-1 to -131072) enable fast mode, trading compression
 /// ratio for speed. Level 0 is equivalent to the default level (3).
 #[napi]
 pub fn zstd_compress_async(
     data: Either<Buffer, Uint8Array>,
-    level: Option<i32>,
+    level: Option<f64>,
 ) -> Result<AsyncTask<ZstdCompressTask>> {
     // Validate level eagerly
-    let lvl = level.unwrap_or(comprs_core::zstd::DEFAULT_LEVEL);
-    if !(-131072..=22).contains(&lvl) {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "zstd compression level must be between -131072 and 22".to_string(),
-        )));
-    }
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(ZstdCompressTask { data: input, level }))
 }
@@ -132,9 +132,9 @@ pub fn zstd_train_dictionary(
     samples: Vec<Either<Buffer, Uint8Array>>,
     max_dict_size: Option<f64>,
 ) -> Result<Buffer> {
-    let max_size = max_dict_size
-        .map(|s| comprs_core::validate_capacity(s).map_err(to_napi_error))
-        .transpose()?
+    let max_size = comprs_core::zstd::DICT_SIZE
+        .check_optional_f64(max_dict_size)
+        .map_err(to_napi_error)?
         .unwrap_or(comprs_core::zstd::DEFAULT_MAX_DICT_SIZE);
 
     let sample_vecs: Vec<Vec<u8>> = samples
@@ -150,13 +150,17 @@ pub fn zstd_train_dictionary(
 /// Compress data using Zstandard with a pre-trained dictionary.
 ///
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
-/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+/// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
+/// 3.
 #[napi]
 pub fn zstd_compress_with_dict(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
-    level: Option<i32>,
+    level: Option<f64>,
 ) -> Result<Buffer> {
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     comprs_core::zstd::compress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict), level)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -262,20 +266,18 @@ impl Task for ZstdCompressWithDictTask {
 /// Asynchronously compress data using Zstandard with a pre-trained dictionary.
 ///
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
-/// Level ranges from 1 (fastest) to 22 (best compression). Default is 3.
+/// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
+/// 3.
 #[napi]
 pub fn zstd_compress_with_dict_async(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
-    level: Option<i32>,
+    level: Option<f64>,
 ) -> Result<AsyncTask<ZstdCompressWithDictTask>> {
     // Validate level eagerly
-    let lvl = level.unwrap_or(comprs_core::zstd::DEFAULT_LEVEL);
-    if !(-131072..=22).contains(&lvl) {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "zstd compression level must be between -131072 and 22".to_string(),
-        )));
-    }
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     let dict_bytes = crate::as_bytes(&dict).to_vec();
     Ok(AsyncTask::new(ZstdCompressWithDictTask {
@@ -352,9 +354,9 @@ pub fn zstd_train_dictionary_async(
     samples: Vec<Either<Buffer, Uint8Array>>,
     max_dict_size: Option<f64>,
 ) -> Result<AsyncTask<ZstdTrainDictionaryTask>> {
-    let max_size = max_dict_size
-        .map(|s| comprs_core::validate_capacity(s).map_err(to_napi_error))
-        .transpose()?
+    let max_size = comprs_core::zstd::DICT_SIZE
+        .check_optional_f64(max_dict_size)
+        .map_err(to_napi_error)?
         .unwrap_or(comprs_core::zstd::DEFAULT_MAX_DICT_SIZE);
     let sample_vecs: Vec<Vec<u8>> = samples
         .iter()
