@@ -10,6 +10,26 @@ fn to_js_error(e: ComprsError) -> JsError {
 }
 
 // ---------------------------------------------------------------------------
+// Panics
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(message: &str);
+}
+
+/// Runs when the module is instantiated.
+///
+/// On wasm32-unknown-unknown, a panic aborts with a trap, which JS sees as a
+/// bare `RuntimeError: unreachable`, and the default panic hook has nowhere
+/// to print its message. Log the message instead.
+#[wasm_bindgen(start)]
+fn start() {
+    std::panic::set_hook(Box::new(|info| console_error(&info.to_string())));
+}
+
+// ---------------------------------------------------------------------------
 // Arguments
 // ---------------------------------------------------------------------------
 //

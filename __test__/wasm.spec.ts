@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
 import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
 
@@ -338,6 +338,29 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
     it('lz4: WASM and native should decompress each other', () => {
       expect(Buffer.from(wasm.lz4Decompress(native.lz4Compress(testData)))).toEqual(testData);
       expect(native.lz4Decompress(wasm.lz4Compress(testData))).toEqual(testData);
+    });
+  });
+
+  // Last, as a trap leaves the instance in whatever state the panic left.
+  describe('panics', () => {
+    // A panic traps with a bare `RuntimeError: unreachable`, so the build
+    // logs the panic message to the console first. A NUL byte in the file
+    // name used to panic in flate2; comprs-core now rejects it with an error
+    // (#546), so the reason is in the error message, and no input is known
+    // to panic any more. Either way, the cause must be reported.
+    it('reports why a call failed, also when the call panics', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let thrown: unknown;
+      try {
+        wasm.gzipCompressWithHeader(new Uint8Array(4), { filename: 'a\0b' });
+      } catch (error) {
+        thrown = error;
+      }
+      const logged = consoleError.mock.calls.flat().map(String);
+      consoleError.mockRestore();
+      expect(thrown).toBeInstanceOf(Error);
+      const message = thrown instanceof Error ? thrown.message : '';
+      expect([message, ...logged].join('\n')).toMatch(/nul/i);
     });
   });
 });
