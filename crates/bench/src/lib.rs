@@ -7,12 +7,16 @@ use std::fmt::Debug;
 
 /// Deterministic pseudo-random data generator using a linear congruential generator.
 /// Matches the JS bench-fixtures.ts implementation for consistent cross-language comparison.
+///
+/// Each byte is the top 8 bits of the 32-bit state: the low `k` bits of the
+/// state repeat every 2^`k` steps, so the low byte would repeat every 256
+/// bytes and compress almost as well as the patterned data.
 pub fn deterministic_bytes(size: usize, seed: u32) -> Vec<u8> {
     let mut out = vec![0u8; size];
     let mut x = seed;
     for b in &mut out {
         x = x.wrapping_mul(1664525).wrapping_add(1013904223);
-        *b = (x & 0xff) as u8;
+        *b = (x >> 24) as u8;
     }
     out
 }
@@ -133,9 +137,37 @@ mod tests {
     // __test__/bench-fixtures.spec.ts checks the same values.
 
     #[test]
+    fn deterministic_bytes_matches_the_js_fixture() {
+        assert_eq!(
+            deterministic_bytes(16, 0x1234),
+            [
+                0x0a, 0xf5, 0x8f, 0x2a, 0x1d, 0xf4, 0xf9, 0xe9, 0x1e, 0x4a, 0x28, 0xf6, 0xc9, 0x5a,
+                0x02, 0x84
+            ]
+        );
+        assert_eq!(crc32(&random_10kb(), None), 0x5d1a_af7f);
+        assert_eq!(crc32(&random_1mb(), None), 0xe932_7575);
+    }
+
+    #[test]
     fn json_matches_the_js_fixture() {
         let json = json_84kb();
         assert_eq!(json.len(), 86_216);
         assert_eq!(crc32(&json, None), 0xb2e2_ca75);
+    }
+
+    #[test]
+    fn random_data_is_incompressible() {
+        // zstd's window covers the whole input, so a repeat at any distance
+        // would make the data compress.
+        for data in [random_10kb(), random_1mb()] {
+            let compressed = comprs_core::zstd::compress(&data, None).unwrap();
+            assert!(
+                compressed.len() * 100 >= data.len() * 99,
+                "{} bytes compressed to {}",
+                data.len(),
+                compressed.len()
+            );
+        }
     }
 }
