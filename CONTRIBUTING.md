@@ -176,7 +176,8 @@ Pass `--allow-missing-targets` to both scripts when the run built only some targ
 If your change affects performance:
 
 ```bash
-pnpm run bench                # JS benchmarks
+pnpm run bench                # JS benchmarks, with comparisons to other libraries
+pnpm run bench:ci             # JS benchmarks of comprs alone
 cargo bench -p comprs-bench   # Rust benchmarks
 ```
 
