@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasNoTransform, headerValue } from '../src/shared.js';
+import {
+  canCompressBody,
+  hasNoTransform,
+  headerValue,
+  isCandidate,
+  isCompressibleType,
+  meetsThreshold,
+  weakenEtag,
+} from '../src/shared.js';
 
 describe('headerValue', () => {
   it('should pass strings and undefined through', () => {
@@ -27,5 +35,69 @@ describe('hasNoTransform', () => {
     expect(hasNoTransform('public, max-age=60')).toBe(false);
     expect(hasNoTransform('private="no-transform-list"')).toBe(false);
     expect(hasNoTransform(undefined)).toBe(false);
+  });
+});
+
+describe('isCompressibleType', () => {
+  it('should exclude Server-Sent Events from the text types', () => {
+    expect(isCompressibleType('text/plain; charset=utf-8')).toBe(true);
+    expect(isCompressibleType('text/event-stream')).toBe(false);
+    expect(isCompressibleType('Text/Event-Stream; charset=utf-8')).toBe(false);
+  });
+});
+
+describe('isCandidate', () => {
+  const headers =
+    (fields: Record<string, string>) =>
+    (name: string): string | undefined =>
+      fields[name];
+  const pass = () => true;
+
+  it('should accept a compressible response that the filter lets through', () => {
+    expect(isCandidate(headers({ 'content-type': 'text/html' }), pass)).toBe(true);
+  });
+
+  it('should reject a response that is encoded, no-transform, filtered or of another type', () => {
+    const html = { 'content-type': 'text/html' };
+    expect(isCandidate(headers({ ...html, 'content-encoding': 'br' }), pass)).toBe(false);
+    expect(isCandidate(headers({ ...html, 'cache-control': 'no-transform' }), pass)).toBe(false);
+    expect(isCandidate(headers(html), () => false)).toBe(false);
+    expect(isCandidate(headers({ 'content-type': 'image/png' }), pass)).toBe(false);
+    expect(isCandidate(headers({}), pass)).toBe(false);
+  });
+});
+
+describe('canCompressBody', () => {
+  it('should allow statuses with content', () => {
+    expect(canCompressBody(200, false)).toBe(true);
+    expect(canCompressBody(404, false)).toBe(true);
+  });
+
+  it('should rule out statuses without content and ranges', () => {
+    for (const status of [101, 204, 206, 304]) expect(canCompressBody(status, false)).toBe(false);
+    expect(canCompressBody(200, true)).toBe(false);
+    expect(canCompressBody(416, true)).toBe(false);
+  });
+});
+
+describe('meetsThreshold', () => {
+  it('should compare the length with the threshold', () => {
+    expect(meetsThreshold(1024, 1024)).toBe(true);
+    expect(meetsThreshold(1023, 1024)).toBe(false);
+  });
+
+  it('should rule out empty and unknown lengths, whatever the threshold', () => {
+    expect(meetsThreshold(0, 0)).toBe(false);
+    expect(meetsThreshold(Number.NaN, 0)).toBe(false);
+  });
+});
+
+describe('weakenEtag', () => {
+  it('should mark a strong entity tag as weak', () => {
+    expect(weakenEtag('"abc"')).toBe('W/"abc"');
+  });
+
+  it('should keep a weak entity tag', () => {
+    expect(weakenEtag('W/"abc"')).toBe('W/"abc"');
   });
 });

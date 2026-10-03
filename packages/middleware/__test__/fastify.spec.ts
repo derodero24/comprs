@@ -69,6 +69,18 @@ beforeAll(async () => {
     return TEST_BODY;
   });
 
+  app.get('/no-transform-array', async (_request, reply) => {
+    reply.header('Cache-Control', ['public', 'no-transform']);
+    reply.type('text/plain');
+    return TEST_BODY;
+  });
+
+  app.get('/vary-array', async (_request, reply) => {
+    reply.header('Vary', ['Origin', 'Cookie']);
+    reply.type('text/plain');
+    return TEST_BODY;
+  });
+
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addr = app.addresses()[0];
   baseUrl = `http://127.0.0.1:${addr?.port}`;
@@ -131,6 +143,13 @@ describe('comprs fastify plugin', () => {
       expect(res.headers['content-encoding']).toBeUndefined();
     });
 
+    it('should honor no-transform in an array-valued Cache-Control', async () => {
+      const res = await rawGet(baseUrl, '/no-transform-array', 'gzip');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.body.toString()).toBe(TEST_BODY);
+    });
+
     it('should not compress when client only accepts identity', async () => {
       const res = await rawGet(baseUrl, '/text', 'identity');
       expect(res.headers['content-encoding']).toBeUndefined();
@@ -142,6 +161,13 @@ describe('comprs fastify plugin', () => {
     it('should set Vary: Accept-Encoding', async () => {
       const res = await rawGet(baseUrl, '/text', 'gzip');
       expect(res.headers.vary).toContain('Accept-Encoding');
+    });
+
+    it('should keep an array-valued Vary when adding Accept-Encoding', async () => {
+      const res = await rawGet(baseUrl, '/vary-array', 'gzip');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-encoding']).toBe('gzip');
+      expect(res.headers.vary).toBe('Origin, Cookie, Accept-Encoding');
     });
 
     it('should remove Content-Length when compressing', async () => {

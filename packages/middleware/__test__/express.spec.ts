@@ -264,6 +264,17 @@ describe('express adapter: deciding when the headers are emitted', () => {
     expect(res.body).toHaveLength(0);
   });
 
+  it('adds no Content-Length to a HEAD response ended without a body', async () => {
+    const target = await serve((_req, res) => {
+      res.setHeader('Content-Type', 'text/plain');
+      res.end();
+    });
+    // Content-Length: 0 would claim that the GET response is empty.
+    const res = await get({ ...target, method: 'HEAD' });
+    expect(res.headers.vary).toBe('Accept-Encoding');
+    expect(res.headers['content-length']).toBeUndefined();
+  });
+
   it('lets the error handler respond when writeHead() rejects its status code', async () => {
     const target = await serve((_req, res) => {
       res.type('text/plain');
@@ -273,6 +284,43 @@ describe('express adapter: deciding when the headers are emitted', () => {
     expect(res.status).toBe(500);
     expect(res.complete).toBe(true);
     expect(decode(res)).toContain('<!DOCTYPE html>');
+  });
+
+  it('restores the headers it changed when writeHead() rejects its status code', async () => {
+    const length = String(Buffer.byteLength(BODY));
+    const target = await serve((_req, res) => {
+      res.type('text/plain');
+      res.setHeader('ETag', '"v1"');
+      res.setHeader('Content-Length', length);
+      try {
+        res.writeHead(1000);
+      } catch {
+        // Send the body uncompressed instead, with the headers set before.
+        res.setHeader('Cache-Control', 'no-transform');
+        res.end(BODY);
+      }
+    });
+    const res = await get(target);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-encoding']).toBeUndefined();
+    expect(res.headers.etag).toBe('"v1"');
+    expect(res.headers['content-length']).toBe(length);
+    expect(res.body.toString()).toBe(BODY);
+  });
+
+  it('does not compress a range sent with writeHead()', async () => {
+    const target = await serve((_req, res) => {
+      res.writeHead(206, {
+        'Content-Type': 'text/plain',
+        'Content-Range': `bytes 0-${BODY.length - 1}/${BODY.length * 2}`,
+      });
+      res.end(BODY);
+    });
+    const res = await get(target);
+    expect(res.status).toBe(206);
+    expect(res.headers['content-encoding']).toBeUndefined();
+    expect(res.headers.vary).toBe('Accept-Encoding');
+    expect(res.body.toString()).toBe(BODY);
   });
 });
 
