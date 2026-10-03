@@ -52,6 +52,36 @@ describe('gzipCompressWithHeader', () => {
     const data = Buffer.from('test');
     expect(() => gzipCompressWithHeader(data, {}, 10)).toThrow(/level must be between 0 and 9/);
   });
+
+  it('should reject a filename with a NUL character', () => {
+    const data = Buffer.from('test');
+    for (const filename of ['a\u0000b', '\u0000', 'name\u0000']) {
+      expect(() => gzipCompressWithHeader(data, { filename })).toThrow(
+        expect.objectContaining({
+          code: 'InvalidArg',
+          message: 'gzip filename must not contain NUL characters',
+        }),
+      );
+    }
+  });
+
+  it('should accept filenames up to 65535 bytes, which gzipReadHeader can read back', () => {
+    const data = Buffer.from('test');
+    const filename = 'f'.repeat(65535);
+    const compressed = gzipCompressWithHeader(data, { filename });
+    expect(gzipReadHeader(compressed).filename).toBe(filename);
+    expect(gzipDecompress(compressed)).toEqual(data);
+  });
+
+  it('should reject filenames longer than 65535 bytes in UTF-8', () => {
+    const data = Buffer.from('test');
+    // 'é' takes 2 bytes in UTF-8, so the second one is 65536 bytes long too.
+    for (const filename of ['f'.repeat(65536), 'é'.repeat(32768)]) {
+      expect(() => gzipCompressWithHeader(data, { filename })).toThrow(
+        'gzip filename must be at most 65535 bytes long',
+      );
+    }
+  });
 });
 
 describe('gzipReadHeader', () => {

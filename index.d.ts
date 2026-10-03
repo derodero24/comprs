@@ -541,7 +541,8 @@ export declare function gzipCompressAsync(data: Buffer | Uint8Array, level?: num
 /**
  * Compress data using gzip with custom header metadata.
  *
- * Allows setting header fields such as `filename` and `mtime`.
+ * Allows setting header fields such as `filename` and `mtime`. Throws if
+ * `filename` contains a NUL character or is longer than 65535 bytes in UTF-8.
  * Returns the compressed data as a Buffer.
  * Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
  */
@@ -597,7 +598,10 @@ export interface GzipHeader {
 
 /** Options for customizing the gzip header during compression. */
 export interface GzipHeaderOptions {
-  /** Original filename to store in the gzip header. */
+  /**
+   * Original filename to store in the gzip header. It must not contain NUL
+   * characters and must be at most 65535 bytes long in UTF-8.
+   */
   filename?: string
   /** Modification time as a Unix timestamp (seconds since epoch). */
   mtime?: number

@@ -12,8 +12,15 @@ use crate::limited::LimitedVec;
 /// Default compression level for gzip/deflate (flate2 default = 6).
 pub const DEFAULT_LEVEL: u32 = 6;
 
+/// Longest header filename, in bytes, that [`compress_with_header`] writes.
+/// flate2's decoder, and therefore [`decompress`] and [`read_header`],
+/// rejects longer header fields.
+pub const MAX_FILENAME_LEN: usize = 65535;
+
 /// Options for customizing the gzip header during compression.
 pub struct GzipHeaderOptions {
+    /// Must not contain NUL characters, which end the field in the header,
+    /// and must be at most [`MAX_FILENAME_LEN`] bytes long.
     pub filename: Option<String>,
     pub mtime: Option<u32>,
 }
@@ -64,6 +71,7 @@ pub fn compress_with_header(
 
     let mut builder = GzBuilder::new();
     if let Some(ref filename) = header.filename {
+        validate_filename(filename)?;
         builder = builder.filename(filename.as_bytes());
     }
     if let Some(mtime) = header.mtime {
@@ -81,6 +89,24 @@ pub fn compress_with_header(
         context: "gzip compress with header",
         source: e.into(),
     })
+}
+
+/// Check that `filename` can be stored in a gzip header and read back.
+///
+/// The header stores the filename NUL-terminated, and `GzBuilder::filename`
+/// panics on a NUL byte instead of returning an error.
+fn validate_filename(filename: &str) -> Result<(), ComprsError> {
+    if filename.as_bytes().contains(&0) {
+        return Err(ComprsError::InvalidArg(
+            "gzip filename must not contain NUL characters".to_string(),
+        ));
+    }
+    if filename.len() > MAX_FILENAME_LEN {
+        return Err(ComprsError::InvalidArg(format!(
+            "gzip filename must be at most {MAX_FILENAME_LEN} bytes long"
+        )));
+    }
+    Ok(())
 }
 
 /// Read gzip header metadata without fully decompressing the data.
@@ -527,6 +553,49 @@ mod tests {
         let decoder = GzDecoder::new(compressed.as_slice());
         let header = decoder.header().expect("header should be present");
         assert_eq!(header.mtime(), mtime_val);
+    }
+
+    /// Options with only `filename` set.
+    fn with_filename(filename: String) -> GzipHeaderOptions {
+        GzipHeaderOptions {
+            filename: Some(filename),
+            mtime: None,
+        }
+    }
+
+    #[test]
+    fn compress_with_header_rejects_nul_in_filename() {
+        for filename in ["a\0b", "\0", "name\0"] {
+            let err =
+                compress_with_header(b"data", &with_filename(filename.into()), None).unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{filename:?}");
+            assert_eq!(
+                err.to_string(),
+                "gzip filename must not contain NUL characters"
+            );
+        }
+    }
+
+    #[test]
+    fn compress_with_header_limits_filename_length() {
+        let longest = "f".repeat(MAX_FILENAME_LEN);
+        let compressed = compress_with_header(b"data", &with_filename(longest.clone()), None)
+            .expect("the longest filename should be accepted");
+        assert_eq!(read_header(&compressed).unwrap().filename, Some(longest));
+        assert_eq!(decompress(&compressed).unwrap(), b"data");
+
+        // The limit is in bytes: "é" takes two.
+        for filename in [
+            "f".repeat(MAX_FILENAME_LEN + 1),
+            "é".repeat(MAX_FILENAME_LEN / 2 + 1),
+        ] {
+            let err = compress_with_header(b"data", &with_filename(filename), None).unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)));
+            assert_eq!(
+                err.to_string(),
+                "gzip filename must be at most 65535 bytes long"
+            );
+        }
     }
 
     #[test]

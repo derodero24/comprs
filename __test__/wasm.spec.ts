@@ -27,13 +27,25 @@ const CODECS = [
 type WasmBindgen = Record<(typeof CODECS)[number], (data: Uint8Array) => Uint8Array> & {
   detectFormat(data: Uint8Array): string;
   crc32(data: Uint8Array): number;
+  gzipCompressWithHeader(
+    data: Uint8Array,
+    level?: number,
+    filename?: string,
+    mtime?: number,
+  ): Uint8Array;
+  gzipReadHeader(data: Uint8Array): { filename: string | null };
   version(): string;
 };
 
 function isWasmBindgen(glue: Record<string, unknown>): glue is WasmBindgen {
-  return [...CODECS, 'detectFormat', 'crc32', 'version'].every(
-    (name) => typeof glue[name] === 'function',
-  );
+  return [
+    ...CODECS,
+    'detectFormat',
+    'crc32',
+    'gzipCompressWithHeader',
+    'gzipReadHeader',
+    'version',
+  ].every((name) => typeof glue[name] === 'function');
 }
 
 /**
@@ -101,6 +113,35 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
       // decompress() still tries brotli as a fallback.
       const compressed = wasm.brotliCompress(testData);
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
+    });
+  });
+
+  describe('gzipCompressWithHeader', () => {
+    const data = Buffer.from('gzip header test');
+
+    it('should store the filename', () => {
+      const compressed = wasm.gzipCompressWithHeader(data, undefined, 'hello.txt');
+      expect(wasm.gzipReadHeader(compressed).filename).toBe('hello.txt');
+      expect(Buffer.from(wasm.gzipDecompress(compressed))).toEqual(data);
+    });
+
+    // Used to trap with `RuntimeError: unreachable`.
+    it('should throw an Error for a filename with a NUL character', () => {
+      expect(() => wasm.gzipCompressWithHeader(data, undefined, 'a\u0000b')).toThrow(
+        'gzip filename must not contain NUL characters',
+      );
+      // The module still works afterwards.
+      expect(wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, 6, 'ok')).filename).toBe('ok');
+    });
+
+    it('should limit the filename to 65535 bytes', () => {
+      const longest = 'f'.repeat(65535);
+      expect(wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, 6, longest)).filename).toBe(
+        longest,
+      );
+      expect(() => wasm.gzipCompressWithHeader(data, 6, `${longest}f`)).toThrow(
+        'gzip filename must be at most 65535 bytes long',
+      );
     });
   });
 
