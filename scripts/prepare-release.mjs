@@ -13,13 +13,14 @@
  *
  *   1. copies the wasm-bindgen browser build (`bindings-wasm-bindgen`) to the
  *      repository root, where the root package picks it up;
- *   2. runs `napi artifacts`, which copies every native binary and the WASI
- *      build into its npm/<platform> package;
+ *   2. runs `napi artifacts`, which copies every native binary into its
+ *      npm/<platform> package;
  *   3. restores every file of the root package that `napi artifacts`
  *      rewrote: the root package ships its files as committed, plus the
- *      wasm-bindgen build. With a WASI target, `napi artifacts` regenerates
- *      browser.js to re-export the WASI package, which broke the browser
- *      entry of 2.0.2 (#564);
+ *      wasm-bindgen build. `napi artifacts` copies the index.js of a build
+ *      artifact over the committed one, and while a WASI target was
+ *      configured, it also regenerated browser.js to re-export the WASI
+ *      package, which broke the browser entry of 2.0.2 (#564);
  *   4. checks that every file the root and platform packages list exists:
  *      npm publish leaves out a missing `files` entry without an error.
  *

@@ -16,12 +16,8 @@ browser.js
 browser-entry.js
 browser-streaming.js
 
-# napi-rs generated binaries (build output)
+# wasm-bindgen binary (build output)
 *.wasm
-*.wasi.cjs
-*.wasi-browser.js
-wasi-worker.mjs
-wasi-worker-browser.mjs
 
 # wasm-bindgen output (build output, tracked via git add -f for npm package)
 comprs-wasm.js
