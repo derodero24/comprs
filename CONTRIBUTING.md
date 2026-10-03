@@ -100,6 +100,8 @@ pnpm changeset
 
 ## Release packaging
 
+CI and the release build the native binaries with the same workflow, `.github/workflows/build.yml`.
+
 The `Release Dry Run` CI job assembles the npm packages from the build artifacts with `scripts/prepare-release.mjs`, the script the release workflow runs before `npm publish`, then checks them with `scripts/check-release.mjs`. Nothing is published. To reproduce a failure locally, download the run's `bindings-*` artifacts into `artifacts/`, one directory per artifact, and run both scripts:
 
 ```bash

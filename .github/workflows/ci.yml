@@ -36,6 +36,7 @@ on:
       - '.cargo/**'
       - 'rust-toolchain*'
       - '.nvmrc'
+      - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
   # another PR's branch) and PRs into main are checked too.
@@ -73,6 +74,7 @@ on:
       - '.cargo/**'
       - 'rust-toolchain*'
       - '.nvmrc'
+      - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
 
 # A newer push to a pull request cancels its running CI. Pushes to develop get
@@ -92,7 +94,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       native: ${{ steps.filter.outputs.native }}
-      build_settings: ${{ steps.filter.outputs.build_settings }}
+      build_targets: ${{ steps.filter.outputs.build_targets }}
       test_matrix: ${{ steps.filter.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -113,7 +115,7 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
-              | grep -qE '^(crates/|npm/|scripts/|\.cargo/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/(ci|release)\.yml$)'; then
+              | grep -qE '^(crates/|npm/|scripts/|\.cargo/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/(build|ci|release)\.yml$)'; then
               native=false
             fi
             # The napi-rs toolchain (@napi-rs/cli and the @napi-rs packages it
@@ -130,17 +132,10 @@ jobs:
             fi
           fi
           echo "native=$native" >> "$GITHUB_OUTPUT"
+          # build_targets selects the targets of build.yml; empty builds them
+          # all.
           if [ "$native" = "true" ]; then
-            build_settings='[
-              {"host":"macos-latest","target":"x86_64-apple-darwin"},
-              {"host":"macos-latest","target":"aarch64-apple-darwin"},
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-musl"},
-              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-musl"},
-              {"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
-              {"host":"windows-latest","target":"aarch64-pc-windows-msvc"}
-            ]'
+            build_targets=''
             test_matrix='{
               "node":[22,24],
               "os":["ubuntu-latest","macos-latest","windows-latest"],
@@ -151,9 +146,7 @@ jobs:
               ]
             }'
           else
-            build_settings='[
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}
-            ]'
+            build_targets='["x86_64-unknown-linux-gnu"]'
             test_matrix='{
               "node":[22,24],
               "os":["ubuntu-latest"],
@@ -162,7 +155,7 @@ jobs:
               ]
             }'
           fi
-          echo "build_settings=$(echo "$build_settings" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "build_targets=$build_targets" >> "$GITHUB_OUTPUT"
           echo "test_matrix=$(echo "$test_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
           echo "native=$native"
 
@@ -267,69 +260,17 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo test
 
+  # Builds the native binaries with build.yml, as release.yml does, so the
+  # test jobs load the binaries the release would publish.
   build:
-    name: Build - ${{ matrix.settings.target }}
+    name: Build
     needs: [changes]
-    runs-on: ${{ matrix.settings.host }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        # Full target list on pushes and native changes; Linux only for
-        # JS/lockfile-only pull requests (see the `changes` job).
-        settings: ${{ fromJSON(needs.changes.outputs.build_settings) }}
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.settings.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: build-${{ matrix.settings.target }}
-      - run: pnpm install --frozen-lockfile
-
-      # Linux cross-compilation setup
-      - name: Install cross-compilation tools (aarch64-gnu)
-        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-
-      - name: Install cross-compilation tools (x86_64-musl)
-        if: matrix.settings.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Install cross-compilation tools (aarch64-musl)
-        if: matrix.settings.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-
-      - name: Build native
-        run: pnpm run build --target ${{ matrix.settings.target }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: |
-            *.node
-            index.js
-            index.d.ts
-          if-no-files-found: ignore
+    uses: ./.github/workflows/build.yml
+    with:
+      # Every target on pushes and native changes; Linux x64 only for
+      # JS/lockfile-only pull requests (see the `changes` job).
+      targets: ${{ needs.changes.outputs.build_targets }}
+      cache: true
 
   build-wasm-bindgen:
     name: Build - wasm-bindgen
@@ -637,9 +578,9 @@ jobs:
   # ──── Release packaging, without publishing ────
   # Assembles the npm packages from this run's artifacts with the script the
   # publish job of release.yml uses (scripts/prepare-release.mjs), then checks
-  # them as npm would publish them (scripts/check-release.mjs). The artifacts
-  # come from this workflow's build jobs, so keep their uploads in line with
-  # those of release.yml.
+  # them as npm would publish them (scripts/check-release.mjs). The native
+  # artifacts come from build.yml, as in release.yml; keep the wasm-bindgen
+  # upload in line with that of release.yml.
   release-dry-run:
     name: Release Dry Run
     needs: [changes, build, build-wasm-bindgen]
