@@ -47,56 +47,87 @@ function concatChunks(chunks) {
   return result;
 }
 
+/**
+ * Base of the adapters, which buffer their input in `_chunks` until the
+ * stream ends.
+ */
+class ContextAdapter {
+  constructor() {
+    this._chunks = [];
+    // 'open', 'finished' once the stream has ended, or 'closed'. The
+    // decompression adapters decode in flush(), which leaves them 'decoded'.
+    this._state = 'open';
+  }
+
+  /**
+   * Drop the buffered input, as `close()` releases the state of a native
+   * context. Later calls throw; closing a finished or closed context does
+   * nothing. `[Symbol.dispose]()` is the same method, for `using`
+   * declarations.
+   */
+  close() {
+    if (this._state === 'finished') return;
+    this._chunks = [];
+    this._state = 'closed';
+  }
+
+  /** Throw if the context is closed, or if `ended`. */
+  _checkOpen(name, ended) {
+    if (this._state === 'closed') throw new Error(`${name} already closed`);
+    if (ended) throw new Error(`${name} already finished`);
+  }
+}
+
+if (Symbol.dispose) ContextAdapter.prototype[Symbol.dispose] = ContextAdapter.prototype.close;
+
 // -- Gzip --
 
-export class GzipCompressContext {
+export class GzipCompressContext extends ContextAdapter {
   constructor(level) {
+    super();
     this._level = level;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('gzip stream already finished');
+    this._checkOpen('gzip stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('gzip stream already finished');
+    this._checkOpen('gzip stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('gzip stream already finished');
-    this._finished = true;
+    this._checkOpen('gzip stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _gzipCompress(data, this._level);
   }
 }
 
-export class GzipDecompressContext {
+export class GzipDecompressContext extends ContextAdapter {
   constructor(maxOutputSize) {
+    super();
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('gzip stream already finished');
+    this._checkOpen('gzip stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('gzip stream already finished');
+    this._checkOpen('gzip stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('gzip stream already finished');
-    this._finished = true;
+    this._checkOpen('gzip stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     if (this._maxOutputSize != null) {
@@ -108,54 +139,52 @@ export class GzipDecompressContext {
 
 // -- Deflate --
 
-export class DeflateCompressContext {
+export class DeflateCompressContext extends ContextAdapter {
   constructor(level) {
+    super();
     this._level = level;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('deflate stream already finished');
+    this._checkOpen('deflate stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('deflate stream already finished');
+    this._checkOpen('deflate stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('deflate stream already finished');
-    this._finished = true;
+    this._checkOpen('deflate stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _deflateCompress(data, this._level);
   }
 }
 
-export class DeflateDecompressContext {
+export class DeflateDecompressContext extends ContextAdapter {
   constructor(maxOutputSize) {
+    super();
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('deflate stream already finished');
+    this._checkOpen('deflate stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('deflate stream already finished');
+    this._checkOpen('deflate stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('deflate stream already finished');
-    this._finished = true;
+    this._checkOpen('deflate stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     if (this._maxOutputSize != null) {
@@ -167,48 +196,46 @@ export class DeflateDecompressContext {
 
 // -- Brotli --
 
-export class BrotliCompressContext {
+export class BrotliCompressContext extends ContextAdapter {
   constructor(quality) {
+    super();
     this._quality = quality;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('brotli stream already finished');
+    this._checkOpen('brotli stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('brotli stream already finished');
+    this._checkOpen('brotli stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('brotli stream already finished');
-    this._finished = true;
+    this._checkOpen('brotli stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _brotliCompress(data, this._quality);
   }
 }
 
-export class BrotliDecompressContext {
+export class BrotliDecompressContext extends ContextAdapter {
   constructor(maxOutputSize) {
+    super();
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._state = 'open';
   }
 
   transform(chunk) {
-    if (this._state !== 'open') throw new Error('brotli stream already finished');
+    this._checkOpen('brotli stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._state !== 'open') throw new Error('brotli stream already finished');
+    this._checkOpen('brotli stream', this._state !== 'open');
     this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
@@ -223,7 +250,7 @@ export class BrotliDecompressContext {
   finish() {
     // flush() decodes and verifies the whole stream, so nothing is left after it.
     const result = this._state === 'open' ? this.flush() : new Uint8Array(0);
-    if (this._state !== 'decoded') throw new Error('brotli stream already finished');
+    this._checkOpen('brotli stream', this._state !== 'decoded');
     this._state = 'finished';
     return result;
   }
@@ -231,50 +258,48 @@ export class BrotliDecompressContext {
 
 // -- Brotli with dictionary --
 
-export class BrotliCompressDictContext {
+export class BrotliCompressDictContext extends ContextAdapter {
   constructor(dict, quality) {
+    super();
     this._dict = bytesOf(dict, 'dict');
     this._quality = quality;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('brotli dict stream already finished');
+    this._checkOpen('brotli dict stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('brotli dict stream already finished');
+    this._checkOpen('brotli dict stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('brotli dict stream already finished');
-    this._finished = true;
+    this._checkOpen('brotli dict stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _brotliCompressWithDict(data, this._dict, this._quality);
   }
 }
 
-export class BrotliDecompressDictContext {
+export class BrotliDecompressDictContext extends ContextAdapter {
   constructor(dict, maxOutputSize) {
+    super();
     this._dict = bytesOf(dict, 'dict');
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._state = 'open';
   }
 
   transform(chunk) {
-    if (this._state !== 'open') throw new Error('brotli dict stream already finished');
+    this._checkOpen('brotli dict stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._state !== 'open') throw new Error('brotli dict stream already finished');
+    this._checkOpen('brotli dict stream', this._state !== 'open');
     this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
@@ -289,7 +314,7 @@ export class BrotliDecompressDictContext {
   finish() {
     // flush() decodes and verifies the whole stream, so nothing is left after it.
     const result = this._state === 'open' ? this.flush() : new Uint8Array(0);
-    if (this._state !== 'decoded') throw new Error('brotli dict stream already finished');
+    this._checkOpen('brotli dict stream', this._state !== 'decoded');
     this._state = 'finished';
     return result;
   }
@@ -297,101 +322,103 @@ export class BrotliDecompressDictContext {
 
 // -- LZ4 --
 
-export class Lz4CompressContext {
-  constructor() {
-    this._chunks = [];
-    this._finished = false;
-  }
-
+export class Lz4CompressContext extends ContextAdapter {
   transform(chunk) {
-    if (this._finished) throw new Error('lz4 stream already finished');
+    this._checkOpen('lz4 stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('lz4 stream already finished');
+    this._checkOpen('lz4 stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('lz4 stream already finished');
-    this._finished = true;
+    this._checkOpen('lz4 stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _lz4Compress(data);
   }
 }
 
-export class Lz4DecompressContext {
+export class Lz4DecompressContext extends ContextAdapter {
   constructor(maxOutputSize) {
+    super();
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('lz4 stream already finished');
+    this._checkOpen('lz4 stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('lz4 stream already finished');
-    this._finished = true;
+    this._checkOpen('lz4 stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
-    if (this._maxOutputSize != null) {
-      return _lz4DecompressWithCapacity(data, this._maxOutputSize);
-    }
-    return _lz4Decompress(data);
+    const result =
+      this._maxOutputSize != null
+        ? _lz4DecompressWithCapacity(data, this._maxOutputSize)
+        : _lz4Decompress(data);
+    this._state = 'decoded';
+    return result;
+  }
+
+  finish() {
+    // flush() decodes the whole input, so nothing is left after it.
+    const result = this._state === 'open' ? this.flush() : new Uint8Array(0);
+    this._checkOpen('lz4 stream', this._state !== 'decoded');
+    this._state = 'finished';
+    return result;
   }
 }
 
 // -- Zstd --
 
-export class ZstdCompressContext {
+export class ZstdCompressContext extends ContextAdapter {
   constructor(level) {
+    super();
     this._level = level;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('zstd stream already finished');
-    this._finished = true;
+    this._checkOpen('zstd stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _zstdCompress(data, this._level);
   }
 }
 
-export class ZstdDecompressContext {
+export class ZstdDecompressContext extends ContextAdapter {
   constructor(maxOutputSize) {
+    super();
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._state = 'open';
   }
 
   transform(chunk) {
-    if (this._state !== 'open') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._state !== 'open') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
@@ -406,7 +433,7 @@ export class ZstdDecompressContext {
   finish() {
     // flush() decodes and verifies the whole stream, so nothing is left after it.
     const result = this._state === 'open' ? this.flush() : new Uint8Array(0);
-    if (this._state !== 'decoded') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'decoded');
     this._state = 'finished';
     return result;
   }
@@ -414,50 +441,48 @@ export class ZstdDecompressContext {
 
 // -- Zstd with dictionary --
 
-export class ZstdCompressDictContext {
+export class ZstdCompressDictContext extends ContextAdapter {
   constructor(dict, level) {
+    super();
     this._dict = bytesOf(dict, 'dict');
     this._level = level;
-    this._chunks = [];
-    this._finished = false;
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._finished) throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     return new Uint8Array(0);
   }
 
   finish() {
-    if (this._finished) throw new Error('zstd stream already finished');
-    this._finished = true;
+    this._checkOpen('zstd stream', this._state !== 'open');
+    this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
     return _zstdCompressWithDict(data, this._dict, this._level);
   }
 }
 
-export class ZstdDecompressDictContext {
+export class ZstdDecompressDictContext extends ContextAdapter {
   constructor(dict, maxOutputSize) {
+    super();
     this._dict = bytesOf(dict, 'dict');
     this._maxOutputSize = maxOutputSize;
-    this._chunks = [];
-    this._state = 'open';
   }
 
   transform(chunk) {
-    if (this._state !== 'open') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
   flush() {
-    if (this._state !== 'open') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'open');
     this._state = 'finished';
     const data = concatChunks(this._chunks);
     this._chunks = [];
@@ -472,7 +497,7 @@ export class ZstdDecompressDictContext {
   finish() {
     // flush() decodes and verifies the whole stream, so nothing is left after it.
     const result = this._state === 'open' ? this.flush() : new Uint8Array(0);
-    if (this._state !== 'decoded') throw new Error('zstd stream already finished');
+    this._checkOpen('zstd stream', this._state !== 'decoded');
     this._state = 'finished';
     return result;
   }
