@@ -1,86 +1,20 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import * as native from '../index.js';
+import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
 
 // Tests the wasm-bindgen build through the browser entry, which loads it.
-// `pnpm test` does not build it, so this suite is skipped unless
-// `pnpm run build:wasm-bindgen` ran first, as in the WASM Test CI job.
-const WASM_FILE = resolve(__dirname, '../browser/comprs-wasm_bg.wasm');
-const ENTRY_MODULE = '../browser/index.js';
+// wasm-parity.spec.ts compares it with the native addon call by call.
 // The browser entry replaces the stream contexts of the wasm-bindgen build
 // with JavaScript adapters, so the contexts are tested through its glue,
 // which the entry initialises.
 const GLUE_MODULE = '../browser/comprs-wasm.js';
 
-const CODECS = [
-  'zstdCompress',
-  'zstdDecompress',
-  'gzipCompress',
-  'gzipDecompress',
-  'deflateCompress',
-  'deflateDecompress',
-  'brotliCompress',
-  'brotliDecompress',
-  'lz4Compress',
-  'lz4Decompress',
-  'decompress',
-] as const;
-
-type WasmBindgen = Record<(typeof CODECS)[number], (data: Uint8Array) => Uint8Array> & {
-  detectFormat(data: Uint8Array): string;
-  crc32(data: Uint8Array, initialValue?: number): number;
-  gzipCompressWithHeader(
-    data: Uint8Array,
-    level?: number,
-    filename?: string,
-    mtime?: number,
-  ): Uint8Array;
-  gzipReadHeader(data: Uint8Array): { filename: string | null; mtime: number };
-  version(): string;
-};
-
-function isWasmBindgen(glue: Record<string, unknown>): glue is WasmBindgen {
-  return [
-    ...CODECS,
-    'detectFormat',
-    'crc32',
-    'gzipCompressWithHeader',
-    'gzipReadHeader',
-    'version',
-  ].every((name) => typeof glue[name] === 'function');
-}
-
-/**
- * Load the browser entry, which fetches the WebAssembly module next to it
- * when it is imported. Node's fetch does not support file: URLs, so serve
- * them from disk, as a web server would.
- */
-async function loadWasmBindgen(): Promise<Record<string, unknown> & WasmBindgen> {
-  vi.stubGlobal(
-    'fetch',
-    async (url: URL) =>
-      new Response(await readFile(url), { headers: { 'content-type': 'application/wasm' } }),
-  );
-  let entry: Record<string, unknown>;
-  try {
-    entry = await import(ENTRY_MODULE);
-  } finally {
-    vi.unstubAllGlobals();
-  }
-  if (!isWasmBindgen(entry)) {
-    throw new Error(`${ENTRY_MODULE} does not export the wasm-bindgen API`);
-  }
-  return entry;
-}
-
-let wasm: Record<string, unknown> & WasmBindgen;
+let wasm: BrowserEntry;
 let glue: Record<string, unknown>;
 
-/** Call a function of the wasm-bindgen build that `WasmBindgen` does not declare. */
+/** Call a function of the browser entry with arguments of any type. */
 function callWasm(name: string, ...args: unknown[]): unknown {
-  const fn = wasm[name];
+  const fn: unknown = Reflect.get(wasm, name);
   if (typeof fn !== 'function') throw new Error(`${name} is not a function`);
   return Reflect.apply(fn, undefined, args);
 }
@@ -98,9 +32,9 @@ function constructWasm(name: string, ...args: unknown[]): unknown {
   return Reflect.construct(Class, args);
 }
 
-describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
+describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
   beforeAll(async () => {
-    wasm = await loadWasmBindgen();
+    wasm = await importBrowserEntry();
     glue = await import(GLUE_MODULE);
   });
 
@@ -146,26 +80,28 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
     const data = Buffer.from('gzip header test');
 
     it('should store the filename', () => {
-      const compressed = wasm.gzipCompressWithHeader(data, undefined, 'hello.txt');
+      const compressed = wasm.gzipCompressWithHeader(data, { filename: 'hello.txt' });
       expect(wasm.gzipReadHeader(compressed).filename).toBe('hello.txt');
       expect(Buffer.from(wasm.gzipDecompress(compressed))).toEqual(data);
     });
 
     // Used to trap with `RuntimeError: unreachable`.
     it('should throw an Error for a filename with a NUL character', () => {
-      expect(() => wasm.gzipCompressWithHeader(data, undefined, 'a\u0000b')).toThrow(
+      expect(() => wasm.gzipCompressWithHeader(data, { filename: 'a\u0000b' })).toThrow(
         'gzip filename must not contain NUL characters',
       );
       // The module still works afterwards.
-      expect(wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, 6, 'ok')).filename).toBe('ok');
+      expect(
+        wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, { filename: 'ok' }, 6)).filename,
+      ).toBe('ok');
     });
 
     it('should limit the filename to 65535 bytes', () => {
       const longest = 'f'.repeat(65535);
-      expect(wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, 6, longest)).filename).toBe(
-        longest,
-      );
-      expect(() => wasm.gzipCompressWithHeader(data, 6, `${longest}f`)).toThrow(
+      expect(
+        wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, { filename: longest }, 6)).filename,
+      ).toBe(longest);
+      expect(() => wasm.gzipCompressWithHeader(data, { filename: `${longest}f` }, 6)).toThrow(
         'gzip filename must be at most 65535 bytes long',
       );
     });
@@ -224,7 +160,7 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
         'gzipCompressWithHeader',
         level('gzip', 9),
         INVALID_LEVELS,
-        (v) => callWasm('gzipCompressWithHeader', data, v),
+        (v) => callWasm('gzipCompressWithHeader', data, {}, v),
       ],
       [
         'GzipCompressContext',
@@ -277,8 +213,8 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
       [
         'gzipCompressWithHeader (mtime)',
         'mtime must be an integer between 0 and 4294967295',
-        INVALID_U32,
-        (v) => callWasm('gzipCompressWithHeader', data, undefined, undefined, v),
+        INVALID_U32.filter((v) => typeof v === 'number'),
+        (v) => callWasm('gzipCompressWithHeader', data, { mtime: v }),
       ],
       [
         'zstdTrainDictionary',
@@ -337,10 +273,22 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
       },
     );
 
+    // The header is an object, whose fields the glue does not convert, so a
+    // header mtime that is not a number throws, as in the native addon.
+    it('should reject a header mtime that is not a number', () => {
+      for (const mtime of ['abc', '1', {}]) {
+        expect(() => callWasm('gzipCompressWithHeader', data, { mtime }), String(mtime)).toThrow(
+          'header.mtime must be a number',
+        );
+      }
+    });
+
     it('should accept the values that the native addon accepts', () => {
       expect(wasm.crc32(data, 0xffffffff)).toBe(native.crc32(data, 0xffffffff));
       expect(wasm.crc32(data, -0)).toBe(native.crc32(data, 0));
-      const header = wasm.gzipReadHeader(wasm.gzipCompressWithHeader(data, 9, 'f', 0xffffffff));
+      const header = wasm.gzipReadHeader(
+        wasm.gzipCompressWithHeader(data, { filename: 'f', mtime: 0xffffffff }, 9),
+      );
       expect(header.mtime).toBe(0xffffffff);
       for (const level of [-131072, 22]) {
         const compressed = bytes(callWasm('zstdCompress', data, level));
