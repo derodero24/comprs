@@ -5,23 +5,36 @@ import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-br
 // Runs one table of calls against the native addon and the wasm-bindgen
 // build, which must give the same result for each (#570): equal bytes and
 // header objects, or errors of the same class. The wasm-bindgen build is
-// loaded through the browser entry. Its stream contexts are JS adapters that
-// call the one-shot functions, which in Vitest are the native ones (see
-// vitest.config.mts), so for them this checks the adapters only.
+// loaded through the browser entry, which exports its stream contexts
+// (#573).
+
+/** The member that only the wasm-bindgen glue gives the stream contexts. */
+type GlueMember = 'free';
+
+/** The API of both builds: the browser entry, less the glue's members. */
+type Api = {
+  [Name in keyof BrowserEntry]: BrowserEntry[Name] extends new (
+    ...args: infer Args
+  ) => infer Context
+    ? new (
+        ...args: Args
+      ) => Omit<Context, GlueMember>
+    : BrowserEntry[Name];
+};
 
 // The native addon, typed with the browser declarations. This assignment
 // type-checks only while each browser declaration accepts no argument that
 // the native declaration rejects, and declares results that the native ones
 // satisfy, so that browser/index.d.ts cannot drift from the native API.
-const nativeApi: BrowserEntry = native;
+const nativeApi: Api = native;
 
-type Call = (api: BrowserEntry) => unknown;
-type CallWith = (api: BrowserEntry, value: unknown) => unknown;
+type Call = (api: Api) => unknown;
+type CallWith = (api: Api, value: unknown) => unknown;
 
 /** What a call returned or threw, in a form that compares across the builds. */
 type Outcome = { returned: unknown } | { threw: string; message: string };
 
-function run(call: Call, api: BrowserEntry): Outcome {
+function run(call: Call, api: Api): Outcome {
   try {
     return { returned: comparable(call(api)) };
   } catch (error) {
@@ -104,21 +117,57 @@ function truncate(data: Uint8Array): Uint8Array {
 }
 
 /** `data` in two chunks. */
-function halves(data: Uint8Array): Uint8Array[] {
+function halves(data: Uint8Array): [Uint8Array, Uint8Array] {
   return [data.subarray(0, data.length >> 1), data.subarray(data.length >> 1)];
 }
 
 interface StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
   flush(): Uint8Array;
-  finish?: () => Uint8Array;
+  finish(): Uint8Array;
+  close(): void;
+  [Symbol.dispose](): void;
 }
 
 /** Feed `chunks` to a stream context, and concatenate what it returns. */
 function drain(context: StreamContext, chunks: Uint8Array[]): Uint8Array {
   const output = chunks.map((chunk) => context.transform(chunk));
-  output.push(context.finish === undefined ? context.flush() : context.finish());
+  output.push(context.finish());
   return Buffer.concat(output);
+}
+
+/**
+ * Feed `data` to a stream context in pieces of `size` bytes, each copied into
+ * the same buffer, as a read loop that reuses its buffer passes them, and
+ * concatenate what it returns.
+ */
+function drainThroughOneBuffer(context: StreamContext, data: Uint8Array, size: number) {
+  const buffer = new Uint8Array(size);
+  const output: Uint8Array[] = [];
+  for (let offset = 0; offset < data.length; offset += size) {
+    const piece = data.subarray(offset, offset + size);
+    buffer.set(piece);
+    output.push(context.transform(buffer.subarray(0, piece.length)));
+  }
+  output.push(context.finish());
+  return Buffer.concat(output);
+}
+
+/**
+ * Feed `data` to a stream context in two halves, with a flush() between
+ * them. Return whether flush() returned any bytes, and everything the
+ * context returned, read with `read`.
+ */
+function drainWithFlush(
+  context: StreamContext,
+  data: Uint8Array,
+  read: (output: Uint8Array) => Uint8Array,
+) {
+  const [first, second] = halves(data);
+  const output = [context.transform(first)];
+  const flushed = context.flush();
+  output.push(flushed, context.transform(second), context.finish());
+  return { flushed: flushed.byteLength > 0, output: read(Buffer.concat(output)) };
 }
 
 // Calls with valid arguments, and with arguments that the core library
@@ -363,22 +412,160 @@ const NOT_BYTES: [string, unknown][] = [
   ['undefined', undefined],
 ];
 
-const CONTEXTS: [string, (api: BrowserEntry) => StreamContext][] = [
-  ['ZstdCompressContext', (api) => new api.ZstdCompressContext()],
-  ['ZstdDecompressContext', (api) => new api.ZstdDecompressContext()],
-  ['ZstdCompressDictContext', (api) => new api.ZstdCompressDictContext(dict)],
-  ['ZstdDecompressDictContext', (api) => new api.ZstdDecompressDictContext(dict)],
-  ['GzipCompressContext', (api) => new api.GzipCompressContext()],
-  ['GzipDecompressContext', (api) => new api.GzipDecompressContext()],
-  ['DeflateCompressContext', (api) => new api.DeflateCompressContext()],
-  ['DeflateDecompressContext', (api) => new api.DeflateDecompressContext()],
-  ['BrotliCompressContext', (api) => new api.BrotliCompressContext()],
-  ['BrotliDecompressContext', (api) => new api.BrotliDecompressContext()],
-  ['BrotliCompressDictContext', (api) => new api.BrotliCompressDictContext(dict)],
-  ['BrotliDecompressDictContext', (api) => new api.BrotliDecompressDictContext(dict)],
-  ['Lz4CompressContext', (api) => new api.Lz4CompressContext()],
-  ['Lz4DecompressContext', (api) => new api.Lz4DecompressContext()],
+/** A compression context of each class, and how to decompress its output. */
+const COMPRESSION_CONTEXTS: [
+  string,
+  (api: Api) => StreamContext,
+  (output: Uint8Array) => Buffer,
+][] = [
+  ['ZstdCompressContext', (api) => new api.ZstdCompressContext(), native.zstdDecompress],
+  [
+    'ZstdCompressDictContext',
+    (api) => new api.ZstdCompressDictContext(dict),
+    (output) => native.zstdDecompressWithDict(output, dict),
+  ],
+  ['GzipCompressContext', (api) => new api.GzipCompressContext(), native.gzipDecompress],
+  ['DeflateCompressContext', (api) => new api.DeflateCompressContext(), native.deflateDecompress],
+  ['BrotliCompressContext', (api) => new api.BrotliCompressContext(), native.brotliDecompress],
+  [
+    'BrotliCompressDictContext',
+    (api) => new api.BrotliCompressDictContext(dict),
+    (output) => native.brotliDecompressWithDict(output, dict),
+  ],
+  ['Lz4CompressContext', (api) => new api.Lz4CompressContext(), native.lz4Decompress],
 ];
+
+/** A decompression context of each class, and compressed data for it. */
+const DECOMPRESSION_CONTEXTS: [string, (api: Api) => StreamContext, Uint8Array][] = [
+  ['ZstdDecompressContext', (api) => new api.ZstdDecompressContext(), fixtures.zstd],
+  [
+    'ZstdDecompressDictContext',
+    (api) => new api.ZstdDecompressDictContext(dict),
+    fixtures.zstdWithDict,
+  ],
+  ['GzipDecompressContext', (api) => new api.GzipDecompressContext(), fixtures.gzip],
+  ['DeflateDecompressContext', (api) => new api.DeflateDecompressContext(), fixtures.deflate],
+  ['BrotliDecompressContext', (api) => new api.BrotliDecompressContext(), fixtures.brotli],
+  [
+    'BrotliDecompressDictContext',
+    (api) => new api.BrotliDecompressDictContext(dict),
+    fixtures.brotliWithDict,
+  ],
+  ['Lz4DecompressContext', (api) => new api.Lz4DecompressContext(), fixtures.lz4],
+];
+
+const CONTEXTS = [...COMPRESSION_CONTEXTS, ...DECOMPRESSION_CONTEXTS].map(
+  ([name, create]): [string, (api: Api) => StreamContext] => [name, create],
+);
+
+/** Bytes that are no compressed stream of any format. */
+const garbage = new Uint8Array(64).fill(0xa5);
+
+/** Feed `input` to a stream context, end it, and end it again. */
+function endTwice(context: StreamContext, input: Uint8Array): Uint8Array {
+  drain(context, [input]);
+  return context.finish();
+}
+
+// The stream contexts, used the way callers use them (#573). Each one copies
+// its input before transform() returns, emits what flush() makes available,
+// and reports invalid input when transform() reads it.
+const STREAM_USES: [string, Call][] = [
+  ...COMPRESSION_CONTEXTS.flatMap(([name, create, decompress]): [string, Call][] => [
+    [
+      `${name}: input passed in one reused buffer`,
+      (api) => decompress(drainThroughOneBuffer(create(api), text, 64)),
+    ],
+    [`${name}: flush() mid-stream`, (api) => drainWithFlush(create(api), text, decompress)],
+    [`${name}: ended twice`, (api) => endTwice(create(api), text)],
+  ]),
+  ...DECOMPRESSION_CONTEXTS.flatMap(([name, create, compressed]): [string, Call][] => [
+    [
+      `${name}: input passed in one reused buffer`,
+      (api) => drainThroughOneBuffer(create(api), compressed, 4),
+    ],
+    [
+      `${name}: flush() mid-stream`,
+      (api) => drainWithFlush(create(api), compressed, (output) => output),
+    ],
+    [`${name}: transform(garbage)`, (api) => create(api).transform(garbage)],
+    [`${name}: input cut short`, (api) => drain(create(api), halves(truncate(compressed)))],
+    [
+      `${name}: transform() after the end`,
+      (api) => {
+        const context = create(api);
+        drain(context, [compressed]);
+        return context.transform(compressed);
+      },
+    ],
+    [`${name}: ended twice`, (api) => endTwice(create(api), compressed)],
+  ]),
+];
+
+/** A context of each class, and input that it accepts. */
+const CONTEXT_INPUTS: [string, (api: Api) => StreamContext, Uint8Array][] = [
+  ...COMPRESSION_CONTEXTS.map(
+    ([name, create]): [string, (api: Api) => StreamContext, Uint8Array] => [name, create, text],
+  ),
+  ...DECOMPRESSION_CONTEXTS,
+];
+
+/** A context that has transformed the start of `input`. */
+function started(create: (api: Api) => StreamContext, api: Api, input: Uint8Array) {
+  const context = create(api);
+  context.transform(input.subarray(0, 10));
+  return context;
+}
+
+// close() releases the state of a context that will not be finished (#616),
+// and [Symbol.dispose]() is the same method: later calls throw the same
+// errors in both builds.
+const CLOSE_USES: [string, Call][] = CONTEXT_INPUTS.flatMap(
+  ([name, create, input]): [string, Call][] => [
+    [
+      `${name}: transform() after close()`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        return context.transform(input);
+      },
+    ],
+    [
+      `${name}: flush() after close()`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        return context.flush();
+      },
+    ],
+    [
+      `${name}: finish() after close() twice`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        context.close();
+        return context.finish();
+      },
+    ],
+    [
+      `${name}: close() after finish()`,
+      (api) => {
+        const context = create(api);
+        drain(context, [input]);
+        context.close();
+        return context.transform(input);
+      },
+    ],
+    [
+      `${name}: flush() after [Symbol.dispose]()`,
+      (api) => {
+        const context = started(create, api, input);
+        context[Symbol.dispose]();
+        return context.flush();
+      },
+    ],
+  ],
+);
 
 // Every parameter that takes a byte array, called with `value` in its place.
 const BYTES_PARAMETERS: [string, CallWith][] = [
@@ -524,15 +711,23 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
     expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
   });
 
+  it.each(STREAM_USES)('%s', (_label, call) => {
+    expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
+  });
+
+  it.each(CLOSE_USES)('%s', (_label, call) => {
+    expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
+  });
+
   it.each(BYTES_PARAMETERS)('%s rejects what is not a byte array', (_label, callWith) => {
-    const thrown = (api: BrowserEntry) =>
+    const thrownBy = (api: Api) =>
       NOT_BYTES.map(([description, value]) => [
         description,
         thrownClass(() => callWith(api, value)),
       ]);
-    const expected = thrown(nativeApi);
+    const expected = thrownBy(nativeApi);
     expect(expected.every(([, errorClass]) => errorClass !== undefined)).toBe(true);
-    expect(thrown(wasm)).toStrictEqual(expected);
+    expect(thrownBy(wasm)).toStrictEqual(expected);
   });
 
   it.each(WRONG_TYPES)('%s', (_label, call) => {

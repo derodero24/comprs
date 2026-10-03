@@ -11,7 +11,7 @@ const ROOT = resolve(__dirname, '..');
 const ENTRY = resolve(ROOT, 'browser/index.js');
 const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
 // The JS modules the entry loads, the wasm-bindgen glue among them.
-const BROWSER_MODULES = ['index.js', 'streaming.js', 'comprs-wasm.js'].map((file) =>
+const BROWSER_MODULES = ['index.js', 'comprs-wasm.js'].map((file) =>
   resolve(ROOT, 'browser', file),
 );
 

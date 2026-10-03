@@ -1,16 +1,16 @@
-// Types of the browser entry point (index.js), which exports the functions of
-// the wasm-bindgen build (crates/wasm) and the stream context adapters of
-// streaming.js.
+// Types of the browser entry point (index.js), which exports the functions
+// and stream contexts of the wasm-bindgen build (crates/wasm).
 //
 // They take the arguments of the native declarations in ../index.d.ts, but
 // there are no *Async functions, results are Uint8Array rather than Buffer,
-// and detectFormat() returns a plain string. __test__/wasm-parity.spec.ts
-// checks them against the native declarations. They are written by hand
-// rather than re-exported from the generated comprs-wasm.d.ts, which
-// declares the wasm-bindgen classes that the adapters replace, needs the DOM
-// library, and uses `any`.
+// detectFormat() returns a plain string, and the stream contexts also have
+// the free() method of the glue.
+// __test__/wasm-parity.spec.ts checks them against the native declarations.
+// They are written by hand rather than re-exported from the generated
+// comprs-wasm.d.ts, which declares the init functions that the entry calls
+// itself, and needs the DOM library.
 
-// biome-ignore lint/complexity/noUselessEmptyExport: in a declaration file, it limits the exports to the declarations marked `export`, leaving out StreamContext.
+// biome-ignore lint/complexity/noUselessEmptyExport: in a declaration file, it limits the exports to the declarations marked `export`, leaving out the base classes of the stream contexts.
 export {};
 
 // -- zstd --
@@ -145,14 +145,49 @@ export declare function version(): string;
 
 // -- Streaming contexts --
 //
-// JS adapters rather than the wasm-bindgen classes: they buffer their input
-// and run the one-shot function on finish(), or on flush() when they
-// decompress brotli, zstd or lz4.
+// The classes that wasm-bindgen generates, which copy each chunk into
+// WebAssembly memory before transform() returns and keep their state there.
 
-declare class StreamContext {
+/** `Symbol.dispose`, if the TypeScript library declares it. */
+type DisposeSymbol = SymbolConstructor extends {
+  readonly dispose: infer Key extends symbol;
+}
+  ? Key
+  : never;
+
+/**
+ * The `[Symbol.dispose]()` method, which the entry defines where the runtime
+ * has `Symbol.dispose`. It is declared only where the TypeScript library has
+ * it too, so that these declarations also type-check without it.
+ */
+type Disposal = { [Key in DisposeSymbol]: () => void };
+
+/** A base class with the `[Symbol.dispose]()` method. */
+interface DisposableContext extends Disposal {}
+declare const DisposableContext: new () => DisposableContext;
+
+declare class StreamContext extends DisposableContext {
+  /** Compress or decompress a chunk, and return the output that is ready, if any. */
   transform(chunk: Uint8Array): Uint8Array;
+  /** Flush the internal buffers, and return the output they held. */
   flush(): Uint8Array;
+  /**
+   * End the stream, and return the rest of the output. Decompression throws
+   * if the input ended before the compressed stream did.
+   */
   finish(): Uint8Array;
+  /**
+   * Release the codec state of the context now, for a stream that will not
+   * be finished. Later calls throw; `finish()` releases the state too, and
+   * closing a finished or closed context does nothing.
+   * `[Symbol.dispose]()` is the same method, for `using` declarations.
+   */
+  close(): void;
+  /**
+   * Free the context itself as well as its state, rather than leave the
+   * object to garbage collection. Any later call of a method throws.
+   */
+  free(): void;
 }
 
 export declare class ZstdCompressContext extends StreamContext {
@@ -207,9 +242,10 @@ export declare class Lz4CompressContext extends StreamContext {
   constructor();
 }
 
-/** Decompresses on flush(), and has no finish(). */
-export declare class Lz4DecompressContext {
+/**
+ * Decodes the buffered input in flush(), which throws if no input was
+ * transformed; finish() also decodes what is left, then ends the stream.
+ */
+export declare class Lz4DecompressContext extends StreamContext {
   constructor(maxOutputSize?: number | null);
-  transform(chunk: Uint8Array): Uint8Array;
-  flush(): Uint8Array;
 }

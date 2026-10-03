@@ -1,8 +1,5 @@
 // Browser entry point (the `browser` condition of the package exports): the
-// wasm-bindgen build, with its streaming contexts replaced by JS-side adapters
-// that wrap the one-shot APIs, to work around WebAssembly.Memory growth
-// invalidating ArrayBuffer views.
-// See: https://github.com/derodero24/comprs/issues/106
+// wasm-bindgen build.
 //
 // The WebAssembly module is fetched and instantiated here, with top-level
 // await, so every export works as soon as the import resolves. As require()
@@ -13,53 +10,7 @@
 // `sideEffects` in both package.json files, so that bundlers keep this
 // initialisation when they tree-shake the re-exports.
 
-import init from './comprs-wasm.js';
-
-const wasmUrl = new URL('./comprs-wasm_bg.wasm', import.meta.url);
-try {
-  await init({ module_or_path: wasmUrl });
-} catch (cause) {
-  throw new Error(
-    `comprs could not load its WebAssembly module from ${wasmUrl}. See ` +
-      'https://github.com/derodero24/comprs#browser-usage for what each bundler needs.',
-    { cause },
-  );
-}
-
-// One-shot APIs (pass through from WASM)
-export {
-  brotliCompress,
-  brotliCompressWithDict,
-  brotliDecompress,
-  brotliDecompressWithCapacity,
-  brotliDecompressWithDict,
-  brotliDecompressWithDictWithCapacity,
-  crc32,
-  decompress,
-  deflateCompress,
-  deflateDecompress,
-  deflateDecompressWithCapacity,
-  detectFormat,
-  gzipCompress,
-  gzipCompressWithHeader,
-  gzipDecompress,
-  gzipDecompressWithCapacity,
-  gzipReadHeader,
-  lz4Compress,
-  lz4Decompress,
-  lz4DecompressWithCapacity,
-  version,
-  zstdCompress,
-  zstdCompressWithDict,
-  zstdDecompress,
-  zstdDecompressWithCapacity,
-  zstdDecompressWithDict,
-  zstdDecompressWithDictWithCapacity,
-  zstdTrainDictionary,
-} from './comprs-wasm.js';
-
-// Streaming context adapters (override native WASM contexts)
-export {
+import init, {
   BrotliCompressContext,
   BrotliCompressDictContext,
   BrotliDecompressContext,
@@ -74,4 +25,89 @@ export {
   ZstdCompressDictContext,
   ZstdDecompressContext,
   ZstdDecompressDictContext,
-} from './streaming.js';
+} from './comprs-wasm.js';
+
+const wasmUrl = new URL('./comprs-wasm_bg.wasm', import.meta.url);
+try {
+  await init({ module_or_path: wasmUrl });
+} catch (cause) {
+  throw new Error(
+    `comprs could not load its WebAssembly module from ${wasmUrl}. See ` +
+      'https://github.com/derodero24/comprs#browser-usage for what each bundler needs.',
+    { cause },
+  );
+}
+
+// The glue makes [Symbol.dispose]() an alias of free(). As in the native
+// addon, it closes the context instead, so that later calls throw
+// "<format> stream already closed" rather than a glue error.
+if (Symbol.dispose) {
+  for (const Context of [
+    BrotliCompressContext,
+    BrotliCompressDictContext,
+    BrotliDecompressContext,
+    BrotliDecompressDictContext,
+    DeflateCompressContext,
+    DeflateDecompressContext,
+    GzipCompressContext,
+    GzipDecompressContext,
+    Lz4CompressContext,
+    Lz4DecompressContext,
+    ZstdCompressContext,
+    ZstdCompressDictContext,
+    ZstdDecompressContext,
+    ZstdDecompressDictContext,
+  ]) {
+    Context.prototype[Symbol.dispose] = Context.prototype.close;
+  }
+}
+
+// The functions and stream contexts as wasm-bindgen generates them. The
+// contexts copy each chunk into WebAssembly memory before transform()
+// returns, as the native ones copy it. Like those, they have close(), which
+// releases their codec state without waiting for garbage collection, and
+// the glue adds free(), which frees the context object as well.
+export {
+  BrotliCompressContext,
+  BrotliCompressDictContext,
+  BrotliDecompressContext,
+  BrotliDecompressDictContext,
+  brotliCompress,
+  brotliCompressWithDict,
+  brotliDecompress,
+  brotliDecompressWithCapacity,
+  brotliDecompressWithDict,
+  brotliDecompressWithDictWithCapacity,
+  crc32,
+  DeflateCompressContext,
+  DeflateDecompressContext,
+  decompress,
+  deflateCompress,
+  deflateDecompress,
+  deflateDecompressWithCapacity,
+  detectFormat,
+  GzipCompressContext,
+  GzipDecompressContext,
+  gzipCompress,
+  gzipCompressWithHeader,
+  gzipDecompress,
+  gzipDecompressWithCapacity,
+  gzipReadHeader,
+  Lz4CompressContext,
+  Lz4DecompressContext,
+  lz4Compress,
+  lz4Decompress,
+  lz4DecompressWithCapacity,
+  version,
+  ZstdCompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
+  zstdCompress,
+  zstdCompressWithDict,
+  zstdDecompress,
+  zstdDecompressWithCapacity,
+  zstdDecompressWithDict,
+  zstdDecompressWithDictWithCapacity,
+  zstdTrainDictionary,
+} from './comprs-wasm.js';

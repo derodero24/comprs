@@ -88,7 +88,6 @@
     "browser/package.json",
     "browser/index.js",
     "browser/index.d.ts",
-    "browser/streaming.js",
     "browser/comprs-wasm.js",
     "browser/comprs-wasm.d.ts",
     "browser/comprs-wasm_bg.wasm"

@@ -2,9 +2,6 @@ import { once } from 'node:events';
 import { Readable, type Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error browser/streaming.js ships without type declarations; its
-// classes mirror the native ones typed below.
-import * as browserStreaming from '../browser/streaming.js';
 import {
   BrotliCompressContext,
   BrotliCompressDictContext,
@@ -447,74 +444,5 @@ describe('auto-detecting streams', () => {
     );
     expect(Buffer.compare(output, data)).toBe(0);
     expect(close).toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Browser adapters (browser/streaming.js), run against the native one-shot
-// functions through the alias in vitest.config.mts
-// ---------------------------------------------------------------------------
-
-/** The adapter classes; dictionary contexts take the dictionary. */
-type BrowserContexts = Record<string, new (dict?: Buffer) => Context>;
-const adapters: BrowserContexts = browserStreaming;
-
-describe.each(cases)('browser $name', ({ name, stream, input }) => {
-  const create = (): Context => {
-    const Adapter = adapters[name];
-    if (!Adapter) throw new Error(`browser/streaming.js has no ${name}`);
-    return new Adapter(name.includes('Dict') ? dict : undefined);
-  };
-
-  it('should throw on every call after close()', () => {
-    const ctx = create();
-    ctx.transform(input);
-    ctx.close();
-    expect(() => ctx.transform(input)).toThrow(`${stream} already closed`);
-    expect(() => ctx.flush()).toThrow(`${stream} already closed`);
-    expect(() => ctx.finish()).toThrow(`${stream} already closed`);
-    expect(() => ctx.close()).not.toThrow();
-  });
-
-  it('should leave a finished context finished on close()', () => {
-    const ctx = create();
-    ctx.transform(input);
-    ctx.finish();
-    ctx.close();
-    expect(() => ctx.transform(input)).toThrow(`${stream} already finished`);
-    expect(() => ctx.finish()).toThrow(`${stream} already finished`);
-  });
-
-  it('should close at the end of a using declaration', () => {
-    let disposed: Context | undefined;
-    {
-      using ctx = create();
-      disposed = ctx;
-    }
-    expect(() => disposed?.finish()).toThrow(`${stream} already closed`);
-  });
-});
-
-describe('browser Lz4DecompressContext.finish()', () => {
-  const compressed = lz4Compress(data);
-  const create = (): Context => {
-    const Adapter = adapters.Lz4DecompressContext;
-    if (!Adapter) throw new Error('browser/streaming.js has no Lz4DecompressContext');
-    return new Adapter();
-  };
-
-  it('should decompress the buffered input and end the stream', () => {
-    const ctx = create();
-    ctx.transform(compressed);
-    expect(Buffer.compare(ctx.finish(), data)).toBe(0);
-    expect(() => ctx.finish()).toThrow('lz4 stream already finished');
-  });
-
-  it('should return nothing after flush()', () => {
-    const ctx = create();
-    ctx.transform(compressed);
-    expect(Buffer.compare(ctx.flush(), data)).toBe(0);
-    expect(ctx.finish().byteLength).toBe(0);
-    expect(() => ctx.flush()).toThrow('lz4 stream already finished');
   });
 });

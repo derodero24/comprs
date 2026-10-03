@@ -2,9 +2,6 @@ import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error browser/streaming.js has no type declarations of its own;
-// its classes mirror the native ones typed below.
-import * as browserStreaming from '../browser/streaming.js';
 import {
   BrotliDecompressContext,
   BrotliDecompressDictContext,
@@ -470,75 +467,5 @@ describe('empty input', () => {
     expect(() => new ZstdDecompressContext().finish()).toThrow(truncated('zstd'));
     expect(() => new BrotliDecompressContext().finish()).toThrow(truncated('brotli'));
     expect(() => new Lz4DecompressContext().flush()).toThrow(truncated('lz4'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Browser adapters (browser/streaming.js), run against the native one-shot
-// functions through the stub in vitest.config.mts
-// ---------------------------------------------------------------------------
-
-type BrowserAdapters = Pick<
-  typeof import('../index.js'),
-  | 'ZstdDecompressContext'
-  | 'ZstdDecompressDictContext'
-  | 'BrotliDecompressContext'
-  | 'BrotliDecompressDictContext'
-  | 'DeflateDecompressContext'
->;
-const adapters: BrowserAdapters = browserStreaming;
-
-const adapterCases: [string, Buffer, () => DecompressContext][] = [
-  ['ZstdDecompressContext', zstdCompressed, () => new adapters.ZstdDecompressContext()],
-  [
-    'ZstdDecompressDictContext',
-    zstdCompressWithDict(data, zstdDict),
-    () => new adapters.ZstdDecompressDictContext(zstdDict),
-  ],
-  ['BrotliDecompressContext', brotliCompressed, () => new adapters.BrotliDecompressContext()],
-  [
-    'BrotliDecompressDictContext',
-    brotliCompressWithDict(data, brotliDict),
-    () => new adapters.BrotliDecompressDictContext(brotliDict),
-  ],
-];
-
-describe.each(adapterCases)('browser %s', (_name, compressed, create) => {
-  it('should decompress with flush() followed by finish()', () => {
-    const ctx = create();
-    ctx.transform(compressed);
-    expect(Buffer.from(ctx.flush())).toEqual(data);
-    expect(ctx.finish().byteLength).toBe(0);
-    expect(() => ctx.finish()).toThrow(/already finished/);
-  });
-
-  it('should decompress with finish() alone', () => {
-    const ctx = create();
-    ctx.transform(compressed);
-    expect(Buffer.from(ctx.finish())).toEqual(data);
-    expect(() => ctx.flush()).toThrow(/already finished/);
-  });
-
-  it.each([0, 1, compressed.length >> 1, compressed.length - 1])(
-    'should throw for input cut to %i bytes',
-    (length) => {
-      const flushed = create();
-      flushed.transform(compressed.subarray(0, length));
-      expect(() => flushed.flush()).toThrow();
-      expect(() => flushed.finish()).toThrow(/already finished/);
-
-      const finished = create();
-      finished.transform(compressed.subarray(0, length));
-      expect(() => finished.finish()).toThrow();
-    },
-  );
-});
-
-describe('browser DeflateDecompressContext', () => {
-  it('should reject truncated input', () => {
-    const compressed = deflateCompress(data);
-    const ctx = new adapters.DeflateDecompressContext();
-    ctx.transform(compressed.subarray(0, compressed.length - 1));
-    expect(() => ctx.finish()).toThrow(truncated('deflate'));
   });
 });
