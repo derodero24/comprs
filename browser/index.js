@@ -1,8 +1,5 @@
 // Browser entry point (the `browser` condition of the package exports): the
-// wasm-bindgen build, with its streaming contexts replaced by JS-side adapters
-// that wrap the one-shot APIs, to work around WebAssembly.Memory growth
-// invalidating ArrayBuffer views.
-// See: https://github.com/derodero24/comprs/issues/106
+// wasm-bindgen build.
 //
 // The WebAssembly module is fetched and instantiated here, with top-level
 // await, so every export works as soon as the import resolves. As require()
@@ -26,8 +23,16 @@ try {
   );
 }
 
-// One-shot APIs (pass through from WASM)
+// The functions and stream contexts as wasm-bindgen generates them. The
+// contexts copy each chunk into WebAssembly memory before transform()
+// returns, as the native ones copy it, and add the free() and
+// [Symbol.dispose]() methods of the glue, which release that memory without
+// waiting for garbage collection.
 export {
+  BrotliCompressContext,
+  BrotliCompressDictContext,
+  BrotliDecompressContext,
+  BrotliDecompressDictContext,
   brotliCompress,
   brotliCompressWithDict,
   brotliDecompress,
@@ -35,20 +40,30 @@ export {
   brotliDecompressWithDict,
   brotliDecompressWithDictWithCapacity,
   crc32,
+  DeflateCompressContext,
+  DeflateDecompressContext,
   decompress,
   deflateCompress,
   deflateDecompress,
   deflateDecompressWithCapacity,
   detectFormat,
+  GzipCompressContext,
+  GzipDecompressContext,
   gzipCompress,
   gzipCompressWithHeader,
   gzipDecompress,
   gzipDecompressWithCapacity,
   gzipReadHeader,
+  Lz4CompressContext,
+  Lz4DecompressContext,
   lz4Compress,
   lz4Decompress,
   lz4DecompressWithCapacity,
   version,
+  ZstdCompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompress,
@@ -57,21 +72,3 @@ export {
   zstdDecompressWithDictWithCapacity,
   zstdTrainDictionary,
 } from './comprs-wasm.js';
-
-// Streaming context adapters (override native WASM contexts)
-export {
-  BrotliCompressContext,
-  BrotliCompressDictContext,
-  BrotliDecompressContext,
-  BrotliDecompressDictContext,
-  DeflateCompressContext,
-  DeflateDecompressContext,
-  GzipCompressContext,
-  GzipDecompressContext,
-  Lz4CompressContext,
-  Lz4DecompressContext,
-  ZstdCompressContext,
-  ZstdCompressDictContext,
-  ZstdDecompressContext,
-  ZstdDecompressDictContext,
-} from './streaming.js';
