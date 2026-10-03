@@ -640,6 +640,7 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 > ```typescript
 > const decompressed = zstdDecompressWithCapacity(data, 1024 * 1024 * 1024); // 1 GB
 > ```
+> Streaming decompression takes the limit as its `maxOutputSize` argument and enforces it while decoding: memory stays near `maxOutputSize` even when a single small chunk would expand to gigabytes.
 
 > [!NOTE]
 > **Small payloads on WASM**: For data under ~1 KB, the WASM runtime overhead may exceed compression time. Consider batching small items or using the native Node.js backend where possible.

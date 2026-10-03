@@ -7,6 +7,7 @@ pub mod detect;
 pub mod error;
 pub mod gzip;
 pub mod gzip_stream;
+mod limited;
 pub mod lz4;
 pub mod lz4_stream;
 pub mod zstd;

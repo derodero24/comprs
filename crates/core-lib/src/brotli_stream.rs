@@ -4,6 +4,7 @@ use std::io::Write;
 
 use crate::ComprsError;
 use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE};
+use crate::limited::LimitedVec;
 
 /// Streaming brotli compression context.
 pub struct CompressContext {
@@ -72,59 +73,36 @@ impl CompressContext {
 
 /// Streaming brotli decompression context.
 pub struct DecompressContext {
-    decompressor: brotli::DecompressorWriter<Vec<u8>>,
-    total_output: usize,
-    max_output_size: usize,
+    decompressor: brotli::DecompressorWriter<LimitedVec>,
 }
 
 impl DecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
-        Ok(Self {
-            decompressor,
-            total_output: 0,
-            max_output_size: max_size,
-        })
+        let decompressor = brotli::DecompressorWriter::new(
+            LimitedVec::new(max_size, "brotli stream decompress"),
+            BUFFER_SIZE,
+        );
+        Ok(Self { decompressor })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        self.decompressor
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli stream decompress",
-                source: e.into(),
-            })?;
+        self.decompressor.write_all(chunk).map_err(|e| {
+            self.decompressor
+                .get_ref()
+                .error(e, "brotli stream decompress")
+        })?;
 
-        // Drain whatever the decompressor has written to the inner Vec
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        // Drain whatever the decompressor has written to the inner sink
+        Ok(self.decompressor.get_mut().take())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         self.decompressor
             .flush()
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli stream flush",
-                source: e.into(),
-            })?;
+            .map_err(|e| self.decompressor.get_ref().error(e, "brotli stream flush"))?;
 
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(self.decompressor.get_mut().take())
     }
 }
 
@@ -191,9 +169,7 @@ impl CompressDictContext {
 
 /// Streaming brotli decompression context with custom dictionary.
 pub struct DecompressDictContext {
-    decompressor: brotli::DecompressorWriter<Vec<u8>>,
-    total_output: usize,
-    max_output_size: usize,
+    decompressor: brotli::DecompressorWriter<LimitedVec>,
 }
 
 impl DecompressDictContext {
@@ -201,53 +177,31 @@ impl DecompressDictContext {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         let dict_bytes = dict.to_vec();
         let decompressor = brotli::DecompressorWriter::new_with_custom_dictionary(
-            Vec::new(),
+            LimitedVec::new(max_size, "brotli dict stream decompress"),
             BUFFER_SIZE,
             dict_bytes.into(),
         );
-        Ok(Self {
-            decompressor,
-            total_output: 0,
-            max_output_size: max_size,
-        })
+        Ok(Self { decompressor })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        self.decompressor
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli dict stream decompress",
-                source: e.into(),
-            })?;
+        self.decompressor.write_all(chunk).map_err(|e| {
+            self.decompressor
+                .get_ref()
+                .error(e, "brotli dict stream decompress")
+        })?;
 
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli dict stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(self.decompressor.get_mut().take())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        self.decompressor
-            .flush()
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli dict stream flush",
-                source: e.into(),
-            })?;
+        self.decompressor.flush().map_err(|e| {
+            self.decompressor
+                .get_ref()
+                .error(e, "brotli dict stream flush")
+        })?;
 
-        let data = std::mem::take(self.decompressor.get_mut());
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "brotli dict stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(self.decompressor.get_mut().take())
     }
 }
 
@@ -255,7 +209,53 @@ impl DecompressDictContext {
 mod tests {
     use std::io::{Read, Write};
 
+    use super::{DecompressContext, DecompressDictContext};
     use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE};
+
+    /// Decompression limit used by the size-limit tests.
+    const LIMIT: usize = 64 * 1024;
+
+    /// 8 MiB of zeros compress to a few hundred bytes: one chunk that
+    /// expands more than 10,000x.
+    fn bomb(dict: &[u8]) -> Vec<u8> {
+        crate::brotli::compress_with_dict(&vec![0u8; 8 * 1024 * 1024], dict, Some(1)).unwrap()
+    }
+
+    #[test]
+    fn decompress_context_stops_inflating_at_the_limit() {
+        let mut ctx = DecompressContext::new(Some(LIMIT as f64)).unwrap();
+
+        let err = ctx.transform(&bomb(&[])).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "brotli stream decompress exceeded maximum size of 65536 bytes"
+        );
+        // The output never grew past the limit (brotli adds one 4 KiB buffer).
+        assert!(ctx.decompressor.get_ref().capacity() <= LIMIT);
+    }
+
+    #[test]
+    fn decompress_dict_context_stops_inflating_at_the_limit() {
+        let dict = b"a small custom dictionary";
+        let mut ctx = DecompressDictContext::new(dict, Some(LIMIT as f64)).unwrap();
+
+        let err = ctx.transform(&bomb(dict)).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "brotli dict stream decompress exceeded maximum size of 65536 bytes"
+        );
+        assert!(ctx.decompressor.get_ref().capacity() <= LIMIT);
+    }
+
+    #[test]
+    fn decompress_context_accepts_output_at_the_limit() {
+        let data = vec![7u8; LIMIT];
+        let compressed = crate::brotli::compress(&data, None).unwrap();
+        let mut ctx = DecompressContext::new(Some(LIMIT as f64)).unwrap();
+        let mut output = ctx.transform(&compressed).unwrap();
+        output.extend(ctx.flush().unwrap());
+        assert_eq!(output, data);
+    }
 
     #[test]
     fn stream_round_trip() {

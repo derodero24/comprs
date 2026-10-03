@@ -6,6 +6,7 @@ use flate2::Compression;
 use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder, MultiGzDecoder};
 
 use crate::ComprsError;
+use crate::limited::LimitedVec;
 
 /// Default compression level for gzip/deflate (same as zlib default).
 pub const DEFAULT_LEVEL: u32 = 6;
@@ -78,19 +79,15 @@ impl GzipCompressContext {
 
 /// Streaming gzip decompression context.
 pub struct GzipDecompressContext {
-    decoder: Option<MultiGzDecoder<Vec<u8>>>,
-    total_output: usize,
-    max_output_size: usize,
+    decoder: Option<MultiGzDecoder<LimitedVec>>,
 }
 
 impl GzipDecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decoder = MultiGzDecoder::new(Vec::new());
+        let decoder = MultiGzDecoder::new(LimitedVec::new(max_size, "gzip stream decompress"));
         Ok(Self {
             decoder: Some(decoder),
-            total_output: 0,
-            max_output_size: max_size,
         })
     }
 
@@ -104,26 +101,14 @@ impl GzipDecompressContext {
         while pos < chunk.len() {
             let n = decoder
                 .write(&chunk[pos..])
-                .map_err(|e| ComprsError::Operation {
-                    context: "gzip stream decompress",
-                    source: e.into(),
-                })?;
+                .map_err(|e| decoder.get_ref().error(e, "gzip stream decompress"))?;
             if n == 0 {
                 break;
             }
             pos += n;
         }
 
-        let output = decoder.get_mut();
-        let data = std::mem::take(output);
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "gzip stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(decoder.get_mut().take())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -132,33 +117,24 @@ impl GzipDecompressContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("gzip stream"))?;
 
-        decoder.flush().map_err(|e| ComprsError::Operation {
-            context: "gzip stream flush",
-            source: e.into(),
-        })?;
+        decoder
+            .flush()
+            .map_err(|e| decoder.get_ref().error(e, "gzip stream flush"))?;
 
-        let output = decoder.get_mut();
-        let data = std::mem::take(output);
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "gzip stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(decoder.get_mut().take())
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let decoder = self
+        let mut decoder = self
             .decoder
             .take()
             .ok_or(ComprsError::StreamFinished("gzip stream"))?;
 
-        decoder.finish().map_err(|e| ComprsError::Operation {
-            context: "gzip stream finish",
-            source: e.into(),
-        })
+        decoder
+            .try_finish()
+            .map_err(|e| decoder.get_ref().error(e, "gzip stream finish"))?;
+
+        Ok(decoder.get_mut().take())
     }
 }
 
@@ -230,19 +206,15 @@ impl DeflateCompressContext {
 
 /// Streaming raw deflate decompression context.
 pub struct DeflateDecompressContext {
-    decoder: Option<DeflateDecoder<Vec<u8>>>,
-    total_output: usize,
-    max_output_size: usize,
+    decoder: Option<DeflateDecoder<LimitedVec>>,
 }
 
 impl DeflateDecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decoder = DeflateDecoder::new(Vec::new());
+        let decoder = DeflateDecoder::new(LimitedVec::new(max_size, "deflate stream decompress"));
         Ok(Self {
             decoder: Some(decoder),
-            total_output: 0,
-            max_output_size: max_size,
         })
     }
 
@@ -254,21 +226,9 @@ impl DeflateDecompressContext {
 
         decoder
             .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "deflate stream decompress",
-                source: e.into(),
-            })?;
+            .map_err(|e| decoder.get_ref().error(e, "deflate stream decompress"))?;
 
-        let output = decoder.get_mut();
-        let data = std::mem::take(output);
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "deflate stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(decoder.get_mut().take())
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -277,33 +237,24 @@ impl DeflateDecompressContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("deflate stream"))?;
 
-        decoder.flush().map_err(|e| ComprsError::Operation {
-            context: "deflate stream flush",
-            source: e.into(),
-        })?;
+        decoder
+            .flush()
+            .map_err(|e| decoder.get_ref().error(e, "deflate stream flush"))?;
 
-        let output = decoder.get_mut();
-        let data = std::mem::take(output);
-        self.total_output += data.len();
-        if self.total_output > self.max_output_size {
-            return Err(ComprsError::SizeLimit {
-                context: "deflate stream decompress",
-                limit: self.max_output_size,
-            });
-        }
-        Ok(data)
+        Ok(decoder.get_mut().take())
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let decoder = self
+        let mut decoder = self
             .decoder
             .take()
             .ok_or(ComprsError::StreamFinished("deflate stream"))?;
 
-        decoder.finish().map_err(|e| ComprsError::Operation {
-            context: "deflate stream finish",
-            source: e.into(),
-        })
+        decoder
+            .try_finish()
+            .map_err(|e| decoder.get_ref().error(e, "deflate stream finish"))?;
+
+        Ok(decoder.get_mut().take())
     }
 }
 
@@ -315,7 +266,98 @@ mod tests {
     use flate2::read::GzDecoder as GzReadDecoder;
     use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder};
 
+    use super::{DeflateDecompressContext, GzipDecompressContext};
+    use crate::ComprsError;
+
     const DEFAULT_LEVEL: u32 = 6;
+
+    /// Decompression limit used by the size-limit tests.
+    const LIMIT: usize = 64 * 1024;
+
+    fn gzip(data: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn deflate(data: &[u8]) -> Vec<u8> {
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn gzip_decompress_context_stops_inflating_at_the_limit() {
+        // 8 MiB of zeros compress to about 8 KB: one chunk that expands 1000x.
+        let bomb = gzip(&vec![0u8; 8 * 1024 * 1024]);
+        let mut ctx = GzipDecompressContext::new(Some(LIMIT as f64)).unwrap();
+
+        let err = ctx.transform(&bomb).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "gzip stream decompress exceeded maximum size of 65536 bytes"
+        );
+        // The output never grew past the limit (flate2 adds one 32 KiB buffer).
+        let sink = ctx.decoder.as_ref().unwrap().get_ref();
+        assert!(sink.capacity() <= LIMIT);
+    }
+
+    #[test]
+    fn gzip_decompress_context_counts_finish_output() {
+        // flate2 holds up to 32 KiB of output, which only finish() returns.
+        let compressed = gzip(&[b'a'; 30_000]);
+        let mut ctx = GzipDecompressContext::new(Some(1000.0)).unwrap();
+        let result = ctx.transform(&compressed).and_then(|_| ctx.finish());
+        assert!(matches!(
+            result,
+            Err(ComprsError::SizeLimit { limit: 1000, .. })
+        ));
+    }
+
+    #[test]
+    fn gzip_decompress_context_accepts_output_at_the_limit() {
+        let data = vec![7u8; LIMIT];
+        let mut ctx = GzipDecompressContext::new(Some(LIMIT as f64)).unwrap();
+        let mut output = ctx.transform(&gzip(&data)).unwrap();
+        output.extend(ctx.flush().unwrap());
+        output.extend(ctx.finish().unwrap());
+        assert_eq!(output, data);
+    }
+
+    #[test]
+    fn deflate_decompress_context_stops_inflating_at_the_limit() {
+        let bomb = deflate(&vec![0u8; 8 * 1024 * 1024]);
+        let mut ctx = DeflateDecompressContext::new(Some(LIMIT as f64)).unwrap();
+
+        let err = ctx.transform(&bomb).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "deflate stream decompress exceeded maximum size of 65536 bytes"
+        );
+        let sink = ctx.decoder.as_ref().unwrap().get_ref();
+        assert!(sink.capacity() <= LIMIT);
+    }
+
+    #[test]
+    fn deflate_decompress_context_counts_finish_output() {
+        let compressed = deflate(&[b'a'; 30_000]);
+        let mut ctx = DeflateDecompressContext::new(Some(1000.0)).unwrap();
+        let result = ctx.transform(&compressed).and_then(|_| ctx.finish());
+        assert!(matches!(
+            result,
+            Err(ComprsError::SizeLimit { limit: 1000, .. })
+        ));
+    }
+
+    #[test]
+    fn deflate_decompress_context_accepts_output_at_the_limit() {
+        let data = vec![7u8; LIMIT];
+        let mut ctx = DeflateDecompressContext::new(Some(LIMIT as f64)).unwrap();
+        let mut output = ctx.transform(&deflate(&data)).unwrap();
+        output.extend(ctx.flush().unwrap());
+        output.extend(ctx.finish().unwrap());
+        assert_eq!(output, data);
+    }
 
     #[test]
     fn gzip_stream_round_trip() {
