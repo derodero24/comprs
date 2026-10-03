@@ -8,7 +8,11 @@
   "prHourlyLimit": 0,
   "rebaseWhen": "conflicted",
   "lockFileMaintenance": {
-    "enabled": false
+    "description": "Refresh the lock files once a month, for review. Renovate runs weekly, so the first seven days of a month hold exactly one run. Cargo.lock gets its own PR through the rust-dependencies group. A refresh has no release timestamp, so minimumReleaseAge would hold it forever",
+    "enabled": true,
+    "schedule": ["* * 1-7 * *"],
+    "minimumReleaseAge": null,
+    "automerge": false
   },
   "packageRules": [
     {
@@ -19,13 +23,14 @@
       "automerge": true
     },
     {
-      "description": "Pin GitHub Actions digests; group and automerge non-major updates",
+      "description": "Pin GitHub Actions digests; group and automerge non-major updates, digests included, once they are 3 days old: a retargeted tag is how the tj-actions/changed-files compromise spread. A digest update is aged by the release its tag resolves to but carries no timestamp of its own, which must not hold it forever",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "groupName": "github-actions (non-major)",
       "pinDigests": true,
       "automerge": true,
-      "minimumReleaseAge": "0 days"
+      "minimumReleaseAge": "3 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
       "description": "Group Rust crate updates",
@@ -37,6 +42,24 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
+    },
+    {
+      "description": "napi-rs toolchain: the CLI and the napi crates build and package every binary, so they update together and are reviewed, never automerged (#518, #526, #529). Keep this rule after the generic ones, as later rules win",
+      "matchPackageNames": ["@napi-rs/*", "napi", "napi-derive", "napi-build"],
+      "groupName": "napi-rs toolchain",
+      "automerge": false
+    },
+    {
+      "description": "Keep the napi-rs packages at exact versions in package.json, so a toolchain update shows in the reviewed diff and not only in pnpm-lock.yaml",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@napi-rs/*"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Respect the flate2 =1.1.9 pin in Cargo.toml: 1.1.10 makes gzip/deflate much slower with zlib-rs (#509)",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["flate2"],
+      "allowedVersions": "<=1.1.9"
     }
   ]
 }
