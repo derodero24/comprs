@@ -4,7 +4,13 @@ use std::io::Write;
 
 use lz4_flex::frame::FrameEncoder;
 
-use crate::ComprsError;
+use crate::{ComprsError, MemoryUsage};
+
+/// Heap memory of a frame encoder with the default 64 KiB blocks: a 16 KiB
+/// hash table, and an input block and an output block that it allocates
+/// with the first data.
+const ENCODER_STATE_SIZE: usize =
+    16 * 1024 + 64 * 1024 + lz4_flex::block::get_maximum_output_size(64 * 1024);
 
 /// Streaming LZ4 frame compression context.
 ///
@@ -80,13 +86,23 @@ impl CompressContext {
     }
 }
 
+impl MemoryUsage for CompressContext {
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, |encoder| {
+            ENCODER_STATE_SIZE + encoder.get_ref().capacity()
+        })
+    }
+}
+
 /// Streaming LZ4 frame decompression context.
 ///
 /// Buffers compressed input and decompresses on `flush()`.
 /// LZ4 frame decompression requires the full compressed input, so true
 /// incremental streaming is not possible with the current lz4_flex API.
 pub struct DecompressContext {
-    buffer: Vec<u8>,
+    /// Compressed input that has not been decoded yet; `None` once the
+    /// stream is finished.
+    buffer: Option<Vec<u8>>,
     max_output_size: usize,
     /// Whether any compressed input has been received.
     received_input: bool,
@@ -96,7 +112,7 @@ impl DecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         Ok(Self {
-            buffer: Vec::new(),
+            buffer: Some(Vec::new()),
             max_output_size: max_size,
             received_input: false,
         })
@@ -105,7 +121,10 @@ impl DecompressContext {
     /// Buffer a chunk of compressed data.
     /// Returns an empty Vec (decompressed output is produced in `flush()`).
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        self.buffer.extend_from_slice(chunk);
+        self.buffer
+            .as_mut()
+            .ok_or(ComprsError::StreamFinished("lz4 stream"))?
+            .extend_from_slice(chunk);
         self.received_input |= !chunk.is_empty();
         Ok(Vec::new())
     }
@@ -118,20 +137,35 @@ impl DecompressContext {
     /// [`ComprsError::Operation`] when data that is not a frame follows a
     /// frame. Calling it again after a successful call returns an empty Vec.
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        if self.buffer.is_empty() {
+        let buffer = self
+            .buffer
+            .as_mut()
+            .ok_or(ComprsError::StreamFinished("lz4 stream"))?;
+        if buffer.is_empty() {
             if !self.received_input {
                 return Err(ComprsError::Truncated("lz4"));
             }
             return Ok(Vec::new());
         }
 
-        let result = crate::lz4::decompress_frames(
-            &self.buffer,
-            self.max_output_size,
-            "lz4 stream decompress",
-        )?;
-        self.buffer.clear();
+        let result =
+            crate::lz4::decompress_frames(buffer, self.max_output_size, "lz4 stream decompress")?;
+        buffer.clear();
         Ok(result)
+    }
+
+    /// Decompress the remaining buffered data, like [`Self::flush`], and end
+    /// the stream: it releases the buffer, and later calls fail.
+    pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        let output = self.flush();
+        self.buffer = None;
+        output
+    }
+}
+
+impl MemoryUsage for DecompressContext {
+    fn memory_usage(&self) -> usize {
+        self.buffer.as_ref().map_or(0, Vec::capacity)
     }
 }
 
@@ -148,6 +182,41 @@ mod tests {
         let mut ctx = DecompressContext::new(None).unwrap();
         ctx.transform(&[]).unwrap();
         assert!(matches!(ctx.flush(), Err(ComprsError::Truncated("lz4"))));
+    }
+
+    #[test]
+    fn decompress_context_finish_decodes_and_ends_the_stream() {
+        let compressed = crate::lz4::compress(b"lz4 stream").unwrap();
+        let mut ctx = DecompressContext::new(None).unwrap();
+        ctx.transform(&compressed).unwrap();
+        assert!(ctx.memory_usage() >= compressed.len());
+        assert_eq!(ctx.finish().unwrap(), b"lz4 stream");
+        assert_eq!(ctx.memory_usage(), 0);
+        assert!(matches!(
+            ctx.transform(&compressed),
+            Err(ComprsError::StreamFinished("lz4 stream"))
+        ));
+        assert!(matches!(ctx.flush(), Err(ComprsError::StreamFinished(_))));
+        assert!(matches!(ctx.finish(), Err(ComprsError::StreamFinished(_))));
+
+        // After flush(), nothing is left to decode.
+        let mut ctx = DecompressContext::new(None).unwrap();
+        ctx.transform(&compressed).unwrap();
+        assert_eq!(ctx.flush().unwrap(), b"lz4 stream");
+        assert!(ctx.finish().unwrap().is_empty());
+
+        let mut ctx = DecompressContext::new(None).unwrap();
+        assert!(matches!(ctx.finish(), Err(ComprsError::Truncated("lz4"))));
+        assert!(matches!(ctx.finish(), Err(ComprsError::StreamFinished(_))));
+    }
+
+    #[test]
+    fn compress_context_reports_the_encoder_state() {
+        let mut ctx = CompressContext::new().unwrap();
+        ctx.transform(b"lz4 stream").unwrap();
+        assert!(ctx.memory_usage() >= ENCODER_STATE_SIZE);
+        ctx.finish().unwrap();
+        assert_eq!(ctx.memory_usage(), 0);
     }
 
     #[test]

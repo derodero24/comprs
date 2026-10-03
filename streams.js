@@ -16,6 +16,63 @@ const {
   detectFormat,
 } = require('./index.js');
 
+function enqueueIfNonEmpty(controller, result) {
+  if (result.byteLength > 0) {
+    controller.enqueue(new Uint8Array(result));
+  }
+}
+
+/**
+ * Create a TransformStream from `transform` and `flush`, which call stream
+ * contexts. `close` closes the contexts once the stream ends, fails or is
+ * cancelled, which releases their native memory right away instead of when
+ * the garbage collector gets to them.
+ *
+ * @param {(chunk: Uint8Array, controller: TransformStreamDefaultController<Uint8Array>) => void} transform
+ * @param {(controller: TransformStreamDefaultController<Uint8Array>) => void} flush
+ * @param {() => void} close
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function closingStream(transform, flush, close) {
+  return new TransformStream({
+    transform(chunk, controller) {
+      try {
+        transform(chunk, controller);
+      } catch (err) {
+        close();
+        throw err;
+      }
+    },
+    flush(controller) {
+      try {
+        flush(controller);
+      } finally {
+        close();
+      }
+    },
+    cancel() {
+      close();
+    },
+  });
+}
+
+/**
+ * Create a TransformStream that feeds its input through `ctx`.
+ *
+ * @param {{ transform(chunk: Uint8Array): Uint8Array, flush(): Uint8Array, finish(): Uint8Array, close(): void }} ctx
+ * @returns {TransformStream<Uint8Array, Uint8Array>}
+ */
+function contextStream(ctx) {
+  return closingStream(
+    (chunk, controller) => enqueueIfNonEmpty(controller, ctx.transform(chunk)),
+    (controller) => {
+      enqueueIfNonEmpty(controller, ctx.flush());
+      enqueueIfNonEmpty(controller, ctx.finish());
+    },
+    () => ctx.close(),
+  );
+}
+
 /**
  * Create a streaming brotli compression TransformStream.
  *
@@ -23,25 +80,7 @@ const {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createBrotliCompressStream(quality) {
-  const ctx = new BrotliCompressContext(quality);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new BrotliCompressContext(quality));
 }
 
 /**
@@ -51,25 +90,7 @@ function createBrotliCompressStream(quality) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createBrotliDecompressStream(maxOutputSize) {
-  const ctx = new BrotliDecompressContext(maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new BrotliDecompressContext(maxOutputSize));
 }
 
 /**
@@ -79,25 +100,7 @@ function createBrotliDecompressStream(maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createZstdCompressStream(level) {
-  const ctx = new ZstdCompressContext(level);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new ZstdCompressContext(level));
 }
 
 /**
@@ -107,25 +110,7 @@ function createZstdCompressStream(level) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createZstdDecompressStream(maxOutputSize) {
-  const ctx = new ZstdDecompressContext(maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new ZstdDecompressContext(maxOutputSize));
 }
 
 /**
@@ -135,25 +120,7 @@ function createZstdDecompressStream(maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createGzipCompressStream(level) {
-  const ctx = new GzipCompressContext(level);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new GzipCompressContext(level));
 }
 
 /**
@@ -163,25 +130,7 @@ function createGzipCompressStream(level) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createGzipDecompressStream(maxOutputSize) {
-  const ctx = new GzipDecompressContext(maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new GzipDecompressContext(maxOutputSize));
 }
 
 /**
@@ -191,25 +140,7 @@ function createGzipDecompressStream(maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createDeflateCompressStream(level) {
-  const ctx = new DeflateCompressContext(level);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new DeflateCompressContext(level));
 }
 
 /**
@@ -219,25 +150,7 @@ function createDeflateCompressStream(level) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createDeflateDecompressStream(maxOutputSize) {
-  const ctx = new DeflateDecompressContext(maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new DeflateDecompressContext(maxOutputSize));
 }
 
 /**
@@ -248,25 +161,7 @@ function createDeflateDecompressStream(maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createBrotliCompressDictStream(dict, quality) {
-  const ctx = new BrotliCompressDictContext(dict, quality);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new BrotliCompressDictContext(dict, quality));
 }
 
 /**
@@ -277,25 +172,7 @@ function createBrotliCompressDictStream(dict, quality) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createBrotliDecompressDictStream(dict, maxOutputSize) {
-  const ctx = new BrotliDecompressDictContext(dict, maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new BrotliDecompressDictContext(dict, maxOutputSize));
 }
 
 /**
@@ -306,25 +183,7 @@ function createBrotliDecompressDictStream(dict, maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createZstdCompressDictStream(dict, level) {
-  const ctx = new ZstdCompressDictContext(dict, level);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new ZstdCompressDictContext(dict, level));
 }
 
 /**
@@ -335,25 +194,7 @@ function createZstdCompressDictStream(dict, level) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createZstdDecompressDictStream(dict, maxOutputSize) {
-  const ctx = new ZstdDecompressDictContext(dict, maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new ZstdDecompressDictContext(dict, maxOutputSize));
 }
 
 /**
@@ -362,25 +203,7 @@ function createZstdDecompressDictStream(dict, maxOutputSize) {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createLz4CompressStream() {
-  const ctx = new Lz4CompressContext();
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-      const finished = ctx.finish();
-      if (finished.byteLength > 0) {
-        controller.enqueue(new Uint8Array(finished));
-      }
-    },
-  });
+  return contextStream(new Lz4CompressContext());
 }
 
 /**
@@ -390,21 +213,7 @@ function createLz4CompressStream() {
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createLz4DecompressStream(maxOutputSize) {
-  const ctx = new Lz4DecompressContext(maxOutputSize);
-  return new TransformStream({
-    transform(chunk, controller) {
-      const result = ctx.transform(chunk);
-      if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-      }
-    },
-    flush(controller) {
-      const flushed = ctx.flush();
-      if (flushed.byteLength > 0) {
-        controller.enqueue(new Uint8Array(flushed));
-      }
-    },
-  });
+  return contextStream(new Lz4DecompressContext(maxOutputSize));
 }
 
 function createDecompressContext(format, maxOutputSize) {
@@ -419,12 +228,6 @@ function createDecompressContext(format, maxOutputSize) {
       return new Lz4DecompressContext(maxOutputSize);
     default:
       throw new Error('unable to detect compression format from stream data');
-  }
-}
-
-function enqueueIfNonEmpty(controller, result) {
-  if (result.byteLength > 0) {
-    controller.enqueue(new Uint8Array(result));
   }
 }
 
@@ -485,8 +288,8 @@ function createDecompressStream(maxOutputSize) {
     enqueueIfNonEmpty(controller, ctx.transform(data));
   }
 
-  return new TransformStream({
-    transform(chunk, controller) {
+  return closingStream(
+    (chunk, controller) => {
       if (ctx) {
         enqueueIfNonEmpty(controller, ctx.transform(chunk));
         return;
@@ -508,7 +311,7 @@ function createDecompressStream(maxOutputSize) {
       }
       start(format, data, controller);
     },
-    flush(controller) {
+    (controller) => {
       if (!ctx) {
         // The input ended before its format was detected. Empty input has no
         // detectable format and throws.
@@ -517,13 +320,14 @@ function createDecompressStream(maxOutputSize) {
       }
 
       enqueueIfNonEmpty(controller, ctx.flush());
-      // LZ4 decodes everything in flush(); the other contexts verify in
-      // finish() that the input contained the whole stream.
-      if (!(ctx instanceof Lz4DecompressContext)) {
-        enqueueIfNonEmpty(controller, ctx.finish());
-      }
+      // finish() verifies that the input contained the whole stream.
+      enqueueIfNonEmpty(controller, ctx.finish());
     },
-  });
+    () => {
+      ctx?.close();
+      buffered = null;
+    },
+  );
 }
 
 module.exports = {
