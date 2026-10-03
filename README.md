@@ -426,7 +426,7 @@ On any other platform, loading comprs in Node.js, Deno, or Bun throws `Cannot fi
 | Windows | x64, ARM64 |
 | WASM | wasm32-unknown-unknown (wasm-bindgen) |
 
-The Windows binaries link the C runtime statically, so they do not need the Visual C++ Redistributable.
+The Linux glibc binaries need glibc 2.17 or newer. The Windows binaries link the C runtime statically, so they do not need the Visual C++ Redistributable.
 
 ### WASM bundle size
 
