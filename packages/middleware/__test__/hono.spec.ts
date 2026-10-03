@@ -55,7 +55,7 @@ async function rawGet(app: Hono, path: string, acceptEncoding: string) {
 }
 
 /** Settle like `promise`, or reject if it takes longer than `ms`. */
-async function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+async function within<T>(promise: T | Promise<T>, ms = 2000): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`no result within ${ms} ms`)), ms);

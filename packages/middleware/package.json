@@ -62,7 +62,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "check": "biome ci",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -90,6 +90,7 @@
   "devDependencies": {
     "@derodero24/comprs": "workspace:*",
     "@types/express": "^5.0.0",
+    "@types/node": "^24.13.4",
     "express": "^5.1.0",
     "fastify": "^5.0.0",
     "hono": "^4.12.25",
