@@ -10,11 +10,13 @@ import {
   decompress,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
   lz4Compress,
   lz4Decompress,
   version,
+  ZstdCompressContext,
   zstdCompress,
   zstdCompressAsync,
   zstdDecompress,
@@ -66,6 +68,19 @@ describe('comprs on Bun', () => {
   test('Web Streams round-trip', async () => {
     const compressed = await pipe(testData, createZstdCompressStream());
     expect(await pipe(compressed, createZstdDecompressStream())).toEqual(testData);
+  });
+
+  // A method of one native class called with an instance of another as `this`
+  // must throw. Node.js rejects the call itself ("Illegal invocation"); Bun
+  // runs the method, so the addon has to check the receiver, or the method
+  // uses the other class's native state and crashes the process.
+  test('context methods reject an instance of another context class', () => {
+    expect(() =>
+      ZstdCompressContext.prototype.transform.call(new GzipCompressContext(), testData),
+    ).toThrow(/ZstdCompressContext/);
+    expect(() => GzipCompressContext.prototype.finish.call(new ZstdCompressContext())).toThrow(
+      /GzipCompressContext/,
+    );
   });
 
   test('version', () => {
