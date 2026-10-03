@@ -2,13 +2,16 @@
 // the wasm-bindgen build (crates/wasm) and the stream context adapters of
 // streaming.js.
 //
-// They differ from the native declarations in ../index.d.ts (#570): there
-// are no *Async functions, results are Uint8Array rather than Buffer,
-// detectFormat() returns a plain string, gzipCompressWithHeader() takes
-// (data, level, filename, mtime), and gzipReadHeader() sets absent fields to
-// null. They are written by hand rather than re-exported from the generated
-// comprs-wasm.d.ts, which declares the wasm-bindgen classes that the
-// adapters replace, needs the DOM library, and uses `any`.
+// They take the arguments of the native declarations in ../index.d.ts, but
+// there are no *Async functions, results are Uint8Array rather than Buffer,
+// and detectFormat() returns a plain string. __test__/wasm-parity.spec.ts
+// checks them against the native declarations. They are written by hand
+// rather than re-exported from the generated comprs-wasm.d.ts, which
+// declares the wasm-bindgen classes that the adapters replace, needs the DOM
+// library, and uses `any`.
+
+// biome-ignore lint/complexity/noUselessEmptyExport: in a declaration file, it limits the exports to the declarations marked `export`, leaving out StreamContext.
+export {};
 
 // -- zstd --
 
@@ -42,11 +45,24 @@ export declare function zstdDecompressWithDictWithCapacity(
 
 /** Header fields of a gzip member, as gzipReadHeader() returns them. */
 export interface GzipHeader {
-  filename: string | null;
+  /** Original file name, if the header has one. */
+  filename?: string;
+  /** Modification time as a Unix timestamp (seconds since epoch). */
   mtime: number;
-  comment: string | null;
+  /** Comment, if the header has one. */
+  comment?: string;
+  /** Operating system that created the gzip member. */
   os: number;
-  extra: Uint8Array | null;
+  /** Extra field, if the header has one. */
+  extra?: Uint8Array;
+}
+
+/** Header fields for gzipCompressWithHeader() to write. */
+export interface GzipHeaderOptions {
+  /** Original file name. */
+  filename?: string;
+  /** Modification time as a Unix timestamp (seconds since epoch). */
+  mtime?: number;
 }
 
 /** Compress data with gzip. `level` ranges from 0 to 9 (default 6). */
@@ -58,9 +74,8 @@ export declare function gzipDecompressWithCapacity(data: Uint8Array, capacity: n
 /** Compress data with gzip, with a file name and modification time in the header. */
 export declare function gzipCompressWithHeader(
   data: Uint8Array,
+  header: GzipHeaderOptions,
   level?: number | null,
-  filename?: string | null,
-  mtime?: number | null,
 ): Uint8Array;
 /** Read the header of a gzip member without decompressing it. */
 export declare function gzipReadHeader(data: Uint8Array): GzipHeader;

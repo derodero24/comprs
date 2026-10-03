@@ -23,6 +23,17 @@ import {
 } from './comprs-wasm.js';
 
 /**
+ * A Uint8Array over the bytes of an ArrayBuffer view, which the native
+ * contexts accept as well. Like them, throw for anything else.
+ */
+function bytesOf(value, name) {
+  if (!ArrayBuffer.isView(value)) {
+    throw new Error(`${name} must be a Uint8Array`);
+  }
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+/**
  * Concatenate an array of Uint8Array chunks into a single Uint8Array.
  */
 function concatChunks(chunks) {
@@ -30,7 +41,7 @@ function concatChunks(chunks) {
   const result = new Uint8Array(totalLength);
   let offset = 0;
   for (const chunk of chunks) {
-    result.set(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength), offset);
+    result.set(chunk, offset);
     offset += chunk.byteLength;
   }
   return result;
@@ -47,7 +58,7 @@ export class GzipCompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('gzip stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -74,7 +85,7 @@ export class GzipDecompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('gzip stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -106,7 +117,7 @@ export class DeflateCompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('deflate stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -133,7 +144,7 @@ export class DeflateDecompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('deflate stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -165,7 +176,7 @@ export class BrotliCompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('brotli stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -192,7 +203,7 @@ export class BrotliDecompressContext {
 
   transform(chunk) {
     if (this._state !== 'open') throw new Error('brotli stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -222,7 +233,7 @@ export class BrotliDecompressContext {
 
 export class BrotliCompressDictContext {
   constructor(dict, quality) {
-    this._dict = dict;
+    this._dict = bytesOf(dict, 'dict');
     this._quality = quality;
     this._chunks = [];
     this._finished = false;
@@ -230,7 +241,7 @@ export class BrotliCompressDictContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('brotli dict stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -250,7 +261,7 @@ export class BrotliCompressDictContext {
 
 export class BrotliDecompressDictContext {
   constructor(dict, maxOutputSize) {
-    this._dict = dict;
+    this._dict = bytesOf(dict, 'dict');
     this._maxOutputSize = maxOutputSize;
     this._chunks = [];
     this._state = 'open';
@@ -258,7 +269,7 @@ export class BrotliDecompressDictContext {
 
   transform(chunk) {
     if (this._state !== 'open') throw new Error('brotli dict stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -294,7 +305,7 @@ export class Lz4CompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('lz4 stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -321,7 +332,7 @@ export class Lz4DecompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('lz4 stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -348,7 +359,7 @@ export class ZstdCompressContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('zstd stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -375,7 +386,7 @@ export class ZstdDecompressContext {
 
   transform(chunk) {
     if (this._state !== 'open') throw new Error('zstd stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -405,7 +416,7 @@ export class ZstdDecompressContext {
 
 export class ZstdCompressDictContext {
   constructor(dict, level) {
-    this._dict = dict;
+    this._dict = bytesOf(dict, 'dict');
     this._level = level;
     this._chunks = [];
     this._finished = false;
@@ -413,7 +424,7 @@ export class ZstdCompressDictContext {
 
   transform(chunk) {
     if (this._finished) throw new Error('zstd stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
@@ -433,7 +444,7 @@ export class ZstdCompressDictContext {
 
 export class ZstdDecompressDictContext {
   constructor(dict, maxOutputSize) {
-    this._dict = dict;
+    this._dict = bytesOf(dict, 'dict');
     this._maxOutputSize = maxOutputSize;
     this._chunks = [];
     this._state = 'open';
@@ -441,7 +452,7 @@ export class ZstdDecompressDictContext {
 
   transform(chunk) {
     if (this._state !== 'open') throw new Error('zstd stream already finished');
-    this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength));
+    this._chunks.push(bytesOf(chunk, 'chunk'));
     return new Uint8Array(0);
   }
 
