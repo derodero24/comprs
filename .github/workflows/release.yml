@@ -318,49 +318,12 @@ jobs:
         with:
           path: artifacts
 
-      - name: Copy WASM wrapper files to workspace root
-        run: |
-          WASM_DIR="artifacts/bindings-wasm32-wasip1-threads"
-          if [ -d "$WASM_DIR" ]; then
-            cp "$WASM_DIR"/*.cjs "$WASM_DIR"/*.js "$WASM_DIR"/*.mjs . 2>/dev/null || true
-            echo "Copied WASM wrapper files from $WASM_DIR"
-            ls -la comprs.wasi* wasi-worker* 2>/dev/null
-          fi
-
-      - name: Copy wasm-bindgen files to workspace root
-        run: |
-          WB_DIR="artifacts/bindings-wasm-bindgen"
-          if ! compgen -G "$WB_DIR/comprs-wasm*" > /dev/null; then
-            echo "::error::No wasm-bindgen files in $WB_DIR; the browser build is missing"
-            exit 1
-          fi
-          cp "$WB_DIR"/comprs-wasm* .
-          ls -la comprs-wasm*
-
-      - name: Move artifacts to platform packages
-        run: pnpm napi artifacts --output-dir artifacts
-
-      # npm publish skips `files` entries that do not exist instead of failing,
-      # so a missing build output would otherwise ship a broken package.
-      - name: Verify every published file exists
-        run: |
-          node -e '
-            const { existsSync } = require("node:fs");
-            const missing = require("./package.json").files.filter((f) => !existsSync(f));
-            if (missing.length > 0) {
-              console.log("::error::Missing files listed in package.json: " + missing.join(", "));
-              process.exit(1);
-            }
-          '
-
-      - name: List packages
-        run: |
-          echo "=== Platform packages ==="
-          for dir in npm/*/; do
-            echo "$dir"
-            ls -la "$dir" 2>/dev/null
-            echo ""
-          done
+      # Shared with the release-dry-run job in ci.yml, which runs it on every
+      # CI run and then checks the packages with check-release.mjs. That
+      # check is not repeated here, to keep its tools (publint, attw, vite)
+      # out of a job that holds id-token: write.
+      - name: Assemble the npm packages
+        run: node scripts/prepare-release.mjs --artifacts-dir artifacts
 
       # First publish: use granular access token (NPM_TOKEN secret).
       # After packages exist on npm, switch to OIDC trusted publishing
