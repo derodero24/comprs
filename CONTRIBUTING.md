@@ -70,6 +70,16 @@ cargo clippy          # Rust lint
 pnpm run build        # napi-rs build
 ```
 
+CI also runs the package in other runtimes. To run these checks locally:
+
+```bash
+pnpm run test:bun             # Bun, through the native addon
+pnpm run test:deno            # Deno, through the native addon
+pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
+pnpm run test:wasm            # WebAssembly build, compared with the native addon
+pnpm run test:browser         # WebAssembly build in Chromium (Playwright)
+```
+
 ## Commit messages
 
 Conventional Commits format: `type(scope): description`
@@ -96,7 +106,7 @@ node scripts/prepare-release.mjs --artifacts-dir artifacts
 node scripts/check-release.mjs
 ```
 
-Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux and WASI (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
+Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
 
 ## Pull request checklist
 

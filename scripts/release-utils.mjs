@@ -50,16 +50,13 @@ export async function readRelease() {
     packageName: config.packageName,
     version,
     binaryName: config.binaryName,
-    targets: config.targets.map((target) => {
-      const extension = target.platform === 'wasi' || target.platform === 'wasm' ? 'wasm' : 'node';
-      return {
-        triple: target.triple,
-        abi: target.platformArchABI,
-        artifact: `${config.binaryName}.${target.platformArchABI}.${extension}`,
-        packageName: `${config.packageName}-${target.platformArchABI}`,
-        packageDir: join(ROOT, 'npm', target.platformArchABI),
-      };
-    }),
+    targets: config.targets.map((target) => ({
+      triple: target.triple,
+      abi: target.platformArchABI,
+      artifact: `${config.binaryName}.${target.platformArchABI}.node`,
+      packageName: `${config.packageName}-${target.platformArchABI}`,
+      packageDir: join(ROOT, 'npm', target.platformArchABI),
+    })),
   };
 }
 

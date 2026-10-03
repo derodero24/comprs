@@ -101,8 +101,7 @@
       "aarch64-unknown-linux-gnu",
       "aarch64-unknown-linux-musl",
       "x86_64-pc-windows-msvc",
-      "aarch64-pc-windows-msvc",
-      "wasm32-wasip1-threads"
+      "aarch64-pc-windows-msvc"
     ]
   },
   "engines": {
@@ -112,8 +111,6 @@
   "scripts": {
     "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
-    "build:wasm": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir . --target wasm32-wasip1-threads",
-    "postbuild:wasm": "node scripts/patch-wasi-browser-js.js && node scripts/optimize-wasm.js",
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
@@ -128,9 +125,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "test:deno": "deno test --allow-read --allow-env --allow-net --node-modules-dir=auto e2e/wasm-deno.test.ts",
+    "test:deno": "deno test --allow-ffi --allow-read --allow-env e2e/deno.test.ts",
     "test:wasm": "vitest run __test__/wasm.spec.ts",
-    "test:bun": "bun test e2e/wasm-bun.test.ts",
+    "test:bun": "bun test e2e/bun.test.ts",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
     "bench:ci": "vitest bench --exclude '**/*.compare.bench.ts'",
@@ -147,15 +144,10 @@
     "@codspeed/vitest-plugin": "^5.5.0",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
-    "@emnapi/core": "^1.11.0",
-    "@emnapi/runtime": "^1.11.0",
     "@napi-rs/cli": "^3.7.1",
-    "@napi-rs/wasm-runtime": "^1.1.5",
     "@playwright/test": "^1.60.0",
-    "@tybys/wasm-util": "^0.10.2",
     "@types/node": "^24.13.2",
     "@vitest/coverage-v8": "^4.1.8",
-    "buffer": "^6.0.3",
     "fflate": "^0.8.3",
     "lefthook": "^2.1.9",
     "pako": "^3.0.0",

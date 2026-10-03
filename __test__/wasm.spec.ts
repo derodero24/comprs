@@ -1,41 +1,86 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { beforeAll, describe, expect, it } from 'vitest';
+import * as native from '../index.js';
 
-// Check if WASM module is available (not built locally by default)
-let wasmAvailable = false;
-// biome-ignore lint/suspicious/noExplicitAny: WASM module loaded dynamically
-let wasm: any;
-try {
-  wasm = require('../comprs.wasi.cjs');
-  wasmAvailable = true;
-} catch {
-  // WASM binary not built — skip tests
+// Tests the wasm-bindgen build that the browser entry loads. `pnpm test` does
+// not build it, so this suite is skipped unless `pnpm run build:wasm-bindgen`
+// ran first, as in the WASM Test CI job.
+const WASM_FILE = resolve(__dirname, '../comprs-wasm_bg.wasm');
+const GLUE_MODULE = '../comprs-wasm_bg.js';
+
+// The part of the WebAssembly JS API that this file uses. The project is
+// type-checked without the DOM library, which declares it.
+declare const WebAssembly: {
+  instantiate(
+    bytes: Uint8Array,
+    imports: Record<string, Record<string, unknown>>,
+  ): Promise<{ instance: { exports: Record<string, unknown> } }>;
+};
+
+const CODECS = [
+  'zstdCompress',
+  'zstdDecompress',
+  'gzipCompress',
+  'gzipDecompress',
+  'deflateCompress',
+  'deflateDecompress',
+  'brotliCompress',
+  'brotliDecompress',
+  'lz4Compress',
+  'lz4Decompress',
+  'decompress',
+] as const;
+
+type WasmBindgen = Record<(typeof CODECS)[number], (data: Uint8Array) => Uint8Array> & {
+  detectFormat(data: Uint8Array): string;
+  crc32(data: Uint8Array): number;
+  version(): string;
+};
+
+function isWasmBindgen(glue: Record<string, unknown>): glue is WasmBindgen {
+  return [...CODECS, 'detectFormat', 'crc32', 'version'].every(
+    (name) => typeof glue[name] === 'function',
+  );
 }
 
-describe.skipIf(!wasmAvailable)('WASM compatibility', () => {
+/**
+ * Load the wasm-bindgen build. Its entry, comprs-wasm.js, imports the .wasm
+ * file as an ES module (wasm-bindgen's bundler target), which Vitest cannot
+ * load, so instantiate the module with its JS glue by hand, as
+ * e2e/index.html does.
+ */
+async function loadWasmBindgen(): Promise<WasmBindgen> {
+  const glue: Record<string, unknown> = await import(GLUE_MODULE);
+  const { instance } = await WebAssembly.instantiate(readFileSync(WASM_FILE), {
+    './comprs-wasm_bg.js': glue,
+  });
+  const setWasm = glue.__wbg_set_wasm;
+  if (typeof setWasm !== 'function' || !isWasmBindgen(glue)) {
+    throw new Error(`${GLUE_MODULE} does not export the wasm-bindgen API`);
+  }
+  setWasm(instance.exports);
+  return glue;
+}
+
+let wasm: WasmBindgen;
+
+describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
+  beforeAll(async () => {
+    wasm = await loadWasmBindgen();
+  });
+
   describe('one-shot compression', () => {
     const testData = Buffer.from('Hello, WASM comprs! '.repeat(100));
 
-    it('should round-trip with zstd', () => {
-      const compressed = wasm.zstdCompress(testData);
-      const decompressed = wasm.zstdDecompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
-    });
-
-    it('should round-trip with gzip', () => {
-      const compressed = wasm.gzipCompress(testData);
-      const decompressed = wasm.gzipDecompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
-    });
-
-    it('should round-trip with deflate', () => {
-      const compressed = wasm.deflateCompress(testData);
-      const decompressed = wasm.deflateDecompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
-    });
-
-    it('should round-trip with brotli', () => {
-      const compressed = wasm.brotliCompress(testData);
-      const decompressed = wasm.brotliDecompress(compressed);
+    it.each([
+      ['zstd', 'zstdCompress', 'zstdDecompress'],
+      ['gzip', 'gzipCompress', 'gzipDecompress'],
+      ['deflate', 'deflateCompress', 'deflateDecompress'],
+      ['brotli', 'brotliCompress', 'brotliDecompress'],
+      ['lz4', 'lz4Compress', 'lz4Decompress'],
+    ] as const)('should round-trip with %s', (_name, compress, decompress) => {
+      const decompressed = wasm[decompress](wasm[compress](testData));
       expect(Buffer.from(decompressed)).toEqual(testData);
     });
   });
@@ -46,72 +91,57 @@ describe.skipIf(!wasmAvailable)('WASM compatibility', () => {
     it('should auto-detect zstd', () => {
       const compressed = wasm.zstdCompress(testData);
       expect(wasm.detectFormat(compressed)).toBe('zstd');
-      const decompressed = wasm.decompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
+      expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
 
     it('should auto-detect gzip', () => {
       const compressed = wasm.gzipCompress(testData);
       expect(wasm.detectFormat(compressed)).toBe('gzip');
-      const decompressed = wasm.decompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
+      expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
 
     it('should auto-detect brotli via decompress', () => {
-      // Brotli has no magic bytes, detectFormat may return 'unknown'
-      // but decompress() should still try brotli as fallback
+      // Brotli has no magic bytes, so detectFormat cannot recognize it, but
+      // decompress() still tries brotli as a fallback.
       const compressed = wasm.brotliCompress(testData);
-      const decompressed = wasm.decompress(compressed);
-      expect(Buffer.from(decompressed)).toEqual(testData);
-    });
-  });
-
-  describe('version', () => {
-    it('should return version string', () => {
-      const ver = wasm.version();
-      expect(typeof ver).toBe('string');
-      expect(ver).toMatch(/^\d+\.\d+\.\d+/);
+      expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
   });
 
   describe('native parity', () => {
-    // Import native bindings for comparison
-    // These are available because tests run after `pnpm run build`
-    const native = require('../index.js');
     const testData = Buffer.from('Native parity verification data '.repeat(100));
 
-    it('zstd: WASM output should match native output', () => {
-      const wasmCompressed = wasm.zstdCompress(testData);
-      const nativeCompressed = native.zstdCompress(testData);
-      expect(Buffer.from(wasmCompressed)).toEqual(Buffer.from(nativeCompressed));
+    it('version: should match the native addon', () => {
+      expect(wasm.version()).toBe(native.version());
     });
 
-    it('gzip: WASM decompression should match native decompression', () => {
-      // Gzip includes timestamps, so compressed output may differ.
-      // Instead, verify cross-decompression works.
-      const nativeCompressed = native.gzipCompress(testData);
-      const wasmDecompressed = wasm.gzipDecompress(nativeCompressed);
-      expect(Buffer.from(wasmDecompressed)).toEqual(testData);
+    it('crc32: should match the native addon', () => {
+      expect(wasm.crc32(testData)).toBe(native.crc32(testData));
+    });
 
-      const wasmCompressed = wasm.gzipCompress(testData);
-      const nativeDecompressed = native.gzipDecompress(wasmCompressed);
-      expect(Buffer.from(nativeDecompressed)).toEqual(testData);
+    it('zstd: WASM output should match native output', () => {
+      expect(Buffer.from(wasm.zstdCompress(testData))).toEqual(native.zstdCompress(testData));
     });
 
     it('deflate: WASM output should match native output', () => {
-      const wasmCompressed = wasm.deflateCompress(testData);
-      const nativeCompressed = native.deflateCompress(testData);
-      expect(Buffer.from(wasmCompressed)).toEqual(Buffer.from(nativeCompressed));
+      expect(Buffer.from(wasm.deflateCompress(testData))).toEqual(native.deflateCompress(testData));
     });
 
-    it('brotli: WASM decompression should match native decompression', () => {
-      const nativeCompressed = native.brotliCompress(testData);
-      const wasmDecompressed = wasm.brotliDecompress(nativeCompressed);
-      expect(Buffer.from(wasmDecompressed)).toEqual(testData);
+    // The compressed bytes of these may differ, so check that each side
+    // decompresses the other's output.
+    it('gzip: WASM and native should decompress each other', () => {
+      expect(Buffer.from(wasm.gzipDecompress(native.gzipCompress(testData)))).toEqual(testData);
+      expect(native.gzipDecompress(wasm.gzipCompress(testData))).toEqual(testData);
+    });
 
-      const wasmCompressed = wasm.brotliCompress(testData);
-      const nativeDecompressed = native.brotliDecompress(wasmCompressed);
-      expect(Buffer.from(nativeDecompressed)).toEqual(testData);
+    it('brotli: WASM and native should decompress each other', () => {
+      expect(Buffer.from(wasm.brotliDecompress(native.brotliCompress(testData)))).toEqual(testData);
+      expect(native.brotliDecompress(wasm.brotliCompress(testData))).toEqual(testData);
+    });
+
+    it('lz4: WASM and native should decompress each other', () => {
+      expect(Buffer.from(wasm.lz4Decompress(native.lz4Compress(testData)))).toEqual(testData);
+      expect(native.lz4Decompress(wasm.lz4Compress(testData))).toEqual(testData);
     });
   });
 });

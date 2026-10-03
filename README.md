@@ -38,10 +38,10 @@ Rust-powered universal compression for JavaScript/TypeScript.
 
 The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. comprs consolidates this into a single, fast, well-typed library:
 
-- **Native performance** — Rust core compiled via napi-rs, with WASM fallback for browsers
+- **Native performance** — Rust core compiled via napi-rs, with a WebAssembly build for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js
-- **Universal** — Node.js (native), browsers, Deno, and Bun (WASM)
+- **Universal** — Node.js, Deno, and Bun (native), and browsers (WebAssembly)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
 
@@ -185,6 +185,8 @@ import { gzipCompress } from 'npm:@derodero24/comprs';
 // Bun (same as Node.js)
 import { gzipCompress } from '@derodero24/comprs';
 ```
+
+Both runtimes load the native addon, as Node.js does. Deno needs permission for it: run with `--allow-ffi --allow-read --allow-env`, or `--allow-all`.
 
 ## Choosing an Algorithm
 
@@ -407,9 +409,13 @@ await pipeline(
 | Platform | Backend | Status |
 | --- | --- | --- |
 | Node.js ≥ 22 | Native (napi-rs) | ✅ |
-| Browsers | WASM | ✅ |
-| Deno | WASM | ✅ |
+| Deno | Native (napi-rs) | ✅ |
 | Bun | Native (napi-rs) | ✅ |
+| Browsers | WASM (wasm-bindgen) | ✅ |
+
+Node.js, Deno, and Bun load a prebuilt native binary, which the package manager installs as an optional dependency on the platforms listed under [Build targets](#build-targets). In browsers, comprs uses its WebAssembly build instead (see [Browser Usage](#browser-usage)).
+
+On any other platform, loading comprs in Node.js, Deno, or Bun throws `Cannot find native binding`: the WebAssembly build is not used as a fallback there. The error's `cause` chain lists every file and package the loader tried, and the innermost one names the platform, such as `Unsupported OS: aix, architecture: ppc64` or `./comprs.linux-riscv64-gnu.node`. On a listed platform, the same error means that the binary package was not installed, for example because optional dependencies were omitted. The chain also names `@derodero24/comprs-wasm32-wasi`: the loader that napi-rs generates still looks for this WASI build, which is no longer published (2.0.2 was its last version). Do not install it, as a newer comprs would load that outdated build.
 
 ### Build targets
 

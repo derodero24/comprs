@@ -127,8 +127,7 @@ jobs:
               {"host":"ubuntu-latest","target":"aarch64-unknown-linux-gnu"},
               {"host":"ubuntu-latest","target":"aarch64-unknown-linux-musl"},
               {"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
-              {"host":"windows-latest","target":"aarch64-pc-windows-msvc"},
-              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
+              {"host":"windows-latest","target":"aarch64-pc-windows-msvc"}
             ]'
             test_matrix='{
               "node":[22,24],
@@ -141,8 +140,7 @@ jobs:
             }'
           else
             build_settings='[
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
+              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}
             ]'
             test_matrix='{
               "node":[22,24],
@@ -254,8 +252,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Full target list on pushes and native changes; Linux + WASI only
-        # for JS/lockfile-only pull requests (see the `changes` job).
+        # Full target list on pushes and native changes; Linux only for
+        # JS/lockfile-only pull requests (see the `changes` job).
         settings: ${{ fromJSON(needs.changes.outputs.build_settings) }}
 
     steps:
@@ -298,57 +296,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Build native
-        if: matrix.settings.target != 'wasm32-wasip1-threads'
         run: pnpm run build --target ${{ matrix.settings.target }}
-
-      - name: Setup WASI SDK
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          WASI_SDK_VERSION="25"
-          WASI_SDK_DIR="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux"
-          curl -fsSL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${WASI_SDK_DIR}.tar.gz" | tar xz -C "${RUNNER_TEMP}"
-          echo "WASI_SDK_PATH=${RUNNER_TEMP}/${WASI_SDK_DIR}" >> $GITHUB_ENV
-          echo "WASI_SYSROOT=${RUNNER_TEMP}/${WASI_SDK_DIR}/share/wasi-sysroot" >> $GITHUB_ENV
-          echo "CC_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/clang" >> $GITHUB_ENV
-          echo "AR_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/llvm-ar" >> $GITHUB_ENV
-
-      - name: Build WASM
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          export CFLAGS_wasm32_wasip1_threads="--sysroot=${WASI_SYSROOT}"
-          pnpm run build --target wasm32-wasip1-threads
-          node scripts/patch-wasi-browser-js.js
-
-      - name: Optimize WASM with wasm-opt
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          sudo apt-get update && sudo apt-get install -y binaryen
-          pnpm run optimize:wasm
-
-      - name: Report WASM binary size
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          WASM_FILE=$(ls comprs.*.wasm 2>/dev/null | head -1)
-          if [ -n "$WASM_FILE" ]; then
-            SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
-            SIZE_KB=$(( SIZE / 1024 ))
-            echo "### WASM Binary Size" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
-            echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-            echo "| $WASM_FILE | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
-            mkdir -p wasm-size-report
-            echo "$WASM_FILE" > wasm-size-report/file.txt
-            echo "$SIZE_KB" > wasm-size-report/size.txt
-          fi
-
-      - name: Upload WASM size report
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: wasm-size-report
-          path: wasm-size-report/
-          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -358,20 +306,6 @@ jobs:
             *.node
             index.js
             index.d.ts
-          if-no-files-found: ignore
-
-      - name: Upload WASM artifact
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bindings-wasm32
-          path: |
-            *.wasm
-            *.wasi.cjs
-            *.wasi.d.cts
-            *.wasi-browser.js
-            wasi-worker.mjs
-            wasi-worker-browser.mjs
           if-no-files-found: ignore
 
   build-wasm-bindgen:
@@ -402,6 +336,26 @@ jobs:
           fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
+      - name: Report WASM binary size
+        run: |
+          WASM_FILE=comprs-wasm_bg.wasm
+          SIZE_KB=$(( $(stat -c%s "$WASM_FILE") / 1024 ))
+          {
+            echo "### WASM Binary Size"
+            echo ""
+            echo "| File | Size |"
+            echo "|------|------|"
+            echo "| $WASM_FILE | ${SIZE_KB} KB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p wasm-size-report
+          echo "$WASM_FILE" > wasm-size-report/file.txt
+          echo "$SIZE_KB" > wasm-size-report/size.txt
+      - name: Upload WASM size report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wasm-size-report
+          path: wasm-size-report/
+          if-no-files-found: error
       - name: Upload wasm-bindgen artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -446,9 +400,11 @@ jobs:
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
 
+  # The test job skips __test__/wasm.spec.ts, as it has no wasm-bindgen build.
+  # This job runs it, with the native addon for the parity checks.
   test-wasm:
     name: WASM Test (Node.js)
-    needs: [build]
+    needs: [build, build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -466,10 +422,10 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Download WASM artifact
+      - name: Download wasm-bindgen artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: bindings-wasm32
+          name: bindings-wasm-bindgen
           path: .
       - name: Run WASM tests
         run: pnpm run test:wasm
@@ -525,8 +481,10 @@ jobs:
       - name: Run browser tests
         run: pnpm run test:browser
 
+  # Deno and Bun import @derodero24/comprs by name, as an application does:
+  # they resolve its `import` entry, which loads the native addon.
   test-deno:
-    name: Deno WASM Test
+    name: Deno Test
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -543,16 +501,16 @@ jobs:
         with:
           deno-version: v2.x
       - run: pnpm install --frozen-lockfile
-      - name: Download WASM artifact
+      - name: Download native artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: bindings-wasm32
+          name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Run Deno WASM tests
+      - name: Run Deno tests
         run: pnpm run test:deno
 
   test-bun:
-    name: Bun WASM Test
+    name: Bun Test
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -567,12 +525,12 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - run: pnpm install --frozen-lockfile
-      - name: Download WASM artifact
+      - name: Download native artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: bindings-wasm32
+          name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Run Bun WASM tests
+      - name: Run Bun tests
         run: pnpm run test:bun
 
   coverage:
@@ -623,7 +581,7 @@ jobs:
   report-wasm-size:
     name: Report WASM Size
     if: github.event_name == 'pull_request'
-    needs: [build]
+    needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -677,8 +635,8 @@ jobs:
         with:
           pattern: bindings-*
           path: artifacts
-      # JS-only pull requests build Linux and WASI only (see the `changes`
-      # job): --allow-missing-targets limits the platform packages to those.
+      # JS-only pull requests build Linux only (see the `changes` job):
+      # --allow-missing-targets limits the platform packages to that one.
       - name: Assemble the npm packages
         run: >-
           node scripts/prepare-release.mjs --artifacts-dir artifacts
