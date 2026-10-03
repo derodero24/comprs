@@ -246,7 +246,7 @@ Both runtimes load the native addon, as Node.js does. Deno needs permission for 
 | Function | Description |
 | --- | --- |
 | `lz4Compress(data)` | Compress with LZ4 frame format |
-| `lz4Decompress(data)` | Decompress LZ4 data (max 256 MB output) |
+| `lz4Decompress(data)` | Decompress LZ4 data, including concatenated, skippable and legacy frames (max 256 MB output) |
 | `lz4DecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
 
 #### Auto-detect

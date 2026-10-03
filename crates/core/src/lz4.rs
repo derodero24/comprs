@@ -19,8 +19,9 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// Decompress LZ4 frame-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacity`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable and
+/// legacy frames. The maximum decompressed size is 256 MB. Use
+/// `lz4DecompressWithCapacity` for larger data.
 #[napi]
 pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::lz4::decompress(crate::as_bytes(&data))
@@ -93,8 +94,9 @@ impl Task for Lz4DecompressTask {
 /// Asynchronously decompress LZ4 frame-compressed data.
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacityAsync`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable and
+/// legacy frames. The maximum decompressed size is 256 MB. Use
+/// `lz4DecompressWithCapacityAsync` for larger data.
 #[napi]
 pub fn lz4_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4DecompressTask> {
     let input = crate::as_bytes(&data).to_vec();

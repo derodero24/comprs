@@ -52,6 +52,8 @@ impl Lz4CompressContext {
 /// Buffers compressed input and decompresses on `flush()`.
 /// LZ4 frame decompression requires the full compressed input, so true
 /// incremental streaming is not possible with the current lz4_flex API.
+/// The input may hold several concatenated frames, including skippable and
+/// legacy frames.
 #[napi]
 pub struct Lz4DecompressContext {
     inner: comprs_core::lz4_stream::DecompressContext,
@@ -78,7 +80,8 @@ impl Lz4DecompressContext {
     }
 
     /// Decompress all buffered data and return the result.
-    /// Throws if no compressed data was transformed at all.
+    /// Throws if no compressed data was transformed at all, if the input ends
+    /// inside a frame, or if data that is not a frame follows a frame.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
