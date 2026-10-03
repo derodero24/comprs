@@ -439,7 +439,7 @@ Exact sizes are tracked on every build — see the latest [CI run summary](https
 
 ## Browser Usage
 
-comprs works in browsers via WASM. Use a bundler like Vite, webpack, or esbuild:
+Browser builds that import `@derodero24/comprs` get its WebAssembly build, through the `browser` condition of the package's `exports`. Import the functions and call them; there is no initialization function to call:
 
 ```typescript
 import { gzipCompress, gzipDecompress } from '@derodero24/comprs';
@@ -449,8 +449,19 @@ const compressed = gzipCompress(data);
 const decompressed = gzipDecompress(compressed);
 ```
 
-> [!TIP]
-> WASM initialization happens automatically on first use. For performance-critical applications, consider warming up the module by calling any function once during app startup.
+The entry module fetches and instantiates the WebAssembly binary with top-level `await` when it is imported, so every function works once the import has resolved, and a failed download rejects the import. It locates the binary, `browser/comprs-wasm_bg.wasm` in the package, with `new URL('./comprs-wasm_bg.wasm', import.meta.url)`, a pattern that webpack and Vite turn into an emitted asset; with other tools, copy the binary next to the bundle. The bundler must also support top-level `await`:
+
+| Tool | What it needs |
+| --- | --- |
+| Vite 8 | Nothing, for `vite build` and `vite dev`. |
+| Vite 7 and older | `vite dev` needs `optimizeDeps: { exclude: ['@derodero24/comprs'] }`, as the dependency pre-bundling of these versions breaks the URL of the binary. Before Vite 7, the default build target does not support top-level `await`: set `build.target: 'es2022'` or later. |
+| webpack 5 | Nothing: it enables top-level `await` by default since 5.83 and emits the binary as an asset. |
+| esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle. |
+| No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js" } }</script>` |
+
+Serve `.wasm` files as `application/wasm`, which lets the browser compile the binary while it downloads; with another type, it falls back to slower compilation and logs a warning.
+
+The WebAssembly build has the one-shot functions and the streaming contexts (`GzipCompressContext` and the like), but no `*Async` functions, and its functions return `Uint8Array` rather than `Buffer`; its declarations, `browser/index.d.ts`, list what it exports. TypeScript uses them only when it resolves the `browser` condition (`"customConditions": ["browser"]` in `tsconfig.json`), and the Node.js declarations otherwise. The `browser` condition applies to `import` only: `require()` cannot load a module that uses top-level `await`, so `require('@derodero24/comprs')` loads the native addon, also in test runners that set the condition, such as Jest with a jsdom environment. Under Jest's ES module support, that environment imports the WebAssembly build, which does not load in Jest: set `testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] }` to get the native addon. The `@derodero24/comprs/streams` and `@derodero24/comprs/node` subpaths load the native addon, so they do not work in browsers.
 
 ### Framework Integration (SSR)
 
@@ -476,7 +487,7 @@ export default {
 };
 ```
 
-On the client side, comprs automatically falls back to WASM — no additional configuration needed.
+Client bundles resolve the `browser` condition and get the WebAssembly build, with the bundler setup described above.
 
 ## Migration
 

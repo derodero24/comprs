@@ -2,9 +2,9 @@ import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error browser-streaming.js ships without type declarations; its
-// classes mirror the native ones typed below.
-import * as browserStreaming from '../browser-streaming.js';
+// @ts-expect-error browser/streaming.js has no type declarations of its own;
+// its classes mirror the native ones typed below.
+import * as browserStreaming from '../browser/streaming.js';
 import {
   BrotliDecompressContext,
   BrotliDecompressDictContext,
@@ -429,8 +429,8 @@ describe('empty input', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Browser adapters (browser-streaming.js), run against the native one-shot
-// functions through the alias in vitest.config.mts
+// Browser adapters (browser/streaming.js), run against the native one-shot
+// functions through the stub in vitest.config.mts
 // ---------------------------------------------------------------------------
 
 type BrowserAdapters = Pick<
