@@ -94,10 +94,14 @@ export function weakenEtag(etag: string): string {
   return etag.startsWith('W/') ? etag : `W/${etag}`;
 }
 
-/** Append Accept-Encoding to a Vary header value. Returns the new Vary value. */
+/**
+ * Append Accept-Encoding to a Vary header value. Returns the new Vary value,
+ * which is `current` itself when it already lists Accept-Encoding or `*`
+ * (field names are compared whole and case-insensitively).
+ */
 export function appendVary(current: string | undefined): string {
   if (!current) return 'Accept-Encoding';
-  if (current.trim() === '*') return '*';
-  if (current.toLowerCase().includes('accept-encoding')) return current;
+  const fields = current.split(',').map((field) => field.trim().toLowerCase());
+  if (fields.includes('*') || fields.includes('accept-encoding')) return current;
   return `${current}, Accept-Encoding`;
 }

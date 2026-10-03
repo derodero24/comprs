@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  appendVary,
   canCompressBody,
   hasNoTransform,
   headerValue,
@@ -99,5 +100,29 @@ describe('weakenEtag', () => {
 
   it('should keep a weak entity tag', () => {
     expect(weakenEtag('W/"abc"')).toBe('W/"abc"');
+  });
+});
+
+describe('appendVary', () => {
+  it('should add Accept-Encoding to an empty or missing value', () => {
+    expect(appendVary(undefined)).toBe('Accept-Encoding');
+    expect(appendVary('')).toBe('Accept-Encoding');
+  });
+
+  it('should append Accept-Encoding to other field names', () => {
+    expect(appendVary('Origin, Cookie')).toBe('Origin, Cookie, Accept-Encoding');
+  });
+
+  it('should keep a value that lists Accept-Encoding in any case', () => {
+    expect(appendVary('Origin, accept-encoding')).toBe('Origin, accept-encoding');
+  });
+
+  it('should match whole field names only', () => {
+    expect(appendVary('X-Accept-Encoding-Hint')).toBe('X-Accept-Encoding-Hint, Accept-Encoding');
+  });
+
+  it('should keep a value that lists *', () => {
+    expect(appendVary('*')).toBe('*');
+    expect(appendVary('Origin, *')).toBe('Origin, *');
   });
 });

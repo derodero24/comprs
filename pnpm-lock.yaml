@@ -224,6 +224,10 @@ importers:
         version: 4.1.11(@types/node@24.13.4)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@24.13.4)(jiti@2.6.1)(yaml@2.9.1))
 
   packages/middleware:
+    dependencies:
+      fastify-plugin:
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@derodero24/comprs':
         specifier: workspace:*
@@ -1818,6 +1822,9 @@ packages:
 
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
+
+  fastify-plugin@6.0.0:
+    resolution: {integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==}
 
   fastify@5.12.3:
     resolution: {integrity: sha512-reZ8wce5VNCcufIt9AVtzZa3L4u1j8esikn7OEgHWLVpRpL5R7Y2+Xzj70OUkv5zDfzUAxXZT6cu4Rt0zr3EKA==}
@@ -4232,6 +4239,8 @@ snapshots:
   fast-wrap-ansi@0.2.2:
     dependencies:
       fast-string-width: 3.0.2
+
+  fastify-plugin@6.0.0: {}
 
   fastify@5.12.3:
     dependencies:
