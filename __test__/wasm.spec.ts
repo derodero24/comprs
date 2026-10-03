@@ -1,69 +1,15 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
+import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
 
 // Tests the wasm-bindgen build through the browser entry, which loads it.
-// `pnpm test` does not build it, so this suite is skipped unless
-// `pnpm run build:wasm-bindgen` ran first, as in the WASM Test CI job.
-const WASM_FILE = resolve(__dirname, '../browser/comprs-wasm_bg.wasm');
-const ENTRY_MODULE = '../browser/index.js';
+// wasm-parity.spec.ts compares it with the native addon call by call.
 
-const CODECS = [
-  'zstdCompress',
-  'zstdDecompress',
-  'gzipCompress',
-  'gzipDecompress',
-  'deflateCompress',
-  'deflateDecompress',
-  'brotliCompress',
-  'brotliDecompress',
-  'lz4Compress',
-  'lz4Decompress',
-  'decompress',
-] as const;
+let wasm: BrowserEntry;
 
-type WasmBindgen = Record<(typeof CODECS)[number], (data: Uint8Array) => Uint8Array> & {
-  detectFormat(data: Uint8Array): string;
-  crc32(data: Uint8Array): number;
-  version(): string;
-};
-
-function isWasmBindgen(glue: Record<string, unknown>): glue is WasmBindgen {
-  return [...CODECS, 'detectFormat', 'crc32', 'version'].every(
-    (name) => typeof glue[name] === 'function',
-  );
-}
-
-/**
- * Load the browser entry, which fetches the WebAssembly module next to it
- * when it is imported. Node's fetch does not support file: URLs, so serve
- * them from disk, as a web server would.
- */
-async function loadWasmBindgen(): Promise<WasmBindgen> {
-  vi.stubGlobal(
-    'fetch',
-    async (url: URL) =>
-      new Response(await readFile(url), { headers: { 'content-type': 'application/wasm' } }),
-  );
-  let entry: Record<string, unknown>;
-  try {
-    entry = await import(ENTRY_MODULE);
-  } finally {
-    vi.unstubAllGlobals();
-  }
-  if (!isWasmBindgen(entry)) {
-    throw new Error(`${ENTRY_MODULE} does not export the wasm-bindgen API`);
-  }
-  return entry;
-}
-
-let wasm: WasmBindgen;
-
-describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
+describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
   beforeAll(async () => {
-    wasm = await loadWasmBindgen();
+    wasm = await importBrowserEntry();
   });
 
   describe('one-shot compression', () => {
@@ -138,6 +84,28 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
     it('lz4: WASM and native should decompress each other', () => {
       expect(Buffer.from(wasm.lz4Decompress(native.lz4Compress(testData)))).toEqual(testData);
       expect(native.lz4Decompress(wasm.lz4Compress(testData))).toEqual(testData);
+    });
+  });
+
+  // Last, as a trap leaves the instance in whatever state the panic left.
+  describe('panics', () => {
+    // A NUL byte in the file name panics in flate2 (#546). A panic traps
+    // with a bare `RuntimeError: unreachable`, so the build logs the panic
+    // message to the console first. Once #546 rejects the name with an error
+    // instead, the reason is in the error message.
+    it('reports why a call failed, also when the call panics', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let thrown: unknown;
+      try {
+        wasm.gzipCompressWithHeader(new Uint8Array(4), { filename: 'a\0b' });
+      } catch (error) {
+        thrown = error;
+      }
+      const logged = consoleError.mock.calls.flat().map(String);
+      consoleError.mockRestore();
+      expect(thrown).toBeInstanceOf(Error);
+      const message = thrown instanceof Error ? thrown.message : '';
+      expect([message, ...logged].join('\n')).toMatch(/nul/i);
     });
   });
 });
