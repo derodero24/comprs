@@ -18,6 +18,16 @@ HTTP compression middleware powered by [comprs](https://github.com/derodero24/co
 npm install @derodero24/comprs @derodero24/comprs-middleware
 ```
 
+`@derodero24/comprs` 2.x is a peer dependency. Fastify 5 and Hono 4 are optional peer dependencies, needed only by their adapters. Express is not a peer dependency, as the Express adapter does not use it (see [Express](#express)).
+
+The package requires Node.js 22.12 or later. It consists of ES modules, which Node.js 22.12 and later load with `require()` as well as with `import`:
+
+```js
+const { comprs } = require('@derodero24/comprs-middleware/express');
+```
+
+In a TypeScript project that compiles to CommonJS, set `module` to `nodenext` (TypeScript 5.8 or later) or `node20` (TypeScript 5.9 or later): with those, TypeScript lets CommonJS files import ES modules, while with `node16` it reports error TS1479.
+
 ## Usage
 
 ### Express
@@ -29,6 +39,8 @@ import { comprs } from '@derodero24/comprs-middleware/express';
 const app = express();
 app.use(comprs());
 ```
+
+The adapter is a Connect-style `(req, res, next)` middleware that only uses the Node.js `IncomingMessage` and `ServerResponse`, not Express itself, so it works with Express 4 and 5 and with other frameworks that run such middleware. The package's tests run it under Express 5.
 
 ### Fastify
 

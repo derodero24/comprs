@@ -31,55 +31,46 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./express": {
-      "import": {
-        "types": "./dist/express.d.ts",
-        "default": "./dist/express.js"
-      }
+      "types": "./dist/express.d.ts",
+      "default": "./dist/express.js"
     },
     "./fastify": {
-      "import": {
-        "types": "./dist/fastify.d.ts",
-        "default": "./dist/fastify.js"
-      }
+      "types": "./dist/fastify.d.ts",
+      "default": "./dist/fastify.js"
     },
     "./hono": {
-      "import": {
-        "types": "./dist/hono.d.ts",
-        "default": "./dist/hono.js"
-      }
-    }
+      "types": "./dist/hono.d.ts",
+      "default": "./dist/hono.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "check": "biome ci",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "attw": "attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
+    "publint": "publint"
   },
   "dependencies": {
     "fastify-plugin": "^6.0.0"
   },
   "peerDependencies": {
     "@derodero24/comprs": "^2.0.2",
-    "express": "^4.21.0 || ^5.0.0",
     "fastify": "^5.0.0",
     "hono": "^4.0.0"
   },
   "peerDependenciesMeta": {
-    "express": {
-      "optional": true
-    },
     "fastify": {
       "optional": true
     },
@@ -90,6 +81,7 @@
   "devDependencies": {
     "@derodero24/comprs": "workspace:*",
     "@types/express": "^5.0.0",
+    "@types/node": "^24.13.4",
     "express": "^5.1.0",
     "fastify": "^5.0.0",
     "hono": "^4.12.25",

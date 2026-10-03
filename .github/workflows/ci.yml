@@ -194,6 +194,17 @@ jobs:
       - run: pnpm run publint
       - name: Validate TypeScript type resolution
         run: pnpm run attw
+      - name: Middleware build
+        run: pnpm --filter @derodero24/comprs-middleware build
+      - name: Middleware publint
+        run: pnpm --filter @derodero24/comprs-middleware publint
+      # The middleware's attw script skips two checks. node10 resolution does
+      # not read exports, so it cannot find the subpaths, and TypeScript 7
+      # has removed it. cjs-resolves-to-esm flags require() of an ES module,
+      # which Node.js 22.12 and TypeScript 5.8 (module nodenext) accept;
+      # packages/middleware/__test__/package.spec.ts checks it instead.
+      - name: Validate middleware TypeScript type resolution
+        run: pnpm --filter @derodero24/comprs-middleware attw
 
   audit:
     name: Dependency Audit
@@ -406,8 +417,10 @@ jobs:
           name: ${{ matrix.artifact }}
           path: .
       - run: pnpm test
+      # On every Node.js version of the matrix, since engines allows Node.js
+      # 22: the package spec checks that require() loads the middleware.
       - name: Middleware tests
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        if: matrix.os == 'ubuntu-latest'
         run: pnpm --filter @derodero24/comprs-middleware test
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
