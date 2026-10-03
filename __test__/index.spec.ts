@@ -113,7 +113,7 @@ describe('zstdDecompressWithCapacity', () => {
 
   it('should throw with insufficient capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, 1)).toThrow(
-      /Destination buffer is too small/,
+      'zstd decompress exceeded maximum size of 1 bytes',
     );
   });
 

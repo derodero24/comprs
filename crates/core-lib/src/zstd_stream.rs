@@ -139,7 +139,7 @@ impl DecompressContext {
             source: e.into(),
         })?;
         Ok(Self {
-            inner: StreamDecoder::new(decoder, max_size),
+            inner: StreamDecoder::new(decoder, max_size, "zstd stream decompress"),
         })
     }
 
@@ -289,7 +289,7 @@ impl DecompressDictContext {
             source: e.into(),
         })?;
         Ok(Self {
-            inner: StreamDecoder::new(decoder, max_size),
+            inner: StreamDecoder::new(decoder, max_size, "zstd stream decompress"),
         })
     }
 
@@ -310,36 +310,75 @@ impl DecompressDictContext {
     }
 }
 
-/// Decoder state shared by [`DecompressContext`] and [`DecompressDictContext`].
+/// Decompress `input`, which must end with a complete frame, in one call.
+///
+/// `input` may hold several frames, including skippable ones. The output
+/// buffer starts with room for `initial_capacity` bytes and grows with the
+/// decompressed data, but never past `max_output_size` plus one byte.
+/// Exceeding `max_output_size` fails with [`ComprsError::SizeLimit`] and
+/// `context`, which also prefixes decoder errors.
+pub(crate) fn decompress_all(
+    decoder: Decoder<'static>,
+    input: &[u8],
+    max_output_size: usize,
+    initial_capacity: usize,
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    let mut stream = StreamDecoder::new(decoder, max_output_size, context);
+    stream.decode(input, initial_capacity, context)?;
+    if !stream.frame_complete {
+        return Err(ComprsError::Truncated("zstd"));
+    }
+    Ok(stream.output_buf)
+}
+
+/// Decoder state shared by [`DecompressContext`], [`DecompressDictContext`]
+/// and [`decompress_all`].
 struct StreamDecoder {
     /// `None` once the stream is finished.
     decoder: Option<Decoder<'static>>,
     output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
+    /// Context reported in [`ComprsError::SizeLimit`].
+    limit_context: &'static str,
     /// Whether the input so far ends with a complete frame, i.e. the last
     /// decoder call that made progress returned 0.
     frame_complete: bool,
 }
 
 impl StreamDecoder {
-    fn new(decoder: Decoder<'static>, max_output_size: usize) -> Self {
+    fn new(decoder: Decoder<'static>, max_output_size: usize, limit_context: &'static str) -> Self {
         Self {
             decoder: Some(decoder),
             output_buf: Vec::new(),
             total_output: 0,
             max_output_size,
+            limit_context,
             frame_complete: false,
         }
     }
 
     /// Decompress `input` and drain the decoder, returning all output that is
     /// available so far. An empty `input` only drains the decoder.
-    ///
-    /// The output buffer grows geometrically but never past the remaining
-    /// output budget plus one byte, so a stream that exceeds `max_output_size`
-    /// fails without allocating beyond it.
     fn decompress(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        self.decode(input, input.len().max(INITIAL_BUF_SIZE), context)?;
+        Ok(self.output_buf.to_vec())
+    }
+
+    /// Decompress `input` into `output_buf`, replacing its contents, and
+    /// drain the decoder.
+    ///
+    /// The output buffer gets room for `initial_capacity` bytes, then grows
+    /// geometrically but never past the remaining output budget plus one
+    /// byte, so a stream that exceeds `max_output_size` fails without
+    /// allocating beyond it.
+    fn decode(
+        &mut self,
+        input: &[u8],
+        initial_capacity: usize,
+        context: &'static str,
+    ) -> Result<(), ComprsError> {
         let decoder = self
             .decoder
             .as_mut()
@@ -348,8 +387,11 @@ impl StreamDecoder {
         let remaining = self.max_output_size - self.total_output;
         let max_capacity = remaining.saturating_add(1);
         self.output_buf.clear();
-        self.output_buf
-            .reserve_exact(input.len().max(INITIAL_BUF_SIZE).min(max_capacity));
+        reserve(
+            &mut self.output_buf,
+            initial_capacity.min(max_capacity),
+            context,
+        )?;
 
         let mut in_buf = InBuffer::around(input);
         let mut total_written = 0;
@@ -375,7 +417,7 @@ impl StreamDecoder {
             total_written = out_buf.pos();
             if total_written > remaining {
                 return Err(ComprsError::SizeLimit {
-                    context: "zstd stream decompress",
+                    context: self.limit_context,
                     limit: self.max_output_size,
                 });
             }
@@ -387,12 +429,12 @@ impl StreamDecoder {
                 }
             } else {
                 let new_capacity = capacity.saturating_mul(2).min(max_capacity);
-                self.output_buf.reserve_exact(new_capacity - total_written);
+                reserve(&mut self.output_buf, new_capacity, context)?;
             }
         }
 
         self.total_output += total_written;
-        Ok(self.output_buf.to_vec())
+        Ok(())
     }
 
     /// Drain the decoder and end the stream, failing unless the input ended
@@ -406,6 +448,16 @@ impl StreamDecoder {
         }
         Ok(output)
     }
+}
+
+/// Grow `buf` to a capacity of at least `capacity` bytes, reporting a failed
+/// allocation as an error instead of aborting.
+fn reserve(buf: &mut Vec<u8>, capacity: usize, context: &'static str) -> Result<(), ComprsError> {
+    buf.try_reserve_exact(capacity.saturating_sub(buf.len()))
+        .map_err(|e| ComprsError::Operation {
+            context,
+            source: e.into(),
+        })
 }
 
 #[cfg(test)]

@@ -116,22 +116,40 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 fn decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(input, "gzip")?;
     let decoder = MultiGzDecoder::new(input);
-    // Try to read ISIZE from the gzip footer (last 4 bytes, little-endian uint32,
-    // RFC 1952 §2.3.1) for optimal buffer pre-allocation. ISIZE is the original
-    // uncompressed size mod 2^32, so it wraps for data > 4GB — fall back to 4x
-    // heuristic in that case.
-    let init_cap = if input.len() >= 18 {
-        // Minimum gzip size: 10 (header) + 8 (trailer) = 18 bytes
-        let isize_val = u32::from_le_bytes(input[input.len() - 4..].try_into().unwrap()) as usize;
-        if isize_val > 0 {
-            isize_val.min(max_size)
-        } else {
-            (input.len().saturating_mul(4)).min(max_size)
-        }
-    } else {
-        (input.len().saturating_mul(4)).min(max_size)
-    };
+    let init_cap = initial_capacity(input, max_size);
     crate::decompress_with_limit(decoder, max_size, init_cap, "gzip decompress")
+}
+
+/// The most that deflate data can expand (about 1032:1).
+const DEFLATE_MAX_EXPANSION: usize = 1032;
+
+/// Largest output buffer that gzip decompression reserves before decoding.
+/// Larger outputs grow the buffer as they are decoded.
+const MAX_INITIAL_CAPACITY: usize = 64 * 1024 * 1024;
+
+/// Initial output capacity for decompressing the gzip data in `input`.
+///
+/// Uses ISIZE from the gzip footer (last 4 bytes, little-endian uint32,
+/// RFC 1952 §2.3.1) when it is set, and a 4x heuristic otherwise. ISIZE is
+/// the size of the last member mod 2^32, so it wraps for data > 4GB, and
+/// nothing verifies it until decoding ends. It is therefore only a hint: the
+/// capacity never exceeds what `input` can expand to, [`MAX_INITIAL_CAPACITY`]
+/// or `max_size`, so a forged trailer cannot reserve a huge buffer.
+fn initial_capacity(input: &[u8], max_size: usize) -> usize {
+    // Minimum gzip size: 10 (header) + 8 (trailer) = 18 bytes
+    let isize_val = if input.len() >= 18 {
+        u32::from_le_bytes(input[input.len() - 4..].try_into().unwrap()) as usize
+    } else {
+        0
+    };
+    let hint = if isize_val > 0 {
+        isize_val
+    } else {
+        input.len().saturating_mul(4)
+    };
+    hint.min(input.len().saturating_mul(DEFLATE_MAX_EXPANSION))
+        .min(MAX_INITIAL_CAPACITY)
+        .min(max_size)
 }
 
 /// Compress data using raw deflate (no gzip header/trailer).
@@ -615,5 +633,42 @@ mod tests {
         let compressed = deflate_compress(original, None).unwrap();
         let decompressed = deflate_decompress(&compressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    /// `input` with its last 4 bytes, the gzip ISIZE trailer, set to `isize`.
+    fn with_isize(input: &[u8], isize: u32) -> Vec<u8> {
+        let mut output = input.to_vec();
+        let start = output.len() - 4;
+        output[start..].copy_from_slice(&isize.to_le_bytes());
+        output
+    }
+
+    #[test]
+    fn initial_capacity_uses_isize() {
+        let original = b"gzip ISIZE hint ".repeat(1000);
+        let compressed = compress(&original, None).unwrap();
+        assert_eq!(
+            initial_capacity(&compressed, crate::MAX_DECOMPRESSED_SIZE),
+            original.len()
+        );
+        assert_eq!(initial_capacity(&compressed, 100), 100);
+    }
+
+    #[test]
+    fn initial_capacity_bounds_a_forged_isize() {
+        // A small input cannot reserve more than it can expand to.
+        let forged = with_isize(&compress(b"hello", None).unwrap(), u32::MAX);
+        assert_eq!(
+            initial_capacity(&forged, 1 << 33),
+            forged.len() * DEFLATE_MAX_EXPANSION
+        );
+        assert!(matches!(
+            decompress_with_capacity(&forged, 1 << 33),
+            Err(ComprsError::Operation { .. })
+        ));
+
+        // A large one cannot reserve more than MAX_INITIAL_CAPACITY.
+        let forged = with_isize(&[0; 100_000], u32::MAX);
+        assert_eq!(initial_capacity(&forged, 1 << 33), MAX_INITIAL_CAPACITY);
     }
 }
