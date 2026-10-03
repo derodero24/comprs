@@ -441,15 +441,18 @@ export declare function crc32(data: Buffer | Uint8Array, initialValue?: number |
  * Decompress data by auto-detecting the compression format.
  *
  * Detects the format like `detectFormat` and decompresses using the
- * appropriate algorithm. The maximum decompressed size is 256 MB
- * for all formats.
+ * appropriate algorithm.
+ *
+ * `maxOutputSize` limits the decompressed size in bytes, like the
+ * `maxOutputSize` of `createDecompressStream`. It defaults to 256 MB for all
+ * formats. It is only a limit: a large value reserves no memory up front.
  *
  * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  * Data detected as brotli that does not decode as brotli throws the same
  * error as data of unknown format, since brotli detection is heuristic.
  */
-export declare function decompress(data: Buffer | Uint8Array): Buffer
+export declare function decompress(data: Buffer | Uint8Array, maxOutputSize?: number | undefined | null): Buffer
 
 /**
  * Asynchronously decompress data by auto-detecting the compression format.
@@ -458,12 +461,15 @@ export declare function decompress(data: Buffer | Uint8Array): Buffer
  * appropriate algorithm. Returns a Promise that resolves to the
  * decompressed data as a Buffer.
  *
+ * `maxOutputSize` limits the decompressed size in bytes, as for
+ * `decompress`. It defaults to 256 MB.
+ *
  * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
  * Data detected as brotli that does not decode as brotli rejects with the
  * same error as data of unknown format, since brotli detection is heuristic.
  */
-export declare function decompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
+export declare function decompressAsync(data: Buffer | Uint8Array, maxOutputSize?: number | undefined | null): Promise<Buffer>
 
 /**
  * Compress data using raw deflate (no gzip header/trailer).

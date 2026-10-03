@@ -148,6 +148,24 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
 
+    it('should limit the output to maxOutputSize like the native addon', () => {
+      for (const [format, compressed] of [
+        ['zstd', wasm.zstdCompress(testData)],
+        ['gzip', wasm.gzipCompress(testData)],
+        ['brotli', wasm.brotliCompress(testData)],
+        ['lz4', wasm.lz4Compress(testData)],
+      ] as const) {
+        for (const maxOutputSize of [testData.length, undefined]) {
+          const output = bytes(callWasm('decompress', compressed, maxOutputSize));
+          expect(Buffer.from(output)).toEqual(testData);
+        }
+        const limit = testData.length - 1;
+        const message = `${format} decompress exceeded maximum size of ${limit} bytes`;
+        expect(() => callWasm('decompress', compressed, limit)).toThrow(message);
+        expect(() => native.decompress(compressed, limit)).toThrow(message);
+      }
+    });
+
     it('should report raw deflate as unknown format', () => {
       const compressed = wasm.deflateCompress(ROWS);
       expect(wasm.detectFormat(compressed)).toBe('unknown');
@@ -339,6 +357,12 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
           (v) => constructWasm(name, dict, v),
         ],
       ),
+      [
+        'decompress',
+        size('maxOutputSize'),
+        INVALID_SIZES,
+        (v) => callWasm('decompress', wasm.gzipCompress(data), v),
+      ],
     ];
 
     it.each(CASES)(
