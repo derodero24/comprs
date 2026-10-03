@@ -53,6 +53,8 @@ const app = new Hono();
 app.use(comprs());
 ```
 
+The Hono middleware compresses with the native addon of `@derodero24/comprs`, so it runs on Node.js (with `@hono/node-server`) and Bun. Edge runtimes such as Cloudflare Workers cannot load the addon: use Hono's built-in [`hono/compress`](https://hono.dev/docs/middleware/builtin/compress) there, which compresses gzip and deflate with `CompressionStream`. Cloudflare Workers and Deno Deploy also compress responses themselves.
+
 ### Options
 
 All adapters accept the same core options:
@@ -132,7 +134,7 @@ The server's order decides among the encodings the client accepts; the client's 
 All adapters automatically:
 
 - Set `Content-Encoding` header
-- Remove the `Content-Length` of the uncompressed body; the Fastify adapter sends that of the compressed body instead when the body is in memory
+- Remove the `Content-Length` of the uncompressed body; the Fastify and Hono adapters send that of the compressed body instead when the body is in memory
 - Turn a strong `ETag` into a weak one (`W/"..."`) on compressed responses, since a strong tag must differ between the compressed and the uncompressed representation ([RFC 9110, section 8.8.3.3](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3.3))
 - Send `deflate` in the zlib format (RFC 1950), as [RFC 9110, section 8.4.1.2](https://www.rfc-editor.org/rfc/rfc9110#section-8.4.1.2) defines the coding
 - Set `Vary: Accept-Encoding` on every response whose headers allow compression (none of the first four conditions below applies, and the `filter`, as well as `shouldCompress` on Fastify, returns `true`), whether or not this request gets compressed: also for `HEAD` requests, requests without `Accept-Encoding`, 304 responses and responses below the threshold. Other responses are never compressed and do not get it.
@@ -169,6 +171,15 @@ Set `config: { compress: false }` on a route to leave its replies alone: they ar
 `shouldCompress(request, reply)` sees the headers set with `reply.header()` or `reply.type()`. `filter(req, res)` receives the raw Node.js objects, `request.raw` and `reply.raw`, which do not have those headers yet when the filter runs, so a filter that reads response headers should be written as `shouldCompress`. When both are given, a reply is only compressed when both return `true`.
 
 The plugin is wrapped with [`fastify-plugin`](https://github.com/fastify/fastify-plugin): its hook applies to the routes of the context it is registered in, including those of child contexts, and it is registered under the name `@derodero24/comprs-middleware`, which other plugins can list in their `dependencies`. It requires Fastify 5.
+
+### Hono
+
+The Hono middleware compresses a response once the handler has returned it, in one of two ways:
+
+- A body that is available at once, such as that of `c.text()`, `c.json()` or `c.body()` with a string or bytes, or a stream that ends without waiting for anything, is compressed in one call that runs on the libuv thread pool, so the event loop is not held up. The threshold applies to its size, and the server sends it with the `Content-Length` of the compressed body.
+- Any other body, such as that of a `stream()` or `streamText()` callback that waits between writes, or of a stream that has more than 1 MiB ready at once, is compressed while it is sent, and read only as fast as the client takes it. Whenever the handler stops writing, the client receives what it has written so far, so a stream that never ends still flows. Its size is unknown, so the threshold only applies when the response declares a `Content-Length`.
+
+`streamSSE()` responses are `text/event-stream` and are not compressed. An error before the response is sent, such as a body stream that fails right away or a failed compression, is passed to the app's error handler (`app.onError()`); a body stream that fails later aborts the response.
 
 ## License
 
