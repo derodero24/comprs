@@ -15,6 +15,8 @@ import {
   crc32,
   DeflateCompressContext,
   DeflateDecompressContext,
+  decompress,
+  decompressAsync,
   deflateCompress,
   deflateCompressAsync,
   deflateDecompressWithCapacity,
@@ -142,6 +144,8 @@ const brotliedWithDict = brotliCompressWithDict(data, brotliDict);
 const zstded = zstdCompress(data);
 const zstdedWithDict = zstdCompressWithDict(data, zstdDict);
 const lz4ed = lz4Compress(data);
+// Decompresses to nothing, within every limit.
+const gzippedEmpty = gzipCompress(Buffer.alloc(0));
 
 const capacity: NumericArgument = {
   message: 'capacity must be an integer between 0 and 9007199254740991',
@@ -181,6 +185,8 @@ const maxOutputSize: NumericArgument = {
     ZstdDecompressContext: (size) => new ZstdDecompressContext(size),
     ZstdDecompressDictContext: (size) => new ZstdDecompressDictContext(zstdDict, size),
     Lz4DecompressContext: (size) => new Lz4DecompressContext(size),
+    decompress: (size) => decompress(gzippedEmpty, size),
+    decompressAsync: (size) => decompressAsync(gzippedEmpty, size),
   },
 };
 

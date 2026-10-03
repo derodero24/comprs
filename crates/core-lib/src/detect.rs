@@ -1,17 +1,22 @@
 //! Unified auto-detect decompression API.
 //!
-//! Detects the compression format from magic bytes and decompresses accordingly.
+//! Detects the compression format from its magic number, or for brotli by
+//! decoding the start of the data, and decompresses accordingly.
+
+use brotli::enc::StandardAlloc;
+use brotli::{BrotliDecompressStream, BrotliResult, BrotliState};
 
 use crate::ComprsError;
+use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
 
-/// Zstd magic number: 0xFD2FB528 (little-endian).
-const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+/// Zstd magic number: 0xFD2FB528.
+const ZSTD_MAGIC: u32 = 0xFD2F_B528;
 
 /// Gzip magic number: 0x1F 0x8B.
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
-/// LZ4 frame magic number: 0x184D2204.
-const LZ4_MAGIC: [u8; 4] = [0x04, 0x22, 0x4D, 0x18];
+/// How much of the input [`detect`] decodes to recognize brotli: 64 KiB.
+const BROTLI_PROBE_SIZE: usize = 64 * 1024;
 
 /// Compression format detected from input data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,42 +41,121 @@ impl std::fmt::Display for Format {
 }
 
 /// Detect the compression format of the given data.
+///
+/// zstd, gzip and LZ4 frames, including LZ4 legacy frames, are recognized by
+/// their magic numbers. Skippable frames, which zstd and LZ4 share, are
+/// skipped: the frame after them decides the format.
+///
+/// Brotli has no magic number, so it is recognized by decoding up to the
+/// first 64 KiB of `data`. They must decode without error and either hold a
+/// whole brotli stream that ends where `data` ends, decode to more bytes than
+/// they hold, or fill the 64 KiB. The start of a brotli stream that does not
+/// compress, which brotli stores uncompressed, is thus recognized only once
+/// it fills the 64 KiB. Other data passes only by filling them: about 5% of
+/// random data of 64 KiB or more does, as it decodes as a long uncompressed
+/// meta-block.
 pub fn detect(data: &[u8]) -> Format {
-    if data.len() >= 4 && data[..4] == ZSTD_MAGIC {
-        return Format::Zstd;
-    }
-    if data.len() >= 2 && data[..2] == GZIP_MAGIC {
+    if data.starts_with(&GZIP_MAGIC) {
         return Format::Gzip;
     }
-    if data.len() >= 4 && data[..4] == LZ4_MAGIC {
-        return Format::Lz4;
+    let Some(frame) = skip_skippable_frames(data) else {
+        return Format::Unknown;
+    };
+    match frame.first_chunk().map(|magic| u32::from_le_bytes(*magic)) {
+        Some(ZSTD_MAGIC) => Format::Zstd,
+        Some(LZ4_MAGIC | LZ4_LEGACY_MAGIC) => Format::Lz4,
+        // Brotli streams have no skippable frames.
+        _ if frame.len() == data.len() && is_brotli(data) => Format::Brotli,
+        _ => Format::Unknown,
     }
-    // Brotli has no magic bytes. Attempt heuristic detection:
-    if !data.is_empty() && is_likely_brotli(data) {
-        return Format::Brotli;
-    }
-    Format::Unknown
 }
 
-/// Heuristic check for brotli data.
-/// Attempts to decompress a small prefix to see if brotli accepts the header.
-fn is_likely_brotli(data: &[u8]) -> bool {
-    use std::io::Read;
-    let mut decompressor = brotli::Decompressor::new(data, 4096);
-    let mut buf = [0u8; 1];
-    decompressor.read_exact(&mut buf).is_ok()
+/// The data after the skippable frames at the start of `data`, or `None` if
+/// it ends inside one.
+fn skip_skippable_frames(mut data: &[u8]) -> Option<&[u8]> {
+    while let Some(magic) = data.first_chunk() {
+        if !SKIPPABLE_MAGIC.contains(&u32::from_le_bytes(*magic)) {
+            break;
+        }
+        // The magic number, the size of the user data, then the user data.
+        let (header, rest) = data.split_first_chunk::<8>()?;
+        let len = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+        data = rest.get(len as usize..)?;
+    }
+    Some(data)
+}
+
+/// Whether `data` looks like a brotli stream, as described for [`detect`].
+///
+/// Only compressed meta-blocks decode to more bytes than they hold, and data
+/// that is not brotli practically never decodes as one.
+fn is_brotli(data: &[u8]) -> bool {
+    let input = &data[..data.len().min(BROTLI_PROBE_SIZE)];
+    let mut state = BrotliState::new(
+        StandardAlloc::default(),
+        StandardAlloc::default(),
+        StandardAlloc::default(),
+    );
+    let mut output = [0; crate::brotli::BUFFER_SIZE];
+    let mut available_in = input.len();
+    let mut input_offset = 0;
+    let mut total_out = 0;
+    loop {
+        let mut available_out = output.len();
+        let mut output_offset = 0;
+        let result = BrotliDecompressStream(
+            &mut available_in,
+            &mut input_offset,
+            input,
+            &mut available_out,
+            &mut output_offset,
+            &mut output,
+            &mut total_out,
+            &mut state,
+        );
+        match result {
+            BrotliResult::ResultFailure => return false,
+            BrotliResult::ResultSuccess => return input_offset == data.len(),
+            _ if total_out > input_offset => return true,
+            BrotliResult::NeedsMoreOutput => {}
+            BrotliResult::NeedsMoreInput => return input.len() == BROTLI_PROBE_SIZE,
+        }
+    }
+}
+
+/// The error for data whose format [`detect`] cannot determine.
+fn unknown_format() -> ComprsError {
+    ComprsError::InvalidArg(
+        "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress, or deflateDecompress for raw deflate) instead".to_string(),
+    )
 }
 
 /// Decompress data by auto-detecting the compression format.
+///
+/// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes. Brotli is
+/// only a guess: data detected as brotli that does not decode as brotli fails
+/// with the error for an unknown format, not a brotli error.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
+}
+
+/// Decompress data by auto-detecting the compression format, with explicit
+/// capacity.
+///
+/// `capacity` limits the output size, as the `decompress_with_capacity`
+/// function of each format does; otherwise it works like [`decompress`].
+pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     match detect(data) {
-        Format::Zstd => crate::zstd::decompress(data),
-        Format::Gzip => crate::gzip::decompress(data),
-        Format::Brotli => crate::brotli::decompress(data),
-        Format::Lz4 => crate::lz4::decompress(data),
-        Format::Unknown => Err(ComprsError::InvalidArg(
-            "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress) instead".to_string(),
-        )),
+        Format::Zstd => crate::zstd::decompress_with_capacity(data, capacity),
+        Format::Gzip => crate::gzip::decompress_with_capacity(data, capacity),
+        Format::Brotli => {
+            crate::brotli::decompress_with_capacity(data, capacity).map_err(|e| match e {
+                ComprsError::Operation { .. } | ComprsError::Truncated(_) => unknown_format(),
+                e => e,
+            })
+        }
+        Format::Lz4 => crate::lz4::decompress_with_capacity(data, capacity),
+        Format::Unknown => Err(unknown_format()),
     }
 }
 
@@ -157,5 +241,249 @@ mod tests {
     #[test]
     fn decompress_unknown_format() {
         assert!(decompress(b"not compressed").is_err());
+    }
+
+    #[test]
+    fn decompress_with_capacity_limits_the_output_of_every_format() {
+        let original = text(10_000);
+        let len = original.len();
+        let legacy = lz4_legacy_frame(&original);
+        for (compressed, context) in [
+            (
+                crate::zstd::compress(&original, None).unwrap(),
+                "zstd decompress",
+            ),
+            (
+                crate::gzip::compress(&original, None).unwrap(),
+                "gzip decompress",
+            ),
+            (
+                crate::brotli::compress(&original, None).unwrap(),
+                "brotli decompress",
+            ),
+            (crate::lz4::compress(&original).unwrap(), "lz4 decompress"),
+            (legacy, "lz4 decompress"),
+        ] {
+            // A limit far above the output reserves no memory up front.
+            for capacity in [len, len + 1, usize::MAX] {
+                assert_eq!(
+                    decompress_with_capacity(&compressed, capacity).unwrap(),
+                    original,
+                    "{context} into {capacity} bytes"
+                );
+            }
+            for capacity in [0, len - 1] {
+                let err = decompress_with_capacity(&compressed, capacity).unwrap_err();
+                assert_eq!(
+                    err.to_string(),
+                    format!("{context} exceeded maximum size of {capacity} bytes")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_with_capacity_keeps_errors_for_unknown_formats() {
+        let compressed = crate::brotli::compress(&text(100_000), None).unwrap();
+        for input in [&b"not compressed"[..], &compressed[..compressed.len() / 2]] {
+            let err = decompress_with_capacity(input, 100_000).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("unable to detect compression format"),
+                "{err}"
+            );
+        }
+    }
+
+    /// A skippable frame holding `payload`.
+    fn skippable_frame(magic: u32, payload: &[u8]) -> Vec<u8> {
+        [
+            &magic.to_le_bytes()[..],
+            &(payload.len() as u32).to_le_bytes(),
+            payload,
+        ]
+        .concat()
+    }
+
+    /// A legacy LZ4 frame, as `lz4 -l` writes, holding `content`.
+    fn lz4_legacy_frame(content: &[u8]) -> Vec<u8> {
+        let block = lz4_flex::block::compress(content);
+        [
+            &0x184C_2102_u32.to_le_bytes()[..],
+            &(block.len() as u32).to_le_bytes(),
+            &block,
+        ]
+        .concat()
+    }
+
+    /// `len` bytes of pseudo-random data, the same for every `seed`.
+    fn random(seed: u64, len: usize) -> Vec<u8> {
+        let mut state = seed;
+        (0..len)
+            .map(|_| {
+                // xorshift64
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as u8
+            })
+            .collect()
+    }
+
+    /// Text that compresses well, as `len` bytes.
+    fn text(len: usize) -> Vec<u8> {
+        (0..)
+            .flat_map(|i| format!("row {i}\n").into_bytes())
+            .take(len)
+            .collect()
+    }
+
+    #[test]
+    fn detect_empty_brotli_stream() {
+        let empty = crate::brotli::compress(b"", None).unwrap();
+        assert_eq!(empty, [0x3b]);
+        assert_eq!(detect(&empty), Format::Brotli);
+        assert_eq!(decompress(&empty).unwrap(), b"");
+    }
+
+    #[test]
+    fn detect_frames_after_skippable_frames() {
+        let original = text(1000);
+        let zstd = crate::zstd::compress(&original, None).unwrap();
+        let lz4 = crate::lz4::compress(&original).unwrap();
+        let skippable = [
+            skippable_frame(0x184D_2A50, b""),
+            skippable_frame(0x184D_2A5F, &[0x28, 0xB5, 0x2F, 0xFD]),
+        ]
+        .concat();
+        for (frame, format) in [(&zstd, Format::Zstd), (&lz4, Format::Lz4)] {
+            let input = [&skippable[..], frame].concat();
+            assert_eq!(detect(&input), format);
+            assert_eq!(decompress(&input).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn detect_needs_the_frame_after_skippable_frames() {
+        let skippable = skippable_frame(0x184D_2A53, b"metadata");
+        let brotli = crate::brotli::compress(b"brotli", None).unwrap();
+        let gzip = crate::gzip::compress(b"gzip", None).unwrap();
+        for input in [
+            // Only the start of a skippable frame, or no frame after it.
+            &skippable[..7],
+            &skippable[..skippable.len() - 1],
+            &skippable,
+            // Skippable frames are no part of gzip and brotli streams.
+            &[&skippable[..], &gzip].concat(),
+            &[&skippable[..], &brotli].concat(),
+            &[&skippable[..], &[0x28, 0xB5, 0x2F]].concat(),
+        ] {
+            assert_eq!(detect(input), Format::Unknown, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn detect_lz4_legacy_frames() {
+        let original = text(1000);
+        let legacy = lz4_legacy_frame(&original);
+        assert_eq!(detect(&legacy), Format::Lz4);
+        assert_eq!(decompress(&legacy).unwrap(), original);
+        let input = [skippable_frame(0x184D_2A50, b"x"), legacy].concat();
+        assert_eq!(detect(&input), Format::Lz4);
+    }
+
+    #[test]
+    fn detect_brotli_streams_of_any_quality_and_window() {
+        for original in [&b""[..], b"a", &text(20_000), &random(1, 100_000)] {
+            for quality in [0, 1, 6, 11] {
+                for lg_window in [10, 16, 22, 24] {
+                    let mut compressed = Vec::new();
+                    {
+                        let mut compressor = brotli::CompressorWriter::new(
+                            &mut compressed,
+                            4096,
+                            quality,
+                            lg_window,
+                        );
+                        compressor.write_all(original).unwrap();
+                    }
+                    assert_eq!(
+                        detect(&compressed),
+                        Format::Brotli,
+                        "{} bytes at quality {quality}, window {lg_window}",
+                        original.len()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn detect_the_start_of_a_brotli_stream() {
+        // Compressed data decodes to more bytes than it holds after a few
+        // hundred bytes.
+        let compressed = crate::brotli::compress(&text(100_000), None).unwrap();
+        assert_eq!(detect(&compressed[..256]), Format::Brotli);
+
+        // Data that does not compress is stored in uncompressed meta-blocks,
+        // as random data may seem to be: their start is brotli only once it
+        // fills the 64 KiB that detection decodes.
+        let compressed = crate::brotli::compress(&random(2, 100_000), None).unwrap();
+        assert_eq!(
+            detect(&compressed[..BROTLI_PROBE_SIZE - 1]),
+            Format::Unknown
+        );
+        assert_eq!(detect(&compressed[..BROTLI_PROBE_SIZE]), Format::Brotli);
+    }
+
+    #[test]
+    fn detect_rejects_data_after_a_brotli_stream() {
+        let empty = crate::brotli::compress(b"", None).unwrap();
+        let compressed = crate::brotli::compress(b"abc", None).unwrap();
+        for stream in [&empty, &compressed] {
+            let input = [&stream[..], b"trailing data"].concat();
+            assert_eq!(detect(&input), Format::Unknown);
+        }
+    }
+
+    #[test]
+    fn detect_rarely_mistakes_random_data_for_brotli() {
+        // The previous heuristic, which decoded one byte, reported about 6%
+        // of these as brotli.
+        for len in [4, 16, 64, 1024, 16 * 1024] {
+            let brotli = (0..1000)
+                .filter(|&seed| detect(&random(seed + 1, len)) == Format::Brotli)
+                .count();
+            assert_eq!(brotli, 0, "{len} bytes");
+        }
+    }
+
+    #[test]
+    fn detect_does_not_mistake_raw_deflate_for_brotli() {
+        let original = text(43_890);
+        for level in 0..=9 {
+            let compressed = crate::gzip::deflate_compress(&original, Some(level)).unwrap();
+            assert_eq!(detect(&compressed), Format::Unknown, "level {level}");
+        }
+    }
+
+    #[test]
+    fn decompress_reports_unknown_format_when_brotli_does_not_decode() {
+        // The start of a stream that compresses well.
+        let compressed = crate::brotli::compress(&text(100_000), None).unwrap();
+        let truncated = &compressed[..compressed.len() / 2];
+        // A stream that does not compress, corrupted after the 64 KiB that
+        // detection decodes.
+        let mut corrupted = crate::brotli::compress(&random(3, 100_000), None).unwrap();
+        *corrupted.last_mut().unwrap() ^= 0xff;
+        for input in [truncated, &corrupted] {
+            assert_eq!(detect(input), Format::Brotli);
+            let err = decompress(input).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("unable to detect compression format"),
+                "{err}"
+            );
+        }
     }
 }

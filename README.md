@@ -131,7 +131,12 @@ import { decompress } from '@derodero24/comprs';
 
 // Works with any supported format — no need to know the algorithm
 const decompressed = decompress(compressedData);
+
+// Limit the decompressed size (default: 256 MB)
+const limited = decompress(compressedData, 10 * 1024 * 1024);
 ```
+
+zstd, gzip and LZ4 are recognized by their magic numbers. Brotli has none, so it is recognized heuristically, by decoding up to the first 64 KiB of the data: a truncated brotli stream, or other data that happens to pass for brotli, makes `decompress()` throw the same error as data of unknown format. The auto-detecting streams buffer up to 64 KiB of input to detect the format. Raw deflate cannot be detected: use `deflateDecompress()` for it.
 
 ### Async
 
@@ -253,7 +258,7 @@ Both runtimes load the native addon, as Node.js does. Deno needs permission for 
 
 | Function | Description |
 | --- | --- |
-| `decompress(data)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4) |
+| `decompress(data, maxOutputSize?)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4). `maxOutputSize` limits the output (default: 256 MB) |
 | `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
 
 #### Utilities
@@ -321,7 +326,7 @@ const decompressed = await gzipDecompressAsync(compressed);
 | `lz4CompressAsync(data)` | Async LZ4 compression |
 | `lz4DecompressAsync(data)` | Async LZ4 decompression |
 | `lz4DecompressWithCapacityAsync(data, capacity)` | Async LZ4 decompression with explicit size limit |
-| `decompressAsync(data)` | Async auto-detect format and decompress |
+| `decompressAsync(data, maxOutputSize?)` | Async auto-detect format and decompress, with an optional output size limit |
 
 </details>
 
@@ -642,7 +647,7 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 ## Notes
 
 > [!NOTE]
-> **Default decompression limit**: All decompression functions cap output at 256 MB by default. Use `*WithCapacity()` variants for larger data:
+> **Default decompression limit**: All decompression functions cap output at 256 MB by default. Use `*WithCapacity()` variants, or the `maxOutputSize` argument of `decompress()` and `decompressAsync()`, for larger data:
 > ```typescript
 > const decompressed = zstdDecompressWithCapacity(data, 1024 * 1024 * 1024); // 1 GB
 > ```

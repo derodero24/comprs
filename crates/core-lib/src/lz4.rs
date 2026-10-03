@@ -11,14 +11,14 @@ use twox_hash::XxHash32;
 use crate::ComprsError;
 
 /// Magic number of an LZ4 frame.
-const FRAME_MAGIC: u32 = 0x184D_2204;
+pub(crate) const FRAME_MAGIC: u32 = 0x184D_2204;
 
 /// Magic number of a legacy frame, as written by `lz4 -l`.
-const LEGACY_MAGIC: u32 = 0x184C_2102;
+pub(crate) const LEGACY_MAGIC: u32 = 0x184C_2102;
 
 /// Magic numbers of skippable frames, which hold user data for decoders to
-/// skip.
-const SKIPPABLE_MAGIC: RangeInclusive<u32> = 0x184D_2A50..=0x184D_2A5F;
+/// skip. zstd has the same frames.
+pub(crate) const SKIPPABLE_MAGIC: RangeInclusive<u32> = 0x184D_2A50..=0x184D_2A5F;
 
 /// Fields of the FLG byte of the frame descriptor.
 const FLG_VERSION_MASK: u8 = 0xC0;
