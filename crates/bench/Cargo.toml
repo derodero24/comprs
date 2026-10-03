@@ -8,6 +8,10 @@ publish = false
 
 [dev-dependencies]
 criterion = { version = "5.0.0", package = "codspeed-criterion-compat" }
+# With the features of the native addon, so the benchmarks measure the code
+# that comprs ships.
+comprs-core = { path = "../core-lib", features = ["zstdmt"] }
+# The codec crates alone, for the baseline benchmarks marked "(upstream)".
 flate2 = { workspace = true }
 brotli = { workspace = true }
 zstd = { workspace = true }
