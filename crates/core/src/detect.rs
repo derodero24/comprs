@@ -1,6 +1,7 @@
 //! Unified auto-detect decompression API.
 //!
-//! Detects the compression format from magic bytes and decompresses accordingly.
+//! Detects the compression format from its magic number, or for brotli by
+//! decoding the start of the data, and decompresses accordingly.
 
 use napi::Task;
 use napi::bindgen_prelude::*;
@@ -28,10 +29,18 @@ pub enum CompressionFormat {
 /// Returns `"zstd"`, `"gzip"`, `"brotli"`, or `"lz4"`.
 /// Returns `"unknown"` if the format cannot be determined.
 ///
-/// Note: Brotli has no magic bytes, so it is detected by elimination.
-/// Data that does not match zstd, gzip, or lz4 is reported as `"brotli"` only
-/// if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
-/// is returned.
+/// zstd, gzip and LZ4 are recognized by their magic numbers, LZ4 legacy
+/// frames (`lz4 -l`) included. Skippable frames at the start of the data,
+/// which zstd and LZ4 share, are skipped: the frame after them decides.
+///
+/// Brotli has no magic number, so it is detected heuristically: up to the
+/// first 64 KiB of the data are decoded, and the data is reported as
+/// `"brotli"` if they decode without error and either hold a whole brotli
+/// stream that ends with the data, decode to more bytes than they hold, or
+/// fill the 64 KiB. The start of a brotli stream of data that does not
+/// compress is thus reported as `"unknown"` until it is 64 KiB long, and
+/// about 5% of random data of 64 KiB or more is reported as `"brotli"`.
+/// Raw deflate has no magic number and is not detected.
 #[napi]
 pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
     let input = crate::as_bytes(&data);
@@ -46,12 +55,14 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
 
 /// Decompress data by auto-detecting the compression format.
 ///
-/// Detects the format from magic bytes and decompresses using the
+/// Detects the format like `detectFormat` and decompresses using the
 /// appropriate algorithm. The maximum decompressed size is 256 MB
 /// for all formats.
 ///
 /// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
+/// Data detected as brotli that does not decode as brotli throws the same
+/// error as data of unknown format, since brotli detection is heuristic.
 #[napi]
 pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::detect::decompress(crate::as_bytes(&data))
@@ -79,12 +90,14 @@ impl Task for DecompressTask {
 
 /// Asynchronously decompress data by auto-detecting the compression format.
 ///
-/// Detects the format from magic bytes and decompresses using the
+/// Detects the format like `detectFormat` and decompresses using the
 /// appropriate algorithm. Returns a Promise that resolves to the
 /// decompressed data as a Buffer.
 ///
 /// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
+/// Data detected as brotli that does not decode as brotli rejects with the
+/// same error as data of unknown format, since brotli detection is heuristic.
 #[napi]
 pub fn decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<DecompressTask> {
     let input = crate::as_bytes(&data).to_vec();

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as native from '../index.js';
+import { ROWS, skippableFrame } from './detect-fixtures.js';
 
 // Tests the wasm-bindgen build that the browser entry loads. `pnpm test` does
 // not build it, so this suite is skipped unless `pnpm run build:wasm-bindgen`
@@ -132,11 +133,25 @@ describe.skipIf(!existsSync(WASM_FILE))('wasm-bindgen build', () => {
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
 
-    it('should auto-detect brotli via decompress', () => {
-      // Brotli has no magic bytes, so detectFormat cannot recognize it, but
-      // decompress() still tries brotli as a fallback.
+    it('should auto-detect brotli', () => {
       const compressed = wasm.brotliCompress(testData);
+      expect(wasm.detectFormat(compressed)).toBe('brotli');
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
+    });
+
+    it('should auto-detect lz4 after a skippable frame', () => {
+      const compressed = Buffer.concat([
+        skippableFrame(Buffer.from('metadata')),
+        native.lz4Compress(testData),
+      ]);
+      expect(wasm.detectFormat(compressed)).toBe('lz4');
+      expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
+    });
+
+    it('should report raw deflate as unknown format', () => {
+      const compressed = wasm.deflateCompress(ROWS);
+      expect(wasm.detectFormat(compressed)).toBe('unknown');
+      expect(() => wasm.decompress(compressed)).toThrow(/unable to detect compression format/);
     });
   });
 
