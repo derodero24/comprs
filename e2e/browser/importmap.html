@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  The fixture without a bundler: the import map of the README's Browser Usage
+  section maps the package name to the browser entry of the installed package.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <title>comprs e2e: import map</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js",
+          "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body></body>
+</html>

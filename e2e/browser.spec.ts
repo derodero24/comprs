@@ -1,65 +1,48 @@
 import { expect, test } from '@playwright/test';
+import { STATIC_PORT, VITE_DEV_PORT } from './playwright.config.ts';
 
-test.beforeEach(async ({ page }) => {
-  await page.goto('/');
-  await page.waitForFunction(() => window.__ready === true, { timeout: 30_000 });
-  const error = await page.evaluate(() => window.__error);
-  if (error) {
-    throw new Error(`Browser test harness failed: ${error}`);
-  }
-});
+// The browser fixtures: browser/app.js, built or served as the README's
+// Browser Usage section says, imports the installed package by name and
+// runs the checks of scenario.js.
+const FIXTURES = {
+  esbuild: `http://localhost:${STATIC_PORT}/dist/esbuild/`,
+  webpack: `http://localhost:${STATIC_PORT}/dist/webpack/`,
+  'vite build': `http://localhost:${STATIC_PORT}/dist/vite/`,
+  'vite dev': `http://localhost:${VITE_DEV_PORT}/`,
+  'import map': `http://localhost:${STATIC_PORT}/browser/importmap.html`,
+};
 
-test('zstd round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.zstdRoundTrip);
-  expect(result).toBe(true);
-});
+for (const [name, url] of Object.entries(FIXTURES)) {
+  test(name, async ({ page }) => {
+    // What goes wrong before the checks can report: the bundle or the
+    // WebAssembly module fails to load, or the import throws. The glue logs
+    // a warning when it gets the binary with another type than
+    // application/wasm.
+    const problems: string[] = [];
+    page.on('pageerror', (error) => problems.push(`Uncaught ${error.stack ?? error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error' || message.type() === 'warning') {
+        problems.push(`console.${message.type()}: ${message.text()}`);
+      }
+    });
+    page.on('requestfailed', (request) => {
+      problems.push(`${request.url()}: ${request.failure()?.errorText ?? 'failed'}`);
+    });
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        problems.push(`${response.url()}: HTTP ${response.status()}`);
+      }
+    });
 
-test('gzip round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.gzipRoundTrip);
-  expect(result).toBe(true);
-});
-
-test('deflate round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.deflateRoundTrip);
-  expect(result).toBe(true);
-});
-
-test('brotli round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.brotliRoundTrip);
-  expect(result).toBe(true);
-});
-
-test('lz4 round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.lz4RoundTrip);
-  expect(result).toBe(true);
-});
-
-test('auto-detect decompression', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.autoDetect);
-  expect(result).toBe(true);
-});
-
-test('version returns string', async ({ page }) => {
-  const version = await page.evaluate(() => window.__results.version);
-  expect(version).toMatch(/^\d+\.\d+\.\d+/);
-});
-
-test('crc32 returns number', async ({ page }) => {
-  const crc = await page.evaluate(() => window.__results.crc32);
-  expect(typeof crc).toBe('number');
-});
-
-test('detect format', async ({ page }) => {
-  const format = await page.evaluate(() => window.__results.detectFormat);
-  expect(format).toBe('zstd');
-});
-
-test('async round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.asyncRoundTrip);
-  expect(result).toBe(true);
-});
-
-test('Web Streams round-trip', async ({ page }) => {
-  const result = await page.evaluate(() => window.__results.streaming);
-  expect(result).toBe(true);
-});
+    const navigation = await page.goto(url);
+    expect(navigation?.status(), `HTTP status of ${url}`).toBe(200);
+    const html = page.locator('html');
+    await expect
+      .poll(async () => problems.length > 0 || (await html.getAttribute('data-result')) !== null, {
+        timeout: 45_000,
+      })
+      .toBe(true);
+    expect(problems).toEqual([]);
+    expect(await html.getAttribute('data-result')).toBe('passed');
+  });
+}

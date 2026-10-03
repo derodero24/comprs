@@ -27,7 +27,6 @@ on:
       - 'node.js'
       - 'node.d.ts'
       - 'scripts/**'
-      - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
       - 'npm/**'
@@ -63,7 +62,6 @@ on:
       - 'node.js'
       - 'node.d.ts'
       - 'scripts/**'
-      - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
       - 'npm/**'
@@ -454,11 +452,21 @@ jobs:
       - name: Run WASM tests
         run: pnpm run test:wasm
 
-  test-browser:
-    name: Browser WASM Test
-    needs: [build-wasm-bindgen]
+  # ──── The published entry points, from the packed package ────
+  # Assembles the npm packages from this run's Linux and wasm-bindgen
+  # artifacts with scripts/prepare-release.mjs, as the Release Dry Run job
+  # does, packs them and installs the tarballs into the e2e fixtures
+  # (e2e/install-package.mjs). The fixtures import @derodero24/comprs by name,
+  # as applications do: Node.js (import and require), Deno and Bun load the
+  # native addon, and the browser fixtures (esbuild, webpack, vite build,
+  # vite dev and an import map) load the WebAssembly build in Chromium,
+  # Firefox and WebKit. The steps after the installation run even when an
+  # earlier one fails, so that one failure does not hide the others.
+  test-package:
+    name: Package E2E
+    needs: [build, build-wasm-bindgen]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -468,24 +476,30 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Download wasm-bindgen artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          name: bindings-wasm-bindgen
-          path: browser
+          deno-version: v2.x
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: pnpm install --frozen-lockfile
+      - name: Install the fixtures' dependencies
+        run: pnpm --dir e2e install --frozen-lockfile
       - name: Resolve Playwright version
         id: playwright
-        run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
       - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps chromium
-      - name: Install Playwright browser
+        run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
+      # Headless Chromium runs the headless shell, so the full browser is not
+      # needed.
+      - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         timeout-minutes: 12
         run: |
@@ -493,7 +507,7 @@ jobs:
             echo "Playwright browser install attempt ${attempt}/3"
             # Bound each attempt so a stalled download/extraction is killed and
             # retried, instead of hanging until the step timeout fires.
-            if timeout 180 pnpm exec playwright install chromium; then
+            if timeout 180 pnpm --dir e2e exec playwright install --only-shell chromium firefox webkit; then
               exit 0
             fi
             echo "Playwright browser install failed or timed out (attempt ${attempt}); retrying..."
@@ -502,60 +516,39 @@ jobs:
           done
           echo "Playwright browser install failed after 3 attempts"
           exit 1
-      - name: Run browser tests
-        run: pnpm run test:browser
-
-  # Deno and Bun import @derodero24/comprs by name, as an application does:
-  # they resolve its `import` entry, which loads the native addon.
-  test-deno:
-    name: Deno Test
-    needs: [build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-      - run: pnpm install --frozen-lockfile
       - name: Download native artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: bindings-x86_64-unknown-linux-gnu
-          path: .
-      - name: Run Deno tests
-        run: pnpm run test:deno
-
-  test-bun:
-    name: Bun Test
-    needs: [build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: pnpm install --frozen-lockfile
-      - name: Download native artifact
+          path: artifacts/bindings-x86_64-unknown-linux-gnu
+      - name: Download wasm-bindgen artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: bindings-x86_64-unknown-linux-gnu
-          path: .
-      - name: Run Bun tests
-        run: pnpm run test:bun
+          name: bindings-wasm-bindgen
+          path: artifacts/bindings-wasm-bindgen
+      - name: Assemble the npm packages
+        run: node scripts/prepare-release.mjs --artifacts-dir artifacts --allow-missing-targets
+      - name: Install the packed package into the fixtures
+        id: install
+        run: node e2e/install-package.mjs
+      - name: Type-check the fixtures against the packed declarations
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm exec tsc -p e2e && pnpm exec tsc -p e2e/browser
+      - name: Node.js
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:node
+      - name: Deno
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:deno
+      - name: Bun
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:bun
+      - name: Build the browser bundles
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run build
+      - name: Browsers
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:browser
 
   coverage:
     name: Coverage
@@ -677,7 +670,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage, release-dry-run]
+    needs: [changes, lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
