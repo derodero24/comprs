@@ -1,11 +1,17 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
-import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
+import {
+  type BrowserEntry,
+  HAS_WASM_BUILD,
+  importBrowserEntry,
+  wasmMemory,
+} from './load-browser-entry.js';
 
 // Tests the wasm-bindgen build through the browser entry, which loads it.
 // wasm-parity.spec.ts compares it with the native addon call by call.
 
 let wasm: BrowserEntry;
+const encoder = new TextEncoder();
 
 describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
   beforeAll(async () => {
@@ -84,6 +90,96 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
     it('lz4: WASM and native should decompress each other', () => {
       expect(Buffer.from(wasm.lz4Decompress(native.lz4Compress(testData)))).toEqual(testData);
       expect(native.lz4Decompress(wasm.lz4Compress(testData))).toEqual(testData);
+    });
+  });
+
+  // The stream contexts are the wasm-bindgen classes, which keep their state
+  // in WebAssembly memory (#573).
+  describe('stream contexts', () => {
+    const MiB = 1024 * 1024;
+
+    interface StreamContext {
+      transform(chunk: Uint8Array): Uint8Array;
+      flush(): Uint8Array;
+      finish?: () => Uint8Array;
+    }
+
+    /** End the input: finish(), or flush() for LZ4 decompression. */
+    function end(context: StreamContext): Uint8Array {
+      return context.finish === undefined ? context.flush() : context.finish();
+    }
+
+    const PAIRS: [string, () => StreamContext, () => StreamContext][] = [
+      ['zstd', () => new wasm.ZstdCompressContext(), () => new wasm.ZstdDecompressContext()],
+      ['gzip', () => new wasm.GzipCompressContext(), () => new wasm.GzipDecompressContext()],
+      [
+        'deflate',
+        () => new wasm.DeflateCompressContext(),
+        () => new wasm.DeflateDecompressContext(),
+      ],
+      ['brotli', () => new wasm.BrotliCompressContext(), () => new wasm.BrotliDecompressContext()],
+      ['lz4', () => new wasm.Lz4CompressContext(), () => new wasm.Lz4DecompressContext()],
+    ];
+
+    // Growth detaches the ArrayBuffer of the memory, and with it every view
+    // of it, which broke the stream contexts of the emnapi build (#106).
+    // Growing it from JavaScript, between calls, detaches it the same way.
+    it.each(PAIRS)('%s streams across growth of the WebAssembly memory', async (_name, ...pair) => {
+      const memory = await wasmMemory();
+      const [createCompressor, createDecompressor] = pair;
+      const compressor = createCompressor();
+      const decompressor = createDecompressor();
+      const input = encoder.encode(
+        Array.from({ length: 20_000 }, (_, i) => `line ${i}: ${(i * 7919) % 10_007}\n`).join(''),
+      );
+      const output: Uint8Array[] = [];
+      let detached = 0;
+      const grow = () => {
+        const buffer = memory.buffer;
+        memory.grow(1);
+        detached += buffer.byteLength === 0 ? 1 : 0;
+      };
+      for (let offset = 0; offset < input.length; offset += 16 * 1024) {
+        const compressed = compressor.transform(input.subarray(offset, offset + 16 * 1024));
+        grow();
+        output.push(decompressor.transform(compressed));
+        grow();
+      }
+      const compressed = end(compressor);
+      grow();
+      output.push(decompressor.transform(compressed), end(decompressor));
+      expect(detached).toBeGreaterThanOrEqual(20);
+      expect(Buffer.concat(output)).toEqual(Buffer.from(input));
+    });
+
+    // A limit is not a size: the context grows its output as it goes.
+    it.each([
+      ['ZstdDecompressContext', (limit: number) => new wasm.ZstdDecompressContext(limit)],
+      [
+        'ZstdDecompressDictContext',
+        (limit: number) => new wasm.ZstdDecompressDictContext(new Uint8Array(0), limit),
+      ],
+    ])('%s reserves no memory for its maxOutputSize', async (_name, create) => {
+      const memory = await wasmMemory();
+      const data = encoder.encode('a small payload with a large limit '.repeat(1000));
+      const before = memory.buffer.byteLength;
+      const context = create(2 * 1024 * MiB);
+      const output = [context.transform(wasm.zstdCompress(data)), context.finish()];
+      expect(Buffer.concat(output)).toEqual(Buffer.from(data));
+      expect(memory.buffer.byteLength - before).toBeLessThan(16 * MiB);
+    });
+
+    type GzipCompressContext = InstanceType<BrowserEntry['GzipCompressContext']>;
+
+    it.each([
+      ['free()', (context: GzipCompressContext) => context.free()],
+      ['[Symbol.dispose]()', (context: GzipCompressContext) => context[Symbol.dispose]()],
+    ])('free their memory on %s, and throw when used afterwards', (_name, free) => {
+      const context = new wasm.GzipCompressContext();
+      context.transform(encoder.encode('freed early'));
+      free(context);
+      expect(() => context.transform(encoder.encode('more'))).toThrow(Error);
+      expect(() => context.finish()).toThrow(Error);
     });
   });
 

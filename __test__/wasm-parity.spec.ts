@@ -5,30 +5,56 @@ import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-br
 // Runs one table of calls against the native addon and the wasm-bindgen
 // build, which must give the same result for each (#570): equal bytes and
 // header objects, or errors of the same class. The wasm-bindgen build is
-// loaded through the browser entry. Its stream contexts are JS adapters that
-// call the one-shot functions, which in Vitest are the native ones (see
-// vitest.config.mts), so for them this checks the adapters only.
+// loaded through the browser entry, which exports its stream contexts (#573)
+// and adds the *Async functions (#476).
+
+/** The members that only the wasm-bindgen glue gives the stream contexts. */
+type GlueMember = 'free' | typeof Symbol.dispose;
+
+/** The API of both builds: the browser entry, less the glue's members. */
+type Api = {
+  [Name in keyof BrowserEntry]: BrowserEntry[Name] extends new (
+    ...args: infer Args
+  ) => infer Context
+    ? new (
+        ...args: Args
+      ) => Omit<Context, GlueMember>
+    : BrowserEntry[Name];
+};
 
 // The native addon, typed with the browser declarations. This assignment
 // type-checks only while each browser declaration accepts no argument that
 // the native declaration rejects, and declares results that the native ones
 // satisfy, so that browser/index.d.ts cannot drift from the native API.
-const nativeApi: BrowserEntry = native;
+const nativeApi: Api = native;
 
-type Call = (api: BrowserEntry) => unknown;
-type CallWith = (api: BrowserEntry, value: unknown) => unknown;
+type Call = (api: Api) => unknown;
+type CallWith = (api: Api, value: unknown) => unknown;
 
 /** What a call returned or threw, in a form that compares across the builds. */
 type Outcome = { returned: unknown } | { threw: string; message: string };
 
-function run(call: Call, api: BrowserEntry): Outcome {
+function run(call: Call, api: Api): Outcome {
   try {
     return { returned: comparable(call(api)) };
   } catch (error) {
-    return error instanceof Error
-      ? { threw: error.constructor.name, message: error.message }
-      : { threw: typeof error, message: String(error) };
+    return thrown(error);
   }
+}
+
+/** What a Promise resolved to or was rejected with, in the form of an Outcome. */
+async function settled(promise: unknown): Promise<Outcome> {
+  try {
+    return { returned: comparable(await promise) };
+  } catch (error) {
+    return thrown(error);
+  }
+}
+
+function thrown(error: unknown): Outcome {
+  return error instanceof Error
+    ? { threw: error.constructor.name, message: error.message }
+    : { threw: typeof error, message: String(error) };
 }
 
 /** A result with its Buffers turned into plain Uint8Arrays, recursively. */
@@ -104,7 +130,7 @@ function truncate(data: Uint8Array): Uint8Array {
 }
 
 /** `data` in two chunks. */
-function halves(data: Uint8Array): Uint8Array[] {
+function halves(data: Uint8Array): [Uint8Array, Uint8Array] {
   return [data.subarray(0, data.length >> 1), data.subarray(data.length >> 1)];
 }
 
@@ -114,11 +140,53 @@ interface StreamContext {
   finish?: () => Uint8Array;
 }
 
+/**
+ * End the input of a stream context: call finish(), or flush() for LZ4
+ * decompression, which has no finish().
+ */
+function end(context: StreamContext): Uint8Array {
+  return context.finish === undefined ? context.flush() : context.finish();
+}
+
 /** Feed `chunks` to a stream context, and concatenate what it returns. */
 function drain(context: StreamContext, chunks: Uint8Array[]): Uint8Array {
   const output = chunks.map((chunk) => context.transform(chunk));
-  output.push(context.finish === undefined ? context.flush() : context.finish());
+  output.push(end(context));
   return Buffer.concat(output);
+}
+
+/**
+ * Feed `data` to a stream context in pieces of `size` bytes, each copied into
+ * the same buffer, as a read loop that reuses its buffer passes them, and
+ * concatenate what it returns.
+ */
+function drainThroughOneBuffer(context: StreamContext, data: Uint8Array, size: number) {
+  const buffer = new Uint8Array(size);
+  const output: Uint8Array[] = [];
+  for (let offset = 0; offset < data.length; offset += size) {
+    const piece = data.subarray(offset, offset + size);
+    buffer.set(piece);
+    output.push(context.transform(buffer.subarray(0, piece.length)));
+  }
+  output.push(end(context));
+  return Buffer.concat(output);
+}
+
+/**
+ * Feed `data` to a stream context in two halves, with a flush() between
+ * them. Return whether flush() returned any bytes, and everything the
+ * context returned, read with `read`.
+ */
+function drainWithFlush(
+  context: StreamContext,
+  data: Uint8Array,
+  read: (output: Uint8Array) => Uint8Array,
+) {
+  const [first, second] = halves(data);
+  const output = [context.transform(first)];
+  const flushed = context.flush();
+  output.push(flushed, context.transform(second), end(context));
+  return { flushed: flushed.byteLength > 0, output: read(Buffer.concat(output)) };
 }
 
 // Calls with valid arguments, and with arguments that the core library
@@ -356,21 +424,94 @@ const NOT_BYTES: [string, unknown][] = [
   ['undefined', undefined],
 ];
 
-const CONTEXTS: [string, (api: BrowserEntry) => StreamContext][] = [
-  ['ZstdCompressContext', (api) => new api.ZstdCompressContext()],
-  ['ZstdDecompressContext', (api) => new api.ZstdDecompressContext()],
-  ['ZstdCompressDictContext', (api) => new api.ZstdCompressDictContext(dict)],
-  ['ZstdDecompressDictContext', (api) => new api.ZstdDecompressDictContext(dict)],
-  ['GzipCompressContext', (api) => new api.GzipCompressContext()],
-  ['GzipDecompressContext', (api) => new api.GzipDecompressContext()],
-  ['DeflateCompressContext', (api) => new api.DeflateCompressContext()],
-  ['DeflateDecompressContext', (api) => new api.DeflateDecompressContext()],
-  ['BrotliCompressContext', (api) => new api.BrotliCompressContext()],
-  ['BrotliDecompressContext', (api) => new api.BrotliDecompressContext()],
-  ['BrotliCompressDictContext', (api) => new api.BrotliCompressDictContext(dict)],
-  ['BrotliDecompressDictContext', (api) => new api.BrotliDecompressDictContext(dict)],
-  ['Lz4CompressContext', (api) => new api.Lz4CompressContext()],
-  ['Lz4DecompressContext', (api) => new api.Lz4DecompressContext()],
+/** A compression context of each class, and how to decompress its output. */
+const COMPRESSION_CONTEXTS: [
+  string,
+  (api: Api) => StreamContext,
+  (output: Uint8Array) => Buffer,
+][] = [
+  ['ZstdCompressContext', (api) => new api.ZstdCompressContext(), native.zstdDecompress],
+  [
+    'ZstdCompressDictContext',
+    (api) => new api.ZstdCompressDictContext(dict),
+    (output) => native.zstdDecompressWithDict(output, dict),
+  ],
+  ['GzipCompressContext', (api) => new api.GzipCompressContext(), native.gzipDecompress],
+  ['DeflateCompressContext', (api) => new api.DeflateCompressContext(), native.deflateDecompress],
+  ['BrotliCompressContext', (api) => new api.BrotliCompressContext(), native.brotliDecompress],
+  [
+    'BrotliCompressDictContext',
+    (api) => new api.BrotliCompressDictContext(dict),
+    (output) => native.brotliDecompressWithDict(output, dict),
+  ],
+  ['Lz4CompressContext', (api) => new api.Lz4CompressContext(), native.lz4Decompress],
+];
+
+/** A decompression context of each class, and compressed data for it. */
+const DECOMPRESSION_CONTEXTS: [string, (api: Api) => StreamContext, Uint8Array][] = [
+  ['ZstdDecompressContext', (api) => new api.ZstdDecompressContext(), fixtures.zstd],
+  [
+    'ZstdDecompressDictContext',
+    (api) => new api.ZstdDecompressDictContext(dict),
+    fixtures.zstdWithDict,
+  ],
+  ['GzipDecompressContext', (api) => new api.GzipDecompressContext(), fixtures.gzip],
+  ['DeflateDecompressContext', (api) => new api.DeflateDecompressContext(), fixtures.deflate],
+  ['BrotliDecompressContext', (api) => new api.BrotliDecompressContext(), fixtures.brotli],
+  [
+    'BrotliDecompressDictContext',
+    (api) => new api.BrotliDecompressDictContext(dict),
+    fixtures.brotliWithDict,
+  ],
+  ['Lz4DecompressContext', (api) => new api.Lz4DecompressContext(), fixtures.lz4],
+];
+
+const CONTEXTS = [...COMPRESSION_CONTEXTS, ...DECOMPRESSION_CONTEXTS].map(
+  ([name, create]): [string, (api: Api) => StreamContext] => [name, create],
+);
+
+/** Bytes that are no compressed stream of any format. */
+const garbage = new Uint8Array(64).fill(0xa5);
+
+/** Feed `input` to a stream context, end it, and end it again. */
+function endTwice(context: StreamContext, input: Uint8Array): Uint8Array {
+  drain(context, [input]);
+  return end(context);
+}
+
+// The stream contexts, used the way callers use them (#573). Each one copies
+// its input before transform() returns, emits what flush() makes available,
+// and reports invalid input when transform() reads it.
+const STREAM_USES: [string, Call][] = [
+  ...COMPRESSION_CONTEXTS.flatMap(([name, create, decompress]): [string, Call][] => [
+    [
+      `${name}: input passed in one reused buffer`,
+      (api) => decompress(drainThroughOneBuffer(create(api), text, 64)),
+    ],
+    [`${name}: flush() mid-stream`, (api) => drainWithFlush(create(api), text, decompress)],
+    [`${name}: ended twice`, (api) => endTwice(create(api), text)],
+  ]),
+  ...DECOMPRESSION_CONTEXTS.flatMap(([name, create, compressed]): [string, Call][] => [
+    [
+      `${name}: input passed in one reused buffer`,
+      (api) => drainThroughOneBuffer(create(api), compressed, 4),
+    ],
+    [
+      `${name}: flush() mid-stream`,
+      (api) => drainWithFlush(create(api), compressed, (output) => output),
+    ],
+    [`${name}: transform(garbage)`, (api) => create(api).transform(garbage)],
+    [`${name}: input cut short`, (api) => drain(create(api), halves(truncate(compressed)))],
+    [
+      `${name}: transform() after the end`,
+      (api) => {
+        const context = create(api);
+        drain(context, [compressed]);
+        return context.transform(compressed);
+      },
+    ],
+    [`${name}: ended twice`, (api) => endTwice(create(api), compressed)],
+  ]),
 ];
 
 // Every parameter that takes a byte array, called with `value` in its place.
@@ -506,6 +647,52 @@ function thrownClass(call: () => unknown): string | undefined {
   return undefined;
 }
 
+/** The *Async functions. */
+type AsyncName = Extract<keyof BrowserEntry, `${string}Async`>;
+
+// Valid arguments for each *Async function (#476).
+const ASYNC_ARGUMENTS: Record<AsyncName, unknown[]> = {
+  zstdCompressAsync: [text, 19],
+  zstdDecompressAsync: [fixtures.zstd],
+  zstdDecompressWithCapacityAsync: [fixtures.zstd, text.length],
+  zstdCompressWithDictAsync: [text, dict, 7],
+  zstdDecompressWithDictAsync: [fixtures.zstdWithDict, dict],
+  zstdDecompressWithDictWithCapacityAsync: [fixtures.zstdWithDict, dict, text.length],
+  zstdTrainDictionaryAsync: [samples, 2048],
+  gzipCompressAsync: [text, 9],
+  gzipDecompressAsync: [fixtures.gzip],
+  gzipDecompressWithCapacityAsync: [fixtures.gzip, text.length],
+  deflateCompressAsync: [text, 1],
+  deflateDecompressAsync: [fixtures.deflate],
+  deflateDecompressWithCapacityAsync: [fixtures.deflate, text.length],
+  brotliCompressAsync: [text, 4],
+  brotliDecompressAsync: [fixtures.brotli],
+  brotliDecompressWithCapacityAsync: [fixtures.brotli, text.length],
+  brotliCompressWithDictAsync: [text, dict, 5],
+  brotliDecompressWithDictAsync: [fixtures.brotliWithDict, dict],
+  brotliDecompressWithDictWithCapacityAsync: [fixtures.brotliWithDict, dict, text.length],
+  lz4CompressAsync: [text],
+  lz4DecompressAsync: [fixtures.lz4],
+  lz4DecompressWithCapacityAsync: [fixtures.lz4, text.length],
+  decompressAsync: [fixtures.gzip],
+};
+
+/** Call the function that `api` exports as `name`. */
+function callByName(api: Api, name: string, args: unknown[]): unknown {
+  const fn: unknown = Reflect.get(api, name);
+  if (typeof fn !== 'function') {
+    throw new Error(`${name} is not exported`);
+  }
+  return Reflect.apply(fn, undefined, args);
+}
+
+/** The names of the *Async functions that a module exports. */
+function asyncNames(module: object): string[] {
+  return Object.keys(module)
+    .filter((name) => name.endsWith('Async'))
+    .sort();
+}
+
 describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addon', () => {
   let wasm: BrowserEntry;
 
@@ -517,20 +704,69 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
     expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
   });
 
+  it.each(STREAM_USES)('%s', (_label, call) => {
+    expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
+  });
+
   it.each(BYTES_PARAMETERS)('%s rejects what is not a byte array', (_label, callWith) => {
-    const thrown = (api: BrowserEntry) =>
+    const thrownBy = (api: Api) =>
       NOT_BYTES.map(([description, value]) => [
         description,
         thrownClass(() => callWith(api, value)),
       ]);
-    const expected = thrown(nativeApi);
+    const expected = thrownBy(nativeApi);
     expect(expected.every(([, errorClass]) => errorClass !== undefined)).toBe(true);
-    expect(thrown(wasm)).toStrictEqual(expected);
+    expect(thrownBy(wasm)).toStrictEqual(expected);
   });
 
   it.each(WRONG_TYPES)('%s', (_label, call) => {
     const expected = thrownClass(() => call(nativeApi));
     expect(expected).toBeDefined();
     expect(thrownClass(() => call(wasm))).toBe(expected);
+  });
+
+  describe('*Async functions', () => {
+    it('are those of the native addon', () => {
+      expect(asyncNames(wasm)).toStrictEqual(asyncNames(native));
+      expect(Object.keys(ASYNC_ARGUMENTS).sort()).toStrictEqual(asyncNames(native));
+    });
+
+    // The native addon copies the input before it returns the Promise.
+    it('read their input before they return', async () => {
+      const compressWhileOverwriting = async (api: Api) => {
+        const data = Uint8Array.from(text);
+        const compressed = api.gzipCompressAsync(data);
+        data.fill(0);
+        return native.gzipDecompress(await compressed);
+      };
+      expect(await compressWhileOverwriting(wasm)).toStrictEqual(
+        await compressWhileOverwriting(nativeApi),
+      );
+    });
+
+    describe.each(Object.entries(ASYNC_ARGUMENTS))('%s', (name, args) => {
+      const syncName = name.slice(0, -'Async'.length);
+
+      it('resolves to what the synchronous function returns', async () => {
+        const promise = callByName(wasm, name, args);
+        expect(promise).toBeInstanceOf(Promise);
+        const expected = run((api) => callByName(api, syncName, args), wasm);
+        expect(expected).toHaveProperty('returned');
+        expect(await settled(promise)).toStrictEqual(expected);
+      });
+
+      // The native functions still throw some invalid arguments (#543).
+      it('rejects with what the synchronous function throws, rather than throwing it', async () => {
+        const invalid = ['not a byte array', ...args.slice(1)];
+        let promise: unknown;
+        expect(() => {
+          promise = callByName(wasm, name, invalid);
+        }).not.toThrow();
+        expect(promise).toBeInstanceOf(Promise);
+        const expected = run((api) => callByName(api, syncName, invalid), wasm);
+        expect(expected).toHaveProperty('threw');
+        expect(await settled(promise)).toStrictEqual(expected);
+      });
+    });
   });
 });

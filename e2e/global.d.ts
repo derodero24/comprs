@@ -5,6 +5,7 @@ interface BrowserTestResults {
   brotliRoundTrip: boolean;
   autoDetect: boolean;
   version: string;
+  asyncRoundTrip: boolean;
   streaming: boolean;
   streamingError?: string;
 }

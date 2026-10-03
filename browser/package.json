@@ -1,6 +1,7 @@
 {
   "type": "module",
   "sideEffects": [
-    "./index.js"
+    "./index.js",
+    "./streams.js"
   ]
 }

@@ -396,10 +396,11 @@ jobs:
       - name: ESM import smoke test
         run: node __test__/esm-import.mjs
 
-  # The test job skips __test__/wasm.spec.ts, __test__/wasm-parity.spec.ts
-  # and the tests of __test__/browser-entry.spec.ts that load the browser
-  # entry, as it has no wasm-bindgen build. This job runs them, with the
-  # native addon for the parity checks.
+  # The test job skips __test__/wasm.spec.ts, __test__/wasm-parity.spec.ts,
+  # __test__/browser-streams.spec.ts and the tests of
+  # __test__/browser-entry.spec.ts that load the browser entry, as it has no
+  # wasm-bindgen build. This job runs them, with the native addon for the
+  # parity checks.
   test-wasm:
     name: WASM Test (Node.js)
     needs: [build, build-wasm-bindgen]
