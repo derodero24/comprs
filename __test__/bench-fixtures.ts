@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer';
 
 // --- Deterministic pseudo-random data generator ---
-// Uses a linear congruential generator for reproducible benchmark inputs,
-// avoiding CodSpeed instruction count variance from non-deterministic randomBytes.
+// Uses a linear congruential generator for reproducible benchmark inputs:
+// randomBytes would give every run different data to compress.
 const deterministicBytes = (size: number, seed: number): Buffer => {
   const out = Buffer.alloc(size);
   let x = seed >>> 0;
