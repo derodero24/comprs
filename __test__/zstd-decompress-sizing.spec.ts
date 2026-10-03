@@ -16,6 +16,8 @@ import {
   zstdDecompressWithDictAsync,
   zstdDecompressWithDictWithCapacity,
   zstdDecompressWithDictWithCapacityAsync,
+  zstdTrainDictionary,
+  zstdTrainDictionaryAsync,
 } from '../index.js';
 
 const dict = Buffer.from('zstd dictionary content, '.repeat(20));
@@ -219,5 +221,38 @@ describe('huge capacities', () => {
       ]).then((results) => console.log(JSON.stringify(results.map(String))));
     `);
     expect(results).toEqual(['hello', 'hello', 'hello', 'hello', 'hello']);
+  });
+});
+
+describe('zstdTrainDictionary maxDictSize', () => {
+  const samples = Array.from({ length: 100 }, (_, i) =>
+    Buffer.from(JSON.stringify({ id: i, name: `user_${i}`, active: i % 2 === 0 })),
+  );
+  const message = 'maxDictSize must be at most 16777216 bytes';
+
+  it('should accept up to 16 MiB', async () => {
+    expect(zstdTrainDictionary(samples, 2 ** 24).length).toBeGreaterThan(0);
+    expect((await zstdTrainDictionaryAsync(samples, 2 ** 24)).length).toBeGreaterThan(0);
+  });
+
+  it('should reject more than 16 MiB', async () => {
+    expect(() => zstdTrainDictionary(samples, 2 ** 24 + 1)).toThrow(message);
+    await expect(zstdTrainDictionaryAsync(samples, 2 ** 24 + 1)).rejects.toThrow(message);
+  });
+
+  it('should reject a huge value without allocating it', () => {
+    const results = runIsolated(`
+      const samples = Array.from({ length: 100 }, (_, i) => Buffer.from('sample ' + i));
+      let sync;
+      try {
+        comprs.zstdTrainDictionary(samples, 2 ** 40);
+      } catch (e) {
+        sync = e.message;
+      }
+      comprs
+        .zstdTrainDictionaryAsync(samples, 2 ** 40)
+        .catch((e) => console.log(JSON.stringify([sync, e.message])));
+    `);
+    expect(results).toEqual([message, message]);
   });
 });

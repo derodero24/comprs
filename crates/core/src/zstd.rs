@@ -125,7 +125,8 @@ pub fn zstd_decompress_with_capacity(
 /// The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
 /// to achieve better compression ratios on small, similar data.
 ///
-/// `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+/// `maxDictSize` is optional and defaults to 110 KB (the zstd default). It
+/// must not exceed 16 MiB (16777216 bytes).
 #[napi]
 pub fn zstd_train_dictionary(
     samples: Vec<Either<Buffer, Uint8Array>>,
@@ -344,7 +345,8 @@ impl Task for ZstdTrainDictionaryTask {
 /// The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
 /// to achieve better compression ratios on small, similar data.
 ///
-/// `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+/// `maxDictSize` is optional and defaults to 110 KB (the zstd default). It
+/// must not exceed 16 MiB (16777216 bytes).
 #[napi]
 pub fn zstd_train_dictionary_async(
     samples: Vec<Either<Buffer, Uint8Array>>,

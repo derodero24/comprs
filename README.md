@@ -268,7 +268,7 @@ import { gzipCompress } from '@derodero24/comprs';
 
 | Function | Description |
 | --- | --- |
-| `zstdTrainDictionary(samples, maxDictSize?)` | Train a dictionary from sample data (default max: 110 KB) |
+| `zstdTrainDictionary(samples, maxDictSize?)` | Train a dictionary from sample data (default max: 110 KB, limit: 16 MB) |
 | `zstdCompressWithDict(data, dict, level?)` | Compress with pre-trained dictionary |
 | `zstdDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
 | `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with dictionary and explicit output size limit |

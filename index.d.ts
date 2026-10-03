@@ -777,7 +777,8 @@ export declare function zstdDecompressWithDictWithCapacityAsync(data: Buffer | U
  * The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
  * to achieve better compression ratios on small, similar data.
  *
- * `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+ * `maxDictSize` is optional and defaults to 110 KB (the zstd default). It
+ * must not exceed 16 MiB (16777216 bytes).
  */
 export declare function zstdTrainDictionary(samples: Array<Buffer | Uint8Array>, maxDictSize?: number | undefined | null): Buffer
 
@@ -787,6 +788,7 @@ export declare function zstdTrainDictionary(samples: Array<Buffer | Uint8Array>,
  * The dictionary can be used with `zstdCompressWithDict` and `zstdDecompressWithDict`
  * to achieve better compression ratios on small, similar data.
  *
- * `maxDictSize` is optional and defaults to 110 KB (the zstd default).
+ * `maxDictSize` is optional and defaults to 110 KB (the zstd default). It
+ * must not exceed 16 MiB (16777216 bytes).
  */
 export declare function zstdTrainDictionaryAsync(samples: Array<Buffer | Uint8Array>, maxDictSize?: number | undefined | null): Promise<Buffer>

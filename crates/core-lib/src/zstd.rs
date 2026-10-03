@@ -11,6 +11,15 @@ pub const DEFAULT_LEVEL: i32 = 3;
 /// Default maximum dictionary size (110 KB, zstd default).
 pub const DEFAULT_MAX_DICT_SIZE: usize = 110 * 1024;
 
+/// Largest `max_dict_size` that [`train_dictionary`] accepts (16 MiB).
+///
+/// zstd recommends dictionaries of about 100 KB, trained on about 100 times
+/// as much sample data, so a dictionary of this size already calls for more
+/// than a gigabyte of samples. Training allocates several buffers of
+/// `max_dict_size` bytes, which the bound keeps within reach of 32-bit and
+/// WASM address spaces.
+pub const MAX_DICT_SIZE: usize = 16 * 1024 * 1024;
+
 /// The most that a zstd frame can expand: a 4-byte RLE block (a 3-byte block
 /// header and the byte to repeat) decodes to at most 128 KiB.
 const MAX_EXPANSION: u64 = 128 * 1024 / 4;
@@ -47,7 +56,14 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 }
 
 /// Train a zstd dictionary from sample data.
+///
+/// `max_dict_size` must not exceed [`MAX_DICT_SIZE`].
 pub fn train_dictionary(samples: &[Vec<u8>], max_dict_size: usize) -> Result<Vec<u8>, ComprsError> {
+    if max_dict_size > MAX_DICT_SIZE {
+        return Err(ComprsError::InvalidArg(format!(
+            "maxDictSize must be at most {MAX_DICT_SIZE} bytes"
+        )));
+    }
     zstd::dict::from_samples(samples, max_dict_size).map_err(|e| ComprsError::Operation {
         context: "zstd dictionary training",
         source: e.into(),
@@ -497,6 +513,23 @@ mod tests {
             decompress(&input),
             Err(ComprsError::Operation { .. })
         ));
+    }
+
+    #[test]
+    fn train_dictionary_rejects_oversized_max_dict_size() {
+        let samples: Vec<Vec<u8>> = (0..100)
+            .map(|i| format!(r#"{{"key":{i},"value":"item_{i}"}}"#).into_bytes())
+            .collect();
+        // Used to abort the process when the dictionary buffer was allocated.
+        for max_dict_size in [MAX_DICT_SIZE + 1, 1 << 40, usize::MAX] {
+            let err = train_dictionary(&samples, max_dict_size).unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)));
+            assert_eq!(
+                err.to_string(),
+                "maxDictSize must be at most 16777216 bytes"
+            );
+        }
+        assert!(train_dictionary(&samples, MAX_DICT_SIZE).is_ok());
     }
 
     #[test]
