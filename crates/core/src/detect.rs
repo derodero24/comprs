@@ -56,22 +56,30 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
 /// Decompress data by auto-detecting the compression format.
 ///
 /// Detects the format like `detectFormat` and decompresses using the
-/// appropriate algorithm. The maximum decompressed size is 256 MB
-/// for all formats.
+/// appropriate algorithm.
+///
+/// `maxOutputSize` limits the decompressed size in bytes, like the
+/// `maxOutputSize` of `createDecompressStream`. It defaults to 256 MB for all
+/// formats. It is only a limit: a large value reserves no memory up front.
 ///
 /// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
 /// Data detected as brotli that does not decode as brotli throws the same
 /// error as data of unknown format, since brotli detection is heuristic.
 #[napi]
-pub fn decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::detect::decompress(crate::as_bytes(&data))
+pub fn decompress(
+    data: Either<Buffer, Uint8Array>,
+    max_output_size: Option<f64>,
+) -> Result<Buffer> {
+    let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_napi_error)?;
+    comprs_core::detect::decompress_with_capacity(crate::as_bytes(&data), max_size)
         .map(|v| v.into())
         .map_err(to_napi_error)
 }
 
 pub struct DecompressTask {
     data: Vec<u8>,
+    max_output_size: usize,
 }
 
 #[napi]
@@ -80,7 +88,8 @@ impl Task for DecompressTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::detect::decompress(&self.data).map_err(to_napi_error)
+        comprs_core::detect::decompress_with_capacity(&self.data, self.max_output_size)
+            .map_err(to_napi_error)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -94,12 +103,22 @@ impl Task for DecompressTask {
 /// appropriate algorithm. Returns a Promise that resolves to the
 /// decompressed data as a Buffer.
 ///
+/// `maxOutputSize` limits the decompressed size in bytes, as for
+/// `decompress`. It defaults to 256 MB.
+///
 /// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).
 /// Data detected as brotli that does not decode as brotli rejects with the
 /// same error as data of unknown format, since brotli detection is heuristic.
 #[napi]
-pub fn decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<DecompressTask> {
+pub fn decompress_async(
+    data: Either<Buffer, Uint8Array>,
+    max_output_size: Option<f64>,
+) -> Result<AsyncTask<DecompressTask>> {
+    let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(DecompressTask { data: input })
+    Ok(AsyncTask::new(DecompressTask {
+        data: input,
+        max_output_size: max_size,
+    }))
 }

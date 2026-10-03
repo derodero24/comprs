@@ -132,17 +132,29 @@ fn unknown_format() -> ComprsError {
 
 /// Decompress data by auto-detecting the compression format.
 ///
-/// Brotli is only a guess: data detected as brotli that does not decode as
-/// brotli fails with the error for an unknown format, not a brotli error.
+/// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes. Brotli is
+/// only a guess: data detected as brotli that does not decode as brotli fails
+/// with the error for an unknown format, not a brotli error.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
+}
+
+/// Decompress data by auto-detecting the compression format, with explicit
+/// capacity.
+///
+/// `capacity` limits the output size, as the `decompress_with_capacity`
+/// function of each format does; otherwise it works like [`decompress`].
+pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     match detect(data) {
-        Format::Zstd => crate::zstd::decompress(data),
-        Format::Gzip => crate::gzip::decompress(data),
-        Format::Brotli => crate::brotli::decompress(data).map_err(|e| match e {
-            ComprsError::Operation { .. } | ComprsError::Truncated(_) => unknown_format(),
-            e => e,
-        }),
-        Format::Lz4 => crate::lz4::decompress(data),
+        Format::Zstd => crate::zstd::decompress_with_capacity(data, capacity),
+        Format::Gzip => crate::gzip::decompress_with_capacity(data, capacity),
+        Format::Brotli => {
+            crate::brotli::decompress_with_capacity(data, capacity).map_err(|e| match e {
+                ComprsError::Operation { .. } | ComprsError::Truncated(_) => unknown_format(),
+                e => e,
+            })
+        }
+        Format::Lz4 => crate::lz4::decompress_with_capacity(data, capacity),
         Format::Unknown => Err(unknown_format()),
     }
 }
@@ -229,6 +241,58 @@ mod tests {
     #[test]
     fn decompress_unknown_format() {
         assert!(decompress(b"not compressed").is_err());
+    }
+
+    #[test]
+    fn decompress_with_capacity_limits_the_output_of_every_format() {
+        let original = text(10_000);
+        let len = original.len();
+        let legacy = lz4_legacy_frame(&original);
+        for (compressed, context) in [
+            (
+                crate::zstd::compress(&original, None).unwrap(),
+                "zstd decompress",
+            ),
+            (
+                crate::gzip::compress(&original, None).unwrap(),
+                "gzip decompress",
+            ),
+            (
+                crate::brotli::compress(&original, None).unwrap(),
+                "brotli decompress",
+            ),
+            (crate::lz4::compress(&original).unwrap(), "lz4 decompress"),
+            (legacy, "lz4 decompress"),
+        ] {
+            // A limit far above the output reserves no memory up front.
+            for capacity in [len, len + 1, usize::MAX] {
+                assert_eq!(
+                    decompress_with_capacity(&compressed, capacity).unwrap(),
+                    original,
+                    "{context} into {capacity} bytes"
+                );
+            }
+            for capacity in [0, len - 1] {
+                let err = decompress_with_capacity(&compressed, capacity).unwrap_err();
+                assert_eq!(
+                    err.to_string(),
+                    format!("{context} exceeded maximum size of {capacity} bytes")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_with_capacity_keeps_errors_for_unknown_formats() {
+        let compressed = crate::brotli::compress(&text(100_000), None).unwrap();
+        for input in [&b"not compressed"[..], &compressed[..compressed.len() / 2]] {
+            let err = decompress_with_capacity(input, 100_000).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("unable to detect compression format"),
+                "{err}"
+            );
+        }
     }
 
     /// A skippable frame holding `payload`.
