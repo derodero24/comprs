@@ -63,6 +63,21 @@
     results.detectFormat = mod.detectFormat(zstdCompressed);
     log(`detect format: ${results.detectFormat}`);
 
+    // *Async functions, which run on this thread
+    const asyncCompressed = await mod.zstdCompressAsync(testData);
+    results.asyncRoundTrip = arrayEqual(await mod.zstdDecompressAsync(asyncCompressed), testData);
+    log(`async round-trip: ${results.asyncRoundTrip}`);
+
+    // Web Streams, from the browser module of @derodero24/comprs/streams
+    const streams = await import('../browser/streams.js');
+    const streamed = new Blob([testData])
+      .stream()
+      .pipeThrough(streams.createGzipCompressStream())
+      .pipeThrough(streams.createDecompressStream());
+    const streamedData = new Uint8Array(await new Response(streamed).arrayBuffer());
+    results.streaming = arrayEqual(streamedData, testData);
+    log(`streaming: ${results.streaming}`);
+
     window.__results = results;
     window.__ready = true;
     log('All tests completed.');
