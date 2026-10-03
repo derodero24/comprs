@@ -124,8 +124,8 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
     // Growth detaches the ArrayBuffer of the memory, and with it every view
     // of it, which broke the stream contexts of the emnapi build (#106).
     // Growing it from JavaScript, between calls, detaches it the same way.
-    it.each(PAIRS)('%s streams across growth of the WebAssembly memory', async (_name, ...pair) => {
-      const memory = await wasmMemory();
+    it.each(PAIRS)('%s streams across growth of the WebAssembly memory', (_name, ...pair) => {
+      const memory = wasmMemory();
       const [createCompressor, createDecompressor] = pair;
       const compressor = createCompressor();
       const decompressor = createDecompressor();
@@ -159,8 +159,8 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
         'ZstdDecompressDictContext',
         (limit: number) => new wasm.ZstdDecompressDictContext(new Uint8Array(0), limit),
       ],
-    ])('%s reserves no memory for its maxOutputSize', async (_name, create) => {
-      const memory = await wasmMemory();
+    ])('%s reserves no memory for its maxOutputSize', (_name, create) => {
+      const memory = wasmMemory();
       const data = encoder.encode('a small payload with a large limit '.repeat(1000));
       const before = memory.buffer.byteLength;
       const context = create(2 * 1024 * MiB);
