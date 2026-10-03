@@ -7,21 +7,9 @@
   const log = (msg) => { document.getElementById('log').textContent += `${msg}\n`; };
 
   try {
-    // Vite 8 does not support the TC39 WebAssembly ESM integration proposal,
-    // so we cannot import comprs-wasm.js directly (it contains
-    // `import * as wasm from './file.wasm'` which Vite rejects).
-    //
-    // Instead, import the background bindings and instantiate WASM manually.
-    const [mod, { default: wasmUrl }] = await Promise.all([
-      import('../comprs-wasm_bg.js'),
-      import('../comprs-wasm_bg.wasm?url'),
-    ]);
-
-    const bytes = await fetch(wasmUrl).then(r => r.arrayBuffer());
-    const { instance } = await WebAssembly.instantiate(bytes, {
-      './comprs-wasm_bg.js': mod,
-    });
-    mod.__wbg_set_wasm(instance.exports);
+    // The browser entry of the package: importing it fetches and
+    // instantiates the WebAssembly module next to it.
+    const mod = await import('../browser/index.js');
 
     log('WASM module loaded.');
 

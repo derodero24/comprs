@@ -2,7 +2,8 @@
 /**
  * Post-process WASM binaries with wasm-opt for size and speed optimization.
  *
- * Looks for *.wasm files in the project root and runs `wasm-opt -O3` on each.
+ * Looks for *.wasm files in browser/, where scripts/build-wasm-bindgen.js puts
+ * the wasm-bindgen build, and runs `wasm-opt -O3` on each.
  * Skips gracefully if wasm-opt is not installed (non-blocking).
  *
  * Usage:
@@ -16,7 +17,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const ROOT = path.resolve(__dirname, '..');
+const WASM_DIR = path.resolve(__dirname, '..', 'browser');
 
 // Parse CLI flags
 const optimizeForSize = process.argv.includes('--size');
@@ -32,12 +33,12 @@ function findWasmOpt() {
   }
 }
 
-// Find all .wasm files in the project root (not in subdirectories)
+// Find all .wasm files in browser/ (not in subdirectories)
 function findWasmFiles() {
   return fs
-    .readdirSync(ROOT)
+    .readdirSync(WASM_DIR)
     .filter((f) => f.endsWith('.wasm'))
-    .map((f) => path.join(ROOT, f));
+    .map((f) => path.join(WASM_DIR, f));
 }
 
 const wasmOpt = findWasmOpt();
@@ -49,7 +50,7 @@ if (!wasmOpt) {
 
 const wasmFiles = findWasmFiles();
 if (wasmFiles.length === 0) {
-  console.log('No .wasm files found in project root, nothing to optimize.');
+  console.log('No .wasm files found in browser/, nothing to optimize.');
   process.exit(0);
 }
 

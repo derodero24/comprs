@@ -9,9 +9,7 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'browser-entry.js'
-      - 'browser-streaming.js'
-      - 'browser.js'
+      - 'browser/**'
       - 'scripts/build-wasm-bindgen.js'
   workflow_dispatch:
 

@@ -17,8 +17,11 @@
  *      every file its manifest names;
  *   4. the root package, packed into a temporary tarball, includes every file
  *      and entry point its package.json names and no platform binary, and
- *      its browser entry only loads files from the package itself, down to
- *      the wasm-bindgen WebAssembly module (#564);
+ *      its browser entry works with bundlers (#564): it only loads files from
+ *      the package itself, as ES modules, down to the wasm-bindgen
+ *      WebAssembly module, which it fetches through
+ *      `new URL('…', import.meta.url)` rather than importing it, and no
+ *      `sideEffects` field lets a bundler drop its initialisation;
  *   5. publint and attw accept that tarball.
  *
  * Usage:
@@ -32,7 +35,7 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, posix, relative } from 'node:path';
+import { join, matchesGlob, posix, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { parseAst } from 'vite';
 import {
@@ -307,7 +310,10 @@ function checkRootFiles(release, packed) {
  * is a file of the package. A bare specifier fails: the browser build must
  * not depend on another package (2.0.2's browser.js imported the WASI
  * package, which is not even installed). The chain must reach a WebAssembly
- * module.
+ * module, through `new URL()`: esbuild cannot bundle a .wasm file that is
+ * imported as an ES module. Bundlers must parse every module as an ES module
+ * and keep the entry points, which initialise the WebAssembly module, when
+ * they tree-shake.
  *
  * @param {string} packageDir Extracted package.
  * @param {string[]} packed Files in the package.
@@ -318,6 +324,9 @@ function checkBrowserEntry(packageDir, packed, entries) {
     problems.push('package.json declares no browser entry point');
     return;
   }
+  for (const entry of entries) {
+    checkEntrySideEffects(packageDir, entry);
+  }
   const seen = new Set(entries);
   const queue = [...entries];
   for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
@@ -325,7 +334,7 @@ function checkBrowserEntry(packageDir, packed, entries) {
       problems.push(`The browser entry loads ${file}, which the package does not include`);
       continue;
     }
-    for (const dependency of localDependencies(packageDir, file)) {
+    for (const dependency of checkBrowserModule(packageDir, file)) {
       if (!seen.has(dependency)) {
         seen.add(dependency);
         queue.push(dependency);
@@ -341,26 +350,131 @@ function checkBrowserEntry(packageDir, packed, entries) {
 }
 
 /**
- * Return the package files that a JavaScript file of the package loads, and
- * report every module it imports from elsewhere.
+ * Check that a JavaScript file that the browser entry loads is an ES module
+ * and loads WebAssembly through `new URL()`, and return the package files it
+ * loads. Return nothing for other files.
  *
- * @param {string} packageDir
+ * @param {string} packageDir Extracted package.
  * @param {string} file Path relative to `packageDir`.
  * @returns {string[]}
  */
-function localDependencies(packageDir, file) {
+function checkBrowserModule(packageDir, file) {
   if (!/\.[cm]?js$/.test(file)) {
     return [];
   }
+  if (!isEsModule(packageDir, file)) {
+    problems.push(
+      `The browser entry module ${file} is not an ES module by its file extension or the ` +
+        '"type" of its nearest package.json, so bundlers do not parse its import and export ' +
+        'statements',
+    );
+  }
+  const dependencies = localDependencies(packageDir, file);
+  for (const { path } of dependencies.filter(({ path, url }) => path.endsWith('.wasm') && !url)) {
+    problems.push(
+      `The browser entry module ${file} imports ${path} as an ES module, which needs ` +
+        "WebAssembly ESM integration; load it through new URL('…', import.meta.url)",
+    );
+  }
+  return dependencies.map(({ path }) => path);
+}
+
+/**
+ * Check that no `sideEffects` field lets bundlers drop a browser entry point.
+ * Vite reads the field of the package root for the entry point it resolves,
+ * webpack that of the package.json nearest to the file.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string} entry Path relative to `packageDir`.
+ */
+function checkEntrySideEffects(packageDir, entry) {
+  const manifests = [{ dir: '.', manifest: readJson(join(packageDir, 'package.json')) }];
+  const nearest = nearestManifest(packageDir, entry);
+  if (nearest.dir !== '.') {
+    manifests.push(nearest);
+  }
+  for (const { dir, manifest } of manifests) {
+    if (!hasSideEffects(manifest.sideEffects, posix.relative(dir, entry))) {
+      problems.push(
+        `${posix.join(dir, 'package.json')} marks the browser entry ${entry} as side-effect ` +
+          'free, so bundlers may drop the initialisation of the WebAssembly module',
+      );
+    }
+  }
+}
+
+/**
+ * Whether a `sideEffects` field marks a file as having side effects, as
+ * webpack and Vite read it: a pattern without a `/` matches the file name in
+ * any directory.
+ *
+ * @param {unknown} sideEffects
+ * @param {string} file Path relative to the directory of the package.json.
+ */
+function hasSideEffects(sideEffects, file) {
+  if (!Array.isArray(sideEffects)) {
+    return sideEffects !== false;
+  }
+  /** @type {unknown[]} */
+  const patterns = sideEffects;
+  return patterns.some((pattern) => {
+    if (typeof pattern !== 'string') {
+      return false;
+    }
+    const glob = normalizePath(pattern);
+    return matchesGlob(file, glob.includes('/') ? glob : `**/${glob}`);
+  });
+}
+
+/**
+ * Whether bundlers and Node parse a JavaScript file of the package as an ES
+ * module.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string} file Path relative to `packageDir`.
+ */
+function isEsModule(packageDir, file) {
+  if (file.endsWith('.mjs') || file.endsWith('.cjs')) {
+    return file.endsWith('.mjs');
+  }
+  return nearestManifest(packageDir, file).manifest.type === 'module';
+}
+
+/**
+ * Return the package.json that applies to a file of the package, the
+ * nearest one, with its directory relative to the package.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {{ dir: string, manifest: Record<string, unknown> }}
+ */
+function nearestManifest(packageDir, file) {
+  let dir = posix.dirname(file);
+  while (dir !== '.' && !existsSync(join(packageDir, dir, 'package.json'))) {
+    dir = posix.dirname(dir);
+  }
+  return { dir, manifest: readJson(join(packageDir, dir, 'package.json')) };
+}
+
+/**
+ * Return the package files that a JavaScript file of the package loads, and
+ * whether it loads each one through `new URL()`, and report every module it
+ * imports from elsewhere.
+ *
+ * @param {string} packageDir
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {{ path: string, url: boolean }[]}
+ */
+function localDependencies(packageDir, file) {
   const ast = parseAst(readFileSync(join(packageDir, file), 'utf8'));
-  /** @type {string[]} */
+  /** @type {{ path: string, url: boolean }[]} */
   const dependencies = [];
   for (const { specifier, url } of moduleReferences(ast)) {
     const local = url
       ? !/^[a-z][a-z\d+.-]*:|^\//i.test(specifier)
       : specifier.startsWith('./') || specifier.startsWith('../');
     if (local) {
-      dependencies.push(posix.normalize(posix.join(posix.dirname(file), specifier)));
+      dependencies.push({ path: posix.normalize(posix.join(posix.dirname(file), specifier)), url });
     } else {
       problems.push(
         `The browser entry module ${file} imports ${specifier}, which is not part of the package`,

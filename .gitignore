@@ -10,20 +10,16 @@ dist/
 
 # napi-rs generated files (tracked via git add -f for npm package)
 # Biome ignores these via useIgnoreFile
-index.js
-index.d.ts
-browser.js
-browser-entry.js
-browser-streaming.js
+/index.js
+/index.d.ts
 
 # wasm-bindgen binary (build output)
 *.wasm
 
-# wasm-bindgen output (build output, tracked via git add -f for npm package)
-comprs-wasm.js
-comprs-wasm_bg.js
-comprs-wasm.d.ts
-comprs-wasm_bg.wasm.d.ts
+# wasm-bindgen output (build output, copied into the npm package by the
+# release workflow; see scripts/build-wasm-bindgen.js)
+/browser/comprs-wasm.js
+/browser/comprs-wasm.d.ts
 
 # Logs
 *.log

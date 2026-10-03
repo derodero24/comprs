@@ -29,6 +29,7 @@ comprs/
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
+├── browser/         ← Browser entry, and the wasm-bindgen build it loads
 ├── __test__/        ← Vitest tests and JS benchmarks
 ├── e2e/             ← Browser and runtime E2E tests (Playwright, Deno, Bun)
 ├── npm/             ← Platform-specific binary packages

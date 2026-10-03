@@ -31,14 +31,21 @@
     "streaming",
     "web-streams"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./browser/index.js"
+  ],
   "type": "commonjs",
   "main": "index.js",
   "module": "index.mjs",
-  "browser": "browser-entry.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
+      "browser": {
+        "import": {
+          "types": "./browser/index.d.ts",
+          "default": "./browser/index.js"
+        }
+      },
       "import": {
         "types": "./index.d.mts",
         "default": "./index.mjs"
@@ -46,10 +53,6 @@
       "require": {
         "types": "./index.d.ts",
         "default": "./index.js"
-      },
-      "browser": {
-        "types": "./index.d.ts",
-        "default": "./browser-entry.js"
       }
     },
     "./streams": {
@@ -82,14 +85,13 @@
     "streams.d.ts",
     "node.js",
     "node.d.ts",
-    "browser.js",
-    "browser-entry.js",
-    "browser-streaming.js",
-    "comprs-wasm.js",
-    "comprs-wasm_bg.js",
-    "comprs-wasm_bg.wasm",
-    "comprs-wasm.d.ts",
-    "comprs-wasm_bg.wasm.d.ts"
+    "browser/package.json",
+    "browser/index.js",
+    "browser/index.d.ts",
+    "browser/streaming.js",
+    "browser/comprs-wasm.js",
+    "browser/comprs-wasm.d.ts",
+    "browser/comprs-wasm_bg.wasm"
   ],
   "napi": {
     "binaryName": "comprs",
@@ -115,7 +117,7 @@
     "postbuild:wasm-bindgen": "node scripts/optimize-wasm.js",
     "optimize:wasm": "node scripts/optimize-wasm.js",
     "artifacts": "napi artifacts",
-    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && node scripts/patch-browser-js.js && pnpm run format",
+    "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version",
     "check": "biome ci",
@@ -126,7 +128,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:deno": "deno test --allow-ffi --allow-read --allow-env e2e/deno.test.ts",
-    "test:wasm": "vitest run __test__/wasm.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/browser-entry.spec.ts",
     "test:bun": "bun test e2e/bun.test.ts",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
@@ -134,7 +136,7 @@
     "attw": "attw --pack .",
     "publint": "publint",
     "verify": "pnpm run check && cargo clippy --all-targets -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
-    "clean": "rm -rf target coverage *.node *.wasm",
+    "clean": "rm -rf target coverage *.node browser/comprs-wasm*",
     "prepare": "lefthook install"
   },
   "devDependencies": {
