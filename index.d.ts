@@ -61,6 +61,12 @@ export declare class BrotliDecompressContext {
   transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decompressor's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
+  /**
+   * Finalize the decompression stream. Returns any remaining decompressed data.
+   * Throws if the input ended before the end of the brotli stream, including empty input.
+   * Must be called once after all compressed data has been transformed.
+   */
+  finish(): Buffer
 }
 
 /**
@@ -78,6 +84,12 @@ export declare class BrotliDecompressDictContext {
   transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decompressor's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
+  /**
+   * Finalize the decompression stream. Returns any remaining decompressed data.
+   * Throws if the input ended before the end of the brotli stream, including empty input.
+   * Must be called once after all compressed data has been transformed.
+   */
+  finish(): Buffer
 }
 
 /**
@@ -119,6 +131,7 @@ export declare class DeflateDecompressContext {
   flush(): Buffer
   /**
    * Finalize the deflate decompression stream.
+   * Throws if the input ended before the final deflate block, including empty input.
    * Must be called once after all compressed data has been transformed.
    */
   finish(): Buffer
@@ -163,6 +176,7 @@ export declare class GzipDecompressContext {
   flush(): Buffer
   /**
    * Finalize the gzip decompression stream and verify CRC integrity.
+   * Throws if the input is truncated, including empty input.
    * Must be called once after all compressed data has been transformed.
    */
   finish(): Buffer
@@ -202,7 +216,10 @@ export declare class Lz4DecompressContext {
    * Returns an empty buffer (decompressed output is produced in `flush()`).
    */
   transform(chunk: Buffer | Uint8Array): Buffer
-  /** Decompress all buffered data and return the result. */
+  /**
+   * Decompress all buffered data and return the result.
+   * Throws if no compressed data was transformed at all.
+   */
   flush(): Buffer
 }
 
@@ -265,6 +282,12 @@ export declare class ZstdDecompressContext {
   transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
+  /**
+   * Finalize the decompression stream. Returns any remaining decompressed data.
+   * Throws if the input ended before the end of a zstd frame, including empty input.
+   * Must be called once after all compressed data has been transformed.
+   */
+  finish(): Buffer
 }
 
 /**
@@ -282,6 +305,12 @@ export declare class ZstdDecompressDictContext {
   transform(chunk: Buffer | Uint8Array): Buffer
   /** Flush the decoder's internal buffer. Returns any buffered decompressed data. */
   flush(): Buffer
+  /**
+   * Finalize the decompression stream. Returns any remaining decompressed data.
+   * Throws if the input ended before the end of a zstd frame, including empty input.
+   * Must be called once after all compressed data has been transformed.
+   */
+  finish(): Buffer
 }
 
 /**
@@ -445,7 +474,7 @@ export declare function deflateCompressAsync(data: Buffer | Uint8Array, level?: 
  *
  * Returns the decompressed data as a Buffer.
  * The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
- * for larger data.
+ * for larger data. Throws if the input ends before the final deflate block.
  */
 export declare function deflateDecompress(data: Buffer | Uint8Array): Buffer
 
@@ -454,7 +483,7 @@ export declare function deflateDecompress(data: Buffer | Uint8Array): Buffer
  *
  * Returns a Promise that resolves to the decompressed data as a Buffer.
  * The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
- * for larger data.
+ * for larger data. Rejects if the input ends before the final deflate block.
  */
 export declare function deflateDecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
@@ -463,6 +492,7 @@ export declare function deflateDecompressAsync(data: Buffer | Uint8Array): Promi
  *
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * Throws if the input ends before the final deflate block.
  */
 export declare function deflateDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
@@ -471,6 +501,7 @@ export declare function deflateDecompressWithCapacity(data: Buffer | Uint8Array,
  *
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
+ * Rejects if the input ends before the final deflate block.
  */
 export declare function deflateDecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 

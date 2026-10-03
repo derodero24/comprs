@@ -82,6 +82,14 @@ impl BrotliDecompressContext {
     pub fn flush(&mut self) -> Result<Buffer> {
         self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
     }
+
+    /// Finalize the decompression stream. Returns any remaining decompressed data.
+    /// Throws if the input ended before the end of the brotli stream, including empty input.
+    /// Must be called once after all compressed data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
+    }
 }
 
 /// Streaming brotli compression context with custom dictionary.
@@ -167,5 +175,13 @@ impl BrotliDecompressDictContext {
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
+    }
+
+    /// Finalize the decompression stream. Returns any remaining decompressed data.
+    /// Throws if the input ended before the end of the brotli stream, including empty input.
+    /// Must be called once after all compressed data has been transformed.
+    #[napi]
+    pub fn finish(&mut self) -> Result<Buffer> {
+        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
     }
 }

@@ -118,7 +118,7 @@ pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) ->
 ///
 /// Returns the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
-/// for larger data.
+/// for larger data. Throws if the input ends before the final deflate block.
 #[napi]
 pub fn deflate_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::gzip::deflate_decompress(crate::as_bytes(&data))
@@ -130,6 +130,7 @@ pub fn deflate_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// Throws if the input ends before the final deflate block.
 #[napi]
 pub fn deflate_decompress_with_capacity(
     data: Either<Buffer, Uint8Array>,
@@ -271,7 +272,7 @@ impl Task for DeflateDecompressTask {
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
-/// for larger data.
+/// for larger data. Rejects if the input ends before the final deflate block.
 #[napi]
 pub fn deflate_decompress_async(
     data: Either<Buffer, Uint8Array>,
@@ -341,6 +342,7 @@ impl Task for DeflateDecompressWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// Rejects if the input ends before the final deflate block.
 #[napi]
 pub fn deflate_decompress_with_capacity_async(
     data: Either<Buffer, Uint8Array>,

@@ -1,13 +1,13 @@
 //! Gzip and raw deflate compression and decompression.
 
-use std::io::Write;
+use std::io::{self, Write};
 
-use flate2::Compression;
-use flate2::GzBuilder;
-use flate2::read::{DeflateDecoder, GzDecoder, MultiGzDecoder};
+use flate2::read::{GzDecoder, MultiGzDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder};
+use flate2::{Compression, Decompress, FlushDecompress, GzBuilder, Status};
 
 use crate::ComprsError;
+use crate::limited::LimitedVec;
 
 /// Default compression level for gzip/deflate (flate2 default = 6).
 pub const DEFAULT_LEVEL: u32 = 6;
@@ -114,6 +114,7 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 }
 
 fn decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(input, "gzip")?;
     let decoder = MultiGzDecoder::new(input);
     // Try to read ISIZE from the gzip footer (last 4 bytes, little-endian uint32,
     // RFC 1952 §2.3.1) for optimal buffer pre-allocation. ISIZE is the original
@@ -169,14 +170,100 @@ pub fn deflate_decompress_with_capacity(
 }
 
 fn deflate_decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, ComprsError> {
-    let decoder = DeflateDecoder::new(input);
-    let init_cap = (input.len().saturating_mul(4)).min(max_size);
-    crate::decompress_with_limit(decoder, max_size, init_cap, "deflate decompress")
+    // No up-front allocation from a size estimate: zlib-rs prepares all the
+    // spare capacity it is offered, so the output grows as it fills instead.
+    let mut output = LimitedVec::new(max_size, "deflate decompress");
+    let mut inflater = Inflater::new();
+    // Data after the end of the deflate stream is ignored.
+    inflater
+        .inflate(input, &mut output)
+        .map_err(|e| output.error(e, "deflate decompress"))?;
+    if !inflater.stream_end() {
+        return Err(ComprsError::Truncated("deflate"));
+    }
+    Ok(output.take())
+}
+
+/// Upper bound for the first output window an inflate call gets, the buffer
+/// size that flate2's own decoders use. Larger outputs grow it by doubling.
+const INFLATE_BUF_SIZE: usize = 32 * 1024;
+
+/// Raw deflate decoder that writes into a [`LimitedVec`] and tracks whether
+/// the deflate stream has ended.
+///
+/// flate2's `read` and `write` decoders treat input that stops before the
+/// final block as a clean end of stream, so truncated input would decode
+/// without an error.
+pub(crate) struct Inflater {
+    state: Decompress,
+    stream_end: bool,
+}
+
+impl Inflater {
+    pub(crate) fn new() -> Self {
+        Self {
+            state: Decompress::new(false),
+            stream_end: false,
+        }
+    }
+
+    /// Whether the end of the deflate stream (its final block) was decoded.
+    pub(crate) fn stream_end(&self) -> bool {
+        self.stream_end
+    }
+
+    /// Inflate `input` into `sink` until the input is used up or the deflate
+    /// stream ends. An empty `input` only drains the decoder.
+    ///
+    /// Returns the number of input bytes consumed, which is less than
+    /// `input.len()` only when the stream ended before the end of `input`.
+    pub(crate) fn inflate(&mut self, mut input: &[u8], sink: &mut LimitedVec) -> io::Result<usize> {
+        let input_len = input.len();
+        // Size the first window by the input: zlib-rs prepares all the spare
+        // capacity it is offered, and small outputs should stay small.
+        let window = input_len.saturating_mul(4).clamp(64, INFLATE_BUF_SIZE);
+        while !self.stream_end {
+            let total_in = self.state.total_in();
+            let total_out = self.state.total_out();
+            let (status, output_full) = sink.append_with(window, |buf| {
+                let status = self
+                    .state
+                    .decompress_vec(input, buf, FlushDecompress::None)
+                    .map_err(|_| corrupt_deflate_stream())?;
+                Ok((status, buf.len() == buf.capacity()))
+            })?;
+            let consumed = (self.state.total_in() - total_in) as usize;
+            let produced = self.state.total_out() - total_out;
+            input = &input[consumed..];
+
+            if status == Status::StreamEnd {
+                self.stream_end = true;
+            } else if !output_full {
+                // All output so far is drained; the decoder needs more input.
+                if input.is_empty() {
+                    break;
+                }
+                // zlib always makes progress while it has input and room for
+                // output, so this only guards against looping forever.
+                if consumed == 0 && produced == 0 {
+                    return Err(corrupt_deflate_stream());
+                }
+            }
+        }
+        Ok(input_len - input.len())
+    }
+}
+
+/// The error flate2's own decoders report for invalid deflate data.
+fn corrupt_deflate_stream() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "corrupt deflate stream")
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Read;
+
+    use flate2::read::DeflateDecoder;
 
     use super::*;
 
@@ -463,6 +550,63 @@ mod tests {
         let compressed = compress(original, None).unwrap();
         let decompressed = decompress(&compressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn deflate_decompress_rejects_truncated_input() {
+        let compressed = deflate_compress(&b"truncated deflate ".repeat(500), None).unwrap();
+        for len in [0, 1, compressed.len() / 2, compressed.len() - 1] {
+            for result in [
+                deflate_decompress(&compressed[..len]),
+                deflate_decompress_with_capacity(&compressed[..len], 1 << 20),
+            ] {
+                assert!(
+                    matches!(result, Err(ComprsError::Truncated("deflate"))),
+                    "input of {len} bytes"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deflate_decompress_reports_corrupt_input() {
+        let err = deflate_decompress(&[0xff; 16]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "deflate decompress failed: corrupt deflate stream"
+        );
+    }
+
+    #[test]
+    fn deflate_decompress_ignores_data_after_the_stream() {
+        let mut input = deflate_compress(b"complete", None).unwrap();
+        input.extend(b"trailing");
+        assert_eq!(deflate_decompress(&input).unwrap(), b"complete");
+    }
+
+    #[test]
+    fn deflate_decompress_enforces_capacity() {
+        let compressed = deflate_compress(&[0u8; 4096], None).unwrap();
+        assert_eq!(
+            deflate_decompress_with_capacity(&compressed, 4096).unwrap(),
+            [0u8; 4096]
+        );
+        assert!(matches!(
+            deflate_decompress_with_capacity(&compressed, 4095),
+            Err(ComprsError::SizeLimit { limit: 4095, .. })
+        ));
+    }
+
+    #[test]
+    fn decompress_rejects_empty_input() {
+        assert!(matches!(
+            decompress(&[]),
+            Err(ComprsError::Truncated("gzip"))
+        ));
+        assert!(matches!(
+            decompress_with_capacity(&[], 1024),
+            Err(ComprsError::Truncated("gzip"))
+        ));
     }
 
     #[test]

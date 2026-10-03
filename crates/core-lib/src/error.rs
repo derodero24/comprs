@@ -32,4 +32,9 @@ pub enum ComprsError {
     /// Stream context has already been finalized.
     #[error("{0} already finished")]
     StreamFinished(&'static str),
+
+    /// Input ended before the end of the compressed stream, including empty
+    /// input. Holds the format name.
+    #[error("{0} stream is truncated: unexpected end of input")]
+    Truncated(&'static str),
 }

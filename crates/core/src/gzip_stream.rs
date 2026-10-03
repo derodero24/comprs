@@ -84,6 +84,7 @@ impl GzipDecompressContext {
     }
 
     /// Finalize the gzip decompression stream and verify CRC integrity.
+    /// Throws if the input is truncated, including empty input.
     /// Must be called once after all compressed data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {
@@ -170,6 +171,7 @@ impl DeflateDecompressContext {
     }
 
     /// Finalize the deflate decompression stream.
+    /// Throws if the input ended before the final deflate block, including empty input.
     /// Must be called once after all compressed data has been transformed.
     #[napi]
     pub fn finish(&mut self) -> Result<Buffer> {

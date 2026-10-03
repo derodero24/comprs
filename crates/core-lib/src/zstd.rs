@@ -28,6 +28,7 @@ pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError>
 /// Uses the frame content size header to determine initial capacity,
 /// capped at MAX_DECOMPRESSED_SIZE.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "zstd")?;
     let capacity = match zstd::zstd_safe::get_frame_content_size(data) {
         Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
         _ => crate::MAX_DECOMPRESSED_SIZE,
@@ -42,6 +43,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 
 /// Decompress Zstandard-compressed data with explicit capacity.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "zstd")?;
     zstd::bulk::decompress(data, capacity).map_err(|e| ComprsError::Operation {
         context: "zstd decompress",
         source: e.into(),
@@ -86,6 +88,7 @@ pub fn compress_with_dict(
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "zstd")?;
     let capacity = match zstd::zstd_safe::get_frame_content_size(data) {
         Ok(Some(size)) => (size as usize).min(crate::MAX_DECOMPRESSED_SIZE),
         _ => crate::MAX_DECOMPRESSED_SIZE,
@@ -112,6 +115,7 @@ pub fn decompress_with_dict_with_capacity(
     dict: &[u8],
     capacity: usize,
 ) -> Result<Vec<u8>, ComprsError> {
+    crate::require_input(data, "zstd")?;
     let mut decompressor =
         zstd::bulk::Decompressor::with_dictionary(dict).map_err(|e| ComprsError::Operation {
             context: "zstd decompressor init",
@@ -129,6 +133,19 @@ pub fn decompress_with_dict_with_capacity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decompress_rejects_empty_input() {
+        let dict = b"zstd dictionary content ".repeat(20);
+        for result in [
+            decompress(&[]),
+            decompress_with_capacity(&[], 1024),
+            decompress_with_dict(&[], &dict),
+            decompress_with_dict_with_capacity(&[], &dict, 1024),
+        ] {
+            assert!(matches!(result, Err(ComprsError::Truncated("zstd"))));
+        }
+    }
 
     #[test]
     fn round_trip_basic() {

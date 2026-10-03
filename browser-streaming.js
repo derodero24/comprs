@@ -188,24 +188,34 @@ export class BrotliDecompressContext {
   constructor(maxOutputSize) {
     this._maxOutputSize = maxOutputSize
     this._chunks = []
-    this._finished = false
+    this._state = 'open'
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('brotli stream already finished')
+    if (this._state !== 'open') throw new Error('brotli stream already finished')
     this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
     return new Uint8Array(0)
   }
 
   flush() {
-    if (this._finished) throw new Error('brotli stream already finished')
-    this._finished = true
+    if (this._state !== 'open') throw new Error('brotli stream already finished')
+    this._state = 'finished'
     const data = concatChunks(this._chunks)
     this._chunks = []
-    if (this._maxOutputSize != null) {
-      return _brotliDecompressWithCapacity(data, this._maxOutputSize)
-    }
-    return _brotliDecompress(data)
+    const result =
+      this._maxOutputSize != null
+        ? _brotliDecompressWithCapacity(data, this._maxOutputSize)
+        : _brotliDecompress(data)
+    this._state = 'decoded'
+    return result
+  }
+
+  finish() {
+    // flush() decodes and verifies the whole stream, so nothing is left after it.
+    const result = this._state === 'open' ? this.flush() : new Uint8Array(0)
+    if (this._state !== 'decoded') throw new Error('brotli stream already finished')
+    this._state = 'finished'
+    return result
   }
 }
 
@@ -244,24 +254,34 @@ export class BrotliDecompressDictContext {
     this._dict = dict
     this._maxOutputSize = maxOutputSize
     this._chunks = []
-    this._finished = false
+    this._state = 'open'
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('brotli dict stream already finished')
+    if (this._state !== 'open') throw new Error('brotli dict stream already finished')
     this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
     return new Uint8Array(0)
   }
 
   flush() {
-    if (this._finished) throw new Error('brotli dict stream already finished')
-    this._finished = true
+    if (this._state !== 'open') throw new Error('brotli dict stream already finished')
+    this._state = 'finished'
     const data = concatChunks(this._chunks)
     this._chunks = []
-    if (this._maxOutputSize != null) {
-      return _brotliDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
-    }
-    return _brotliDecompressWithDict(data, this._dict)
+    const result =
+      this._maxOutputSize != null
+        ? _brotliDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
+        : _brotliDecompressWithDict(data, this._dict)
+    this._state = 'decoded'
+    return result
+  }
+
+  finish() {
+    // flush() decodes and verifies the whole stream, so nothing is left after it.
+    const result = this._state === 'open' ? this.flush() : new Uint8Array(0)
+    if (this._state !== 'decoded') throw new Error('brotli dict stream already finished')
+    this._state = 'finished'
+    return result
   }
 }
 
@@ -351,24 +371,34 @@ export class ZstdDecompressContext {
   constructor(maxOutputSize) {
     this._maxOutputSize = maxOutputSize
     this._chunks = []
-    this._finished = false
+    this._state = 'open'
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('zstd stream already finished')
+    if (this._state !== 'open') throw new Error('zstd stream already finished')
     this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
     return new Uint8Array(0)
   }
 
   flush() {
-    if (this._finished) throw new Error('zstd stream already finished')
-    this._finished = true
+    if (this._state !== 'open') throw new Error('zstd stream already finished')
+    this._state = 'finished'
     const data = concatChunks(this._chunks)
     this._chunks = []
-    if (this._maxOutputSize != null) {
-      return _zstdDecompressWithCapacity(data, this._maxOutputSize)
-    }
-    return _zstdDecompress(data)
+    const result =
+      this._maxOutputSize != null
+        ? _zstdDecompressWithCapacity(data, this._maxOutputSize)
+        : _zstdDecompress(data)
+    this._state = 'decoded'
+    return result
+  }
+
+  finish() {
+    // flush() decodes and verifies the whole stream, so nothing is left after it.
+    const result = this._state === 'open' ? this.flush() : new Uint8Array(0)
+    if (this._state !== 'decoded') throw new Error('zstd stream already finished')
+    this._state = 'finished'
+    return result
   }
 }
 
@@ -407,23 +437,33 @@ export class ZstdDecompressDictContext {
     this._dict = dict
     this._maxOutputSize = maxOutputSize
     this._chunks = []
-    this._finished = false
+    this._state = 'open'
   }
 
   transform(chunk) {
-    if (this._finished) throw new Error('zstd stream already finished')
+    if (this._state !== 'open') throw new Error('zstd stream already finished')
     this._chunks.push(new Uint8Array(chunk.buffer || chunk, chunk.byteOffset, chunk.byteLength))
     return new Uint8Array(0)
   }
 
   flush() {
-    if (this._finished) throw new Error('zstd stream already finished')
-    this._finished = true
+    if (this._state !== 'open') throw new Error('zstd stream already finished')
+    this._state = 'finished'
     const data = concatChunks(this._chunks)
     this._chunks = []
-    if (this._maxOutputSize != null) {
-      return _zstdDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
-    }
-    return _zstdDecompressWithDict(data, this._dict)
+    const result =
+      this._maxOutputSize != null
+        ? _zstdDecompressWithDictWithCapacity(data, this._dict, this._maxOutputSize)
+        : _zstdDecompressWithDict(data, this._dict)
+    this._state = 'decoded'
+    return result
+  }
+
+  finish() {
+    // flush() decodes and verifies the whole stream, so nothing is left after it.
+    const result = this._state === 'open' ? this.flush() : new Uint8Array(0)
+    if (this._state !== 'decoded') throw new Error('zstd stream already finished')
+    this._state = 'finished'
+    return result
   }
 }

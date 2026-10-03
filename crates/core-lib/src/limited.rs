@@ -48,6 +48,39 @@ impl LimitedVec {
         self.buf.capacity()
     }
 
+    /// Let `fill` append output directly to the buffer, for decoders such as
+    /// `flate2::Decompress::decompress_vec` that write into spare capacity.
+    ///
+    /// If the buffer is full, it first grows by at least `min_spare` bytes
+    /// (doubling), but its capacity never exceeds what the budget can still
+    /// fill plus one byte. `fill` therefore cannot overshoot the budget by
+    /// more than one byte, and an overshoot fails like an oversized write.
+    pub(crate) fn append_with<T>(
+        &mut self,
+        min_spare: usize,
+        fill: impl FnOnce(&mut Vec<u8>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        if self.exceeded {
+            return Err(limit_exceeded());
+        }
+        let len = self.buf.len();
+        if self.buf.capacity() == len {
+            let target = len
+                .saturating_add(self.buf.capacity().max(min_spare))
+                .min(len.saturating_add(self.remaining).saturating_add(1));
+            self.buf.reserve_exact(target - len);
+        }
+        let result = fill(&mut self.buf);
+        let appended = self.buf.len() - len;
+        if appended > self.remaining {
+            self.buf.truncate(len);
+            self.exceeded = true;
+            return Err(limit_exceeded());
+        }
+        self.remaining -= appended;
+        result
+    }
+
     /// Convert an error from the decoder writing into this sink into a
     /// [`ComprsError`]: [`ComprsError::SizeLimit`] once the budget is
     /// exhausted, otherwise [`ComprsError::Operation`] with `context`.
@@ -66,13 +99,15 @@ impl LimitedVec {
     }
 }
 
+fn limit_exceeded() -> io::Error {
+    io::Error::other("decompressed output exceeds the size limit")
+}
+
 impl Write for LimitedVec {
     fn write(&mut self, data: &[u8]) -> io::Result<usize> {
         if self.exceeded || data.len() > self.remaining {
             self.exceeded = true;
-            return Err(io::Error::other(
-                "decompressed output exceeds the size limit",
-            ));
+            return Err(limit_exceeded());
         }
         let needed = self.buf.len() + data.len();
         if needed > self.buf.capacity() {
@@ -143,6 +178,46 @@ mod tests {
         while sink.write_all(&[0u8; 4096]).is_ok() {}
         assert!(sink.buf.len() <= limit);
         assert!(sink.buf.capacity() <= limit);
+    }
+
+    #[test]
+    fn append_with_reserves_at_most_one_byte_past_the_budget() {
+        let mut sink = LimitedVec::new(10, "test");
+        sink.append_with(4096, |buf| {
+            assert_eq!(buf.capacity(), 11);
+            buf.extend_from_slice(b"0123456789");
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(sink.take(), b"0123456789");
+    }
+
+    #[test]
+    fn append_with_rejects_output_past_the_budget() {
+        let mut sink = LimitedVec::new(10, "test");
+        let err = sink
+            .append_with(4096, |buf| {
+                buf.extend_from_slice(b"0123456789!");
+                Ok(())
+            })
+            .unwrap_err();
+        assert!(matches!(
+            sink.error(err, "test"),
+            ComprsError::SizeLimit { limit: 10, .. }
+        ));
+        assert!(sink.write_all(b"x").is_err());
+    }
+
+    #[test]
+    fn append_with_and_write_share_the_budget() {
+        let mut sink = LimitedVec::new(10, "test");
+        sink.write_all(b"01234").unwrap();
+        sink.append_with(1, |buf| {
+            buf.extend_from_slice(b"567");
+            Ok(())
+        })
+        .unwrap();
+        assert!(sink.write_all(b"890").is_err());
     }
 
     #[test]

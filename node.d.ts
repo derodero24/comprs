@@ -16,6 +16,9 @@ export declare function createZstdCompressTransform(level?: number): Transform;
  * Uses Node.js `stream.Transform` to provide chunked decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createZstdDecompressTransform(maxOutputSize?: number): Transform;
@@ -38,6 +41,9 @@ export declare function createGzipCompressTransform(level?: number): Transform;
  * with `stream.pipeline()` and pipe-based workflows.
  * Verifies CRC32 integrity on finalization.
  *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createGzipDecompressTransform(maxOutputSize?: number): Transform;
@@ -57,6 +63,9 @@ export declare function createDeflateCompressTransform(level?: number): Transfor
  *
  * Uses Node.js `stream.Transform` to provide chunked raw deflate decompression
  * compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -78,6 +87,9 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
  * Uses Node.js `stream.Transform` to provide chunked brotli decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createBrotliDecompressTransform(maxOutputSize?: number): Transform;
@@ -95,6 +107,8 @@ export declare function createLz4CompressTransform(): Transform;
  *
  * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * The transform emits an error on empty input.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -119,6 +133,9 @@ export declare function createZstdCompressDictTransform(
  *
  * Uses Node.js `stream.Transform` to provide chunked decompression with a pre-trained
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
@@ -147,6 +164,9 @@ export declare function createBrotliCompressDictTransform(
  * Uses Node.js `stream.Transform` to provide chunked decompression with a custom
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
  *
+ * The transform emits an error if the input ends before the compressed stream
+ * does, including empty input.
+ *
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -161,6 +181,9 @@ export declare function createBrotliDecompressDictTransform(
  * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
  * few bytes and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * The transform emits an error on empty input, which has no format to detect,
+ * and on zstd, gzip or brotli input that ends before the compressed stream does.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */

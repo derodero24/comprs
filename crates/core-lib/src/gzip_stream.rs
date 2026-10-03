@@ -3,9 +3,10 @@
 use std::io::Write;
 
 use flate2::Compression;
-use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder, MultiGzDecoder};
+use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
 
 use crate::ComprsError;
+use crate::gzip::Inflater;
 use crate::limited::LimitedVec;
 
 /// Default compression level for gzip/deflate (same as zlib default).
@@ -124,12 +125,20 @@ impl GzipDecompressContext {
         Ok(decoder.get_mut().take())
     }
 
+    /// Finalize the decompression stream, returning any remaining output and
+    /// verifying the CRC32 and size of the last member.
+    ///
+    /// Fails with [`ComprsError::Truncated`] when the input ended before the
+    /// header of a member was complete, including empty input.
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
         let mut decoder = self
             .decoder
             .take()
             .ok_or(ComprsError::StreamFinished("gzip stream"))?;
 
+        if decoder.header().is_none() {
+            return Err(ComprsError::Truncated("gzip"));
+        }
         decoder
             .try_finish()
             .map_err(|e| decoder.get_ref().error(e, "gzip stream finish"))?;
@@ -206,55 +215,62 @@ impl DeflateCompressContext {
 
 /// Streaming raw deflate decompression context.
 pub struct DeflateDecompressContext {
-    decoder: Option<DeflateDecoder<LimitedVec>>,
+    /// `None` once the stream is finished.
+    inflater: Option<Inflater>,
+    output: LimitedVec,
 }
 
 impl DeflateDecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decoder = DeflateDecoder::new(LimitedVec::new(max_size, "deflate stream decompress"));
         Ok(Self {
-            decoder: Some(decoder),
+            inflater: Some(Inflater::new()),
+            output: LimitedVec::new(max_size, "deflate stream decompress"),
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let decoder = self
-            .decoder
-            .as_mut()
-            .ok_or(ComprsError::StreamFinished("deflate stream"))?;
-
-        decoder
-            .write_all(chunk)
-            .map_err(|e| decoder.get_ref().error(e, "deflate stream decompress"))?;
-
-        Ok(decoder.get_mut().take())
+        self.inflate(chunk, "deflate stream decompress")
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let decoder = self
-            .decoder
+        self.inflate(&[], "deflate stream flush")
+    }
+
+    /// Finalize the decompression stream, returning any remaining output.
+    ///
+    /// Fails with [`ComprsError::Truncated`] unless the input contained the
+    /// final block of the deflate stream.
+    pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        let output = self.inflate(&[], "deflate stream finish");
+        let stream_end = self
+            .inflater
+            .take()
+            .is_some_and(|inflater| inflater.stream_end());
+        let output = output?;
+        if !stream_end {
+            return Err(ComprsError::Truncated("deflate"));
+        }
+        Ok(output)
+    }
+
+    fn inflate(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        let inflater = self
+            .inflater
             .as_mut()
             .ok_or(ComprsError::StreamFinished("deflate stream"))?;
 
-        decoder
-            .flush()
-            .map_err(|e| decoder.get_ref().error(e, "deflate stream flush"))?;
+        let consumed = inflater
+            .inflate(input, &mut self.output)
+            .map_err(|e| self.output.error(e, context))?;
+        if consumed < input.len() {
+            return Err(ComprsError::Operation {
+                context,
+                source: "unexpected data after the end of the stream".into(),
+            });
+        }
 
-        Ok(decoder.get_mut().take())
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let mut decoder = self
-            .decoder
-            .take()
-            .ok_or(ComprsError::StreamFinished("deflate stream"))?;
-
-        decoder
-            .try_finish()
-            .map_err(|e| decoder.get_ref().error(e, "deflate stream finish"))?;
-
-        Ok(decoder.get_mut().take())
+        Ok(self.output.take())
     }
 }
 
@@ -325,6 +341,98 @@ mod tests {
     }
 
     #[test]
+    fn gzip_decompress_context_rejects_input_without_a_complete_header() {
+        let compressed = gzip(b"gzip header test");
+        for len in [0, 1, 5] {
+            let mut ctx = GzipDecompressContext::new(None).unwrap();
+            ctx.transform(&compressed[..len]).unwrap();
+            assert!(matches!(ctx.finish(), Err(ComprsError::Truncated("gzip"))));
+        }
+    }
+
+    #[test]
+    fn gzip_decompress_context_rejects_truncated_input() {
+        let compressed = gzip(&b"truncated gzip ".repeat(500));
+        for len in [compressed.len() / 2, compressed.len() - 1] {
+            let mut ctx = GzipDecompressContext::new(None).unwrap();
+            let result = ctx
+                .transform(&compressed[..len])
+                .and_then(|_| ctx.flush())
+                .and_then(|_| ctx.finish());
+            assert!(result.is_err(), "input of {len} bytes");
+        }
+    }
+
+    /// Decompress raw deflate `input` in chunks of `chunk_size` bytes, then
+    /// finish.
+    fn inflate_all(input: &[u8], chunk_size: usize) -> Result<Vec<u8>, ComprsError> {
+        let mut ctx = DeflateDecompressContext::new(None).unwrap();
+        let mut output = Vec::new();
+        for chunk in input.chunks(chunk_size) {
+            output.extend(ctx.transform(chunk)?);
+        }
+        output.extend(ctx.flush()?);
+        output.extend(ctx.finish()?);
+        Ok(output)
+    }
+
+    #[test]
+    fn deflate_decompress_context_finishes_complete_streams() {
+        let original = b"complete deflate stream ".repeat(500);
+        let compressed = deflate(&original);
+        for chunk_size in [1, 7, compressed.len()] {
+            let output = inflate_all(&compressed, chunk_size).unwrap();
+            assert_eq!(output, original, "chunk size {chunk_size}");
+        }
+        assert_eq!(inflate_all(&deflate(b""), 1).unwrap(), b"");
+    }
+
+    #[test]
+    fn deflate_decompress_context_rejects_truncated_input() {
+        let compressed = deflate(&b"truncated deflate ".repeat(500));
+        for len in [0, 1, compressed.len() / 2, compressed.len() - 1] {
+            let err = inflate_all(&compressed[..len], 64).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "deflate stream is truncated: unexpected end of input",
+                "input of {len} bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn deflate_decompress_context_reports_corrupt_input() {
+        let err = inflate_all(&[0xff; 16], 16).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "deflate stream decompress failed: corrupt deflate stream"
+        );
+    }
+
+    #[test]
+    fn deflate_decompress_context_rejects_data_after_the_stream() {
+        let mut input = deflate(b"complete");
+        input.extend(b"trailing");
+        let err = inflate_all(&input, input.len()).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "deflate stream decompress failed: unexpected data after the end of the stream"
+        );
+    }
+
+    #[test]
+    fn deflate_decompress_context_cannot_be_used_after_finish() {
+        let mut ctx = DeflateDecompressContext::new(None).unwrap();
+        ctx.transform(&deflate(b"finished")).unwrap();
+        ctx.finish().unwrap();
+        assert!(matches!(
+            ctx.transform(b"more"),
+            Err(ComprsError::StreamFinished("deflate stream"))
+        ));
+        assert!(matches!(ctx.finish(), Err(ComprsError::StreamFinished(_))));
+    }
+
+    #[test]
     fn deflate_decompress_context_stops_inflating_at_the_limit() {
         let bomb = deflate(&vec![0u8; 8 * 1024 * 1024]);
         let mut ctx = DeflateDecompressContext::new(Some(LIMIT as f64)).unwrap();
@@ -334,8 +442,9 @@ mod tests {
             err.to_string(),
             "deflate stream decompress exceeded maximum size of 65536 bytes"
         );
-        let sink = ctx.decoder.as_ref().unwrap().get_ref();
-        assert!(sink.capacity() <= LIMIT);
+        // The output never grew past the limit plus the one byte that detects
+        // the overflow.
+        assert!(ctx.output.capacity() <= LIMIT + 1);
     }
 
     #[test]

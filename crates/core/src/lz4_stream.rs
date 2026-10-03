@@ -78,6 +78,7 @@ impl Lz4DecompressContext {
     }
 
     /// Decompress all buffered data and return the result.
+    /// Throws if no compressed data was transformed at all.
     #[napi]
     pub fn flush(&mut self) -> Result<Buffer> {
         self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
