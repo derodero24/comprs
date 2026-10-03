@@ -245,16 +245,16 @@ jobs:
           fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
+      # The files sit at the root of the artifact; prepare-release.mjs puts
+      # them back into browser/.
       - name: Upload wasm-bindgen artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bindings-wasm-bindgen
           path: |
-            comprs-wasm.js
-            comprs-wasm_bg.js
-            comprs-wasm_bg.wasm
-            comprs-wasm.d.ts
-            comprs-wasm_bg.wasm.d.ts
+            browser/comprs-wasm.js
+            browser/comprs-wasm.d.ts
+            browser/comprs-wasm_bg.wasm
           if-no-files-found: error
 
   # ──── Publish to npm after all builds succeed ────

@@ -11,16 +11,16 @@
  * build jobs under --artifacts-dir, one directory per artifact, as
  * actions/download-artifact lays them out. Then it:
  *
- *   1. copies the wasm-bindgen browser build (`bindings-wasm-bindgen`) to the
- *      repository root, where the root package picks it up;
+ *   1. copies the wasm-bindgen browser build (`bindings-wasm-bindgen`) to
+ *      browser/, next to the browser entry of the root package that loads it;
  *   2. runs `napi artifacts`, which copies every native binary into its
  *      npm/<platform> package;
  *   3. restores every file of the root package that `napi artifacts`
  *      rewrote: the root package ships its files as committed, plus the
  *      wasm-bindgen build. `napi artifacts` copies the index.js of a build
  *      artifact over the committed one, and while a WASI target was
- *      configured, it also regenerated browser.js to re-export the WASI
- *      package, which broke the browser entry of 2.0.2 (#564);
+ *      configured, it also regenerated the browser.js that the browser entry
+ *      of 2.0.2 loaded, to re-export the WASI package (#564);
  *   4. checks that every file the root and platform packages list exists:
  *      npm publish leaves out a missing `files` entry without an error.
  *
@@ -48,6 +48,9 @@ import { napiTargetArgs, ROOT, readJson, readRelease, runMain, runTool } from '.
 
 /** Artifact that holds the wasm-bindgen build (see the build-wasm-bindgen jobs). */
 const WASM_BINDGEN_ARTIFACT = 'bindings-wasm-bindgen';
+
+/** Directory of the root package's browser entry and the wasm-bindgen build. */
+const BROWSER_DIR = join(ROOT, 'browser');
 
 await runMain(async () => {
   const { values } = parseArgs({
@@ -113,7 +116,7 @@ function selectTargets(targets, artifactsDir, allowMissing) {
 }
 
 /**
- * Copy the wasm-bindgen build to the repository root.
+ * Copy the wasm-bindgen build to browser/, where the browser entry loads it.
  *
  * @param {string} artifactsDir
  */
@@ -126,8 +129,9 @@ function copyWasmBindgenBuild(artifactsDir) {
     throw new Error(`No wasm-bindgen files in ${dir}; the browser build is missing`);
   }
   for (const file of files) {
-    copyFileSync(join(dir, file), join(ROOT, file));
-    console.log(`Copied ${relative(ROOT, join(dir, file))} to ${file}`);
+    const dest = join(BROWSER_DIR, file);
+    copyFileSync(join(dir, file), dest);
+    console.log(`Copied ${relative(ROOT, join(dir, file))} to ${relative(ROOT, dest)}`);
   }
 }
 
