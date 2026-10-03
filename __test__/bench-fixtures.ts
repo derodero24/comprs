@@ -26,6 +26,7 @@ export const RANDOM_MEDIUM = deterministicBytes(10_000, 0x5678);
 export const RANDOM_LARGE = deterministicBytes(1_000_000, 0x9abc);
 
 // --- Realistic data ---
+// JSON_DATA matches json_84kb in crates/bench/src/lib.rs.
 export const JSON_DATA = Buffer.from(
   JSON.stringify(
     Array.from({ length: 1000 }, (_, i) => ({
