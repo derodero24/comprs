@@ -96,7 +96,7 @@ describe('brotliCompress / brotliDecompress', () => {
 
   it('should throw on quality > 11', () => {
     const input = Buffer.from('test');
-    expect(() => brotliCompress(input, 12)).toThrow(/quality must be between 0 and 11/);
+    expect(() => brotliCompress(input, 12)).toThrow(/quality must be an integer between 0 and 11/);
   });
 });
 
@@ -120,19 +120,19 @@ describe('brotliDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 

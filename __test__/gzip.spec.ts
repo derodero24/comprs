@@ -74,12 +74,12 @@ describe('gzipCompress / gzipDecompress', () => {
 
   it('should throw on level > 9', () => {
     const input = Buffer.from('test');
-    expect(() => gzipCompress(input, 10)).toThrow(/level must be between 0 and 9/);
+    expect(() => gzipCompress(input, 10)).toThrow(/level must be an integer between 0 and 9/);
   });
 
   it('should throw on very high level', () => {
     const input = Buffer.from('test');
-    expect(() => gzipCompress(input, 100)).toThrow(/level must be between 0 and 9/);
+    expect(() => gzipCompress(input, 100)).toThrow(/level must be an integer between 0 and 9/);
   });
 
   it('should accept level 0 and level 9', () => {
@@ -129,19 +129,19 @@ describe('gzipDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => gzipDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
@@ -225,12 +225,12 @@ describe('deflateCompress / deflateDecompress', () => {
 
   it('should throw on level > 9', () => {
     const input = Buffer.from('test');
-    expect(() => deflateCompress(input, 10)).toThrow(/level must be between 0 and 9/);
+    expect(() => deflateCompress(input, 10)).toThrow(/level must be an integer between 0 and 9/);
   });
 
   it('should throw on very high level', () => {
     const input = Buffer.from('test');
-    expect(() => deflateCompress(input, 100)).toThrow(/level must be between 0 and 9/);
+    expect(() => deflateCompress(input, 100)).toThrow(/level must be an integer between 0 and 9/);
   });
 
   it('should accept level 0 and level 9', () => {
@@ -272,19 +272,19 @@ describe('deflateDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => deflateDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
@@ -329,7 +329,7 @@ describe('gzip vs deflate output difference', () => {
 
 describe('GzipCompressContext level validation', () => {
   it('should throw on level > 9', () => {
-    expect(() => new GzipCompressContext(10)).toThrow(/level must be between 0 and 9/);
+    expect(() => new GzipCompressContext(10)).toThrow(/level must be an integer between 0 and 9/);
   });
 
   it('should accept level 0 and level 9', () => {
@@ -340,7 +340,9 @@ describe('GzipCompressContext level validation', () => {
 
 describe('DeflateCompressContext level validation', () => {
   it('should throw on level > 9', () => {
-    expect(() => new DeflateCompressContext(10)).toThrow(/level must be between 0 and 9/);
+    expect(() => new DeflateCompressContext(10)).toThrow(
+      /level must be an integer between 0 and 9/,
+    );
   });
 
   it('should accept level 0 and level 9', () => {

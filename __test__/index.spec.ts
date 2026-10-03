@@ -119,31 +119,31 @@ describe('zstdDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with fractional capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, 1.5)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with excessively large capacity', () => {
     expect(() => zstdDecompressWithCapacity(compressed, Number.MAX_VALUE)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 

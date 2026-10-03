@@ -22,7 +22,10 @@ pub fn version() -> String {
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen(js_name = "zstdCompress")]
-pub fn zstd_compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, JsError> {
+pub fn zstd_compress(data: &[u8], level: Option<f64>) -> Result<Vec<u8>, JsError> {
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_js_error)?;
     comprs_core::zstd::compress(data, level).map_err(to_js_error)
 }
 
@@ -42,9 +45,9 @@ pub fn zstd_train_dictionary(
     samples: js_sys::Array,
     max_dict_size: Option<f64>,
 ) -> Result<Vec<u8>, JsError> {
-    let max_size = max_dict_size
-        .map(|s| comprs_core::validate_capacity(s).map_err(to_js_error))
-        .transpose()?
+    let max_size = comprs_core::zstd::DICT_SIZE
+        .check_optional_f64(max_dict_size)
+        .map_err(to_js_error)?
         .unwrap_or(comprs_core::zstd::DEFAULT_MAX_DICT_SIZE);
 
     let sample_vecs: Vec<Vec<u8>> = samples
@@ -59,8 +62,11 @@ pub fn zstd_train_dictionary(
 pub fn zstd_compress_with_dict(
     data: &[u8],
     dict: &[u8],
-    level: Option<i32>,
+    level: Option<f64>,
 ) -> Result<Vec<u8>, JsError> {
+    let level = comprs_core::zstd::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_js_error)?;
     comprs_core::zstd::compress_with_dict(data, dict, level).map_err(to_js_error)
 }
 
@@ -84,7 +90,10 @@ pub fn zstd_decompress_with_dict_with_capacity(
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen(js_name = "gzipCompress")]
-pub fn gzip_compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, JsError> {
+pub fn gzip_compress(data: &[u8], level: Option<f64>) -> Result<Vec<u8>, JsError> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_js_error)?;
     comprs_core::gzip::compress(data, level).map_err(to_js_error)
 }
 
@@ -102,10 +111,16 @@ pub fn gzip_decompress_with_capacity(data: &[u8], capacity: f64) -> Result<Vec<u
 #[wasm_bindgen(js_name = "gzipCompressWithHeader")]
 pub fn gzip_compress_with_header(
     data: &[u8],
-    level: Option<u32>,
+    level: Option<f64>,
     filename: Option<String>,
-    mtime: Option<u32>,
+    mtime: Option<f64>,
 ) -> Result<Vec<u8>, JsError> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_js_error)?;
+    let mtime = comprs_core::gzip::MTIME
+        .check_optional_f64(mtime)
+        .map_err(to_js_error)?;
     let header = comprs_core::gzip::GzipHeaderOptions { filename, mtime };
     comprs_core::gzip::compress_with_header(data, &header, level).map_err(to_js_error)
 }
@@ -155,7 +170,10 @@ pub fn gzip_read_header(data: &[u8]) -> Result<JsValue, JsError> {
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen(js_name = "deflateCompress")]
-pub fn deflate_compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, JsError> {
+pub fn deflate_compress(data: &[u8], level: Option<f64>) -> Result<Vec<u8>, JsError> {
+    let level = comprs_core::gzip::DEFLATE_LEVEL
+        .check_optional_f64(level)
+        .map_err(to_js_error)?;
     comprs_core::gzip::deflate_compress(data, level).map_err(to_js_error)
 }
 
@@ -175,7 +193,10 @@ pub fn deflate_decompress_with_capacity(data: &[u8], capacity: f64) -> Result<Ve
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen(js_name = "brotliCompress")]
-pub fn brotli_compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, JsError> {
+pub fn brotli_compress(data: &[u8], quality: Option<f64>) -> Result<Vec<u8>, JsError> {
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_js_error)?;
     comprs_core::brotli::compress(data, quality).map_err(to_js_error)
 }
 
@@ -194,8 +215,11 @@ pub fn brotli_decompress_with_capacity(data: &[u8], capacity: f64) -> Result<Vec
 pub fn brotli_compress_with_dict(
     data: &[u8],
     dict: &[u8],
-    quality: Option<u32>,
+    quality: Option<f64>,
 ) -> Result<Vec<u8>, JsError> {
+    let quality = comprs_core::brotli::QUALITY
+        .check_optional_f64(quality)
+        .map_err(to_js_error)?;
     comprs_core::brotli::compress_with_dict(data, dict, quality).map_err(to_js_error)
 }
 
@@ -254,8 +278,11 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, JsError> {
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen]
-pub fn crc32(data: &[u8], initial_value: Option<u32>) -> u32 {
-    comprs_core::crc::crc32(data, initial_value)
+pub fn crc32(data: &[u8], initial_value: Option<f64>) -> Result<u32, JsError> {
+    let initial_value = comprs_core::crc::INITIAL_VALUE
+        .check_optional_f64(initial_value)
+        .map_err(to_js_error)?;
+    Ok(comprs_core::crc::crc32(data, initial_value))
 }
 
 // ===========================================================================
@@ -274,7 +301,10 @@ pub struct ZstdCompressContext {
 #[wasm_bindgen]
 impl ZstdCompressContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(level: Option<i32>) -> Result<ZstdCompressContext, JsError> {
+    pub fn new(level: Option<f64>) -> Result<ZstdCompressContext, JsError> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::zstd_stream::CompressContext::new(level).map_err(to_js_error)?,
         })
@@ -329,7 +359,10 @@ pub struct ZstdCompressDictContext {
 #[wasm_bindgen]
 impl ZstdCompressDictContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(dict: &[u8], level: Option<i32>) -> Result<ZstdCompressDictContext, JsError> {
+    pub fn new(dict: &[u8], level: Option<f64>) -> Result<ZstdCompressDictContext, JsError> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::zstd_stream::CompressDictContext::new(dict, level)
                 .map_err(to_js_error)?,
@@ -392,7 +425,10 @@ pub struct GzipCompressContext {
 #[wasm_bindgen]
 impl GzipCompressContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(level: Option<u32>) -> Result<GzipCompressContext, JsError> {
+    pub fn new(level: Option<f64>) -> Result<GzipCompressContext, JsError> {
+        let level = comprs_core::gzip::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::gzip_stream::GzipCompressContext::new(level)
                 .map_err(to_js_error)?,
@@ -452,7 +488,10 @@ pub struct DeflateCompressContext {
 #[wasm_bindgen]
 impl DeflateCompressContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(level: Option<u32>) -> Result<DeflateCompressContext, JsError> {
+    pub fn new(level: Option<f64>) -> Result<DeflateCompressContext, JsError> {
+        let level = comprs_core::gzip::DEFLATE_LEVEL
+            .check_optional_f64(level)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::gzip_stream::DeflateCompressContext::new(level)
                 .map_err(to_js_error)?,
@@ -512,7 +551,10 @@ pub struct BrotliCompressContext {
 #[wasm_bindgen]
 impl BrotliCompressContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(quality: Option<u32>) -> Result<BrotliCompressContext, JsError> {
+    pub fn new(quality: Option<f64>) -> Result<BrotliCompressContext, JsError> {
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::brotli_stream::CompressContext::new(quality)
                 .map_err(to_js_error)?,
@@ -568,7 +610,10 @@ pub struct BrotliCompressDictContext {
 #[wasm_bindgen]
 impl BrotliCompressDictContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(dict: &[u8], quality: Option<u32>) -> Result<BrotliCompressDictContext, JsError> {
+    pub fn new(dict: &[u8], quality: Option<f64>) -> Result<BrotliCompressDictContext, JsError> {
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality)
+            .map_err(to_js_error)?;
         Ok(Self {
             inner: comprs_core::brotli_stream::CompressDictContext::new(dict, quality)
                 .map_err(to_js_error)?,

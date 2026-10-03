@@ -9,9 +9,13 @@ use crate::error::to_napi_error;
 /// Compress data using gzip.
 ///
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
-pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
+pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Buffer> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     comprs_core::gzip::compress(crate::as_bytes(&data), level)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -20,10 +24,12 @@ pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Re
 /// Options for customizing the gzip header during compression.
 #[napi(object)]
 pub struct GzipHeaderOptions {
-    /// Original filename to store in the gzip header.
+    /// Original filename to store in the gzip header. It must not contain NUL
+    /// characters and must be at most 65535 bytes long in UTF-8.
     pub filename: Option<String>,
-    /// Modification time as a Unix timestamp (seconds since epoch).
-    pub mtime: Option<u32>,
+    /// Modification time as a Unix timestamp (seconds since epoch), an
+    /// integer from 0 to 4294967295.
+    pub mtime: Option<f64>,
 }
 
 /// Parsed gzip header metadata.
@@ -43,18 +49,25 @@ pub struct GzipHeader {
 
 /// Compress data using gzip with custom header metadata.
 ///
-/// Allows setting header fields such as `filename` and `mtime`.
+/// Allows setting header fields such as `filename` and `mtime`. Throws if
+/// `filename` contains a NUL character or is longer than 65535 bytes in UTF-8.
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
 pub fn gzip_compress_with_header(
     data: Either<Buffer, Uint8Array>,
     header: GzipHeaderOptions,
-    level: Option<u32>,
+    level: Option<f64>,
 ) -> Result<Buffer> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let core_header = comprs_core::gzip::GzipHeaderOptions {
         filename: header.filename,
-        mtime: header.mtime,
+        mtime: comprs_core::gzip::MTIME
+            .check_optional_f64(header.mtime)
+            .map_err(to_napi_error)?,
     };
     comprs_core::gzip::compress_with_header(crate::as_bytes(&data), &core_header, level)
         .map(|v| v.into())
@@ -106,9 +119,13 @@ pub fn gzip_decompress_with_capacity(
 /// Compress data using raw deflate (no gzip header/trailer).
 ///
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
-pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
+pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Buffer> {
+    let level = comprs_core::gzip::DEFLATE_LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     comprs_core::gzip::deflate_compress(crate::as_bytes(&data), level)
         .map(|v| v.into())
         .map_err(to_napi_error)
@@ -166,19 +183,17 @@ impl Task for GzipCompressTask {
 /// Asynchronously compress data using gzip.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
 pub fn gzip_compress_async(
     data: Either<Buffer, Uint8Array>,
-    level: Option<u32>,
+    level: Option<f64>,
 ) -> Result<AsyncTask<GzipCompressTask>> {
     // Validate level eagerly
-    let lvl = level.unwrap_or(comprs_core::gzip::DEFAULT_LEVEL);
-    if lvl > 9 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "gzip compression level must be between 0 and 9".to_string(),
-        )));
-    }
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(GzipCompressTask { data: input, level }))
 }
@@ -234,18 +249,16 @@ impl Task for DeflateCompressTask {
 /// Asynchronously compress data using raw deflate (no gzip header/trailer).
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
 pub fn deflate_compress_async(
     data: Either<Buffer, Uint8Array>,
-    level: Option<u32>,
+    level: Option<f64>,
 ) -> Result<AsyncTask<DeflateCompressTask>> {
-    let lvl = level.unwrap_or(comprs_core::gzip::DEFAULT_LEVEL);
-    if lvl > 9 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "deflate compression level must be between 0 and 9".to_string(),
-        )));
-    }
+    let level = comprs_core::gzip::DEFLATE_LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let input = crate::as_bytes(&data).to_vec();
     Ok(AsyncTask::new(DeflateCompressTask { data: input, level }))
 }
