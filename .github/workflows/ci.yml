@@ -107,14 +107,26 @@ jobs:
         run: |
           # Pushes to develop always run the full matrix. Pull requests run it
           # only when something that ends up in the native binary or in the
-          # release packaging changed; JS-only or lockfile-only PRs build and
-          # test on Linux alone.
+          # release packaging changed; JS-only PRs and most dependency updates
+          # build and test on Linux alone.
           native=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
               | grep -qE '^(crates/|npm/|scripts/|\.cargo/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/(ci|release)\.yml$)'; then
               native=false
+            fi
+            # The napi-rs toolchain (@napi-rs/cli and the @napi-rs packages it
+            # uses) builds and packages every binary, so a changed line that
+            # names napi in the npm manifest, lockfile or workspace file counts
+            # as native too. Other dependency updates in those files stay on
+            # Linux; develop runs the full matrix once they are merged. The
+            # diff is captured before grep -q reads it: grep -q stops at the
+            # first match, and under pipefail the git diff it cut off would
+            # turn that match into a miss.
+            manifest_diff=$(git diff -U0 "$BASE_SHA" "$HEAD_SHA" -- package.json pnpm-lock.yaml pnpm-workspace.yaml)
+            if grep -qE '^[-+].*\bnapi\b' <<< "$manifest_diff"; then
+              native=true
             fi
           fi
           echo "native=$native" >> "$GITHUB_OUTPUT"
