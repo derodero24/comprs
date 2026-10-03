@@ -418,12 +418,16 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Merge main back into develop to prevent divergence ────
+  # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
+  # CI does not run on the merge commit this job pushes to develop, nor on the
+  # pull request it opens. Switching to a GitHub App token is tracked in #574.
   merge-back:
     name: Merge Back
     needs: [publish, publish-middleware]
     if: always() && github.ref == 'refs/heads/main'
     permissions:
-      contents: write # push the merge commit to develop
+      contents: write # push the merge commit or the merge-back branch
+      pull-requests: write # open a pull request when the merge cannot land
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -434,12 +438,47 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Merge main into develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git merge origin/main --no-edit || {
-            echo "Merge conflict detected — creating PR for manual resolution"
-            exit 1
-          }
-          git push origin develop
+          if git merge origin/main --no-edit; then
+            if git push origin HEAD:develop; then
+              exit 0
+            fi
+            # A concurrent push may already have brought main into develop;
+            # then there is nothing left to merge and no PR to open.
+            git fetch origin develop
+            if git merge-base --is-ancestor origin/main origin/develop; then
+              echo "develop already contains main"
+              exit 0
+            fi
+            # Branch protection on develop, or a concurrent push.
+            reason="develop rejected the push"
+          else
+            git merge --abort
+            reason="the merge conflicts"
+          fi
+
+          # Hand the merge to a maintainer through a pull request instead of
+          # leaving develop behind main. The branch points at main itself, not
+          # at a merge commit, so re-running the job pushes the same commit.
+          branch="chore/merge-main-$(git rev-parse --short origin/main)"
+          url=$(gh pr list --base develop --head "$branch" --json url --jq '.[0].url // empty')
+          if [ -z "$url" ]; then
+            git push origin "origin/main:refs/heads/${branch}"
+            url=$(gh pr create --base develop --head "$branch" \
+              --title "chore(release): merge main into develop" \
+              --body-file - <<EOF
+          The [release run](${RUN_URL}) could not merge \`main\` into \`develop\`: ${reason}.
+
+          - Resolve any conflicts on this branch, for example by merging \`develop\` into it.
+          - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
+          - Pull requests opened with \`GITHUB_TOKEN\` start no workflow runs: push a commit, or close and reopen this pull request, to run CI.
+          EOF
+            )
+          fi
+          echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"
