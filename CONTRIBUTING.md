@@ -101,7 +101,7 @@ pnpm run test:browser         # WebAssembly build in Chromium (Playwright)
 | `detect` | Format detection, auto-detecting decompression and `gzip::read_header` |
 | `round_trip` | Compression in one call or in chunks, then every way of decompressing the result |
 
-A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations).
+A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations). The Fuzz workflow runs each target for 10 minutes every week and for 1 minute on pull requests that change the fuzz crate, and uploads failing inputs as artifacts. On pull requests that change `comprs-core` or its dependencies, it checks that the fuzz crate still builds.
 
 To fuzz locally (Linux or macOS), install a nightly toolchain and cargo-fuzz, then run a target for as long as you like:
 
@@ -114,7 +114,14 @@ cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd -- -max_total_time=
 
 The corpus and failing inputs go to `corpus/` and `artifacts/` in the fuzz crate, which git ignores.
 
-The fuzz crate is a workspace of its own, as cargo-fuzz sets it up, so that it builds with its own release profile and stays out of the cargo commands run on the comprs workspace. Its `Cargo.lock` must keep the versions of the workspace's `Cargo.lock`, so that the fuzzers build the dependencies that comprs ships. After changing `Cargo.lock` or the dependencies of `comprs-core`, update it:
+To reproduce a failure from CI, download the input and pass it to the target:
+
+```bash
+gh run download <run-id> --name fuzz-zstd --dir fuzz-zstd
+cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd fuzz-zstd/crash-<hash>
+```
+
+The fuzz crate is a workspace of its own, as cargo-fuzz sets it up, so that it builds with its own release profile and stays out of the cargo commands run on the comprs workspace. Its `Cargo.lock` must keep the versions of the workspace's `Cargo.lock`, so that the fuzzers build the dependencies that comprs ships; the Fuzz workflow checks this. After changing `Cargo.lock` or the dependencies of `comprs-core`, update it:
 
 ```bash
 cp Cargo.lock crates/core-lib/fuzz/Cargo.lock
