@@ -7,26 +7,18 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - ".cargo/**"
+      - "rust-toolchain*"
       - ".github/workflows/codspeed.yml"
-      - "streams.js"
-      - "streams.d.ts"
-      - "index.mjs"
-      - "index.d.mts"
-      - "node.js"
-      - "node.d.ts"
   pull_request:
     branches: [develop]
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - ".cargo/**"
+      - "rust-toolchain*"
       - ".github/workflows/codspeed.yml"
-      - "streams.js"
-      - "streams.d.ts"
-      - "index.mjs"
-      - "index.d.mts"
-      - "node.js"
-      - "node.d.ts"
   workflow_dispatch:
 
 # A newer pull request push supersedes the running benchmarks. Pushes to
