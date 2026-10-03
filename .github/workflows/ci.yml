@@ -29,8 +29,9 @@ on:
       - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
+  # Pull requests run CI whatever their base branch, so stacked PRs (based on
+  # another PR's branch) and PRs into main are checked too.
   pull_request:
-    branches: [develop]
     paths:
       - 'crates/**'
       - '__test__/**'
@@ -588,15 +589,23 @@ jobs:
           comment-tag: wasm-size-report
 
   # ──── Aggregate gate: single required status check ────
+  # Every job listed here is expected to run, so anything other than success
+  # fails the gate. A job is skipped when a job it needs fails (e.g. a build
+  # leg skips every test job), so treating "skipped" as a pass would hide it.
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [lint, audit, rust-lint, rust-test, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage]
+    needs: [changes, lint, audit, rust-lint, rust-test, build, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs failed or were cancelled"
+          not_ok=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$not_ok" ]; then
+            echo "::error::Required jobs did not succeed"
+            echo "$not_ok"
             exit 1
           fi
+          echo "All required jobs succeeded"
