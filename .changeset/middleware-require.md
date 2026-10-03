@@ -13,3 +13,9 @@ compiles to CommonJS needs `module` set to `nodenext` or `node20`.
 
 Express is no longer a peer dependency: the Express adapter only uses the
 Node.js request and response, and works with Express 4 and 5.
+
+The `@derodero24/comprs` peer range is now `^2.0.2` (it was `^2.0.0`). When
+both packages are released together, the middleware is now published only
+after `@derodero24/comprs`, so its peer range can always be met. The
+published manifest no longer lists `workspace:*` for the `@derodero24/comprs`
+devDependency, and the package now includes its license file.

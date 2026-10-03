@@ -301,11 +301,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # ──── Publish middleware package independently ────
+  # ──── Publish the middleware after the core package ────
+  # The middleware's peer range on @derodero24/comprs must be satisfiable
+  # once it is on npm. When check finds a new core version, this job waits
+  # for the publish job and runs only if it succeeded: it is skipped when the
+  # core publish failed, or was skipped because a build failed. Without a
+  # new core version, publish is skipped and the middleware goes out alone.
   publish-middleware:
     name: Publish Middleware
-    needs: [check]
-    if: github.ref == 'refs/heads/main'
+    needs: [check, publish]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      needs.check.result == 'success' &&
+      (needs.publish.result == 'success' || needs.check.outputs.should_publish == 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm-publish
@@ -341,8 +349,12 @@ jobs:
 
           echo "Publishing ${MW_NAME}@${MW_VERSION}"
           pnpm --filter "${MW_NAME}" build
-          cd packages/middleware
-          npm publish --provenance --access public
+          # npm publish would keep the workspace: protocol of the
+          # devDependency on @derodero24/comprs in the published manifest;
+          # pnpm pack writes the version in its place.
+          TARBALL="${RUNNER_TEMP}/comprs-middleware.tgz"
+          pnpm --dir packages/middleware pack --out "$TARBALL"
+          npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
