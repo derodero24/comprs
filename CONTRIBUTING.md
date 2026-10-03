@@ -4,9 +4,10 @@ Thank you for your interest in contributing! This guide covers everything you ne
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) ≥ 1.85 (stable toolchain)
-- [Node.js](https://nodejs.org/) ≥ 22
-- [pnpm](https://pnpm.io/) ≥ 10
+- [Rust](https://rustup.rs/) ≥ 1.88 (CI lints and tests with the latest stable)
+- A C compiler, for the zstd C sources (Clang for the WebAssembly build)
+- [Node.js](https://nodejs.org/) ≥ 22.13
+- [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
 
 ## Development setup
