@@ -187,7 +187,8 @@ export declare class GzipDecompressContext {
  *
  * Uses `FrameEncoder` internally to produce incremental compressed output
  * on each `transform()` call. A cursor tracks already-returned bytes, and
- * old bytes are drained periodically to bound memory usage.
+ * old bytes are drained periodically to bound memory usage. The frame
+ * carries a content checksum, as the `lz4` CLI writes by default.
  */
 export declare class Lz4CompressContext {
   constructor()
@@ -612,14 +613,16 @@ export declare function gzipReadHeader(data: Buffer | Uint8Array): GzipHeader
 /**
  * Compress data using LZ4 frame format.
  *
- * Returns the compressed data as a Buffer.
+ * Returns the compressed data as a Buffer. The frame carries a content
+ * checksum, as the `lz4` CLI writes by default.
  */
 export declare function lz4Compress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Asynchronously compress data using LZ4 frame format.
  *
- * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Returns a Promise that resolves to the compressed data as a Buffer. The
+ * frame carries a content checksum, as the `lz4` CLI writes by default.
  */
 export declare function lz4CompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 

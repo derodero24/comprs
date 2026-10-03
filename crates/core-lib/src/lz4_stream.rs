@@ -10,7 +10,8 @@ use crate::ComprsError;
 ///
 /// Uses `FrameEncoder` internally to produce incremental compressed output
 /// on each `transform()` call. A cursor tracks already-returned bytes, and
-/// old bytes are drained periodically to bound memory usage.
+/// old bytes are drained periodically to bound memory usage. The frame
+/// carries a content checksum, like the output of [`crate::lz4::compress`].
 pub struct CompressContext {
     encoder: Option<FrameEncoder<Vec<u8>>>,
     cursor: usize,
@@ -18,7 +19,7 @@ pub struct CompressContext {
 
 impl CompressContext {
     pub fn new() -> Result<Self, ComprsError> {
-        let encoder = FrameEncoder::new(Vec::new());
+        let encoder = crate::lz4::frame_encoder(Vec::new());
         Ok(Self {
             encoder: Some(encoder),
             cursor: 0,
@@ -180,6 +181,21 @@ mod tests {
             assert!(ctx.transform(chunk).unwrap().is_empty());
         }
         ctx.flush()
+    }
+
+    #[test]
+    fn compress_context_writes_a_content_checksum() {
+        let original = b"lz4 stream with a content checksum. ".repeat(100);
+        let mut compressed = compress_in_chunks(&original);
+        // FLG: version 01, independent blocks, content checksum.
+        assert_eq!(compressed[4], 0x64);
+        assert_eq!(decompress_in_chunks(&compressed, None).unwrap(), original);
+
+        // The last 5 bytes of a block are literals.
+        let last_literal = compressed.len() - 9;
+        compressed[last_literal] ^= 0x01;
+        let err = decompress_in_chunks(&compressed, None).unwrap_err();
+        assert!(err.to_string().contains("ContentChecksumError"), "{err}");
     }
 
     #[test]

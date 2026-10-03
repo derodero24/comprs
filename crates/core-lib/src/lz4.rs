@@ -5,7 +5,7 @@ use std::io::Write;
 use std::ops::RangeInclusive;
 
 use lz4_flex::block::{decompress_into, decompress_into_with_dict};
-use lz4_flex::frame::{Error as FrameError, FrameEncoder};
+use lz4_flex::frame::{Error as FrameError, FrameEncoder, FrameInfo};
 use twox_hash::XxHash32;
 
 use crate::ComprsError;
@@ -49,10 +49,18 @@ const LEGACY_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 /// frame's magic number.
 const LEGACY_MAX_BLOCK_SIZE: u32 = (LEGACY_BLOCK_SIZE + LEGACY_BLOCK_SIZE / 255 + 16) as u32;
 
+/// Create a frame encoder writing to `writer`.
+///
+/// The frames carry a content checksum, as the `lz4` CLI writes by default,
+/// so decoders detect corrupted data.
+pub(crate) fn frame_encoder<W: Write>(writer: W) -> FrameEncoder<W> {
+    FrameEncoder::with_frame_info(FrameInfo::new().content_checksum(true), writer)
+}
+
 /// Compress data using LZ4 frame format.
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
     let mut output = Vec::with_capacity(data.len());
-    let mut encoder = FrameEncoder::new(&mut output);
+    let mut encoder = frame_encoder(&mut output);
     encoder
         .write_all(data)
         .map_err(|e| ComprsError::Operation {
@@ -352,7 +360,7 @@ mod tests {
     use std::io::Read;
     use std::time::{Duration, Instant};
 
-    use lz4_flex::frame::{BlockMode, BlockSize, FrameDecoder, FrameInfo};
+    use lz4_flex::frame::{BlockMode, BlockSize, FrameDecoder};
 
     use super::*;
 
@@ -502,6 +510,26 @@ mod tests {
         0x4c, 0x49, 0x20, 0x66, 0x72, 0x61, 0x6d, 0x65, 0x2c, 0x20, 0x0f, 0x00, 0x05, 0x50, 0x72,
         0x61, 0x6d, 0x65, 0x2e,
     ];
+
+    #[test]
+    fn compress_writes_a_content_checksum() {
+        // FLG: version 01, independent blocks, content checksum.
+        assert_eq!(compress(b"test").unwrap()[4], 0x64);
+        assert_eq!(decompress(&compress(b"test").unwrap()).unwrap(), b"test");
+    }
+
+    #[test]
+    fn decompress_detects_corrupted_block_data() {
+        let original = text(1000);
+        let mut compressed = compress(&original).unwrap();
+        // The last 5 bytes of a block are literals, so flipping the byte
+        // before the end mark and the checksum changes the decoded data.
+        let last_literal = compressed.len() - 9;
+        compressed[last_literal] ^= 0x01;
+        let err = decompress(&compressed).unwrap_err();
+        assert!(matches!(err, ComprsError::Operation { .. }));
+        assert!(err.to_string().contains("ContentChecksumError"), "{err}");
+    }
 
     #[test]
     fn decompress_reads_frames_from_other_encoders() {

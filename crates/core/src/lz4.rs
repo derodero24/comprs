@@ -8,7 +8,8 @@ use crate::error::to_napi_error;
 
 /// Compress data using LZ4 frame format.
 ///
-/// Returns the compressed data as a Buffer.
+/// Returns the compressed data as a Buffer. The frame carries a content
+/// checksum, as the `lz4` CLI writes by default.
 #[napi]
 pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::lz4::compress(crate::as_bytes(&data))
@@ -66,7 +67,8 @@ impl Task for Lz4CompressTask {
 
 /// Asynchronously compress data using LZ4 frame format.
 ///
-/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Returns a Promise that resolves to the compressed data as a Buffer. The
+/// frame carries a content checksum, as the `lz4` CLI writes by default.
 #[napi]
 pub fn lz4_compress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4CompressTask> {
     let input = crate::as_bytes(&data).to_vec();

@@ -184,6 +184,15 @@ describe('lz4 streaming', () => {
     expect(decompressed).toEqual(input);
   });
 
+  it('should write a content checksum', async () => {
+    const compressed = await collectStream(
+      toChunkedStream(Buffer.from('LZ4 stream checksum '.repeat(50)), 256).pipeThrough(
+        createLz4CompressStream(),
+      ),
+    );
+    expect(compressed[4]).toBe(0x64);
+  });
+
   it('should auto-detect LZ4 in decompress stream', async () => {
     const input = Buffer.from('Auto-detect LZ4 stream test');
     const compressed = lz4Compress(input);
@@ -199,6 +208,20 @@ describe('lz4 frames', () => {
   const world = lz4Compress(Buffer.from('World'));
   const skippable = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 1, 2, 3]);
   const truncated = 'lz4 stream is truncated: unexpected end of input';
+
+  it('should write a content checksum', () => {
+    // FLG: version 01, independent blocks, content checksum.
+    expect(hello[4]).toBe(0x64);
+  });
+
+  it('should detect corrupted block data', () => {
+    const corrupted = Buffer.from(lz4Compress(Buffer.from('The quick brown fox. '.repeat(20))));
+    // The last 5 bytes of a block are literals; the end mark and the content
+    // checksum follow them.
+    const lastLiteral = corrupted.length - 9;
+    corrupted.writeUInt8(corrupted.readUInt8(lastLiteral) ^ 0x01, lastLiteral);
+    expect(() => lz4Decompress(corrupted)).toThrow(/ContentChecksumError/);
+  });
 
   it('should decode concatenated frames', async () => {
     const input = Buffer.concat([hello, world]);
