@@ -1,63 +1,68 @@
-use std::io::{Read, Write};
+use std::io::Read;
 
-use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
+use comprs_bench::{
+    DICT_SIZE, dict_message, dict_samples, inputs, json_84kb, run_stream, stream_inputs,
+};
+use comprs_core::{brotli, brotli_stream};
 use criterion::{Criterion, criterion_group, criterion_main};
 
-const BUFFER_SIZE: usize = 4096;
-const LG_WINDOW_SIZE: u32 = 22;
-
-fn compress(data: &[u8], quality: u32) -> Vec<u8> {
-    let mut output = Vec::with_capacity(data.len());
-    {
-        let mut compressor =
-            brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
-        compressor.write_all(data).unwrap();
-    }
-    output
-}
-
-fn decompress(data: &[u8]) -> Vec<u8> {
-    let mut decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
-    let mut output = Vec::new();
-    decompressor.read_to_end(&mut output).unwrap();
-    output
-}
-
 fn bench_brotli(c: &mut Criterion) {
-    let p10k = patterned_10kb();
-    let p1m = patterned_1mb();
-    let r10k = random_10kb();
-    let r1m = random_1mb();
+    for (name, data) in inputs() {
+        let compressed = brotli::compress(&data, None).unwrap();
+        c.bench_function(&format!("brotli compress {name}"), |b| {
+            b.iter(|| brotli::compress(&data, None).unwrap())
+        });
+        c.bench_function(&format!("brotli decompress {name}"), |b| {
+            b.iter(|| brotli::decompress(&compressed).unwrap())
+        });
+    }
 
-    let p10k_c = compress(&p10k, 6);
-    let p1m_c = compress(&p1m, 6);
-    let r10k_c = compress(&r10k, 6);
-    let r1m_c = compress(&r1m, 6);
+    for (name, data) in stream_inputs() {
+        let compressed = brotli::compress(&data, None).unwrap();
+        c.bench_function(&format!("brotli stream compress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    brotli_stream::CompressContext::new(None).unwrap(),
+                    &data,
+                    brotli_stream::CompressContext::transform,
+                    brotli_stream::CompressContext::finish,
+                )
+            })
+        });
+        c.bench_function(&format!("brotli stream decompress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    brotli_stream::DecompressContext::new(None).unwrap(),
+                    &compressed,
+                    brotli_stream::DecompressContext::transform,
+                    brotli_stream::DecompressContext::finish,
+                )
+            })
+        });
+    }
 
-    c.bench_function("brotli compress patterned 10KB", |b| {
-        b.iter(|| compress(&p10k, 6))
+    // brotli has no dictionary training: the dictionary is raw sample data.
+    let dict = dict_samples().concat()[..DICT_SIZE].to_vec();
+    let message = dict_message();
+    let compressed = brotli::compress_with_dict(&message, &dict, None).unwrap();
+    c.bench_function("brotli compress with dict json record", |b| {
+        b.iter(|| brotli::compress_with_dict(&message, &dict, None).unwrap())
     });
-    c.bench_function("brotli compress patterned 1MB", |b| {
-        b.iter(|| compress(&p1m, 6))
-    });
-    c.bench_function("brotli compress random 10KB", |b| {
-        b.iter(|| compress(&r10k, 6))
-    });
-    c.bench_function("brotli compress random 1MB", |b| {
-        b.iter(|| compress(&r1m, 6))
+    c.bench_function("brotli decompress with dict json record", |b| {
+        b.iter(|| brotli::decompress_with_dict(&compressed, &dict).unwrap())
     });
 
-    c.bench_function("brotli decompress patterned 10KB", |b| {
-        b.iter(|| decompress(&p10k_c))
-    });
-    c.bench_function("brotli decompress patterned 1MB", |b| {
-        b.iter(|| decompress(&p1m_c))
-    });
-    c.bench_function("brotli decompress random 10KB", |b| {
-        b.iter(|| decompress(&r10k_c))
-    });
-    c.bench_function("brotli decompress random 1MB", |b| {
-        b.iter(|| decompress(&r1m_c))
+    // Baseline: the brotli crate alone. The difference is what comprs adds
+    // to decompression: sizing the output and enforcing the output limit.
+    let compressed = brotli::compress(&json_84kb(), None).unwrap();
+    c.bench_function("brotli decompress json 84KB (upstream)", |b| {
+        b.iter(|| {
+            let mut output = Vec::new();
+            ::brotli::Decompressor::new(compressed.as_slice(), brotli::BUFFER_SIZE)
+                .read_to_end(&mut output)
+                .unwrap();
+            output
+        })
     });
 }
 
