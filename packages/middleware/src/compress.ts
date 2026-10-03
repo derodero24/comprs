@@ -1,6 +1,12 @@
 import { Transform, type TransformCallback } from 'node:stream';
 
-import { DeflateCompressContext } from '@derodero24/comprs';
+import {
+  brotliCompressAsync,
+  DeflateCompressContext,
+  deflateCompressAsync,
+  gzipCompressAsync,
+  zstdCompressAsync,
+} from '@derodero24/comprs';
 import {
   createBrotliCompressTransform,
   createGzipCompressTransform,
@@ -8,7 +14,7 @@ import {
 } from '@derodero24/comprs/node';
 
 import type { Encoding, LevelOptions } from './types.js';
-import { ADLER32_INITIAL, adler32, zlibHeader, zlibTrailer } from './zlib.js';
+import { ADLER32_INITIAL, adler32, toZlib, zlibHeader, zlibTrailer } from './zlib.js';
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
@@ -65,5 +71,30 @@ export function createCompressTransform(encoding: Encoding, level?: LevelOptions
       return createGzipCompressTransform(level?.gzip);
     case 'deflate':
       return createZlibCompressTransform(level?.deflate);
+  }
+}
+
+/**
+ * Compress a whole body in one call. The compression runs on the libuv
+ * thread pool, so that a large body or a high level does not hold up the
+ * event loop; only the Adler-32 checksum of `deflate` is computed here.
+ */
+export async function compressBufferAsync(
+  encoding: Encoding,
+  data: Uint8Array,
+  level?: LevelOptions,
+): Promise<Buffer> {
+  switch (encoding) {
+    case 'zstd':
+      return zstdCompressAsync(data, level?.zstd);
+    case 'br':
+      return brotliCompressAsync(data, level?.br);
+    case 'gzip':
+      return gzipCompressAsync(data, level?.gzip);
+    case 'deflate': {
+      const deflated = await deflateCompressAsync(data, level?.deflate);
+      const zlib = toZlib(deflated, data, level?.deflate);
+      return Buffer.from(zlib.buffer, zlib.byteOffset, zlib.byteLength);
+    }
   }
 }

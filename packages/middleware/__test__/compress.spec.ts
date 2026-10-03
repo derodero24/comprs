@@ -2,9 +2,10 @@ import { randomBytes } from 'node:crypto';
 import type { Transform } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import { inflateSync } from 'node:zlib';
+import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/comprs';
 import { describe, expect, it } from 'vitest';
 
-import { createCompressTransform } from '../src/compress.js';
+import { compressBufferAsync, createCompressTransform } from '../src/compress.js';
 
 /** Write `chunks` to a compressor and collect its output. */
 function compress(stream: Transform, chunks: readonly Uint8Array[]): Promise<Buffer> {
@@ -56,5 +57,26 @@ describe('createCompressTransform', () => {
         expect(zstdWindowSize(output) <= 8 * 1024 * 1024).toBe(allowed);
       },
     );
+  });
+});
+
+describe('compressBufferAsync', () => {
+  const data = Buffer.from('Hello, World! '.repeat(200));
+
+  it.each([
+    { encoding: 'zstd', decompress: zstdDecompress },
+    { encoding: 'br', decompress: brotliDecompress },
+    { encoding: 'gzip', decompress: gzipDecompress },
+  ] as const)('should compress with $encoding', async ({ encoding, decompress }) => {
+    const output = await compressBufferAsync(encoding, data);
+    expect(output.length).toBeLessThan(data.length);
+    expect(decompress(output)).toEqual(data);
+  });
+
+  it('should produce the zlib format for deflate at the given level', async () => {
+    const output = await compressBufferAsync('deflate', data, { deflate: 1 });
+    expect(Buffer.isBuffer(output)).toBe(true);
+    expect([...output.subarray(0, 2)]).toEqual([0x78, 0x01]);
+    expect(inflateSync(output)).toEqual(data);
   });
 });

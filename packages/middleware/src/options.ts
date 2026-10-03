@@ -95,15 +95,20 @@ function checkLevels(levels: unknown): LevelOptions | undefined {
   return checked;
 }
 
+/** Check that an optional callback option, if given, is a function. */
+export function checkCallback(name: string, callback: unknown): void {
+  if (callback !== undefined && typeof callback !== 'function') {
+    throw new TypeError(`comprs: ${name} must be a function, got ${show(callback)}`);
+  }
+}
+
 /**
  * Check the options shared by every adapter and apply their defaults. Throws
  * a TypeError or RangeError that names the offending option, so that a
  * misconfiguration fails at setup instead of on every request.
  */
 export function resolveOptions(options: SharedOptions): Settings {
-  if (options.filter !== undefined && typeof options.filter !== 'function') {
-    throw new TypeError(`comprs: filter must be a function, got ${show(options.filter)}`);
-  }
+  checkCallback('filter', options.filter);
   return {
     encodings: checkEncodings(options.encodings),
     threshold: checkThreshold(options.threshold),
