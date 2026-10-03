@@ -17,10 +17,13 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'browser.js'
       - 'browser-entry.js'
       - 'browser-streaming.js'
       - 'streams.js'
       - 'streams.d.ts'
+      - 'index.js'
+      - 'index.d.ts'
       - 'index.mjs'
       - 'index.d.mts'
       - 'node.js'
@@ -29,6 +32,11 @@ on:
       - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
+      - 'npm/**'
+      - '.cargo/**'
+      - 'rust-toolchain*'
+      - '.nvmrc'
+      - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
   # another PR's branch) and PRs into main are checked too.
   pull_request:
@@ -46,10 +54,13 @@ on:
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
+      - 'browser.js'
       - 'browser-entry.js'
       - 'browser-streaming.js'
       - 'streams.js'
       - 'streams.d.ts'
+      - 'index.js'
+      - 'index.d.ts'
       - 'index.mjs'
       - 'index.d.mts'
       - 'node.js'
@@ -58,6 +69,11 @@ on:
       - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
+      - 'npm/**'
+      - '.cargo/**'
+      - 'rust-toolchain*'
+      - '.nvmrc'
+      - '.github/workflows/release.yml'
 
 # A newer push to a pull request cancels its running CI. Pushes to develop get
 # a group per commit instead: sharing one group would still replace a pending
@@ -90,13 +106,14 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           # Pushes to develop always run the full matrix. Pull requests run it
-          # only when something that ends up in the native binary changed;
-          # JS-only or lockfile-only PRs build and test on Linux alone.
+          # only when something that ends up in the native binary or in the
+          # release packaging changed; JS-only or lockfile-only PRs build and
+          # test on Linux alone.
           native=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
-              | grep -qE '^(crates/|npm/|scripts/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/ci\.yml$)'; then
+              | grep -qE '^(crates/|npm/|scripts/|\.cargo/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/(ci|release)\.yml$)'; then
               native=false
             fi
           fi
