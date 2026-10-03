@@ -5,8 +5,8 @@ import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-br
 // Runs one table of calls against the native addon and the wasm-bindgen
 // build, which must give the same result for each (#570): equal bytes and
 // header objects, or errors of the same class. The wasm-bindgen build is
-// loaded through the browser entry, which exports its stream contexts
-// (#573).
+// loaded through the browser entry, which exports its stream contexts (#573)
+// and adds the *Async functions (#476).
 
 /** The member that only the wasm-bindgen glue gives the stream contexts. */
 type GlueMember = 'free';
@@ -38,10 +38,23 @@ function run(call: Call, api: Api): Outcome {
   try {
     return { returned: comparable(call(api)) };
   } catch (error) {
-    return error instanceof Error
-      ? { threw: error.constructor.name, message: error.message }
-      : { threw: typeof error, message: String(error) };
+    return thrown(error);
   }
+}
+
+/** What a Promise resolved to or was rejected with, in the form of an Outcome. */
+async function settled(promise: unknown): Promise<Outcome> {
+  try {
+    return { returned: comparable(await promise) };
+  } catch (error) {
+    return thrown(error);
+  }
+}
+
+function thrown(error: unknown): Outcome {
+  return error instanceof Error
+    ? { threw: error.constructor.name, message: error.message }
+    : { threw: typeof error, message: String(error) };
 }
 
 /** A result with its Buffers turned into plain Uint8Arrays, recursively. */
@@ -700,6 +713,52 @@ function thrownClass(call: () => unknown): string | undefined {
   return undefined;
 }
 
+/** The *Async functions. */
+type AsyncName = Extract<keyof BrowserEntry, `${string}Async`>;
+
+// Valid arguments for each *Async function (#476).
+const ASYNC_ARGUMENTS: Record<AsyncName, unknown[]> = {
+  zstdCompressAsync: [text, 19],
+  zstdDecompressAsync: [fixtures.zstd],
+  zstdDecompressWithCapacityAsync: [fixtures.zstd, text.length],
+  zstdCompressWithDictAsync: [text, dict, 7],
+  zstdDecompressWithDictAsync: [fixtures.zstdWithDict, dict],
+  zstdDecompressWithDictWithCapacityAsync: [fixtures.zstdWithDict, dict, text.length],
+  zstdTrainDictionaryAsync: [samples, 2048],
+  gzipCompressAsync: [text, 9],
+  gzipDecompressAsync: [fixtures.gzip],
+  gzipDecompressWithCapacityAsync: [fixtures.gzip, text.length],
+  deflateCompressAsync: [text, 1],
+  deflateDecompressAsync: [fixtures.deflate],
+  deflateDecompressWithCapacityAsync: [fixtures.deflate, text.length],
+  brotliCompressAsync: [text, 4],
+  brotliDecompressAsync: [fixtures.brotli],
+  brotliDecompressWithCapacityAsync: [fixtures.brotli, text.length],
+  brotliCompressWithDictAsync: [text, dict, 5],
+  brotliDecompressWithDictAsync: [fixtures.brotliWithDict, dict],
+  brotliDecompressWithDictWithCapacityAsync: [fixtures.brotliWithDict, dict, text.length],
+  lz4CompressAsync: [text],
+  lz4DecompressAsync: [fixtures.lz4],
+  lz4DecompressWithCapacityAsync: [fixtures.lz4, text.length],
+  decompressAsync: [fixtures.gzip, text.length],
+};
+
+/** Call the function that `api` exports as `name`. */
+function callByName(api: Api, name: string, args: unknown[]): unknown {
+  const fn: unknown = Reflect.get(api, name);
+  if (typeof fn !== 'function') {
+    throw new Error(`${name} is not exported`);
+  }
+  return Reflect.apply(fn, undefined, args);
+}
+
+/** The names of the *Async functions that a module exports. */
+function asyncNames(module: object): string[] {
+  return Object.keys(module)
+    .filter((name) => name.endsWith('Async'))
+    .sort();
+}
+
 describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addon', () => {
   let wasm: BrowserEntry;
 
@@ -734,5 +793,58 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
     const expected = thrownClass(() => call(nativeApi));
     expect(expected).toBeDefined();
     expect(thrownClass(() => call(wasm))).toBe(expected);
+  });
+
+  describe('*Async functions', () => {
+    it('are those of the native addon', () => {
+      expect(asyncNames(wasm)).toStrictEqual(asyncNames(native));
+      expect(Object.keys(ASYNC_ARGUMENTS).sort()).toStrictEqual(asyncNames(native));
+    });
+
+    // The native addon copies the input before it returns the Promise.
+    it('read their input before they return', async () => {
+      const compressWhileOverwriting = async (api: Api) => {
+        const data = Uint8Array.from(text);
+        const compressed = api.gzipCompressAsync(data);
+        data.fill(0);
+        return native.gzipDecompress(await compressed);
+      };
+      expect(await compressWhileOverwriting(wasm)).toStrictEqual(
+        await compressWhileOverwriting(nativeApi),
+      );
+    });
+
+    describe.each(Object.entries(ASYNC_ARGUMENTS))('%s', (name, args) => {
+      const syncName = name.slice(0, -'Async'.length);
+
+      it('resolves to what the synchronous function returns', async () => {
+        const promise = callByName(wasm, name, args);
+        expect(promise).toBeInstanceOf(Promise);
+        const expected = run((api) => callByName(api, syncName, args), wasm);
+        expect(expected).toHaveProperty('returned');
+        expect(await settled(promise)).toStrictEqual(expected);
+      });
+
+      // As the native functions do since #619.
+      it('rejects with what the synchronous function throws, rather than throwing it', async () => {
+        const invalid = ['not a byte array', ...args.slice(1)];
+        let promise: unknown;
+        expect(() => {
+          promise = callByName(wasm, name, invalid);
+        }).not.toThrow();
+        expect(promise).toBeInstanceOf(Promise);
+        const expected = run((api) => callByName(api, syncName, invalid), wasm);
+        expect(expected).toHaveProperty('threw');
+        expect(await settled(promise)).toStrictEqual(expected);
+        // The native addon rejects too, with an error of the same class; the
+        // messages for what is not a byte array differ between the builds.
+        let nativePromise: unknown;
+        expect(() => {
+          nativePromise = callByName(nativeApi, name, invalid);
+        }).not.toThrow();
+        const threw = 'threw' in expected ? expected.threw : undefined;
+        expect(await settled(nativePromise)).toMatchObject({ threw });
+      });
+    });
   });
 });

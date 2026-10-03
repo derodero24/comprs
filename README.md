@@ -40,7 +40,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 
 - **Native performance** — Rust core compiled via napi-rs, with a WebAssembly build for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
-- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js, except LZ4 decompression and brotli-dictionary compression streams, which buffer the whole input (see [Notes](#notes))
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory, in Node.js and browsers, except LZ4 decompression and brotli-dictionary compression streams, which buffer the whole input (see [Notes](#notes))
 - **Universal** — Node.js, Deno, and Bun (native), and browsers (WebAssembly)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
@@ -146,7 +146,7 @@ zstd, gzip and LZ4 are recognized by their magic numbers. Brotli has none, so it
 ```typescript
 import { gzipCompressAsync, gzipDecompressAsync } from '@derodero24/comprs';
 
-// Runs on the libuv thread pool — keeps the event loop free
+// In Node.js, runs on the libuv thread pool — keeps the event loop free
 const compressed = await gzipCompressAsync(largeData);
 const decompressed = await gzipDecompressAsync(compressed);
 ```
@@ -212,7 +212,7 @@ Both runtimes load the native addon, as Node.js does. Deno needs permission for 
 | Mode | When to use |
 | --- | --- |
 | **Sync** (`zstdCompress`) | Small data (< 1 MB), low-latency requirements, scripts |
-| **Async** (`zstdCompressAsync`) | Large data or when event loop must stay free (servers, UIs) |
+| **Async** (`zstdCompressAsync`) | Large data or when the Node.js event loop must stay free (servers); browsers run them on the calling thread |
 | **Streaming** (`createZstdCompressStream`) | Unknown/unbounded data size, memory-constrained environments |
 | **Dictionary** (`zstdCompressWithDict`) | Compressing many small, structurally similar items |
 
@@ -297,7 +297,7 @@ The Web Streams and Node.js Transforms process each chunk synchronously on the c
 
 ### Async
 
-All one-shot functions have async variants that run on the libuv thread pool. Append `Async` to any function name:
+All one-shot functions have async variants that run on the libuv thread pool. Append `Async` to any function name. In browsers, they run on the calling thread instead (see [Browser Usage](#browser-usage)):
 
 ```typescript
 const compressed = await zstdCompressAsync(data, level);
@@ -341,13 +341,13 @@ The `*Async` functions copy their input (data, dictionary or training samples) o
 
 ### Streaming
 
-Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24/comprs/streams`:
+Web Streams API (`TransformStream`) for all algorithms, in Node.js, Deno, Bun and browsers. Import from `@derodero24/comprs/streams`:
 
 ```typescript
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
 ```
 
-The package root re-exports the stream helpers for `import` only; `@derodero24/comprs/streams` works with both `import` and `require()`.
+The package root re-exports the stream helpers for `import` only, and not in browsers (see [Browser Usage](#browser-usage)); `@derodero24/comprs/streams` works with both `import` and `require()`.
 
 <details>
 <summary><strong>Full streaming API list</strong></summary>
@@ -374,7 +374,7 @@ The package root re-exports the stream helpers for `import` only; `@derodero24/c
 
 ### Node.js Transform Streams
 
-For Node.js `stream.pipeline()` compatibility, import from `@derodero24/comprs/node`:
+For Node.js `stream.pipeline()` compatibility, import from `@derodero24/comprs/node`. This subpath is built on `node:stream`, so it does not work in browsers:
 
 ```typescript
 import { createGzipCompressTransform } from '@derodero24/comprs/node';
@@ -475,19 +475,30 @@ The entry module fetches and instantiates the WebAssembly binary with top-level 
 | Vite 7 and older | `vite dev` needs `optimizeDeps: { exclude: ['@derodero24/comprs'] }`, as the dependency pre-bundling of these versions breaks the URL of the binary. Before Vite 7, the default build target does not support top-level `await`: set `build.target: 'es2022'` or later. |
 | webpack 5 | Nothing: it enables top-level `await` by default since 5.83 and emits the binary as an asset. |
 | esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle. |
-| No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js" } }</script>` |
+| No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js", "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js" } }</script>` |
 
 Serve `.wasm` files as `application/wasm`, which lets the browser compile the binary while it downloads; with another type, it falls back to slower compilation and logs a warning.
 
-The WebAssembly build has the one-shot functions and the streaming contexts (`GzipCompressContext` and the like), but no `*Async` functions. They take the same arguments as those of the native addon, and return the same values, except that:
+The Web Streams helpers of `@derodero24/comprs/streams` have a browser build as well, on the same WebAssembly module. Import them from that subpath: unlike the ES module entry of Node.js, the browser entry does not re-export them.
+
+```typescript
+import { createGzipDecompressStream } from '@derodero24/comprs/streams';
+
+const response = await fetch('/data.json.gz');
+if (!response.body) throw new Error('Response has no body');
+const json = await new Response(response.body.pipeThrough(createGzipDecompressStream())).json();
+```
+
+The WebAssembly build has the one-shot functions, their `*Async` variants and the streaming contexts (`GzipCompressContext` and the like). They take the same arguments as those of the native addon, and return the same values, except that:
 
 - functions return `Uint8Array` rather than `Buffer`, and `detectFormat()` returns a plain string;
-- the streaming contexts keep their state in WebAssembly memory, which garbage collection frees, and do not report it to the engine. As on Node.js, `close()` and `[Symbol.dispose]()` release that state at once; in addition, `free()` frees the context object itself. A closed or freed context throws when it is used;
+- the `*Async` functions do not run on another thread. Each one runs its synchronous function on the calling thread before it returns, and returns a Promise of the result: they keep code written for the native addon working, but block the page as long as the synchronous call. To keep a page responsive while it compresses large data, use comprs in a Web Worker. Every error, including an invalid argument, rejects the Promise and none is thrown, as with the native functions;
+- the streaming contexts keep their state in WebAssembly memory, which garbage collection frees, and do not report it to the engine. As on Node.js, `close()` and `[Symbol.dispose]()` release that state at once; in addition, `free()` frees the context object itself. A closed or freed context throws when it is used. The streams of `@derodero24/comprs/streams` free their context as soon as they end or fail, and when they are cancelled, where the runtime calls the `cancel()` method of their transformer;
 - a panic, which aborts the native addon, makes the WebAssembly build throw `RuntimeError: unreachable`, after it logs the panic message with `console.error()`.
 
-As in Node.js, the streaming contexts work in bounded memory, except LZ4 decompression and brotli dictionary compression, which hold their whole input until it ends. The WebAssembly memory grows to the most that the module has used at once, and does not shrink.
+As in Node.js, the streams work in bounded memory, except LZ4 decompression and brotli dictionary compression, which hold their whole input until it ends. The WebAssembly memory grows to the most that the module has used at once, and does not shrink.
 
-Its declarations, `browser/index.d.ts`, list what it exports; TypeScript uses them only when it resolves the `browser` condition (`"customConditions": ["browser"]` in `tsconfig.json`), and the Node.js declarations otherwise. The `browser` condition applies to `import` only: `require()` cannot load a module that uses top-level `await`, so `require('@derodero24/comprs')` loads the native addon, also in test runners that set the condition, such as Jest with a jsdom environment. Under Jest's ES module support, that environment imports the WebAssembly build, which does not load in Jest: set `testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] }` to get the native addon. The `@derodero24/comprs/streams` and `@derodero24/comprs/node` subpaths load the native addon, so they do not work in browsers.
+Its declarations, `browser/index.d.ts` and `browser/streams.d.ts`, list what it exports; TypeScript uses them only when it resolves the `browser` condition (`"customConditions": ["browser"]` in `tsconfig.json`), and the Node.js declarations otherwise. The `browser` condition applies to `import` only: `require()` cannot load a module that uses top-level `await`, so `require('@derodero24/comprs')` and `require('@derodero24/comprs/streams')` load the native addon, also in test runners that set the condition, such as Jest with a jsdom environment. Under Jest's ES module support, that environment imports the WebAssembly build, which does not load in Jest: set `testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] }` to get the native addon. The `@derodero24/comprs/node` subpath is for Node.js only: it loads the native addon and `node:stream`, so it does not work in browsers.
 
 ### Framework Integration (SSR)
 

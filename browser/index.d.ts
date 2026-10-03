@@ -1,14 +1,14 @@
 // Types of the browser entry point (index.js), which exports the functions
-// and stream contexts of the wasm-bindgen build (crates/wasm).
+// and stream contexts of the wasm-bindgen build (crates/wasm), and *Async
+// variants of its one-shot functions.
 //
 // They take the arguments of the native declarations in ../index.d.ts, but
-// there are no *Async functions, results are Uint8Array rather than Buffer,
-// detectFormat() returns a plain string, and the stream contexts also have
-// the free() method of the glue.
+// results are Uint8Array rather than Buffer, detectFormat() returns a plain
+// string, and the stream contexts also have the free() method of the glue.
 // __test__/wasm-parity.spec.ts checks them against the native declarations.
 // They are written by hand rather than re-exported from the generated
-// comprs-wasm.d.ts, which declares the init functions that the entry calls
-// itself, and needs the DOM library.
+// comprs-wasm.d.ts, which has no *Async functions, declares the init
+// functions that the entry calls itself, and needs the DOM library.
 
 // biome-ignore lint/complexity/noUselessEmptyExport: in a declaration file, it limits the exports to the declarations marked `export`, leaving out the base classes of the stream contexts.
 export {};
@@ -142,6 +142,127 @@ export declare function decompress(data: Uint8Array, maxOutputSize?: number | nu
 export declare function crc32(data: Uint8Array, initialValue?: number | null): number;
 /** Version of comprs. */
 export declare function version(): string;
+
+// -- *Async variants --
+//
+// For code that also runs on the native addon, which runs them on the libuv
+// thread pool. Here, each one runs its synchronous function on the calling
+// thread before it returns, so the thread is busy just as long, and returns
+// a Promise of the result. Every error rejects that Promise; none is thrown.
+
+/** Run zstdCompress() on the calling thread, and return a Promise of its result. */
+export declare function zstdCompressAsync(
+  data: Uint8Array,
+  level?: number | null,
+): Promise<Uint8Array>;
+/** Run zstdDecompress() on the calling thread, and return a Promise of its result. */
+export declare function zstdDecompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/** Run zstdDecompressWithCapacity() on the calling thread, and return a Promise of its result. */
+export declare function zstdDecompressWithCapacityAsync(
+  data: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run zstdCompressWithDict() on the calling thread, and return a Promise of its result. */
+export declare function zstdCompressWithDictAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+  level?: number | null,
+): Promise<Uint8Array>;
+/** Run zstdDecompressWithDict() on the calling thread, and return a Promise of its result. */
+export declare function zstdDecompressWithDictAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+): Promise<Uint8Array>;
+/**
+ * Run zstdDecompressWithDictWithCapacity() on the calling thread, and return a
+ * Promise of its result.
+ */
+export declare function zstdDecompressWithDictWithCapacityAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run zstdTrainDictionary() on the calling thread, and return a Promise of its result. */
+export declare function zstdTrainDictionaryAsync(
+  samples: Uint8Array[],
+  maxDictSize?: number | null,
+): Promise<Uint8Array>;
+/** Run gzipCompress() on the calling thread, and return a Promise of its result. */
+export declare function gzipCompressAsync(
+  data: Uint8Array,
+  level?: number | null,
+): Promise<Uint8Array>;
+/** Run gzipDecompress() on the calling thread, and return a Promise of its result. */
+export declare function gzipDecompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/** Run gzipDecompressWithCapacity() on the calling thread, and return a Promise of its result. */
+export declare function gzipDecompressWithCapacityAsync(
+  data: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run deflateCompress() on the calling thread, and return a Promise of its result. */
+export declare function deflateCompressAsync(
+  data: Uint8Array,
+  level?: number | null,
+): Promise<Uint8Array>;
+/** Run deflateDecompress() on the calling thread, and return a Promise of its result. */
+export declare function deflateDecompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/**
+ * Run deflateDecompressWithCapacity() on the calling thread, and return a
+ * Promise of its result.
+ */
+export declare function deflateDecompressWithCapacityAsync(
+  data: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run brotliCompress() on the calling thread, and return a Promise of its result. */
+export declare function brotliCompressAsync(
+  data: Uint8Array,
+  quality?: number | null,
+): Promise<Uint8Array>;
+/** Run brotliDecompress() on the calling thread, and return a Promise of its result. */
+export declare function brotliDecompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/**
+ * Run brotliDecompressWithCapacity() on the calling thread, and return a
+ * Promise of its result.
+ */
+export declare function brotliDecompressWithCapacityAsync(
+  data: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run brotliCompressWithDict() on the calling thread, and return a Promise of its result. */
+export declare function brotliCompressWithDictAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+  quality?: number | null,
+): Promise<Uint8Array>;
+/** Run brotliDecompressWithDict() on the calling thread, and return a Promise of its result. */
+export declare function brotliDecompressWithDictAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+): Promise<Uint8Array>;
+/**
+ * Run brotliDecompressWithDictWithCapacity() on the calling thread, and return
+ * a Promise of its result.
+ */
+export declare function brotliDecompressWithDictWithCapacityAsync(
+  data: Uint8Array,
+  dict: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run lz4Compress() on the calling thread, and return a Promise of its result. */
+export declare function lz4CompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/** Run lz4Decompress() on the calling thread, and return a Promise of its result. */
+export declare function lz4DecompressAsync(data: Uint8Array): Promise<Uint8Array>;
+/** Run lz4DecompressWithCapacity() on the calling thread, and return a Promise of its result. */
+export declare function lz4DecompressWithCapacityAsync(
+  data: Uint8Array,
+  capacity: number,
+): Promise<Uint8Array>;
+/** Run decompress() on the calling thread, and return a Promise of its result. */
+export declare function decompressAsync(
+  data: Uint8Array,
+  maxOutputSize?: number | null,
+): Promise<Uint8Array>;
 
 // -- Streaming contexts --
 //

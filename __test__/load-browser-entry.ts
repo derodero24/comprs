@@ -39,8 +39,16 @@ export function importBrowserEntry() {
   return withFileFetch(() => import('../browser/index.js'));
 }
 
+/** Import the browser module of `@derodero24/comprs/streams`. */
+export function importBrowserStreams() {
+  return withFileFetch(() => import('../browser/streams.js'));
+}
+
 /** The exports of the browser entry, as browser/index.d.ts declares them. */
 export type BrowserEntry = Awaited<ReturnType<typeof importBrowserEntry>>;
+
+/** The exports of browser/streams.js, as browser/streams.d.ts declares them. */
+export type BrowserStreams = Awaited<ReturnType<typeof importBrowserStreams>>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

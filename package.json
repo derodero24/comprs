@@ -32,7 +32,8 @@
     "web-streams"
   ],
   "sideEffects": [
-    "./browser/index.js"
+    "./browser/index.js",
+    "./browser/streams.js"
   ],
   "type": "commonjs",
   "main": "index.js",
@@ -56,6 +57,12 @@
       }
     },
     "./streams": {
+      "browser": {
+        "import": {
+          "types": "./browser/streams.d.ts",
+          "default": "./browser/streams.js"
+        }
+      },
       "import": {
         "types": "./streams.d.ts",
         "default": "./streams.js"
@@ -88,6 +95,8 @@
     "browser/package.json",
     "browser/index.js",
     "browser/index.d.ts",
+    "browser/streams.js",
+    "browser/streams.d.ts",
     "browser/comprs-wasm.js",
     "browser/comprs-wasm.d.ts",
     "browser/comprs-wasm_bg.wasm"
@@ -128,7 +137,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:deno": "deno test --unstable-sloppy-imports --allow-ffi --allow-read --allow-env e2e/deno.test.ts",
-    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/browser-entry.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts",
     "test:bun": "bun test e2e/bun.test.ts",
     "test:types": "node scripts/check-consumer-types.mjs",
     "test:watch": "vitest watch",

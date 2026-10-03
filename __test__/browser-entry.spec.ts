@@ -4,14 +4,15 @@ import { dirname, matchesGlob, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// The browser entry as bundlers see it (#564): which file the `browser`
-// condition selects, how its files are parsed and tree-shaken, and that
-// importing it is enough to load the WebAssembly module.
+// The browser entry points as bundlers see them (#564, #476): which files
+// the `browser` condition selects, how they are parsed and tree-shaken, and
+// that importing one is enough to load the WebAssembly module.
 const ROOT = resolve(__dirname, '..');
 const ENTRY = resolve(ROOT, 'browser/index.js');
+const STREAMS_ENTRY = resolve(ROOT, 'browser/streams.js');
 const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
-// The JS modules the entry loads, the wasm-bindgen glue among them.
-const BROWSER_MODULES = ['index.js', 'comprs-wasm.js'].map((file) =>
+// The JS modules the entry points load, the wasm-bindgen glue among them.
+const BROWSER_MODULES = ['index.js', 'streams.js', 'comprs-wasm.js'].map((file) =>
   resolve(ROOT, 'browser', file),
 );
 
@@ -83,19 +84,37 @@ function hasSideEffects(sideEffects: unknown, packageDir: string, file: string):
   });
 }
 
+/** The names that a declaration file declares as exported functions and classes. */
+function declaredExports(file: string) {
+  const declarations = readFileSync(resolve(ROOT, file), 'utf8');
+  return Array.from(
+    declarations.matchAll(/^export declare (?:function|class) (\w+)/gm),
+    ([, name]) => name,
+  ).sort();
+}
+
 describe('browser entry', () => {
   // The entry uses top-level await, so it can only be imported. require()
   // keeps resolving to the native addon, as in 2.0.x, for test runners that
-  // set the browser condition for CommonJS, such as Jest with jsdom.
+  // set the browser condition for CommonJS, such as Jest with jsdom. So does
+  // the browser module of the streams subpath, which imports the entry. The
+  // node subpath is for Node.js only.
   it('is what the browser condition resolves imports of the package to, and only imports', () => {
     const result = runWithBrowserCondition(`
       import { createRequire } from 'node:module';
-      console.log(import.meta.resolve('@derodero24/comprs'));
-      console.log(createRequire(import.meta.url).resolve('@derodero24/comprs'));`);
+      const require = createRequire(import.meta.url);
+      for (const specifier of ['@derodero24/comprs', '@derodero24/comprs/streams', '@derodero24/comprs/node']) {
+        console.log(import.meta.resolve(specifier));
+        console.log(require.resolve(specifier));
+      }`);
     expect(result.stderr).toBe('');
     expect(result.stdout.trim().split('\n')).toEqual([
       pathToFileURL(ENTRY).href,
       resolve(ROOT, 'index.js'),
+      pathToFileURL(STREAMS_ENTRY).href,
+      resolve(ROOT, 'streams.js'),
+      pathToFileURL(resolve(ROOT, 'node.js')).href,
+      resolve(ROOT, 'node.js'),
     ]);
   });
 
@@ -110,14 +129,17 @@ describe('browser entry', () => {
   // package.json, webpack with the nearest one. If either marks the entry as
   // side-effect free, a bundler may skip its initialisation and import the
   // re-exported functions straight from the glue.
-  it('is not side-effect free for any bundler', () => {
-    const root: Record<string, unknown> = JSON.parse(
-      readFileSync(resolve(ROOT, 'package.json'), 'utf8'),
-    );
-    expect(hasSideEffects(root.sideEffects, ROOT, ENTRY)).toBe(true);
-    const { dir, manifest } = nearestManifest(ENTRY);
-    expect(hasSideEffects(manifest.sideEffects, dir, ENTRY)).toBe(true);
-  });
+  it.each([ENTRY, STREAMS_ENTRY].map((file) => [relative(ROOT, file), file]))(
+    '%s is not side-effect free for any bundler',
+    (_name, file) => {
+      const root: Record<string, unknown> = JSON.parse(
+        readFileSync(resolve(ROOT, 'package.json'), 'utf8'),
+      );
+      expect(hasSideEffects(root.sideEffects, ROOT, file)).toBe(true);
+      const { dir, manifest } = nearestManifest(file);
+      expect(hasSideEffects(manifest.sideEffects, dir, file)).toBe(true);
+    },
+  );
 
   describe.skipIf(!existsSync(WASM_FILE))('with the wasm-bindgen build', () => {
     it('loads the WebAssembly module next to it on import, with no init call', () => {
@@ -146,21 +168,44 @@ describe('browser entry', () => {
       );
     });
 
-    // browser/index.d.ts is written by hand. This checks the names it
-    // declares; wasm-parity.spec.ts checks, when it is type-checked, that
-    // its signatures agree with the native declarations.
-    it('exports what its type declarations declare', () => {
+    it('loads the WebAssembly module, and not the native addon, for the streams subpath', () => {
       const result = runWithBrowserCondition(
-        `console.log(JSON.stringify(Object.keys(await import('@derodero24/comprs'))));`,
+        `
+        import { createRequire } from 'node:module';
+        import { createGzipCompressStream, createGzipDecompressStream } from '@derodero24/comprs/streams';
+        const data = new TextEncoder().encode('hello hello hello hello');
+        const output = new Response(
+          new Blob([data]).stream().pipeThrough(createGzipCompressStream()).pipeThrough(createGzipDecompressStream()),
+        );
+        console.log(JSON.stringify({
+          roundTrip: await output.text(),
+          fetched: globalThis.fetchedUrls,
+          required: Object.keys(createRequire(import.meta.url).cache),
+        }));`,
         serveFiles(),
       );
-      const declarations = readFileSync(resolve(ROOT, 'browser/index.d.ts'), 'utf8');
-      const declared = Array.from(
-        declarations.matchAll(/^export declare (?:function|class) (\w+)/gm),
-        ([, name]) => name,
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout)).toEqual({
+        roundTrip: 'hello hello hello hello',
+        fetched: [pathToFileURL(WASM_FILE).href],
+        required: [],
+      });
+    });
+
+    // browser/index.d.ts and browser/streams.d.ts are written by hand. This
+    // checks the names they declare; wasm-parity.spec.ts and
+    // browser-streams.spec.ts check, when they are type-checked, that their
+    // signatures agree with the native declarations.
+    it.each([
+      ['@derodero24/comprs', 'browser/index.d.ts'],
+      ['@derodero24/comprs/streams', 'browser/streams.d.ts'],
+    ])('%s exports what %s declares', (specifier, declarations) => {
+      const result = runWithBrowserCondition(
+        `console.log(JSON.stringify(Object.keys(await import('${specifier}'))));`,
+        serveFiles(),
       );
       expect(result.stderr).toBe('');
-      expect(JSON.parse(result.stdout)).toEqual(declared.sort());
+      expect(JSON.parse(result.stdout)).toEqual(declaredExports(declarations));
     });
   });
 });

@@ -21,11 +21,12 @@
  *      instead of needing the Visual C++ Redistributable;
  *   5. the root package, packed into a temporary tarball, includes every file
  *      and entry point its package.json names and no platform binary, and
- *      its browser entry works with bundlers (#564): it only loads files from
- *      the package itself, as ES modules, down to the wasm-bindgen
- *      WebAssembly module, which it fetches through
- *      `new URL('…', import.meta.url)` rather than importing it, and no
- *      `sideEffects` field lets a bundler drop its initialisation;
+ *      its browser entry points (those of `.` and `./streams`) work with
+ *      bundlers (#564): each one only loads files from the package itself,
+ *      as ES modules, down to the wasm-bindgen WebAssembly module, which it
+ *      fetches through `new URL('…', import.meta.url)` rather than importing
+ *      it, and no `sideEffects` field lets a bundler drop its
+ *      initialisation;
  *   6. publint and attw accept that tarball.
  *
  * Usage:
@@ -391,14 +392,15 @@ function checkRootFiles(release, packed) {
 }
 
 /**
- * Follow every module the browser entry points load and check that each one
- * is a file of the package. A bare specifier fails: the browser build must
- * not depend on another package (2.0.2's browser.js imported the WASI
- * package, which is not even installed). The chain must reach a WebAssembly
- * module, through `new URL()`: esbuild cannot bundle a .wasm file that is
- * imported as an ES module. Bundlers must parse every module as an ES module
- * and keep the entry points, which initialise the WebAssembly module, when
- * they tree-shake.
+ * Follow every module that each browser entry point loads and check that
+ * each one is a file of the package. A bare specifier fails: the browser
+ * build must not depend on another package (2.0.2's browser.js imported the
+ * WASI package, which is not even installed), nor on Node.js. Each entry
+ * point must reach a WebAssembly module, through `new URL()`: esbuild cannot
+ * bundle a .wasm file that is imported as an ES module. Bundlers must parse
+ * every module as an ES module, which also keeps the CommonJS loaders of the
+ * native addon out, and keep the entry points, which initialise the
+ * WebAssembly module, when they tree-shake.
  *
  * @param {string} packageDir Extracted package.
  * @param {string[]} packed Files in the package.
@@ -409,28 +411,39 @@ function checkBrowserEntry(packageDir, packed, entries) {
     problems.push('package.json declares no browser entry point');
     return;
   }
+  /**
+   * The package files that each module loads, checked once per module.
+   *
+   * @type {Map<string, string[]>}
+   */
+  const dependencies = new Map();
+  const dependenciesOf = (/** @type {string} */ file) => {
+    let found = dependencies.get(file);
+    if (found === undefined) {
+      if (packed.includes(file)) {
+        found = checkBrowserModule(packageDir, file);
+      } else {
+        problems.push(`The browser entry loads ${file}, which the package does not include`);
+        found = [];
+      }
+      dependencies.set(file, found);
+    }
+    return found;
+  };
   for (const entry of entries) {
     checkEntrySideEffects(packageDir, entry);
-  }
-  const seen = new Set(entries);
-  const queue = [...entries];
-  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-    if (!packed.includes(file)) {
-      problems.push(`The browser entry loads ${file}, which the package does not include`);
-      continue;
-    }
-    for (const dependency of checkBrowserModule(packageDir, file)) {
-      if (!seen.has(dependency)) {
+    const seen = new Set([entry]);
+    for (const file of seen) {
+      for (const dependency of dependenciesOf(file)) {
         seen.add(dependency);
-        queue.push(dependency);
       }
     }
-  }
-  console.log(`Browser entry modules: ${[...seen].join(', ')}`);
-  if (![...seen].some((file) => file.endsWith('.wasm') && packed.includes(file))) {
-    problems.push(
-      `The browser entry (${entries.join(', ')}) does not load a WebAssembly module from the package`,
-    );
+    console.log(`Browser entry ${entry} loads: ${[...seen].slice(1).join(', ')}`);
+    if (![...seen].some((file) => file.endsWith('.wasm') && packed.includes(file))) {
+      problems.push(
+        `The browser entry ${entry} does not load a WebAssembly module from the package`,
+      );
+    }
   }
 }
 
