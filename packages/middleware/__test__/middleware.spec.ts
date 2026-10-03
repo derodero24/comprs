@@ -191,6 +191,11 @@ describe('comprs middleware', () => {
       const res = await rawGet(baseUrl, '/small', 'gzip');
       expect(res.headers.vary).toContain('Accept-Encoding');
     });
+
+    it('should not set Vary on responses that are never compressed', async () => {
+      const res = await rawGet(baseUrl, '/image', 'gzip');
+      expect(res.headers.vary).toBeUndefined();
+    });
   });
 });
 
