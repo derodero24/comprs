@@ -15,12 +15,11 @@ const ENCODER_STATE_SIZE: usize =
 /// Streaming LZ4 frame compression context.
 ///
 /// Uses `FrameEncoder` internally to produce incremental compressed output
-/// on each `transform()` call. A cursor tracks already-returned bytes, and
-/// old bytes are drained periodically to bound memory usage. The frame
-/// carries a content checksum, like the output of [`crate::lz4::compress`].
+/// on each `transform()` call: each call takes the bytes that the encoder
+/// has written to its output Vec so far. The frame carries a content
+/// checksum, like the output of [`crate::lz4::compress`].
 pub struct CompressContext {
     encoder: Option<FrameEncoder<Vec<u8>>>,
-    cursor: usize,
 }
 
 impl CompressContext {
@@ -28,7 +27,6 @@ impl CompressContext {
         let encoder = crate::lz4::frame_encoder(Vec::new());
         Ok(Self {
             encoder: Some(encoder),
-            cursor: 0,
         })
     }
 
@@ -45,11 +43,7 @@ impl CompressContext {
                 source: e.into(),
             })?;
 
-        let output = encoder.get_mut();
-        let new_bytes = output[self.cursor..].to_vec();
-        output.drain(..self.cursor);
-        self.cursor = output.len();
-        Ok(new_bytes)
+        Ok(std::mem::take(encoder.get_mut()))
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -63,11 +57,7 @@ impl CompressContext {
             source: e.into(),
         })?;
 
-        let output = encoder.get_mut();
-        let new_bytes = output[self.cursor..].to_vec();
-        output.drain(..self.cursor);
-        self.cursor = output.len();
-        Ok(new_bytes)
+        Ok(std::mem::take(encoder.get_mut()))
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
@@ -76,13 +66,11 @@ impl CompressContext {
             .take()
             .ok_or(ComprsError::StreamFinished("lz4 stream"))?;
 
-        let cursor = self.cursor;
-        let output = encoder.finish().map_err(|e| ComprsError::Operation {
+        // The encoder's Vec holds only what earlier calls have not returned.
+        encoder.finish().map_err(|e| ComprsError::Operation {
             context: "lz4 stream finish",
             source: e.into(),
-        })?;
-
-        Ok(output[cursor..].to_vec())
+        })
     }
 }
 
@@ -217,6 +205,44 @@ mod tests {
         assert!(ctx.memory_usage() >= ENCODER_STATE_SIZE);
         ctx.finish().unwrap();
         assert_eq!(ctx.memory_usage(), 0);
+    }
+
+    #[test]
+    fn compress_context_returns_everything_the_encoder_writes() {
+        // Several 64 KiB blocks, some of them stored uncompressed.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let data: Vec<u8> = (0..200_000u32)
+            .map(|i| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                if i / 50_000 % 2 == 0 {
+                    state as u8
+                } else {
+                    (i % 7) as u8
+                }
+            })
+            .collect();
+        for chunk_size in [1, 1000, 64 * 1024] {
+            let mut ctx = CompressContext::new().unwrap();
+            let mut encoder = crate::lz4::frame_encoder(Vec::new());
+            let mut compressed = Vec::new();
+            for chunk in data.chunks(chunk_size) {
+                compressed.extend(ctx.transform(chunk).unwrap());
+                encoder.write_all(chunk).unwrap();
+                // The context keeps no output that it has returned.
+                assert_eq!(ctx.memory_usage(), ENCODER_STATE_SIZE);
+            }
+            compressed.extend(ctx.flush().unwrap());
+            compressed.extend(ctx.finish().unwrap());
+            encoder.flush().unwrap();
+            assert_eq!(
+                compressed,
+                encoder.finish().unwrap(),
+                "chunk size {chunk_size}"
+            );
+            assert_eq!(crate::lz4::decompress(&compressed).unwrap(), data);
+        }
     }
 
     #[test]

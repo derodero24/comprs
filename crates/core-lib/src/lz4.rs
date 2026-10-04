@@ -72,7 +72,7 @@ pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
         source: e.into(),
     })?;
 
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress LZ4 frame-compressed data.
@@ -133,7 +133,7 @@ pub(crate) fn decompress_frames(
             _ => return Err(not_a_frame(at_start, context)),
         }
     }
-    Ok(decoder.output)
+    Ok(crate::finish_output(decoder.output))
 }
 
 /// Decodes the frames of one input into one output.

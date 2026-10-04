@@ -43,10 +43,12 @@ const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
     let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
-    zstd::bulk::compress(data, level).map_err(|e| ComprsError::Operation {
-        context: "zstd compress",
-        source: e.into(),
-    })
+    zstd::bulk::compress(data, level)
+        .map(crate::finish_output)
+        .map_err(|e| ComprsError::Operation {
+            context: "zstd compress",
+            source: e.into(),
+        })
 }
 
 /// Decompress Zstandard-compressed data.
@@ -93,6 +95,7 @@ pub fn compress_with_dict(
 
     compressor
         .compress(data)
+        .map(crate::finish_output)
         .map_err(|e| ComprsError::Operation {
             context: "zstd compress with dict",
             source: e.into(),
@@ -147,7 +150,8 @@ fn decompress_with_limit(
         })?;
         // Start at the input size: incompressible data then fits as is, and
         // compressible data grows the buffer geometrically.
-        return crate::zstd_stream::decompress_all(decoder, data, limit, data.len(), context);
+        return crate::zstd_stream::decompress_all(decoder, data, limit, data.len(), context)
+            .map(crate::finish_output);
     };
 
     let mut output = Vec::new();
@@ -164,7 +168,7 @@ fn decompress_with_limit(
             context,
             source: e.into(),
         })?;
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// The total content size that the frames in `data` declare, if it can size

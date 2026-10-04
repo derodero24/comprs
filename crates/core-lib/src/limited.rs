@@ -1,5 +1,6 @@
 //! Size-limited output sink for streaming decompression.
 
+use std::collections::TryReserveError;
 use std::io::{self, Write};
 
 use crate::ComprsError;
@@ -45,6 +46,14 @@ impl LimitedVec {
     /// Capacity of the buffer holding output that has not been taken yet.
     pub(crate) fn capacity(&self) -> usize {
         self.buf.capacity()
+    }
+
+    /// Reserve room for `additional` more bytes, but not more than the budget
+    /// can still fill plus one byte. A failed allocation is reported instead
+    /// of aborting, for reservations that callers size from their input.
+    pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.buf
+            .try_reserve_exact(additional.min(self.remaining.saturating_add(1)))
     }
 
     /// Let `fill` append output directly to the buffer, for decoders such as
@@ -136,6 +145,13 @@ mod tests {
         sink.write_all(b"hello").unwrap();
         sink.write_all(b"world").unwrap();
         assert_eq!(sink.take(), b"helloworld");
+    }
+
+    #[test]
+    fn try_reserve_stays_within_the_budget() {
+        let mut sink = LimitedVec::new(10, "test");
+        sink.try_reserve(1000).unwrap();
+        assert!((11..1000).contains(&sink.capacity()), "{}", sink.capacity());
     }
 
     #[test]

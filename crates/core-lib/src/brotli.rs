@@ -27,10 +27,10 @@ pub const LG_WINDOW_SIZE: u32 = 22;
 /// next byte then picks a window of up to 1 GiB. brotli-decompressor accepts
 /// these streams unless told otherwise, and allocates its ring buffer at the
 /// window size whatever the output limit: 12 bytes of input made it allocate
-/// 512 MiB. `brotli::Decompressor` has no switch for it, so the one-shot
-/// functions check the header themselves; the stream contexts turn
-/// `large_window` off in the decoder state. RFC 7932 decoders, Node's zlib
-/// among them, reject the same streams.
+/// 512 MiB. Every decoder state here turns `large_window` off; the one-shot
+/// functions also check the header up front, so that they report this
+/// error rather than "Invalid Data". RFC 7932 decoders, Node's zlib among
+/// them, reject the same streams.
 pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<(), ComprsError> {
     if data.first().is_some_and(|&byte| byte & 0x7f == 0x11) {
         return Err(ComprsError::Operation {
@@ -58,30 +58,25 @@ pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsErro
         // Drop compressor to flush and finalize
     }
 
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress Brotli-compressed data.
+///
+/// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes. Data
+/// after the end of the brotli stream is ignored.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "brotli")?;
-    reject_large_window(data, "brotli decompress")?;
-    let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
-    let init_cap = (data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(
-        decompressor,
-        crate::MAX_DECOMPRESSED_SIZE,
-        init_cap,
-        "brotli decompress",
-    )
+    decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress Brotli-compressed data with explicit capacity.
+///
+/// `capacity` limits the output size; the output buffer grows with the
+/// decompressed data instead of being allocated at that size.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
     reject_large_window(data, "brotli decompress")?;
-    let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
-    let init_cap = (data.len().saturating_mul(4)).min(capacity);
-    crate::decompress_with_limit(decompressor, capacity, init_cap, "brotli decompress")
+    crate::brotli_stream::decompress_all(data, Vec::new(), capacity, "brotli decompress")
 }
 
 /// Compress data with a custom dictionary using the brotli crate's low-level API.
@@ -163,26 +158,20 @@ fn encode(input: &[u8], dict: &[u8], quality: u32) -> std::result::Result<Vec<u8
         dict,
         std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected eof"),
     )?;
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
+///
+/// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes, as in
+/// [`decompress`].
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "brotli")?;
-    reject_large_window(data, "brotli decompress with dict")?;
-    let dict_bytes = dict.to_vec();
-    let decompressor =
-        brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
-    let init_cap = (data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
-    crate::decompress_with_limit(
-        decompressor,
-        crate::MAX_DECOMPRESSED_SIZE,
-        init_cap,
-        "brotli decompress with dict",
-    )
+    decompress_with_dict_with_capacity(data, dict, crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress Brotli-compressed data with a custom dictionary and explicit capacity.
+///
+/// `capacity` limits the output size, as in [`decompress_with_capacity`].
 pub fn decompress_with_dict_with_capacity(
     data: &[u8],
     dict: &[u8],
@@ -190,14 +179,10 @@ pub fn decompress_with_dict_with_capacity(
 ) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
     reject_large_window(data, "brotli decompress with dict")?;
-    let dict_bytes = dict.to_vec();
-    let decompressor =
-        brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
-    let init_cap = (data.len().saturating_mul(4)).min(capacity);
-    crate::decompress_with_limit(
-        decompressor,
+    crate::brotli_stream::decompress_all(
+        data,
+        dict.to_vec(),
         capacity,
-        init_cap,
         "brotli decompress with dict",
     )
 }
@@ -292,6 +277,126 @@ mod tests {
             }
             assert_eq!(decompress(&compressed).unwrap(), original, "lgwin {lgwin}");
         }
+    }
+
+    /// `len` bytes of xorshift noise, which brotli stores in uncompressed
+    /// meta-blocks.
+    fn random(len: usize) -> Vec<u8> {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as u8
+            })
+            .collect()
+    }
+
+    /// Inputs for the tests of the one-shot decoders: short, compressible
+    /// and incompressible data.
+    fn samples() -> [Vec<u8>; 3] {
+        [
+            b"short".to_vec(),
+            b"one-shot brotli decompression ".repeat(2000),
+            random(20_000),
+        ]
+    }
+
+    /// An encoder for the input of a one-shot decoder.
+    type Encoder = fn(&[u8]) -> Vec<u8>;
+
+    /// A one-shot decoder, called with the input and an output limit.
+    type Decoder = fn(&[u8], usize) -> Result<Vec<u8>, ComprsError>;
+
+    const DICT: &[u8] = b"brotli dictionary for the one-shot decoders";
+
+    /// Every one-shot decoder with the context of its errors and the encoder
+    /// of its input. The functions without a limit ignore it.
+    fn decoders() -> [(&'static str, Encoder, Decoder); 4] {
+        let plain = |data: &[u8]| compress(data, None).unwrap();
+        let with_dict = |data: &[u8]| compress_with_dict(data, DICT, None).unwrap();
+        [
+            ("brotli decompress", plain, |data, _| decompress(data)),
+            ("brotli decompress", plain, decompress_with_capacity),
+            ("brotli decompress with dict", with_dict, |data, _| {
+                decompress_with_dict(data, DICT)
+            }),
+            ("brotli decompress with dict", with_dict, |data, limit| {
+                decompress_with_dict_with_capacity(data, DICT, limit)
+            }),
+        ]
+    }
+
+    #[test]
+    fn decompress_ignores_data_after_the_stream() {
+        for original in samples() {
+            for (context, encode, decode) in decoders() {
+                let mut input = encode(&original);
+                input.extend(b"trailing data");
+                input.extend(random(10_000));
+                assert_eq!(
+                    decode(&input, original.len()).unwrap(),
+                    original,
+                    "{context}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_rejects_truncated_input() {
+        for original in samples() {
+            for (context, encode, decode) in decoders() {
+                let compressed = encode(&original);
+                for len in [1, compressed.len() / 2, compressed.len() - 1] {
+                    assert_eq!(
+                        decode(&compressed[..len], original.len())
+                            .unwrap_err()
+                            .to_string(),
+                        format!("{context} failed: Invalid Data"),
+                        "{len} of {} bytes",
+                        compressed.len()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_rejects_invalid_data() {
+        for (context, _, decode) in decoders() {
+            assert_eq!(
+                decode(&[0xff; 16], 1024).unwrap_err().to_string(),
+                format!("{context} failed: Invalid Data")
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_with_capacity_limits_the_output() {
+        for original in samples() {
+            let n = original.len();
+            // The decoders that take a limit.
+            for (context, encode, decode) in decoders().into_iter().skip(1).step_by(2) {
+                let compressed = encode(&original);
+                assert_eq!(decode(&compressed, n).unwrap(), original, "{context}");
+                assert_eq!(
+                    decode(&compressed, n - 1).unwrap_err().to_string(),
+                    format!("{context} exceeded maximum size of {} bytes", n - 1)
+                );
+                assert!(matches!(
+                    decode(&compressed, 0),
+                    Err(ComprsError::SizeLimit { limit: 0, .. })
+                ));
+            }
+        }
+        let empty = compress(b"", None).unwrap();
+        assert_eq!(decompress_with_capacity(&empty, 0).unwrap(), b"");
+        assert_eq!(
+            decompress_with_dict_with_capacity(&empty, b"dictionary", 0).unwrap(),
+            b""
+        );
     }
 
     #[test]
