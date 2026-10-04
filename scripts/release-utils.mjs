@@ -1,6 +1,7 @@
 /**
  * Helpers shared by the release packaging scripts, prepare-release.mjs and
- * check-release.mjs, and by check-consumer-types.mjs.
+ * check-release.mjs, and by check-consumer-types.mjs and
+ * e2e/install-package.mjs, which pack the package.
  */
 
 import { execFileSync } from 'node:child_process';
