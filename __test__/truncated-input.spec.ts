@@ -27,8 +27,10 @@ import {
   gzipDecompress,
   gzipDecompressAsync,
   Lz4DecompressContext,
+  lz4Compress,
   lz4Decompress,
   lz4DecompressAsync,
+  lz4DecompressWithCapacity,
   ZstdDecompressContext,
   ZstdDecompressDictContext,
   zstdCompress,
@@ -133,6 +135,7 @@ function streamCase(
 const zstdCompressed = zstdCompress(data);
 const brotliCompressed = brotliCompress(data);
 const gzipCompressed = gzipCompress(data);
+const lz4Compressed = lz4Compress(data);
 
 const streamCases: StreamCase[] = [
   streamCase(
@@ -176,6 +179,13 @@ const streamCases: StreamCase[] = [
     () => createGzipDecompressStream(),
     () => createGzipDecompressTransform(),
   ),
+  streamCase(
+    'lz4',
+    lz4Compressed,
+    () => createLz4DecompressStream(),
+    () => createLz4DecompressTransform(),
+    truncated('lz4'),
+  ),
   // Auto-detection needs a few bytes, so these cuts start after the magic.
   {
     ...streamCase(
@@ -205,6 +215,16 @@ const streamCases: StreamCase[] = [
       () => createDecompressTransform(),
     ),
     cuts: cutsOf(gzipCompressed).slice(1),
+  },
+  {
+    ...streamCase(
+      'auto-detected lz4',
+      lz4Compressed,
+      () => createDecompressStream(),
+      () => createDecompressTransform(),
+      truncated('lz4'),
+    ),
+    cuts: cutsOf(lz4Compressed).slice(1),
   },
 ];
 
@@ -347,6 +367,31 @@ describe('one-shot zstd decompression', () => {
     const input = Buffer.concat([zstdCompressed, zstdCompressed.subarray(0, 10)]);
     expect(() => zstdDecompress(input)).toThrow(truncated('zstd'));
   });
+});
+
+// ---------------------------------------------------------------------------
+// One-shot LZ4
+// ---------------------------------------------------------------------------
+
+describe('one-shot lz4 decompression', () => {
+  it.each([...cutsOf(lz4Compressed), lz4Compressed.length - 8, lz4Compressed.length - 4])(
+    'should reject input cut to %i bytes',
+    async (length) => {
+      const input = lz4Compressed.subarray(0, length);
+      expect(() => lz4Decompress(input)).toThrow(truncated('lz4'));
+      expect(() => lz4DecompressWithCapacity(input, data.length)).toThrow(truncated('lz4'));
+      await expect(lz4DecompressAsync(input)).rejects.toThrow(truncated('lz4'));
+    },
+  );
+
+  it.each(cutsOf(lz4Compressed).slice(1))(
+    'auto-detection should reject input cut to %i bytes',
+    async (length) => {
+      const input = lz4Compressed.subarray(0, length);
+      expect(() => decompress(input)).toThrow(truncated('lz4'));
+      await expect(decompressAsync(input)).rejects.toThrow(truncated('lz4'));
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -118,7 +118,9 @@ export declare function createLz4CompressStream(): TransformStream<Uint8Array, U
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
  *
- * The stream errors on empty input.
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames. The stream errors if the input ends inside a frame,
+ * including empty input, or if data that is not a frame follows a frame.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */

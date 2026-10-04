@@ -187,7 +187,8 @@ export declare class GzipDecompressContext {
  *
  * Uses `FrameEncoder` internally to produce incremental compressed output
  * on each `transform()` call. A cursor tracks already-returned bytes, and
- * old bytes are drained periodically to bound memory usage.
+ * old bytes are drained periodically to bound memory usage. The frame
+ * carries a content checksum, as the `lz4` CLI writes by default.
  */
 export declare class Lz4CompressContext {
   constructor()
@@ -208,6 +209,8 @@ export declare class Lz4CompressContext {
  * Buffers compressed input and decompresses on `flush()`.
  * LZ4 frame decompression requires the full compressed input, so true
  * incremental streaming is not possible with the current lz4_flex API.
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames.
  */
 export declare class Lz4DecompressContext {
   constructor(maxOutputSize?: number | undefined | null)
@@ -218,7 +221,8 @@ export declare class Lz4DecompressContext {
   transform(chunk: Buffer | Uint8Array): Buffer
   /**
    * Decompress all buffered data and return the result.
-   * Throws if no compressed data was transformed at all.
+   * Throws if no compressed data was transformed at all, if the input ends
+   * inside a frame, or if data that is not a frame follows a frame.
    */
   flush(): Buffer
 }
@@ -609,14 +613,16 @@ export declare function gzipReadHeader(data: Buffer | Uint8Array): GzipHeader
 /**
  * Compress data using LZ4 frame format.
  *
- * Returns the compressed data as a Buffer.
+ * Returns the compressed data as a Buffer. The frame carries a content
+ * checksum, as the `lz4` CLI writes by default.
  */
 export declare function lz4Compress(data: Buffer | Uint8Array): Buffer
 
 /**
  * Asynchronously compress data using LZ4 frame format.
  *
- * Returns a Promise that resolves to the compressed data as a Buffer.
+ * Returns a Promise that resolves to the compressed data as a Buffer. The
+ * frame carries a content checksum, as the `lz4` CLI writes by default.
  */
 export declare function lz4CompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 
@@ -624,8 +630,9 @@ export declare function lz4CompressAsync(data: Buffer | Uint8Array): Promise<Buf
  * Decompress LZ4 frame-compressed data.
  *
  * Returns the decompressed data as a Buffer.
- * The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacity`
- * for larger data.
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames. The maximum decompressed size is 256 MB. Use
+ * `lz4DecompressWithCapacity` for larger data.
  */
 export declare function lz4Decompress(data: Buffer | Uint8Array): Buffer
 
@@ -633,8 +640,9 @@ export declare function lz4Decompress(data: Buffer | Uint8Array): Buffer
  * Asynchronously decompress LZ4 frame-compressed data.
  *
  * Returns a Promise that resolves to the decompressed data as a Buffer.
- * The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacityAsync`
- * for larger data.
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames. The maximum decompressed size is 256 MB. Use
+ * `lz4DecompressWithCapacityAsync` for larger data.
  */
 export declare function lz4DecompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 

@@ -8,7 +8,8 @@ use crate::error::to_napi_error;
 
 /// Compress data using LZ4 frame format.
 ///
-/// Returns the compressed data as a Buffer.
+/// Returns the compressed data as a Buffer. The frame carries a content
+/// checksum, as the `lz4` CLI writes by default.
 #[napi]
 pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::lz4::compress(crate::as_bytes(&data))
@@ -19,8 +20,9 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// Decompress LZ4 frame-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacity`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable and
+/// legacy frames. The maximum decompressed size is 256 MB. Use
+/// `lz4DecompressWithCapacity` for larger data.
 #[napi]
 pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     comprs_core::lz4::decompress(crate::as_bytes(&data))
@@ -65,7 +67,8 @@ impl Task for Lz4CompressTask {
 
 /// Asynchronously compress data using LZ4 frame format.
 ///
-/// Returns a Promise that resolves to the compressed data as a Buffer.
+/// Returns a Promise that resolves to the compressed data as a Buffer. The
+/// frame carries a content checksum, as the `lz4` CLI writes by default.
 #[napi]
 pub fn lz4_compress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4CompressTask> {
     let input = crate::as_bytes(&data).to_vec();
@@ -93,8 +96,9 @@ impl Task for Lz4DecompressTask {
 /// Asynchronously decompress LZ4 frame-compressed data.
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
-/// The maximum decompressed size is 256 MB. Use `lz4DecompressWithCapacityAsync`
-/// for larger data.
+/// The input may hold several concatenated frames, including skippable and
+/// legacy frames. The maximum decompressed size is 256 MB. Use
+/// `lz4DecompressWithCapacityAsync` for larger data.
 #[napi]
 pub fn lz4_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4DecompressTask> {
     let input = crate::as_bytes(&data).to_vec();

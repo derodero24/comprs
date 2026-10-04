@@ -108,7 +108,10 @@ export declare function createLz4CompressTransform(): Transform;
  * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  *
- * The transform emits an error on empty input.
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames. The transform emits an error if the input ends inside a
+ * frame, including empty input, or if data that is not a frame follows a
+ * frame.
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */

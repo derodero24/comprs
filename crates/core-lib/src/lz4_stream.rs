@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use lz4_flex::frame::{FrameDecoder, FrameEncoder};
+use lz4_flex::frame::FrameEncoder;
 
 use crate::ComprsError;
 
@@ -10,7 +10,8 @@ use crate::ComprsError;
 ///
 /// Uses `FrameEncoder` internally to produce incremental compressed output
 /// on each `transform()` call. A cursor tracks already-returned bytes, and
-/// old bytes are drained periodically to bound memory usage.
+/// old bytes are drained periodically to bound memory usage. The frame
+/// carries a content checksum, like the output of [`crate::lz4::compress`].
 pub struct CompressContext {
     encoder: Option<FrameEncoder<Vec<u8>>>,
     cursor: usize,
@@ -18,7 +19,7 @@ pub struct CompressContext {
 
 impl CompressContext {
     pub fn new() -> Result<Self, ComprsError> {
-        let encoder = FrameEncoder::new(Vec::new());
+        let encoder = crate::lz4::frame_encoder(Vec::new());
         Ok(Self {
             encoder: Some(encoder),
             cursor: 0,
@@ -111,8 +112,11 @@ impl DecompressContext {
 
     /// Decompress all buffered data and return the result.
     ///
-    /// Fails with [`ComprsError::Truncated`] when no input was received at
-    /// all. Calling it again after a successful call returns an empty Vec.
+    /// Like [`crate::lz4::decompress`], it decodes every frame, skipping
+    /// skippable frames. Fails with [`ComprsError::Truncated`] when no input
+    /// was received at all or the input ends inside a frame, and with
+    /// [`ComprsError::Operation`] when data that is not a frame follows a
+    /// frame. Calling it again after a successful call returns an empty Vec.
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         if self.buffer.is_empty() {
             if !self.received_input {
@@ -121,16 +125,9 @@ impl DecompressContext {
             return Ok(Vec::new());
         }
 
-        let decoder = FrameDecoder::new(self.buffer.as_slice());
-        let init_cap = self
-            .buffer
-            .len()
-            .saturating_mul(4)
-            .min(self.max_output_size);
-        let result = crate::decompress_with_limit(
-            decoder,
+        let result = crate::lz4::decompress_frames(
+            &self.buffer,
             self.max_output_size,
-            init_cap,
             "lz4 stream decompress",
         )?;
         self.buffer.clear();
@@ -141,6 +138,8 @@ impl DecompressContext {
 #[cfg(test)]
 mod tests {
     use std::io::Read;
+
+    use lz4_flex::frame::FrameDecoder;
 
     use super::*;
 
@@ -158,6 +157,98 @@ mod tests {
         ctx.transform(&compressed).unwrap();
         assert_eq!(ctx.flush().unwrap(), b"lz4 stream");
         assert!(ctx.flush().unwrap().is_empty());
+    }
+
+    /// Compress `data` with a [`CompressContext`], in chunks of 1000 bytes.
+    fn compress_in_chunks(data: &[u8]) -> Vec<u8> {
+        let mut ctx = CompressContext::new().unwrap();
+        let mut compressed = Vec::new();
+        for chunk in data.chunks(1000) {
+            compressed.extend(ctx.transform(chunk).unwrap());
+        }
+        compressed.extend(ctx.flush().unwrap());
+        compressed.extend(ctx.finish().unwrap());
+        compressed
+    }
+
+    /// Decompress `input` with a [`DecompressContext`], in chunks of 7 bytes.
+    fn decompress_in_chunks(
+        input: &[u8],
+        max_output_size: Option<f64>,
+    ) -> Result<Vec<u8>, ComprsError> {
+        let mut ctx = DecompressContext::new(max_output_size).unwrap();
+        for chunk in input.chunks(7) {
+            assert!(ctx.transform(chunk).unwrap().is_empty());
+        }
+        ctx.flush()
+    }
+
+    #[test]
+    fn compress_context_writes_a_content_checksum() {
+        let original = b"lz4 stream with a content checksum. ".repeat(100);
+        let mut compressed = compress_in_chunks(&original);
+        // FLG: version 01, independent blocks, content checksum.
+        assert_eq!(compressed[4], 0x64);
+        assert_eq!(decompress_in_chunks(&compressed, None).unwrap(), original);
+
+        // The last 5 bytes of a block are literals.
+        let last_literal = compressed.len() - 9;
+        compressed[last_literal] ^= 0x01;
+        let err = decompress_in_chunks(&compressed, None).unwrap_err();
+        assert!(err.to_string().contains("ContentChecksumError"), "{err}");
+    }
+
+    #[test]
+    fn decompress_context_reads_every_frame() {
+        let a = compress_in_chunks(b"Hello ");
+        let b = crate::lz4::compress(b"World").unwrap();
+        let skippable = [&0x184D_2A50_u32.to_le_bytes()[..], &[3, 0, 0, 0, 1, 2, 3]].concat();
+        let input = [
+            &skippable[..],
+            &a[..],
+            &skippable[..],
+            &b[..],
+            &skippable[..],
+        ]
+        .concat();
+        assert_eq!(decompress_in_chunks(&input, None).unwrap(), b"Hello World");
+        assert_eq!(
+            decompress_in_chunks(&input, Some(11.0)).unwrap(),
+            b"Hello World"
+        );
+        assert!(matches!(
+            decompress_in_chunks(&input, Some(10.0)),
+            Err(ComprsError::SizeLimit { limit: 10, .. })
+        ));
+    }
+
+    #[test]
+    fn decompress_context_rejects_truncated_input() {
+        let frame = compress_in_chunks(&b"truncated lz4 stream. ".repeat(100));
+        let concatenated = [&frame[..], &frame[..]].concat();
+        for len in [1, 4, 7, frame.len() / 2, frame.len() - 8, frame.len() - 1] {
+            for input in [&frame[..len], &concatenated[..frame.len() + len]] {
+                assert!(
+                    matches!(
+                        decompress_in_chunks(input, None),
+                        Err(ComprsError::Truncated("lz4"))
+                    ),
+                    "input of {} bytes",
+                    input.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_context_rejects_data_after_the_last_frame() {
+        let mut input = compress_in_chunks(b"complete");
+        input.extend(b"trailing");
+        let err = decompress_in_chunks(&input, None).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "lz4 stream decompress failed: unexpected data after the end of a frame"
+        );
     }
 
     #[test]
