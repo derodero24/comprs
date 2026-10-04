@@ -1,0 +1,77 @@
+[package]
+name = "comprs-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# With the features of the native addon. The codecs come with the workspace's
+# dependency settings (flate2 with zlib-rs, lz4_flex without safe-decode, ...),
+# and Cargo.lock keeps the versions of the workspace's Cargo.lock, so the
+# fuzzers build the code that comprs ships.
+comprs-core = { path = "..", features = ["zstdmt"] }
+
+# A workspace of its own, as cargo-fuzz sets it up. As a member of the comprs
+# workspace, the fuzzers would build with its release profile (fat LTO,
+# stripped symbols), and every cargo command on the workspace, cargo-deny's
+# license check included, would take in libFuzzer.
+[workspace]
+members = ["."]
+
+[profile.release]
+# Line tables for symbolized crash backtraces.
+debug = "line-tables-only"
+
+[[bin]]
+name = "zstd"
+path = "fuzz_targets/zstd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gzip"
+path = "fuzz_targets/gzip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "deflate"
+path = "fuzz_targets/deflate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "brotli"
+path = "fuzz_targets/brotli.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lz4"
+path = "fuzz_targets/lz4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "detect"
+path = "fuzz_targets/detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "round_trip"
+path = "fuzz_targets/round_trip.rs"
+test = false
+doc = false
+bench = false
