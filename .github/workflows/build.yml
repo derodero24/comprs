@@ -1,0 +1,124 @@
+name: Build
+
+# Builds the native binaries of the napi targets. ci.yml tests the binaries
+# that this workflow builds and release.yml publishes them, so both call it
+# and the binaries CI tests are built exactly like the ones that ship.
+
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: >-
+          Rust targets to build, as a JSON array of target triples from the
+          list in the `targets` job. Empty builds every target.
+        type: string
+        required: false
+        default: ''
+      # release.yml leaves the caches off; the comment at its top says why.
+      cache:
+        description: Restore and save the pnpm and Cargo caches.
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    name: Select targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      settings: ${{ steps.select.outputs.settings }}
+    steps:
+      - name: Select the build settings
+        id: select
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          # Every target of napi.targets in package.json, with the runner that
+          # builds it. The Linux targets are cross-compiled on x64: the glibc
+          # ones with napi-cross, whose toolchain links against glibc 2.17
+          # rather than the runner's newer glibc, and the musl ones with
+          # cargo-zigbuild.
+          all='[
+            {"host":"macos-latest","target":"x86_64-apple-darwin"},
+            {"host":"macos-latest","target":"aarch64-apple-darwin"},
+            {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","use-cross":true},
+            {"host":"ubuntu-latest","target":"x86_64-unknown-linux-musl","use-zig":true},
+            {"host":"ubuntu-latest","target":"aarch64-unknown-linux-gnu","use-cross":true},
+            {"host":"ubuntu-latest","target":"aarch64-unknown-linux-musl","use-zig":true},
+            {"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
+            {"host":"windows-latest","target":"aarch64-pc-windows-msvc"}
+          ]'
+          settings=$(jq -c --argjson targets "${TARGETS:-null}" '
+            if $targets == null then .
+            elif $targets == [] then error("No targets to build")
+            else
+              ($targets - map(.target)) as $unknown
+              | if $unknown != [] then error("Unknown targets: \($unknown | join(", "))")
+                else map(select(.target | IN($targets[])))
+                end
+            end' <<< "$all")
+          echo "settings=$settings" >> "$GITHUB_OUTPUT"
+          jq . <<< "$settings"
+
+  build:
+    name: ${{ matrix.settings.target }}
+    needs: [targets]
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        settings: ${{ fromJSON(needs.targets.outputs.settings) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      # package-manager-cache is set explicitly, in case a later setup-node
+      # release starts caching pnpm by default.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ inputs.cache && 'pnpm' || '' }}
+          package-manager-cache: ${{ inputs.cache }}
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+      - if: inputs.cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: build-${{ matrix.settings.target }}
+
+      # The only install scripts pnpm would run set up the lefthook git hooks,
+      # which a build does not need.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install cargo-zigbuild
+        if: matrix.settings.use-zig
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-zigbuild@0.23.4
+          fallback: none
+
+      - name: Install Zig
+        if: matrix.settings.use-zig
+        run: pip3 install ziglang==0.16.0
+
+      - name: Build native
+        run: >-
+          pnpm build
+          --target ${{ matrix.settings.target }}
+          ${{ matrix.settings.use-cross && '--use-napi-cross' || '' }}
+          ${{ matrix.settings.use-zig && '--cross-compile' || '' }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: comprs.*.node
+          if-no-files-found: error
