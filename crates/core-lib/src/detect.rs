@@ -96,6 +96,8 @@ fn is_brotli(data: &[u8]) -> bool {
         StandardAlloc::default(),
         StandardAlloc::default(),
     );
+    // Probe RFC 7932 streams only: see `crate::brotli::reject_large_window`.
+    state.large_window = false;
     let mut output = [0; crate::brotli::BUFFER_SIZE];
     let mut available_in = input.len();
     let mut input_offset = 0;
@@ -195,6 +197,15 @@ mod tests {
         encoder.write_all(b"test data for lz4").unwrap();
         encoder.finish().unwrap();
         assert_eq!(detect(&compressed), Format::Lz4);
+    }
+
+    #[test]
+    fn detect_does_not_take_large_window_brotli_for_brotli() {
+        // The probe would otherwise reserve the declared window, up to 1 GiB,
+        // for input that every brotli function of comprs rejects.
+        let compressed = crate::brotli::compress_large_window(&text(1000), 30);
+        assert_eq!(detect(&compressed), Format::Unknown);
+        assert!(decompress(&compressed).is_err());
     }
 
     #[test]
