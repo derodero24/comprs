@@ -54,7 +54,12 @@
 
 ### Minor Changes
 
-- 673c726: Performance improvements: gzip ISIZE buffer pre-allocation, zstd multi-threaded compression (zstdmt), streaming buffer reuse
+- 673c726: Performance improvements: gzip ISIZE buffer pre-allocation, zstd
+  multi-threaded compression (zstdmt; corrected: libzstd is built with
+  multi-threading support, but nothing enables its worker threads, so zstd
+  compression runs on one thread, see
+  [#561](https://github.com/derodero24/comprs/issues/561)), streaming buffer
+  reuse
 
 ## 1.0.1
 
