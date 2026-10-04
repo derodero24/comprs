@@ -186,6 +186,18 @@ pnpm --dir e2e run test:browser       # --project=chromium for one browser
 
 The fixtures use the installed copy of the package, not the working tree: run `node e2e/install-package.mjs` again after changing the package, and the steps before it after rebuilding it.
 
+## Playground
+
+`playground/` is the site that the Playground workflow deploys to GitHub Pages. Like `e2e/`, it is a pnpm project of its own, and it imports `@derodero24/comprs` by name, through a `file:..` dependency that installs the package from the working tree with the files it would publish. It loads the WebAssembly build: build that first, and install the playground's dependencies again after each build, as the installed package holds the files that existed at install time, which a rebuild does not always update.
+
+```bash
+pnpm run build:wasm-bindgen
+pnpm --dir playground install --frozen-lockfile
+pnpm --dir playground run dev         # or build, into playground/dist
+```
+
+Without the WebAssembly build, the dev server and the build fail. To work on the UI without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
+
 ## Pull request checklist
 
 - [ ] Tests pass (`pnpm test` and `cargo test`)

@@ -163,21 +163,6 @@
       }
     },
     {
-      "includes": ["playground/public/coi-serviceworker.js"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noConsole": "off",
-            "useIterableCallbackReturn": "off"
-          },
-          "complexity": {
-            "noForEach": "off",
-            "useOptionalChain": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["index.mjs", "index.d.mts"],
       "linter": {
         "rules": {
