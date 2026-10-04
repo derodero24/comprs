@@ -478,6 +478,8 @@ The entry module fetches and instantiates the WebAssembly binary with top-level 
 | esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle. |
 | No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js", "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js" } }</script>` |
 
+To import comprs in a web worker that Vite bundles, also set `worker: { format: 'es' }` and create the worker with `{ type: 'module' }`: Vite's default worker format, `'iife'`, does not support top-level `await`.
+
 Serve `.wasm` files as `application/wasm`, which lets the browser compile the binary while it downloads; with another type, it falls back to slower compilation and logs a warning.
 
 The Web Streams helpers of `@derodero24/comprs/streams` have a browser build as well, on the same WebAssembly module. Import them from that subpath: unlike the ES module entry of Node.js, the browser entry does not re-export them.
