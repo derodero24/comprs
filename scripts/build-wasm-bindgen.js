@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { execSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const { cpSync, rmSync, existsSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 
@@ -25,10 +25,13 @@ if (existsSync(OUT_DIR)) {
 }
 
 console.log('Building wasm-bindgen package...');
-execSync(`wasm-pack build ${WASM_CRATE} --target web --out-dir ${OUT_DIR} --out-name comprs-wasm`, {
-  stdio: 'inherit',
-  cwd: ROOT,
-});
+// The arguments are passed without a shell, so paths with spaces or shell
+// metacharacters reach wasm-pack unchanged.
+execFileSync(
+  'wasm-pack',
+  ['build', WASM_CRATE, '--target', 'web', '--out-dir', OUT_DIR, '--out-name', 'comprs-wasm'],
+  { stdio: 'inherit', cwd: ROOT },
+);
 
 // Copy the glue, its declarations and the binary next to the browser entry.
 // The glue's declarations describe the raw module exports as well
