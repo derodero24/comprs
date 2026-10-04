@@ -159,10 +159,6 @@ impl MemoryUsage for DecompressContext {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use lz4_flex::frame::FrameDecoder;
-
     use super::*;
 
     #[test]
@@ -344,39 +340,5 @@ mod tests {
             err.to_string(),
             "lz4 stream decompress failed: unexpected data after the end of a frame"
         );
-    }
-
-    #[test]
-    fn stream_round_trip() {
-        let original = b"Hello, LZ4 streaming! ".repeat(100);
-
-        // Compress
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        for chunk in original.chunks(256) {
-            encoder.write_all(chunk).unwrap();
-        }
-        encoder.finish().unwrap();
-
-        // Decompress
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn stream_empty_input() {
-        let mut compressed = Vec::new();
-        let encoder = FrameEncoder::new(&mut compressed);
-        encoder.finish().unwrap();
-
-        assert!(!compressed.is_empty());
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert!(decompressed.is_empty());
     }
 }

@@ -319,78 +319,20 @@ fn corrupt_deflate_stream() -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use flate2::read::DeflateDecoder;
-
     use super::*;
 
     #[test]
-    fn gzip_round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of gzip compression.";
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn gzip_round_trip_empty() {
-        let original = b"";
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn gzip_round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original, decompressed);
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
-    fn gzip_compression_levels() {
+    fn compression_levels() {
         let data = b"Repeating data for compression level testing. ".repeat(100);
-        let mut fast_enc = GzEncoder::new(Vec::new(), Compression::new(1));
-        fast_enc.write_all(&data).unwrap();
-        let fast = fast_enc.finish().unwrap();
-
-        let mut best_enc = GzEncoder::new(Vec::new(), Compression::new(9));
-        best_enc.write_all(&data).unwrap();
-        let best = best_enc.finish().unwrap();
-
-        assert!(best.len() <= fast.len());
-    }
-
-    #[test]
-    fn deflate_round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of deflate compression.";
-        let mut encoder =
-            flate2::write::DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = DeflateDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
+        let compressed = [0, 1, 9].map(|level| compress(&data, Some(level)).unwrap());
+        for output in &compressed {
+            assert_eq!(decompress(output).unwrap(), data);
+        }
+        let [stored, fast, best] = compressed.map(|output| output.len());
+        // Level 0 stores the data without compressing it.
+        assert!(stored > data.len(), "{stored} bytes");
+        assert!(fast < data.len() / 10, "{fast} bytes");
+        assert!(best <= fast, "{best} bytes at level 9, {fast} at level 1");
     }
 
     #[test]
@@ -424,157 +366,6 @@ mod tests {
             err.to_string(),
             "deflate compression level must be an integer between 0 and 9"
         );
-    }
-
-    #[test]
-    fn gzip_take_read_to_end_within_limit() {
-        let original = b"Hello, size-limited gzip!";
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        decoder.take(1025).read_to_end(&mut output).unwrap();
-        assert_eq!(original.as_slice(), output.as_slice());
-    }
-
-    #[test]
-    fn gzip_take_read_to_end_exceeds_limit() {
-        let limit: usize = 1024;
-        let original: Vec<u8> = vec![0u8; limit + 1];
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        decoder
-            .take((limit as u64).saturating_add(1))
-            .read_to_end(&mut output)
-            .unwrap();
-        assert!(
-            output.len() > limit,
-            "Take should allow reading past the limit to detect overflow"
-        );
-    }
-
-    #[test]
-    fn gzip_take_read_to_end_exact_boundary() {
-        let original = vec![42u8; 1024];
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = MultiGzDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        decoder.take(1025).read_to_end(&mut output).unwrap();
-        assert_eq!(original, output);
-    }
-
-    #[test]
-    fn deflate_take_read_to_end_within_limit() {
-        let original = b"Hello, size-limited deflate!";
-        let mut encoder =
-            flate2::write::DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = DeflateDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        decoder.take(1025).read_to_end(&mut output).unwrap();
-        assert_eq!(original.as_slice(), output.as_slice());
-    }
-
-    #[test]
-    fn deflate_take_read_to_end_exceeds_limit() {
-        let limit: usize = 1024;
-        let original: Vec<u8> = vec![0u8; limit + 1];
-        let mut encoder =
-            flate2::write::DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = DeflateDecoder::new(compressed.as_slice());
-        let mut output = Vec::new();
-        decoder
-            .take((limit as u64).saturating_add(1))
-            .read_to_end(&mut output)
-            .unwrap();
-        assert!(
-            output.len() > limit,
-            "Take should allow reading past the limit to detect overflow"
-        );
-    }
-
-    #[test]
-    fn deflate_round_trip_empty() {
-        let original = b"";
-        let mut encoder =
-            flate2::write::DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let mut decoder = DeflateDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn gzip_concatenated_round_trip() {
-        let part_a = b"Hello";
-        let part_b = b" World";
-
-        let mut enc_a = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        enc_a.write_all(part_a).unwrap();
-        let compressed_a = enc_a.finish().unwrap();
-
-        let mut enc_b = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        enc_b.write_all(part_b).unwrap();
-        let compressed_b = enc_b.finish().unwrap();
-
-        let mut concatenated = compressed_a;
-        concatenated.extend_from_slice(&compressed_b);
-
-        let mut decoder = MultiGzDecoder::new(concatenated.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(b"Hello World", decompressed.as_slice());
-    }
-
-    #[test]
-    fn gzip_compress_with_header_filename() {
-        let original = b"Hello, gzip header!";
-        let mut encoder = GzBuilder::new()
-            .filename("hello.txt")
-            .write(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = GzDecoder::new(compressed.as_slice());
-        let header = decoder.header().expect("header should be present");
-        assert_eq!(
-            header
-                .filename()
-                .map(|b| String::from_utf8_lossy(b).into_owned()),
-            Some("hello.txt".to_string())
-        );
-    }
-
-    #[test]
-    fn gzip_compress_with_header_mtime() {
-        let original = b"Mtime test";
-        let mtime_val: u32 = 1_700_000_000;
-        let mut encoder = GzBuilder::new()
-            .mtime(mtime_val)
-            .write(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = GzDecoder::new(compressed.as_slice());
-        let header = decoder.header().expect("header should be present");
-        assert_eq!(header.mtime(), mtime_val);
     }
 
     /// Options with only `filename` set.
@@ -618,27 +409,6 @@ mod tests {
                 "gzip filename must be at most 65535 bytes long"
             );
         }
-    }
-
-    #[test]
-    fn gzip_read_header_default() {
-        let original = b"default header";
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let decoder = GzDecoder::new(compressed.as_slice());
-        let header = decoder.header().expect("header should be present");
-        assert_eq!(header.mtime(), 0);
-        assert!(header.filename().is_none());
-        assert!(header.comment().is_none());
-    }
-
-    #[test]
-    fn gzip_read_header_invalid_data() {
-        let invalid = b"not gzip data";
-        let decoder = GzDecoder::new(invalid.as_slice());
-        assert!(decoder.header().is_none());
     }
 
     #[test]

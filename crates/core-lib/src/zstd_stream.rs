@@ -449,8 +449,6 @@ fn reserve(buf: &mut Vec<u8>, capacity: usize, context: &'static str) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use zstd::stream::raw::Operation;
-
     use super::*;
 
     /// Decompression limit used by the size-limit tests.
@@ -777,79 +775,6 @@ mod tests {
         let mut output = ctx.transform(&compressed).unwrap();
         output.extend(ctx.flush().unwrap());
         assert_eq!(output, data);
-    }
-
-    #[test]
-    fn stream_round_trip() {
-        let original = b"Hello, comprs streaming! ".repeat(100);
-
-        // Compress in chunks
-        let mut encoder = zstd::stream::raw::Encoder::new(DEFAULT_LEVEL).unwrap();
-        let mut compressed = Vec::new();
-
-        for chunk in original.chunks(256) {
-            let mut in_buf = InBuffer::around(chunk);
-            while in_buf.pos() < in_buf.src.len() {
-                let mut out = vec![0u8; 1024];
-                let mut out_buf = OutBuffer::around(&mut out);
-                encoder.run(&mut in_buf, &mut out_buf).unwrap();
-                let written = out_buf.pos();
-                compressed.extend_from_slice(&out[..written]);
-            }
-        }
-
-        // Finish the frame
-        loop {
-            let mut out = vec![0u8; 1024];
-            let mut out_buf = OutBuffer::around(&mut out);
-            let remaining = encoder.finish(&mut out_buf, true).unwrap();
-            let written = out_buf.pos();
-            compressed.extend_from_slice(&out[..written]);
-            if remaining == 0 {
-                break;
-            }
-        }
-
-        // Decompress in chunks
-        let mut decoder = zstd::stream::raw::Decoder::new().unwrap();
-        let mut decompressed = Vec::new();
-
-        for chunk in compressed.chunks(64) {
-            let mut in_buf = InBuffer::around(chunk);
-            while in_buf.pos() < in_buf.src.len() {
-                let mut out = vec![0u8; 1024];
-                let mut out_buf = OutBuffer::around(&mut out);
-                decoder.run(&mut in_buf, &mut out_buf).unwrap();
-                let written = out_buf.pos();
-                decompressed.extend_from_slice(&out[..written]);
-            }
-        }
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn stream_empty_input() {
-        let mut encoder = zstd::stream::raw::Encoder::new(DEFAULT_LEVEL).unwrap();
-
-        // Finish immediately (empty frame)
-        let mut compressed = Vec::new();
-        loop {
-            let mut out = vec![0u8; 1024];
-            let mut out_buf = OutBuffer::around(&mut out);
-            let remaining = encoder.finish(&mut out_buf, true).unwrap();
-            let written = out_buf.pos();
-            compressed.extend_from_slice(&out[..written]);
-            if remaining == 0 {
-                break;
-            }
-        }
-
-        // Should produce a valid (empty) zstd frame
-        assert!(!compressed.is_empty());
-
-        let decompressed = zstd::bulk::decompress(&compressed, 1024).unwrap();
-        assert!(decompressed.is_empty());
     }
 
     #[test]

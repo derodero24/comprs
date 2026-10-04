@@ -750,67 +750,46 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of zstd compression.";
-        let compressed = zstd::bulk::compress(original, DEFAULT_LEVEL).unwrap();
-        let decompressed = zstd::bulk::decompress(&compressed, original.len()).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_empty() {
-        let original = b"";
-        let compressed = zstd::bulk::compress(original, DEFAULT_LEVEL).unwrap();
-        let decompressed = zstd::bulk::decompress(&compressed, 1024).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let compressed = zstd::bulk::compress(&original, DEFAULT_LEVEL).unwrap();
-        let decompressed = zstd::bulk::decompress(&compressed, original.len()).unwrap();
-        assert_eq!(original, decompressed);
-        // Compression should actually reduce size for repetitive data
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
     fn compression_levels() {
-        let data = b"Repeating data for compression level testing. ".repeat(100);
-        let fast = zstd::bulk::compress(&data, 1).unwrap();
-        let default = zstd::bulk::compress(&data, DEFAULT_LEVEL).unwrap();
-        let best = zstd::bulk::compress(&data, 19).unwrap();
-
-        // Higher levels should generally produce smaller output
-        assert!(best.len() <= default.len());
-        assert!(default.len() <= fast.len());
-    }
-
-    #[test]
-    fn level_zero_uses_default() {
-        let data = b"Level zero test data. ".repeat(50);
-        let with_zero = zstd::bulk::compress(&data, 0).unwrap();
-        let decompressed = zstd::bulk::decompress(&with_zero, data.len()).unwrap();
-        assert_eq!(data.as_slice(), decompressed.as_slice());
+        let data = json_lines(100_000);
+        let size = |level| {
+            let compressed = compress(&data, Some(level)).unwrap();
+            assert_eq!(decompress(&compressed).unwrap(), data, "level {level}");
+            compressed.len()
+        };
+        let fast = size(1);
+        let default = size(DEFAULT_LEVEL);
+        let best = size(19);
+        // Levels close to each other may swap places on some data.
+        assert!(best <= default, "{best} bytes at level 19, {default} at 3");
+        assert!(best < fast, "{best} bytes at level 19, {fast} at 1");
     }
 
     #[test]
     fn negative_levels() {
-        let data = b"Negative level test data. ".repeat(50);
-        for level in [-1, -7, -50] {
-            let compressed = zstd::bulk::compress(&data, level).unwrap();
-            let decompressed = zstd::bulk::decompress(&compressed, data.len()).unwrap();
-            assert_eq!(data.as_slice(), decompressed.as_slice());
+        let data = json_lines(100_000);
+        let mut sizes = Vec::new();
+        for level in [1, -1, -7, -50] {
+            let compressed = compress(&data, Some(level)).unwrap();
+            assert_eq!(decompress(&compressed).unwrap(), data, "level {level}");
+            sizes.push(compressed.len());
         }
+        // Negative levels trade compression for speed, more so the lower
+        // they are.
+        assert!(sizes.is_sorted(), "{sizes:?}");
+        assert!(sizes[3] > sizes[0], "{sizes:?}");
     }
 
     #[test]
     fn level_22_max_standard() {
         let data = b"Max level test data. ".repeat(50);
-        let compressed = zstd::bulk::compress(&data, 22).unwrap();
-        let decompressed = zstd::bulk::decompress(&compressed, data.len()).unwrap();
-        assert_eq!(data.as_slice(), decompressed.as_slice());
+        let compressed = compress(&data, Some(22)).unwrap();
+        assert_eq!(decompress(&compressed).unwrap(), data);
+        let compressed = compress_with_dict(&data, b"Max level", Some(22)).unwrap();
+        assert_eq!(
+            decompress_with_dict(&compressed, b"Max level").unwrap(),
+            data
+        );
     }
 
     #[test]
@@ -829,19 +808,28 @@ mod tests {
             })
             .collect();
 
-        let dict = zstd::dict::from_samples(&samples, DEFAULT_MAX_DICT_SIZE).unwrap();
+        let dict = train_dictionary(&samples, DEFAULT_MAX_DICT_SIZE).unwrap();
         assert!(!dict.is_empty());
+        assert!(dict.len() <= DEFAULT_MAX_DICT_SIZE);
 
-        // Compress and decompress with dictionary
         let original = br#"{"id":999,"name":"test_user","email":"test@example.com","active":true}"#;
-        let mut compressor = zstd::bulk::Compressor::with_dictionary(DEFAULT_LEVEL, &dict).unwrap();
-        let compressed = compressor.compress(original).unwrap();
+        let compressed = compress_with_dict(original, &dict, None).unwrap();
+        assert_eq!(decompress_with_dict(&compressed, &dict).unwrap(), original);
+        assert_eq!(
+            decompress_with_dict_with_capacity(&compressed, &dict, original.len()).unwrap(),
+            original
+        );
 
-        let mut decompressor = zstd::bulk::Decompressor::with_dictionary(&dict).unwrap();
-        let decompressed = decompressor
-            .decompress(&compressed, original.len())
-            .unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
+        // The trained dictionary makes a short message smaller, and the frame
+        // names it: it does not decode without the dictionary.
+        let plain = compress(original, None).unwrap();
+        assert!(
+            compressed.len() < plain.len(),
+            "{} bytes with the dictionary, {} without",
+            compressed.len(),
+            plain.len()
+        );
+        assert!(decompress(&compressed).is_err());
     }
 
     #[test]
