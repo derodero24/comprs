@@ -1,5 +1,7 @@
 //! Zstandard streaming compression and decompression.
 
+use std::borrow::BorrowMut;
+
 use zstd::stream::raw::{InBuffer, OutBuffer};
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx};
 
@@ -295,7 +297,7 @@ impl StreamEncoder {
 /// Exceeding `max_output_size` fails with [`ComprsError::SizeLimit`] and
 /// `context`, which also prefixes decoder errors.
 pub(crate) fn decompress_all(
-    decoder: DCtx<'static>,
+    decoder: &mut DCtx<'static>,
     input: &[u8],
     max_output_size: usize,
     initial_capacity: usize,
@@ -310,10 +312,10 @@ pub(crate) fn decompress_all(
 }
 
 /// Decoder state shared by [`DecompressContext`], [`DecompressDictContext`]
-/// and [`decompress_all`].
-struct StreamDecoder {
+/// and [`decompress_all`], which borrows its decoder.
+struct StreamDecoder<D: BorrowMut<DCtx<'static>> = DCtx<'static>> {
     /// `None` once the stream is finished.
-    decoder: Option<DCtx<'static>>,
+    decoder: Option<D>,
     output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
@@ -324,8 +326,8 @@ struct StreamDecoder {
     frame_complete: bool,
 }
 
-impl StreamDecoder {
-    fn new(decoder: DCtx<'static>, max_output_size: usize, limit_context: &'static str) -> Self {
+impl<D: BorrowMut<DCtx<'static>>> StreamDecoder<D> {
+    fn new(decoder: D, max_output_size: usize, limit_context: &'static str) -> Self {
         Self {
             decoder: Some(decoder),
             output_buf: Vec::new(),
@@ -359,7 +361,8 @@ impl StreamDecoder {
         let decoder = self
             .decoder
             .as_mut()
-            .ok_or(ComprsError::StreamFinished("zstd stream"))?;
+            .ok_or(ComprsError::StreamFinished("zstd stream"))?
+            .borrow_mut();
 
         let remaining = self.max_output_size - self.total_output;
         let max_capacity = remaining.saturating_add(1);
@@ -424,7 +427,9 @@ impl StreamDecoder {
         }
         Ok(output)
     }
+}
 
+impl StreamDecoder {
     /// The memory of the decoder, including the window and the input buffer
     /// that it allocates for the first frame, and of the output buffer.
     fn memory_usage(&self) -> usize {

@@ -667,6 +667,9 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 > **Stream context memory**: the stream contexts (`ZstdCompressContext`, `GzipDecompressContext` and so on, which the streams use) keep their encoder or decoder state in native memory: up to a few hundred kilobytes for gzip, deflate and LZ4, several megabytes for zstd and brotli, and far more at high levels (about 90 MB for zstd level 19). They report it to V8, so that the garbage collector frees abandoned contexts in time. `finish()` releases it right away, and so does `close()` for a context that will not be finished; later calls throw `<format> stream already closed`. Contexts are disposable, so `using ctx = new ZstdCompressContext()` closes the context at the end of the scope. The Web streams and Node.js Transforms close their context when they end, fail, or are cancelled or destroyed. Closing a cancelled Web stream relies on the `cancel()` hook of `TransformStream` transformers, which Node.js supports; runtimes without it, such as Bun 1.3, leave the context to the garbage collector.
 
 > [!NOTE]
+> **One-shot zstd contexts**: `zstdCompress()`, `zstdDecompress()`, `zstdDecompressWithCapacity()` and their `*Async` variants, and `decompress()` for zstd input, keep one compression and one decompression context per thread instead of creating one per call (the calling thread for the synchronous functions, the libuv pool threads for `*Async`), which makes small calls several times faster. A thread keeps a context only while it holds at most 8 MiB, so a large or high-level call does not leave its workspace behind; this memory is not reported to V8. The dictionary functions create a context per call.
+
+> [!NOTE]
 > **Small payloads on WASM**: For data under ~1 KB, the WASM runtime overhead may exceed compression time. Consider batching small items or using the native Node.js backend where possible.
 
 > [!NOTE]
