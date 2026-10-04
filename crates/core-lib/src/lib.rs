@@ -1,5 +1,6 @@
 #![deny(clippy::all)]
 
+mod args;
 pub mod brotli;
 pub mod brotli_stream;
 pub mod crc;
@@ -13,44 +14,11 @@ pub mod lz4_stream;
 pub mod zstd;
 pub mod zstd_stream;
 
+pub use args::{IntArg, validate_capacity, validate_max_output_size};
 pub use error::ComprsError;
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 pub const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
-
-/// Validate a capacity parameter.
-///
-/// JavaScript numbers are f64, but capacity must be a non-negative integer
-/// that fits in usize. Rejects NaN, Infinity, negative, fractional, and
-/// values exceeding usize::MAX.
-pub fn validate_capacity(capacity: f64) -> Result<usize, ComprsError> {
-    if !capacity.is_finite()
-        || capacity < 0.0
-        || capacity.fract() != 0.0
-        || capacity > usize::MAX as f64
-    {
-        return Err(ComprsError::InvalidArg(
-            "capacity must be a non-negative integer".to_string(),
-        ));
-    }
-    Ok(capacity as usize)
-}
-
-/// Validate and return the max output size, defaulting to MAX_DECOMPRESSED_SIZE.
-pub fn validate_max_output_size(max_output_size: Option<f64>) -> Result<usize, ComprsError> {
-    match max_output_size {
-        None => Ok(MAX_DECOMPRESSED_SIZE),
-        Some(size) => {
-            if !size.is_finite() || size < 0.0 {
-                Err(ComprsError::InvalidArg(
-                    "maxOutputSize must be a positive finite number".to_string(),
-                ))
-            } else {
-                Ok(size as usize)
-            }
-        }
-    }
-}
 
 /// Reject empty input to a decompressor: no supported format has a valid
 /// zero-length encoding, so empty input is treated as truncated.

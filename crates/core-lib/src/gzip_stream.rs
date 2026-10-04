@@ -6,7 +6,7 @@ use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
 
 use crate::ComprsError;
-use crate::gzip::Inflater;
+use crate::gzip::{DEFLATE_LEVEL, Inflater, LEVEL};
 use crate::limited::LimitedVec;
 
 /// Default compression level for gzip/deflate (same as zlib default).
@@ -19,12 +19,7 @@ pub struct GzipCompressContext {
 
 impl GzipCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self, ComprsError> {
-        let level = level.unwrap_or(DEFAULT_LEVEL);
-        if level > 9 {
-            return Err(ComprsError::InvalidArg(
-                "gzip compression level must be between 0 and 9".to_string(),
-            ));
-        }
+        let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = GzEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
             encoder: Some(encoder),
@@ -154,12 +149,7 @@ pub struct DeflateCompressContext {
 
 impl DeflateCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self, ComprsError> {
-        let level = level.unwrap_or(DEFAULT_LEVEL);
-        if level > 9 {
-            return Err(ComprsError::InvalidArg(
-                "deflate compression level must be between 0 and 9".to_string(),
-            ));
-        }
+        let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
             encoder: Some(encoder),
@@ -282,7 +272,10 @@ mod tests {
     use flate2::read::GzDecoder as GzReadDecoder;
     use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder};
 
-    use super::{DeflateDecompressContext, GzipDecompressContext};
+    use super::{
+        DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
+        GzipDecompressContext,
+    };
     use crate::ComprsError;
 
     const DEFAULT_LEVEL: u32 = 6;
@@ -521,12 +514,22 @@ mod tests {
 
     #[test]
     fn gzip_stream_rejects_level_above_9() {
-        let _ = GzEncoder::new(Vec::new(), Compression::new(9));
+        assert!(GzipCompressContext::new(Some(9)).is_ok());
+        let err = GzipCompressContext::new(Some(10)).err().unwrap();
+        assert_eq!(
+            err.to_string(),
+            "gzip compression level must be an integer between 0 and 9"
+        );
     }
 
     #[test]
     fn deflate_stream_rejects_level_above_9() {
-        let _ = DeflateEncoder::new(Vec::new(), Compression::new(9));
+        assert!(DeflateCompressContext::new(Some(9)).is_ok());
+        let err = DeflateCompressContext::new(Some(10)).err().unwrap();
+        assert_eq!(
+            err.to_string(),
+            "deflate compression level must be an integer between 0 and 9"
+        );
     }
 
     #[test]

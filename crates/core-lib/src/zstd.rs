@@ -3,10 +3,19 @@
 use zstd::stream::raw::Decoder;
 use zstd::zstd_safe;
 
-use crate::ComprsError;
+use crate::{ComprsError, IntArg};
 
 /// Default compression level for zstd (same as the C library default).
 pub const DEFAULT_LEVEL: i32 = 3;
+
+/// zstd compression levels: negative levels for fast mode down to -131072
+/// (`ZSTD_minCLevel()`), and 1 (fastest) to 22 (best compression). Level 0
+/// selects [`DEFAULT_LEVEL`].
+pub const LEVEL: IntArg<i32> = IntArg {
+    name: "zstd compression level",
+    min: -131072,
+    max: 22,
+};
 
 /// Default maximum dictionary size (110 KB, zstd default).
 pub const DEFAULT_MAX_DICT_SIZE: usize = 110 * 1024;
@@ -20,18 +29,20 @@ pub const DEFAULT_MAX_DICT_SIZE: usize = 110 * 1024;
 /// WASM address spaces.
 pub const MAX_DICT_SIZE: usize = 16 * 1024 * 1024;
 
+/// The `max_dict_size` of [`train_dictionary`]: at most [`MAX_DICT_SIZE`].
+pub const DICT_SIZE: IntArg<usize> = IntArg {
+    name: "maxDictSize",
+    min: 0,
+    max: MAX_DICT_SIZE,
+};
+
 /// The most that a zstd frame can expand: a 4-byte RLE block (a 3-byte block
 /// header and the byte to repeat) decodes to at most 128 KiB.
 const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 
 /// Compress data using Zstandard.
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
-    let level = level.unwrap_or(DEFAULT_LEVEL);
-    if !(-131072..=22).contains(&level) {
-        return Err(ComprsError::InvalidArg(
-            "zstd compression level must be between -131072 and 22".to_string(),
-        ));
-    }
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
     zstd::bulk::compress(data, level).map_err(|e| ComprsError::Operation {
         context: "zstd compress",
@@ -59,11 +70,7 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 ///
 /// `max_dict_size` must not exceed [`MAX_DICT_SIZE`].
 pub fn train_dictionary(samples: &[Vec<u8>], max_dict_size: usize) -> Result<Vec<u8>, ComprsError> {
-    if max_dict_size > MAX_DICT_SIZE {
-        return Err(ComprsError::InvalidArg(format!(
-            "maxDictSize must be at most {MAX_DICT_SIZE} bytes"
-        )));
-    }
+    let max_dict_size = DICT_SIZE.check(max_dict_size)?;
     zstd::dict::from_samples(samples, max_dict_size).map_err(|e| ComprsError::Operation {
         context: "zstd dictionary training",
         source: e.into(),
@@ -76,12 +83,7 @@ pub fn compress_with_dict(
     dict: &[u8],
     level: Option<i32>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let level = level.unwrap_or(DEFAULT_LEVEL);
-    if !(-131072..=22).contains(&level) {
-        return Err(ComprsError::InvalidArg(
-            "zstd compression level must be between -131072 and 22".to_string(),
-        ));
-    }
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 
     let mut compressor = zstd::bulk::Compressor::with_dictionary(level, dict).map_err(|e| {
         ComprsError::Operation {
@@ -526,7 +528,7 @@ mod tests {
             assert!(matches!(err, ComprsError::InvalidArg(_)));
             assert_eq!(
                 err.to_string(),
-                "maxDictSize must be at most 16777216 bytes"
+                "maxDictSize must be an integer between 0 and 16777216"
             );
         }
         assert!(train_dictionary(&samples, MAX_DICT_SIZE).is_ok());
@@ -630,8 +632,12 @@ mod tests {
     #[test]
     fn compress_validates_level() {
         let data = b"test";
-        assert!(compress(data, Some(23)).is_err());
-        assert!(compress(data, Some(-131073)).is_err());
+        for level in [23, -131073] {
+            assert_eq!(
+                compress(data, Some(level)).unwrap_err().to_string(),
+                "zstd compression level must be an integer between -131072 and 22"
+            );
+        }
         assert!(compress(data, Some(22)).is_ok());
         assert!(compress(data, Some(-131072)).is_ok());
     }

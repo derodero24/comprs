@@ -2,10 +2,17 @@
 
 use std::io::Write;
 
-use crate::ComprsError;
+use crate::{ComprsError, IntArg};
 
 /// Default compression quality for brotli.
 pub const DEFAULT_QUALITY: u32 = 6;
+
+/// Brotli qualities: 0 (fastest) to 11 (best compression).
+pub const QUALITY: IntArg<u32> = IntArg {
+    name: "brotli quality",
+    min: 0,
+    max: 11,
+};
 
 /// Default buffer size for brotli operations.
 pub const BUFFER_SIZE: usize = 4096;
@@ -15,12 +22,7 @@ pub const LG_WINDOW_SIZE: u32 = 22;
 
 /// Compress data using Brotli.
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(ComprsError::InvalidArg(
-            "brotli quality must be between 0 and 11".to_string(),
-        ));
-    }
+    let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
 
     let mut output = Vec::with_capacity(data.len());
     {
@@ -65,12 +67,7 @@ pub fn compress_with_dict(
     dict: &[u8],
     quality: Option<u32>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let quality = quality.unwrap_or(DEFAULT_QUALITY);
-    if quality > 11 {
-        return Err(ComprsError::InvalidArg(
-            "brotli quality must be between 0 and 11".to_string(),
-        ));
-    }
+    let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
 
     compress_with_dict_inner(input, dict, quality).map_err(|e| ComprsError::Operation {
         context: "brotli compress with dict",
@@ -289,7 +286,10 @@ mod tests {
 
     #[test]
     fn compress_validates_quality() {
-        assert!(compress(b"test", Some(12)).is_err());
+        assert_eq!(
+            compress(b"test", Some(12)).unwrap_err().to_string(),
+            "brotli quality must be an integer between 0 and 11"
+        );
         assert!(compress(b"test", Some(11)).is_ok());
     }
 

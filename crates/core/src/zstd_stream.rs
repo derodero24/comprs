@@ -17,7 +17,10 @@ pub struct ZstdCompressContext {
 #[napi]
 impl ZstdCompressContext {
     #[napi(constructor)]
-    pub fn new(level: Option<i32>) -> Result<Self> {
+    pub fn new(level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::zstd_stream::CompressContext::new(level).map_err(to_napi_error)?,
         })
@@ -103,7 +106,10 @@ pub struct ZstdCompressDictContext {
 #[napi]
 impl ZstdCompressDictContext {
     #[napi(constructor)]
-    pub fn new(dict: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Self> {
+    pub fn new(dict: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
             inner: comprs_core::zstd_stream::CompressDictContext::new(
                 crate::as_bytes(&dict),
