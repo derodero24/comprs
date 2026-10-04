@@ -6,6 +6,9 @@ import type { Transform } from 'node:stream';
  * Uses Node.js `stream.Transform` to provide chunked compression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
 export declare function createZstdCompressTransform(level?: number): Transform;
@@ -19,6 +22,9 @@ export declare function createZstdCompressTransform(level?: number): Transform;
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createZstdDecompressTransform(maxOutputSize?: number): Transform;
@@ -29,6 +35,9 @@ export declare function createZstdDecompressTransform(maxOutputSize?: number): T
  * Uses Node.js `stream.Transform` to provide chunked gzip compression compatible
  * with `stream.pipeline()` and pipe-based workflows.
  * Produces spec-compliant gzip output with proper header and CRC32 footer.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -44,6 +53,9 @@ export declare function createGzipCompressTransform(level?: number): Transform;
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createGzipDecompressTransform(maxOutputSize?: number): Transform;
@@ -53,6 +65,9 @@ export declare function createGzipDecompressTransform(maxOutputSize?: number): T
  *
  * Uses Node.js `stream.Transform` to provide chunked raw deflate compression
  * (no gzip header/footer) compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -67,6 +82,9 @@ export declare function createDeflateCompressTransform(level?: number): Transfor
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createDeflateDecompressTransform(maxOutputSize?: number): Transform;
@@ -76,6 +94,9 @@ export declare function createDeflateDecompressTransform(maxOutputSize?: number)
  *
  * Uses Node.js `stream.Transform` to provide chunked brotli compression compatible
  * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param quality Compression quality (0-11). Default is 6.
  */
@@ -90,6 +111,9 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createBrotliDecompressTransform(maxOutputSize?: number): Transform;
@@ -99,6 +123,9 @@ export declare function createBrotliDecompressTransform(maxOutputSize?: number):
  *
  * Uses Node.js `stream.Transform` to provide chunked LZ4 compression compatible
  * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  */
 export declare function createLz4CompressTransform(): Transform;
 
@@ -113,6 +140,9 @@ export declare function createLz4CompressTransform(): Transform;
  * frame, including empty input, or if data that is not a frame follows a
  * frame.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createLz4DecompressTransform(maxOutputSize?: number): Transform;
@@ -122,6 +152,9 @@ export declare function createLz4DecompressTransform(maxOutputSize?: number): Tr
  *
  * Uses Node.js `stream.Transform` to provide chunked compression with a pre-trained
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
@@ -140,6 +173,9 @@ export declare function createZstdCompressDictTransform(
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
  *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
 export declare function createZstdDecompressDictTransform(
@@ -152,6 +188,9 @@ export declare function createZstdDecompressDictTransform(
  *
  * Uses Node.js `stream.Transform` to provide chunked compression with a custom
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param dict Custom dictionary bytes.
  * @param quality Compression quality (0-11). Default is 6.
@@ -169,6 +208,9 @@ export declare function createBrotliCompressDictTransform(
  *
  * The transform emits an error if the input ends before the compressed stream
  * does, including empty input.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
@@ -192,6 +234,9 @@ export declare function createBrotliDecompressDictTransform(
  *
  * The transform emits an error on empty input, which has no format to detect,
  * and on zstd, gzip or brotli input that ends before the compressed stream does.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */

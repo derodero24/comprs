@@ -390,6 +390,8 @@ await pipeline(
 );
 ```
 
+The transforms push their output in chunks of at most `readableHighWaterMark` bytes (64 KiB by default), even when a single small input chunk decompresses to many megabytes.
+
 <details>
 <summary><strong>Full Node.js Transform API list</strong></summary>
 
