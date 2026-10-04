@@ -340,6 +340,8 @@ Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
 ```
 
+The package root re-exports the stream helpers for `import` only; `@derodero24/comprs/streams` works with both `import` and `require()`.
+
 <details>
 <summary><strong>Full streaming API list</strong></summary>
 

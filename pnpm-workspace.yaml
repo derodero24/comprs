@@ -2,6 +2,7 @@ packages:
   - '.'
   - 'packages/*'
 allowBuilds:
+  esbuild: false
   lefthook: true
 # Resolve only versions published at least 3 days (4320 minutes) ago, the
 # same wait as minimumReleaseAge in renovate.json. Set explicitly, the cutoff
