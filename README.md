@@ -36,11 +36,11 @@ Rust-powered universal compression for JavaScript/TypeScript.
 
 ## Why comprs?
 
-The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs, mixed maintenance status, and no streaming support. comprs consolidates this into a single, fast, well-typed library:
+The JavaScript compression ecosystem is fragmented across 12+ packages with inconsistent APIs and mixed maintenance status. comprs consolidates this into a single, fast, well-typed library:
 
 - **Native performance** — Rust core compiled via napi-rs, with a WebAssembly build for browsers
 - **Unified API** — Same interface for zstd, gzip, brotli, and lz4
-- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js
+- **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory in Node.js, except LZ4 decompression and brotli-dictionary compression streams, which buffer the whole input (see [Notes](#notes))
 - **Universal** — Node.js, Deno, and Bun (native), and browsers (WebAssembly)
 - **Zero JS dependencies** — Only Rust and the platform
 - **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
@@ -57,14 +57,15 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 | Node.js Transform | ✅ | ❌ | ❌ | ✅ |
 | Streaming | ✅ | Chunked† | ✅ | ✅ |
 | Browser | ✅ | ✅ | ✅ | ❌ |
-| Deno/Bun | ✅ | ✅ | ✅ | ❌ |
+| Deno/Bun | ✅ | ✅ | ✅ | ✅‡ |
 | Native performance | ✅ | ❌ | ❌ | ✅ |
 | TypeScript | ✅ | ✅ | ✅ | ✅ |
-| Dictionary | ✅ (zstd + brotli) | ❌ | ❌ | ❌ |
+| Dictionary | zstd, brotli | deflate | deflate | deflate; zstd (Node.js 22.19+, 24.6+) |
 | Zero JS deps | ✅ | ✅ | ✅ | ✅ |
 
-\* `node:zlib` zstd support requires Node.js ≥ 22.15 and is experimental
-† pako uses chunked `Inflate`/`Deflate` classes, not the Web Streams API
+\* `node:zlib` zstd support requires Node.js ≥ 22.15 and is experimental\
+† pako uses chunked `Inflate`/`Deflate` classes, not the Web Streams API\
+‡ Deno 2 and Bun implement `node:zlib`
 
 ## Installation
 
@@ -103,11 +104,13 @@ const lz4ed = lz4Compress(data);       // lz4
 ### Streaming (Web Streams API)
 
 ```typescript
-import { createGzipCompressStream, createGzipDecompressStream } from '@derodero24/comprs/streams';
+import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
-// Pipe through compression/decompression TransformStreams
-const compressed = response.body
-  .pipeThrough(createGzipCompressStream());
+const response = await fetch('https://example.com/data.json');
+if (!response.body) throw new Error('Response has no body');
+
+// Pipe through a compression TransformStream
+const compressed = response.body.pipeThrough(createGzipCompressStream());
 ```
 
 ### Streaming (Node.js Transform)
@@ -186,7 +189,7 @@ import { gzipCompress } from 'npm:@derodero24/comprs';
 import { gzipCompress } from '@derodero24/comprs';
 ```
 
-Both runtimes load the native addon, as Node.js does. Deno needs permission for it: run with `--allow-ffi --allow-read --allow-env`, or `--allow-all`.
+Both runtimes load the native addon, as Node.js does. Deno needs permission for it: run with `--allow-ffi --allow-read --allow-env`, or `--allow-all`. Without `--allow-ffi`, the import fails with a misleading `Cannot find native binding` error, which blames a bug in npm. Deno also needs a local `node_modules` directory, which holds the platform package with the binary: set `"nodeModulesDir": "auto"` in `deno.json`, or install the package into a local `node_modules` with npm.
 
 ## Choosing an Algorithm
 
@@ -207,6 +210,8 @@ Both runtimes load the native addon, as Node.js does. Deno needs permission for 
 | **Async** (`zstdCompressAsync`) | Large data or when event loop must stay free (servers, UIs) |
 | **Streaming** (`createZstdCompressStream`) | Unknown/unbounded data size, memory-constrained environments |
 | **Dictionary** (`zstdCompressWithDict`) | Compressing many small, structurally similar items |
+
+The Web Streams and Node.js Transforms process each chunk synchronously on the calling thread, so the event loop is blocked while a chunk is compressed or decompressed. `node:zlib` streams [use the libuv thread pool](https://nodejs.org/api/zlib.html#threadpool-usage-and-performance-considerations) instead. For large inputs where event-loop latency matters, use the `*Async` one-shot functions or a worker thread.
 
 ## API
 
@@ -325,6 +330,8 @@ const decompressed = await gzipDecompressAsync(compressed);
 
 </details>
 
+The `*Async` functions copy their input (data, dictionary or training samples) on the calling thread before they hand the work to the thread pool, and keep no reference to it: changing or transferring the input once the call has returned is safe and does not affect the result. The copy blocks the event loop for about 0.6 ms per MB; for very large inputs, call the functions from a worker thread.
+
 ### Streaming
 
 Web Streams API (`TransformStream`) for all algorithms. Import from `@derodero24/comprs/streams`:
@@ -347,7 +354,7 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 | `createBrotliCompressStream(quality?)` | Create a brotli compression `TransformStream` |
 | `createBrotliDecompressStream(maxOutputSize?)` | Create a brotli decompression `TransformStream` |
 | `createLz4CompressStream()` | Create an LZ4 compression `TransformStream` |
-| `createLz4DecompressStream()` | Create an LZ4 decompression `TransformStream` |
+| `createLz4DecompressStream(maxOutputSize?)` | Create an LZ4 decompression `TransformStream` |
 | `createZstdCompressDictStream(dict, level?)` | Streaming zstd compression with dictionary |
 | `createZstdDecompressDictStream(dict, maxOutputSize?)` | Streaming zstd decompression with dictionary |
 | `createBrotliCompressDictStream(dict, quality?)` | Streaming brotli compression with dictionary |
@@ -386,7 +393,7 @@ await pipeline(
 | `createBrotliCompressTransform(quality?)` | Node.js Transform for brotli compression |
 | `createBrotliDecompressTransform(maxOutputSize?)` | Node.js Transform for brotli decompression |
 | `createLz4CompressTransform()` | Node.js Transform for LZ4 compression |
-| `createLz4DecompressTransform()` | Node.js Transform for LZ4 decompression |
+| `createLz4DecompressTransform(maxOutputSize?)` | Node.js Transform for LZ4 decompression |
 | `createZstdCompressDictTransform(dict, level?)` | Node.js Transform for zstd dict compression |
 | `createZstdDecompressDictTransform(dict, maxOutputSize?)` | Node.js Transform for zstd dict decompression |
 | `createBrotliCompressDictTransform(dict, quality?)` | Node.js Transform for brotli dict compression |
@@ -673,6 +680,9 @@ Benchmarks run on Apple M2, Node.js v22. Run locally with `pnpm run bench`. Numb
 
 > [!NOTE]
 > **Brotli decompression**: While comprs brotli *compression* is 10–155x faster than `node:zlib`, decompression performance varies by data type and size. For decompression-heavy workloads on Node.js, benchmark your specific data.
+
+> [!NOTE]
+> **Streams that buffer their input**: LZ4 decompression streams (`createLz4DecompressStream()`, `createLz4DecompressTransform()`, and `createDecompressStream()` / `createDecompressTransform()` when the input is LZ4) and brotli dictionary compression streams (`createBrotliCompressDictStream()`, `createBrotliCompressDictTransform()`) hold their whole input in memory and produce their output only when the input ends. The other streams in `@derodero24/comprs/streams` and `@derodero24/comprs/node` work in bounded memory. Removing this buffering is tracked in [#565](https://github.com/derodero24/comprs/issues/565).
 
 ## Ecosystem
 
