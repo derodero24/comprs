@@ -328,3 +328,33 @@ describe('brotli dict compress context finish guard', () => {
     expect(() => ctx.flush()).toThrow(/already finished/);
   });
 });
+
+describe('brotli dictionary encoder defects (#623)', () => {
+  // brotli 9.0.0 panics on this input at qualities 2-9, which aborted the
+  // process, and encodes the second one at qualities 10 and 11 into a stream
+  // that does not decode with the dictionary.
+  const panicking = {
+    data: Buffer.from([255, 164, 251, 255, 255, 240, 7, 0, 0, 0, 0, 0, 0, 0, 0, 41, 103, 0, 14]),
+    dict: Buffer.from([254, 255]),
+  };
+  const spanning = { data: Buffer.from([2, 2, 3, 1, 2, 2, 3]), dict: Buffer.from([1, 0, 1, 1]) };
+
+  it('should round-trip at every quality', () => {
+    for (const { data, dict } of [panicking, spanning]) {
+      for (let quality = 0; quality <= 11; quality++) {
+        const compressed = brotliCompressWithDict(data, dict, quality);
+        expect(brotliDecompressWithDict(compressed, dict), `quality ${quality}`).toEqual(data);
+      }
+    }
+  });
+
+  it('should round-trip through the async function and the context', async () => {
+    const { data, dict } = panicking;
+    const compressed = await brotliCompressWithDictAsync(data, dict);
+    expect(brotliDecompressWithDict(compressed, dict)).toEqual(data);
+
+    const ctx = new BrotliCompressDictContext(dict);
+    const output = Buffer.concat([ctx.transform(data), ctx.finish()]);
+    expect(brotliDecompressWithDict(output, dict)).toEqual(data);
+  });
+});
