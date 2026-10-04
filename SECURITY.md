@@ -2,11 +2,15 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.x     | :white_check_mark: |
+| Package | Version | Supported |
+| --- | --- | :---: |
+| `@derodero24/comprs` | 2.x | ✅ |
+| `@derodero24/comprs` | < 2.0 | ❌ |
+| `@derodero24/comprs-middleware` | 1.x | ✅ |
+| `@derodero24/comprs-middleware` | < 1.0 | ❌ |
+| `@derodero24/comprs-wasm32-wasi` | all | ❌ (no longer published) |
 
-> Once version 1.0 is released, this table will be updated to reflect the supported versions.
+Security fixes ship in the latest 2.x release of `@derodero24/comprs` and the latest 1.x release of `@derodero24/comprs-middleware`; earlier versions do not receive backports.
 
 ## Scope
 
