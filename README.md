@@ -304,6 +304,8 @@ const compressed = await zstdCompressAsync(data, level);
 const decompressed = await gzipDecompressAsync(compressed);
 ```
 
+They report every error through the returned Promise, invalid arguments included: they reject with the error that the synchronous function throws for the same arguments and never throw themselves, so `.catch()` or `await` inside `try` handles all of them.
+
 <details>
 <summary><strong>Full async API list</strong></summary>
 
@@ -656,7 +658,7 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 > Streaming decompression takes the limit as its `maxOutputSize` argument and enforces it while decoding: memory stays near `maxOutputSize` even when a single small chunk would expand to gigabytes.
 
 > [!NOTE]
-> **Numeric arguments**: levels, qualities, `capacity`, `maxOutputSize`, `maxDictSize`, the `crc32()` initial value and the gzip header `mtime` must be integers in their documented ranges. Other numbers, such as `NaN`, `Infinity`, `1.5` or `2 ** 32`, throw an error that names the argument and its range instead of being converted to a valid value. `capacity` and `maxOutputSize` range from 0 to `Number.MAX_SAFE_INTEGER`, the same on every platform, and a limit of 0 accepts only data that decompresses to nothing; `maxDictSize` ranges from 0 to 16 MiB (16777216).
+> **Numeric arguments**: levels, qualities, `capacity`, `maxOutputSize`, `maxDictSize`, the `crc32()` initial value and the gzip header `mtime` must be integers in their documented ranges. Other numbers, such as `NaN`, `Infinity`, `1.5` or `2 ** 32`, throw an error that names the argument and its range instead of being converted to a valid value (the async functions reject with it). `capacity` and `maxOutputSize` range from 0 to `Number.MAX_SAFE_INTEGER`, the same on every platform, and a limit of 0 accepts only data that decompresses to nothing; `maxDictSize` ranges from 0 to 16 MiB (16777216).
 
 > [!NOTE]
 > **Truncated and empty input**: zstd, gzip, deflate and brotli decompression throw when the input ends before the compressed stream does, so an interrupted download or a partial file is never returned as a shorter result. Streams check this when their input ends; the decompression contexts check it in `finish()` (LZ4 contexts already in `flush()`). Empty input throws for every format, because no format has a valid zero-length encoding (`node:zlib` rejects it for gzip, deflate and brotli too): format-specific functions and streams report `<format> stream is truncated: unexpected end of input`, and auto-detection reports that it cannot detect the format.

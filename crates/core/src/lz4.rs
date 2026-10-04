@@ -4,6 +4,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compress data using LZ4 frame format.
@@ -69,10 +70,18 @@ impl Task for Lz4CompressTask {
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer. The
 /// frame carries a content checksum, as the `lz4` CLI writes by default.
-#[napi]
-pub fn lz4_compress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4CompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(Lz4CompressTask { data: input })
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
+pub fn lz4_compress_async(
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<Lz4CompressTask>> {
+    checked(|| {
+        Ok(Lz4CompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 pub struct Lz4DecompressTask {
@@ -99,10 +108,18 @@ impl Task for Lz4DecompressTask {
 /// The input may hold several concatenated frames, including skippable and
 /// legacy frames. The maximum decompressed size is 256 MB. Use
 /// `lz4DecompressWithCapacityAsync` for larger data.
-#[napi]
-pub fn lz4_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<Lz4DecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(Lz4DecompressTask { data: input })
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
+pub fn lz4_decompress_async(
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<Lz4DecompressTask>> {
+    checked(|| {
+        Ok(Lz4DecompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 pub struct Lz4DecompressWithCapacityTask {
@@ -128,15 +145,20 @@ impl Task for Lz4DecompressWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn lz4_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<Lz4DecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(Lz4DecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<Lz4DecompressWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(Lz4DecompressWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            capacity: cap,
+        })
+    })
 }

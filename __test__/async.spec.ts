@@ -103,9 +103,9 @@ describe('gzip async', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should throw on invalid level', () => {
+  it('should reject on invalid level', async () => {
     const input = Buffer.from('test');
-    expect(() => gzipCompressAsync(input, 10)).toThrow(
+    await expect(gzipCompressAsync(input, 10)).rejects.toThrow(
       'gzip compression level must be an integer between 0 and 9',
     );
   });
@@ -159,9 +159,9 @@ describe('deflate async', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should throw on invalid level', () => {
+  it('should reject on invalid level', async () => {
     const input = Buffer.from('test');
-    expect(() => deflateCompressAsync(input, 10)).toThrow(
+    await expect(deflateCompressAsync(input, 10)).rejects.toThrow(
       'deflate compression level must be an integer between 0 and 9',
     );
   });
@@ -207,9 +207,9 @@ describe('brotli async', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should throw on invalid quality', () => {
+  it('should reject on invalid quality', async () => {
     const input = Buffer.from('test');
-    expect(() => brotliCompressAsync(input, 12)).toThrow(
+    await expect(brotliCompressAsync(input, 12)).rejects.toThrow(
       'brotli quality must be an integer between 0 and 11',
     );
   });
@@ -300,9 +300,9 @@ describe('zstdDecompressWithCapacityAsync', () => {
     expect(Buffer.compare(decompressed, input)).toBe(0);
   });
 
-  it('should reject with invalid capacity', () => {
+  it('should reject with invalid capacity', async () => {
     const compressed = zstdCompress(Buffer.from('test'));
-    expect(() => zstdDecompressWithCapacityAsync(compressed, -1)).toThrow(
+    await expect(zstdDecompressWithCapacityAsync(compressed, -1)).rejects.toThrow(
       'capacity must be an integer between 0 and 9007199254740991',
     );
   });
@@ -407,9 +407,9 @@ describe('gzipDecompressWithCapacityAsync', () => {
     expect(Buffer.compare(decompressed, input)).toBe(0);
   });
 
-  it('should reject with invalid capacity', () => {
+  it('should reject with invalid capacity', async () => {
     const compressed = gzipCompress(Buffer.from('test'));
-    expect(() => gzipDecompressWithCapacityAsync(compressed, -1)).toThrow(
+    await expect(gzipDecompressWithCapacityAsync(compressed, -1)).rejects.toThrow(
       'capacity must be an integer between 0 and 9007199254740991',
     );
   });
@@ -423,9 +423,9 @@ describe('deflateDecompressWithCapacityAsync', () => {
     expect(Buffer.compare(decompressed, input)).toBe(0);
   });
 
-  it('should reject with invalid capacity', () => {
+  it('should reject with invalid capacity', async () => {
     const compressed = deflateCompress(Buffer.from('test'));
-    expect(() => deflateDecompressWithCapacityAsync(compressed, -1)).toThrow(
+    await expect(deflateDecompressWithCapacityAsync(compressed, -1)).rejects.toThrow(
       'capacity must be an integer between 0 and 9007199254740991',
     );
   });
@@ -439,9 +439,9 @@ describe('brotliDecompressWithCapacityAsync', () => {
     expect(Buffer.compare(decompressed, input)).toBe(0);
   });
 
-  it('should reject with invalid capacity', () => {
+  it('should reject with invalid capacity', async () => {
     const compressed = brotliCompress(Buffer.from('test'));
-    expect(() => brotliDecompressWithCapacityAsync(compressed, -1)).toThrow(
+    await expect(brotliDecompressWithCapacityAsync(compressed, -1)).rejects.toThrow(
       'capacity must be an integer between 0 and 9007199254740991',
     );
   });

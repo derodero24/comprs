@@ -1,5 +1,6 @@
 #![deny(clippy::all)]
 
+mod async_args;
 mod brotli_impl;
 mod brotli_stream;
 mod context;

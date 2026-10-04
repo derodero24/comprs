@@ -235,23 +235,24 @@ describe('zstdTrainDictionary maxDictSize', () => {
     expect((await zstdTrainDictionaryAsync(samples, 2 ** 24)).length).toBeGreaterThan(0);
   });
 
-  it('should reject more than 16 MiB', () => {
+  it('should reject more than 16 MiB', async () => {
     expect(() => zstdTrainDictionary(samples, 2 ** 24 + 1)).toThrow(message);
-    // Validated before the Promise is returned, like the other arguments.
-    expect(() => zstdTrainDictionaryAsync(samples, 2 ** 24 + 1)).toThrow(message);
+    await expect(zstdTrainDictionaryAsync(samples, 2 ** 24 + 1)).rejects.toThrow(message);
   });
 
   it('should reject a huge value without allocating it', () => {
     const results = runIsolated(`
       const samples = Array.from({ length: 100 }, (_, i) => Buffer.from('sample ' + i));
-      const messages = [comprs.zstdTrainDictionary, comprs.zstdTrainDictionaryAsync].map((train) => {
-        try {
-          train(samples, 2 ** 40);
-        } catch (e) {
-          return e.message;
-        }
-      });
-      console.log(JSON.stringify(messages));
+      const messages = [comprs.zstdTrainDictionary, comprs.zstdTrainDictionaryAsync].map(
+        async (train) => {
+          try {
+            await train(samples, 2 ** 40);
+          } catch (e) {
+            return e.message;
+          }
+        },
+      );
+      Promise.all(messages).then((results) => console.log(JSON.stringify(results)));
     `);
     expect(results).toEqual([message, message]);
   });

@@ -4,6 +4,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compress data using Zstandard.
@@ -47,17 +48,24 @@ impl Task for ZstdCompressTask {
 /// Level is an integer from 1 (fastest) to 22 (best compression). Default is
 /// 3. Negative levels (-1 to -131072) enable fast mode, trading compression
 /// ratio for speed. Level 0 is equivalent to the default level (3).
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    level: Option<f64>,
-) -> Result<AsyncTask<ZstdCompressTask>> {
-    // Validate level eagerly
-    let level = comprs_core::zstd::LEVEL
-        .check_optional_f64(level)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(ZstdCompressTask { data: input, level }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<ZstdCompressTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        Ok(ZstdCompressTask {
+            data: crate::as_bytes(&data).to_vec(),
+            level,
+        })
+    })
 }
 
 pub struct ZstdDecompressTask {
@@ -84,10 +92,18 @@ impl Task for ZstdDecompressTask {
 /// The input may hold several concatenated frames, including skippable
 /// frames. The maximum decompressed size is 256 MB. Use
 /// `zstdDecompressWithCapacity` for larger data.
-#[napi]
-pub fn zstd_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<ZstdDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(ZstdDecompressTask { data: input })
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
+pub fn zstd_decompress_async(
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<ZstdDecompressTask>> {
+    checked(|| {
+        Ok(ZstdDecompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 /// Decompress Zstandard-compressed data.
@@ -229,17 +245,22 @@ impl Task for ZstdDecompressWithCapacityTask {
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 /// It is only a limit: the output buffer grows with the decompressed data, so
 /// a large `capacity` reserves no memory up front.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<ZstdDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(ZstdDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<ZstdDecompressWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(ZstdDecompressWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            capacity: cap,
+        })
+    })
 }
 
 pub struct ZstdCompressWithDictTask {
@@ -268,23 +289,27 @@ impl Task for ZstdCompressWithDictTask {
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
 /// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
 /// 3.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_compress_with_dict_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-    level: Option<f64>,
-) -> Result<AsyncTask<ZstdCompressWithDictTask>> {
-    // Validate level eagerly
-    let level = comprs_core::zstd::LEVEL
-        .check_optional_f64(level)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    Ok(AsyncTask::new(ZstdCompressWithDictTask {
-        data: input,
-        dict: dict_bytes,
-        level,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<ZstdCompressWithDictTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        Ok(ZstdCompressWithDictTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+            level,
+        })
+    })
 }
 
 pub struct ZstdDecompressWithDictTask {
@@ -309,16 +334,21 @@ impl Task for ZstdDecompressWithDictTask {
 /// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary.
 ///
 /// The same dictionary used for compression must be provided.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_decompress_with_dict_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-) -> AsyncTask<ZstdDecompressWithDictTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    AsyncTask::new(ZstdDecompressWithDictTask {
-        data: input,
-        dict: dict_bytes,
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<ZstdDecompressWithDictTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        Ok(ZstdDecompressWithDictTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+        })
     })
 }
 
@@ -349,23 +379,29 @@ impl Task for ZstdTrainDictionaryTask {
 ///
 /// `maxDictSize` is optional and defaults to 110 KB (the zstd default). It
 /// must not exceed 16 MiB (16777216 bytes).
-#[napi]
+#[napi(
+    ts_args_type = "samples: Array<Buffer | Uint8Array>, maxDictSize?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_train_dictionary_async(
-    samples: Vec<Either<Buffer, Uint8Array>>,
-    max_dict_size: Option<f64>,
-) -> Result<AsyncTask<ZstdTrainDictionaryTask>> {
-    let max_size = comprs_core::zstd::DICT_SIZE
-        .check_optional_f64(max_dict_size)
-        .map_err(to_napi_error)?
-        .unwrap_or(comprs_core::zstd::DEFAULT_MAX_DICT_SIZE);
-    let sample_vecs: Vec<Vec<u8>> = samples
-        .iter()
-        .map(|s| crate::as_bytes(s).to_vec())
-        .collect();
-    Ok(AsyncTask::new(ZstdTrainDictionaryTask {
-        samples: sample_vecs,
-        max_dict_size: max_size,
-    }))
+    samples: AsyncArg<Vec<Either<Buffer, Uint8Array>>>,
+    max_dict_size: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<ZstdTrainDictionaryTask>> {
+    checked(|| {
+        let samples = samples.get()?;
+        let max_size = comprs_core::zstd::DICT_SIZE
+            .check_optional_f64(max_dict_size.get()?)
+            .map_err(to_napi_error)?
+            .unwrap_or(comprs_core::zstd::DEFAULT_MAX_DICT_SIZE);
+        let sample_vecs: Vec<Vec<u8>> = samples
+            .iter()
+            .map(|s| crate::as_bytes(s).to_vec())
+            .collect();
+        Ok(ZstdTrainDictionaryTask {
+            samples: sample_vecs,
+            max_dict_size: max_size,
+        })
+    })
 }
 
 pub struct ZstdDecompressWithDictWithCapacityTask {
@@ -397,18 +433,23 @@ impl Task for ZstdDecompressWithDictWithCapacityTask {
 /// It is only a limit: the output buffer grows with the decompressed data, so
 /// a large `capacity` reserves no memory up front.
 /// The same dictionary used for compression must be provided.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn zstd_decompress_with_dict_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<ZstdDecompressWithDictWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    Ok(AsyncTask::new(ZstdDecompressWithDictWithCapacityTask {
-        data: input,
-        dict: dict_bytes,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<ZstdDecompressWithDictWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(ZstdDecompressWithDictWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+            capacity: cap,
+        })
+    })
 }

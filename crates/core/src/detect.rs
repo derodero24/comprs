@@ -7,6 +7,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compression format detected from input data.
@@ -110,15 +111,21 @@ impl Task for DecompressTask {
 /// Raw deflate is not supported (no magic bytes to distinguish it).
 /// Data detected as brotli that does not decode as brotli rejects with the
 /// same error as data of unknown format, since brotli detection is heuristic.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, maxOutputSize?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn decompress_async(
-    data: Either<Buffer, Uint8Array>,
-    max_output_size: Option<f64>,
-) -> Result<AsyncTask<DecompressTask>> {
-    let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(DecompressTask {
-        data: input,
-        max_output_size: max_size,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    max_output_size: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<DecompressTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let max_size =
+            comprs_core::validate_max_output_size(max_output_size.get()?).map_err(to_napi_error)?;
+        Ok(DecompressTask {
+            data: crate::as_bytes(&data).to_vec(),
+            max_output_size: max_size,
+        })
+    })
 }
