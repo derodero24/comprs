@@ -1,22 +1,14 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
 
-// Tests the wasm-bindgen build that the browser entry loads. `pnpm test` does
-// not build it, so this suite is skipped unless `pnpm run build:wasm-bindgen`
-// ran first, as in the WASM Test CI job.
-const WASM_FILE = resolve(__dirname, '../comprs-wasm_bg.wasm');
-const GLUE_MODULE = '../comprs-wasm_bg.js';
-
-// The part of the WebAssembly JS API that this file uses. The project is
-// type-checked without the DOM library, which declares it.
-declare const WebAssembly: {
-  instantiate(
-    bytes: Uint8Array,
-    imports: Record<string, Record<string, unknown>>,
-  ): Promise<{ instance: { exports: Record<string, unknown> } }>;
-};
+// Tests the wasm-bindgen build through the browser entry, which loads it.
+// `pnpm test` does not build it, so this suite is skipped unless
+// `pnpm run build:wasm-bindgen` ran first, as in the WASM Test CI job.
+const WASM_FILE = resolve(__dirname, '../browser/comprs-wasm_bg.wasm');
+const ENTRY_MODULE = '../browser/index.js';
 
 const CODECS = [
   'zstdCompress',
@@ -45,22 +37,26 @@ function isWasmBindgen(glue: Record<string, unknown>): glue is WasmBindgen {
 }
 
 /**
- * Load the wasm-bindgen build. Its entry, comprs-wasm.js, imports the .wasm
- * file as an ES module (wasm-bindgen's bundler target), which Vitest cannot
- * load, so instantiate the module with its JS glue by hand, as
- * e2e/index.html does.
+ * Load the browser entry, which fetches the WebAssembly module next to it
+ * when it is imported. Node's fetch does not support file: URLs, so serve
+ * them from disk, as a web server would.
  */
 async function loadWasmBindgen(): Promise<WasmBindgen> {
-  const glue: Record<string, unknown> = await import(GLUE_MODULE);
-  const { instance } = await WebAssembly.instantiate(readFileSync(WASM_FILE), {
-    './comprs-wasm_bg.js': glue,
-  });
-  const setWasm = glue.__wbg_set_wasm;
-  if (typeof setWasm !== 'function' || !isWasmBindgen(glue)) {
-    throw new Error(`${GLUE_MODULE} does not export the wasm-bindgen API`);
+  vi.stubGlobal(
+    'fetch',
+    async (url: URL) =>
+      new Response(await readFile(url), { headers: { 'content-type': 'application/wasm' } }),
+  );
+  let entry: Record<string, unknown>;
+  try {
+    entry = await import(ENTRY_MODULE);
+  } finally {
+    vi.unstubAllGlobals();
   }
-  setWasm(instance.exports);
-  return glue;
+  if (!isWasmBindgen(entry)) {
+    throw new Error(`${ENTRY_MODULE} does not export the wasm-bindgen API`);
+  }
+  return entry;
 }
 
 let wasm: WasmBindgen;
