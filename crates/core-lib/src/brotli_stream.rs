@@ -284,6 +284,95 @@ impl MemoryUsage for DecompressDictContext {
 
 type DecoderState = BrotliState<CountingAlloc, CountingAlloc, CountingAlloc>;
 
+/// A decoder state with the custom dictionary `dict` (empty for none), whose
+/// allocations `alloc` counts.
+fn decoder_state(dict: Vec<u8>, alloc: &CountingAlloc) -> DecoderState {
+    // The state owns the dictionary and frees it with the allocator.
+    alloc.add(dict.len());
+    let mut state = DecoderState::new_with_custom_dictionary(
+        alloc.clone(),
+        alloc.clone(),
+        alloc.clone(),
+        dict.into(),
+    );
+    // Decode RFC 7932 streams only: see `crate::brotli::reject_large_window`.
+    state.large_window = false;
+    state
+}
+
+/// Most output that one decoder call of [`decompress_all`] writes. The
+/// output buffer is zeroed just before the decoder writes to it, a part of
+/// this size at a time, so the zeroed part is still in the cache when the
+/// decoder overwrites it.
+const DECOMPRESS_ALL_CHUNK: usize = 64 * 1024;
+
+/// Decompress the brotli stream at the start of `input`, with the custom
+/// dictionary `dict` (empty for none), in one call.
+///
+/// The decoder gets all of `input` at once, so it sees how much output a
+/// stream shorter than its window holds and sizes its ring buffer for that
+/// rather than for the whole window (4 MiB at the default window size). It
+/// writes straight into the output buffer, which starts with room for four
+/// times the input and grows geometrically, but never past
+/// `max_output_size` plus one byte. A failure to allocate that first
+/// buffer is reported as an error, as in [`crate::decompress_with_limit`].
+///
+/// Like `brotli::Decompressor`, it ignores data after the end of the stream
+/// and fails with "Invalid Data" on invalid and on truncated input; `context`
+/// prefixes the errors. Exceeding `max_output_size` fails with
+/// [`ComprsError::SizeLimit`].
+pub(crate) fn decompress_all(
+    input: &[u8],
+    dict: Vec<u8>,
+    max_output_size: usize,
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    let mut output = LimitedVec::new(max_output_size, context);
+    output
+        .try_reserve(input.len().saturating_mul(4))
+        .map_err(|e| ComprsError::Operation {
+            context,
+            source: e.into(),
+        })?;
+    let mut state = decoder_state(dict, &CountingAlloc::default());
+    let mut available_in = input.len();
+    let mut input_offset = 0;
+    let mut total_out = 0;
+    loop {
+        let result = output
+            .append_with(input.len().saturating_mul(4), |buf| {
+                let start = buf.len();
+                let mut available_out = (buf.capacity() - start).min(DECOMPRESS_ALL_CHUNK);
+                buf.resize(start + available_out, 0);
+                let mut output_offset = start;
+                let result = BrotliDecompressStream(
+                    &mut available_in,
+                    &mut input_offset,
+                    input,
+                    &mut available_out,
+                    &mut output_offset,
+                    buf,
+                    &mut total_out,
+                    &mut state,
+                );
+                buf.truncate(output_offset);
+                Ok(result)
+            })
+            .map_err(|e| output.error(e, context))?;
+        match result {
+            BrotliResult::NeedsMoreOutput => {}
+            BrotliResult::ResultSuccess => return Ok(crate::finish_output(output.take())),
+            BrotliResult::NeedsMoreInput | BrotliResult::ResultFailure => {
+                return Err(ComprsError::Operation {
+                    context,
+                    source: std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid Data")
+                        .into(),
+                });
+            }
+        }
+    }
+}
+
 /// Decoder state shared by [`DecompressContext`] and [`DecompressDictContext`].
 ///
 /// Drives `BrotliDecompressStream` directly rather than through
@@ -307,18 +396,8 @@ struct StreamDecoder {
 impl StreamDecoder {
     fn new(dict: Vec<u8>, output: LimitedVec, name: &'static str) -> Self {
         let alloc = CountingAlloc::default();
-        // The state owns the dictionary and frees it with the allocator.
-        alloc.add(dict.len());
-        let mut state = DecoderState::new_with_custom_dictionary(
-            alloc.clone(),
-            alloc.clone(),
-            alloc.clone(),
-            dict.into(),
-        );
-        // Decode RFC 7932 streams only: see `crate::brotli::reject_large_window`.
-        state.large_window = false;
         Self {
-            state: Some(state),
+            state: Some(decoder_state(dict, &alloc)),
             alloc,
             buffer: vec![0; BUFFER_SIZE],
             total_out: 0,
