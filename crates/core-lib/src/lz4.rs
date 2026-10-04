@@ -236,18 +236,25 @@ impl Decoder {
     ///
     /// A legacy frame has no end mark: like in the reference decoder, it ends
     /// with the input or before a block size above [`LEGACY_MAX_BLOCK_SIZE`],
-    /// which is the next frame's magic number.
+    /// which is the next frame's magic number. Input that ends inside a block
+    /// size is truncated, as the reference decoder reports it.
     fn legacy_frame(&mut self, input: &mut &[u8]) -> Result<(), ComprsError> {
-        while let Some(bytes) = input.first_chunk() {
+        loop {
+            let Some(bytes) = input.first_chunk() else {
+                return if input.is_empty() {
+                    Ok(())
+                } else {
+                    Err(ComprsError::Truncated("lz4"))
+                };
+            };
             let len = u32::from_le_bytes(*bytes);
             if len > LEGACY_MAX_BLOCK_SIZE {
-                break;
+                return Ok(());
             }
             *input = &input[4..];
             let block = take(input, len as usize)?;
             self.decode_block(block, LEGACY_BLOCK_SIZE, None, None)?;
         }
-        Ok(())
     }
 
     /// Decode the compressed `block`, whose content is at most `block_size`
@@ -809,13 +816,28 @@ mod tests {
 
     #[test]
     fn decompress_rejects_data_after_a_legacy_frame() {
-        for trailing in [&b"garbage"[..], b"\n"] {
+        let input = [CLI_LEGACY_FRAME, b"garbage"].concat();
+        assert_eq!(
+            decompress(&input).unwrap_err().to_string(),
+            "lz4 decompress failed: unexpected data after the end of a frame"
+        );
+    }
+
+    #[test]
+    fn decompress_reports_a_legacy_block_size_cut_short_as_truncated() {
+        // Fewer than 4 bytes after a legacy block cannot be a block size or
+        // a magic number: the reference decoder reports it as a read error.
+        for trailing in [&b"\n"[..], &[0x1a, 0x00], &[0x1a, 0x00, 0x00]] {
             let input = [CLI_LEGACY_FRAME, trailing].concat();
-            assert_eq!(
-                decompress(&input).unwrap_err().to_string(),
-                "lz4 decompress failed: unexpected data after the end of a frame"
+            assert!(
+                matches!(decompress(&input), Err(ComprsError::Truncated("lz4"))),
+                "trailing {trailing:?}"
             );
         }
+        assert!(matches!(
+            decompress(&[0x02, 0x21, 0x4c, 0x18, 0x1a, 0x00]),
+            Err(ComprsError::Truncated("lz4"))
+        ));
     }
 
     #[test]
