@@ -21,6 +21,31 @@ import {
   ZstdDecompressDictContext,
 } from './index.js';
 
+/**
+ * View `chunk`, a chunk written to a stream, as bytes. Like ../streams.js,
+ * the streams accept what `CompressionStream` accepts, any ArrayBuffer or
+ * ArrayBufferView, as well as a SharedArrayBuffer, and read it byte for
+ * byte: a typed array is not converted element by element.
+ *
+ * @param {unknown} chunk
+ * @returns {Uint8Array}
+ */
+function toUint8Array(chunk) {
+  if (chunk instanceof Uint8Array) return chunk;
+  if (ArrayBuffer.isView(chunk)) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  // Unlike instanceof, this also recognizes an ArrayBuffer or a
+  // SharedArrayBuffer from another realm, such as an iframe. This module
+  // cannot use util.types.isAnyArrayBuffer(), as ../streams.js does, since
+  // it must not import Node.js built-ins.
+  const tag = Object.prototype.toString.call(chunk);
+  if (tag === '[object ArrayBuffer]' || tag === '[object SharedArrayBuffer]') {
+    return new Uint8Array(chunk);
+  }
+  throw new TypeError('chunk must be an ArrayBuffer or ArrayBufferView');
+}
+
 function enqueueIfNonEmpty(controller, result) {
   // A context returns a new Uint8Array on each call, so it needs no copy.
   if (result.byteLength > 0) {
@@ -37,7 +62,9 @@ function end(context, controller) {
 
 /**
  * A TransformStream with the transform() and flush() of `transformer`, which
- * use the context that `getContext()` returns, if any. The stream frees the
+ * use the context that `getContext()` returns, if any. `transformer`
+ * receives each input chunk as a Uint8Array, and a chunk that is not an
+ * ArrayBuffer or ArrayBufferView errors the stream. The stream frees the
  * WebAssembly memory of that context as soon as it ends or fails, rather than
  * whenever garbage collection gets to the context, and when it is cancelled,
  * in runtimes that call the cancel() method of a transformer.
@@ -54,7 +81,7 @@ function freeingStream(getContext, transformer) {
   return new TransformStream({
     transform(chunk, controller) {
       try {
-        transformer.transform(chunk, controller);
+        transformer.transform(toUint8Array(chunk), controller);
       } catch (error) {
         free();
         throw error;
@@ -87,7 +114,7 @@ function contextStream(context) {
  * Create a streaming brotli compression TransformStream.
  *
  * @param {number} [quality=6] Compression quality (0-11)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createBrotliCompressStream(quality) {
   return contextStream(new BrotliCompressContext(quality));
@@ -97,7 +124,7 @@ export function createBrotliCompressStream(quality) {
  * Create a streaming brotli decompression TransformStream.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createBrotliDecompressStream(maxOutputSize) {
   return contextStream(new BrotliDecompressContext(maxOutputSize));
@@ -107,7 +134,7 @@ export function createBrotliDecompressStream(maxOutputSize) {
  * Create a streaming zstd compression TransformStream.
  *
  * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createZstdCompressStream(level) {
   return contextStream(new ZstdCompressContext(level));
@@ -117,7 +144,7 @@ export function createZstdCompressStream(level) {
  * Create a streaming zstd decompression TransformStream.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createZstdDecompressStream(maxOutputSize) {
   return contextStream(new ZstdDecompressContext(maxOutputSize));
@@ -127,7 +154,7 @@ export function createZstdDecompressStream(maxOutputSize) {
  * Create a streaming gzip compression TransformStream.
  *
  * @param {number} [level=6] Compression level (0-9)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createGzipCompressStream(level) {
   return contextStream(new GzipCompressContext(level));
@@ -137,7 +164,7 @@ export function createGzipCompressStream(level) {
  * Create a streaming gzip decompression TransformStream.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createGzipDecompressStream(maxOutputSize) {
   return contextStream(new GzipDecompressContext(maxOutputSize));
@@ -147,7 +174,7 @@ export function createGzipDecompressStream(maxOutputSize) {
  * Create a streaming raw deflate compression TransformStream.
  *
  * @param {number} [level=6] Compression level (0-9)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createDeflateCompressStream(level) {
   return contextStream(new DeflateCompressContext(level));
@@ -157,7 +184,7 @@ export function createDeflateCompressStream(level) {
  * Create a streaming raw deflate decompression TransformStream.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createDeflateDecompressStream(maxOutputSize) {
   return contextStream(new DeflateDecompressContext(maxOutputSize));
@@ -168,7 +195,7 @@ export function createDeflateDecompressStream(maxOutputSize) {
  *
  * @param {Uint8Array} dict Custom dictionary
  * @param {number} [quality=6] Compression quality (0-11)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createBrotliCompressDictStream(dict, quality) {
   return contextStream(new BrotliCompressDictContext(dict, quality));
@@ -179,7 +206,7 @@ export function createBrotliCompressDictStream(dict, quality) {
  *
  * @param {Uint8Array} dict Custom dictionary (must match the one used for compression)
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createBrotliDecompressDictStream(dict, maxOutputSize) {
   return contextStream(new BrotliDecompressDictContext(dict, maxOutputSize));
@@ -190,7 +217,7 @@ export function createBrotliDecompressDictStream(dict, maxOutputSize) {
  *
  * @param {Uint8Array} dict Pre-trained dictionary
  * @param {number} [level=3] Compression level (1-22, or negative for fast mode)
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createZstdCompressDictStream(dict, level) {
   return contextStream(new ZstdCompressDictContext(dict, level));
@@ -201,7 +228,7 @@ export function createZstdCompressDictStream(dict, level) {
  *
  * @param {Uint8Array} dict Pre-trained dictionary (must match the one used for compression)
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createZstdDecompressDictStream(dict, maxOutputSize) {
   return contextStream(new ZstdDecompressDictContext(dict, maxOutputSize));
@@ -210,7 +237,7 @@ export function createZstdDecompressDictStream(dict, maxOutputSize) {
 /**
  * Create a streaming LZ4 frame compression TransformStream.
  *
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createLz4CompressStream() {
   return contextStream(new Lz4CompressContext());
@@ -220,7 +247,7 @@ export function createLz4CompressStream() {
  * Create a streaming LZ4 frame decompression TransformStream.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createLz4DecompressStream(maxOutputSize) {
   return contextStream(new Lz4DecompressContext(maxOutputSize));
@@ -281,7 +308,7 @@ function concatChunks(chunks, length) {
  * unknown then.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
- * @returns {TransformStream<Uint8Array, Uint8Array>}
+ * @returns {TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>}
  */
 export function createDecompressStream(maxOutputSize) {
   let ctx = null;
@@ -305,9 +332,11 @@ export function createDecompressStream(maxOutputSize) {
         return;
       }
 
-      const copy = new Uint8Array(chunk);
+      // Copy the chunk: the writer may reuse its memory once this returns.
+      const copy = new Uint8Array(chunk.byteLength);
+      copy.set(chunk);
       buffered.push(copy);
-      bufferedLength += copy.length;
+      bufferedLength += copy.byteLength;
       if (bufferedLength < detectAt) return;
 
       const data = concatChunks(buffered, bufferedLength);

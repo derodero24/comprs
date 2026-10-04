@@ -1,6 +1,9 @@
+import { isArrayBuffer } from 'node:util/types';
+import { runInNewContext } from 'node:vm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
 import * as nativeStreams from '../streams.js';
+import { CHUNK_KINDS, type Chunk, type ChunkKind, toChunks } from './chunk-fixtures.js';
 import {
   type BrowserEntry,
   type BrowserStreams,
@@ -19,8 +22,31 @@ import {
 // satisfy, so that browser/streams.d.ts cannot drift from streams.d.ts.
 const nativeHelpers: BrowserStreams = nativeStreams;
 
+/** Whether `A` and `B` are the same type. */
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+/** The type of the chunks that a stream helper accepts. */
+type InputChunk<F> = F extends (...args: never[]) => TransformStream<infer I, Uint8Array>
+  ? I
+  : never;
+
+/** For each browser helper, whether it accepts the chunks the native one does. */
+type SameInputChunks = {
+  [K in keyof BrowserStreams]: Equal<
+    InputChunk<BrowserStreams[K]>,
+    InputChunk<(typeof nativeStreams)[K]>
+  >;
+};
+
+// The assignment above does not compare the chunks that the helpers accept,
+// since TypeScript compares the writable side of a TransformStream both
+// ways. This type-checks only while each browser helper declares the same
+// input chunks as the native one.
+const sameInputChunks: Equal<SameInputChunks[keyof BrowserStreams], true> = true;
+
 type Helpers = BrowserStreams;
-type Stream = TransformStream<Uint8Array, Uint8Array>;
+type Stream = TransformStream<Chunk, Uint8Array>;
 
 /** What a stream emitted, or the message it failed with. */
 type Outcome = { emitted: Uint8Array } | { failed: string };
@@ -50,8 +76,8 @@ async function collect(readable: ReadableStream<Uint8Array>): Promise<Uint8Array
 }
 
 /** Pipe `input` through a stream, and collect what it emits. */
-function pipe(stream: Stream, input: Uint8Array[]): Promise<Uint8Array> {
-  const source = new ReadableStream<Uint8Array>({
+function pipe(stream: Stream, input: readonly unknown[]): Promise<Uint8Array> {
+  const source = new ReadableStream<unknown>({
     start(controller) {
       for (const chunk of input) {
         controller.enqueue(chunk);
@@ -237,6 +263,80 @@ const CASES: Case[] = [
   ],
 ];
 
+const same = (output: Uint8Array) => output;
+
+/**
+ * Each helper, the input that it turns back into `text`, and how: compressed
+ * output is decompressed.
+ */
+const HELPERS: [
+  label: string,
+  create: (helpers: Helpers) => Stream,
+  input: Uint8Array,
+  read: (output: Uint8Array) => Uint8Array,
+][] = [
+  ['createZstdCompressStream()', (h) => h.createZstdCompressStream(), text, native.zstdDecompress],
+  [
+    'createZstdCompressDictStream(dict)',
+    (h) => h.createZstdCompressDictStream(dict),
+    text,
+    (output) => native.zstdDecompressWithDict(output, dict),
+  ],
+  ['createGzipCompressStream()', (h) => h.createGzipCompressStream(), text, native.gzipDecompress],
+  [
+    'createDeflateCompressStream()',
+    (h) => h.createDeflateCompressStream(),
+    text,
+    native.deflateDecompress,
+  ],
+  [
+    'createBrotliCompressStream()',
+    (h) => h.createBrotliCompressStream(),
+    text,
+    native.brotliDecompress,
+  ],
+  [
+    'createBrotliCompressDictStream(dict)',
+    (h) => h.createBrotliCompressDictStream(dict),
+    text,
+    (output) => native.brotliDecompressWithDict(output, dict),
+  ],
+  ['createLz4CompressStream()', (h) => h.createLz4CompressStream(), text, native.lz4Decompress],
+  ['createZstdDecompressStream()', (h) => h.createZstdDecompressStream(), compressed.zstd, same],
+  [
+    'createZstdDecompressDictStream(dict)',
+    (h) => h.createZstdDecompressDictStream(dict),
+    compressed.zstdWithDict,
+    same,
+  ],
+  ['createGzipDecompressStream()', (h) => h.createGzipDecompressStream(), compressed.gzip, same],
+  [
+    'createDeflateDecompressStream()',
+    (h) => h.createDeflateDecompressStream(),
+    compressed.deflate,
+    same,
+  ],
+  [
+    'createBrotliDecompressStream()',
+    (h) => h.createBrotliDecompressStream(),
+    compressed.brotli,
+    same,
+  ],
+  [
+    'createBrotliDecompressDictStream(dict)',
+    (h) => h.createBrotliDecompressDictStream(dict),
+    compressed.brotliWithDict,
+    same,
+  ],
+  ['createLz4DecompressStream()', (h) => h.createLz4DecompressStream(), compressed.lz4, same],
+  ['createDecompressStream()', (h) => h.createDecompressStream(), compressed.zstd, same],
+];
+
+/** The formats that createDecompressStream() detects. */
+const DETECTED = (['zstd', 'gzip', 'brotli', 'lz4'] as const).map(
+  (format) => [format, compressed[format]] as const,
+);
+
 describe.skipIf(!HAS_WASM_BUILD)('browser streams module', () => {
   let entry: BrowserEntry;
   let browser: BrowserStreams;
@@ -281,6 +381,91 @@ describe.skipIf(!HAS_WASM_BUILD)('browser streams module', () => {
   ])('%s copies each chunk before its write finishes', async (_label, create, input, read) => {
     const output = await writeThroughOneBuffer(create(browser), input, 3);
     expect(Buffer.from(read(output))).toEqual(Buffer.from(text));
+  });
+
+  it('declares the input chunks that streams.d.ts declares', () => {
+    expect(sameInputChunks).toBe(true);
+  });
+
+  // As with the native addon, any ArrayBuffer, SharedArrayBuffer or
+  // ArrayBufferView is read byte for byte (#562): a Uint16Array is not
+  // converted element by element. Decompression takes 3-byte chunks, fewer
+  // than createDecompressStream() needs to detect the format.
+  describe.each(HELPERS)('%s', (label, create, input, read) => {
+    const size = label.includes('Decompress') ? 3 : 100;
+
+    it.each(CHUNK_KINDS)('reads %s chunks byte for byte', async (kind: ChunkKind) => {
+      const chunks = toChunks(input, size, kind);
+      const [fromBrowser, fromNative] = await Promise.all(
+        [browser, nativeHelpers].map(async (helpers) =>
+          Buffer.from(read(await pipe(create(helpers), chunks))),
+        ),
+      );
+      expect(fromBrowser).toEqual(Buffer.from(text));
+      expect(fromBrowser).toEqual(fromNative);
+    });
+
+    it('errors on a chunk that is not binary data', async () => {
+      const failures = await Promise.all(
+        [browser, nativeHelpers].map((helpers) =>
+          pipe(create(helpers), ['not bytes']).then(
+            () => expect.unreachable('the stream should fail'),
+            (error: unknown) => error,
+          ),
+        ),
+      );
+      for (const error of failures) {
+        expect(error).toBeInstanceOf(TypeError);
+        expect(error).toHaveProperty('message', 'chunk must be an ArrayBuffer or ArrayBufferView');
+      }
+    });
+  });
+
+  // 2 bytes, too few to detect the format, and then the rest of the input,
+  // split once more so that a chunk also arrives after the detection.
+  it.each(DETECTED)(
+    'createDecompressStream() detects %s in ArrayBuffer chunks',
+    async (_format, data) => {
+      const half = data.length >> 1;
+      const input = [data.subarray(0, 2), data.subarray(2, half), data.subarray(half)].map(
+        (bytes) => new Uint8Array(bytes).buffer,
+      );
+      const [fromBrowser, fromNative] = await Promise.all(
+        [browser, nativeHelpers].map((helpers) => pipe(helpers.createDecompressStream(), input)),
+      );
+      expect(fromBrowser).toEqual(Buffer.from(text));
+      expect(fromBrowser).toEqual(fromNative);
+    },
+  );
+
+  it('accepts an ArrayBuffer from another realm', async () => {
+    // As from an iframe: instanceof ArrayBuffer is false for it.
+    const foreign: unknown = runInNewContext(`new ArrayBuffer(${compressed.zstd.byteLength})`);
+    if (!isArrayBuffer(foreign)) throw new Error('expected an ArrayBuffer');
+    expect(foreign).not.toBeInstanceOf(ArrayBuffer);
+    new Uint8Array(foreign).set(compressed.zstd);
+    const output = await pipe(browser.createZstdDecompressStream(), [foreign]);
+    expect(Buffer.from(output)).toEqual(Buffer.from(text));
+  });
+
+  // The detection buffer copies an ArrayBuffer chunk rather than keep a view
+  // of it, which a writer may fill again once the write has finished.
+  it('createDecompressStream() copies an ArrayBuffer chunk before its write finishes', async () => {
+    const stream = browser.createDecompressStream();
+    const output = collect(stream.readable);
+    const writer = stream.writable.getWriter();
+    const buffer = new ArrayBuffer(3);
+    for (let offset = 0; offset < compressed.zstd.length; offset += 3) {
+      const piece = compressed.zstd.subarray(offset, offset + 3);
+      if (piece.length < 3) {
+        await writer.write(new Uint8Array(piece).buffer);
+      } else {
+        new Uint8Array(buffer).set(piece);
+        await writer.write(buffer);
+      }
+    }
+    await writer.close();
+    expect(Buffer.from(await output)).toEqual(Buffer.from(text));
   });
 
   /** Run `use`, and return how many times it freed a context of a class. */

@@ -349,7 +349,7 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
 The package root re-exports the stream helpers for `import` only, and not in browsers (see [Browser Usage](#browser-usage)); `@derodero24/comprs/streams` works with both `import` and `require()`.
 
-With the native addon (Node.js, Deno and Bun), these streams accept the chunks that `CompressionStream` accepts, any `ArrayBuffer` or `ArrayBufferView` (a `DataView`, a `Uint16Array`, ...), as well as a `SharedArrayBuffer`, and read them byte for byte. The browser build takes `Uint8Array` chunks.
+These streams accept the chunks that `CompressionStream` accepts, any `ArrayBuffer` or `ArrayBufferView` (a `DataView`, a `Uint16Array`, ...), as well as a `SharedArrayBuffer`, and read them byte for byte, both with the native addon (Node.js, Deno and Bun) and in the browser build.
 
 <details>
 <summary><strong>Full streaming API list</strong></summary>

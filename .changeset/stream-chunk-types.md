@@ -11,4 +11,3 @@ types`, and `createDecompressStream()` failed to detect the format of
 element. Every chunk is now read byte for byte, and a chunk that is not
 binary data errors the stream with a `TypeError`. The typings accept these
 chunks and remain assignable to `TransformStream<Uint8Array, Uint8Array>`.
-The browser build still takes `Uint8Array` chunks.
