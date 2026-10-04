@@ -426,13 +426,107 @@ pub fn crc32(data: &Bytes, initial_value: Option<f64>) -> Result<u32, JsError> {
 // Streaming contexts
 // ===========================================================================
 
+/// The codec state of a stream context, kept as the native addon keeps it
+/// (`NativeState` in crates/core/src/context.rs), without the report of its
+/// memory to the engine: `finish()` and `close()` drop the state, and later
+/// calls throw "<name> already finished" or "<name> already closed".
+struct StreamState<T> {
+    state: State<T>,
+    /// Name of the stream in errors, such as "zstd stream".
+    name: &'static str,
+}
+
+enum State<T> {
+    Open(T),
+    Finished,
+    Closed,
+}
+
+impl<T> StreamState<T> {
+    fn new(state: T, name: &'static str) -> Self {
+        Self {
+            state: State::Open(state),
+            name,
+        }
+    }
+
+    /// Run `op` on the state.
+    fn run(
+        &mut self,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, JsError> {
+        op(self.state()?).map_err(to_js_error)
+    }
+
+    /// Run `op`, which ends the stream, then drop the state, whether `op`
+    /// succeeded or not: the codecs cannot continue after either.
+    fn finish(
+        &mut self,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, JsError> {
+        let output = op(self.state()?);
+        self.state = State::Finished;
+        output.map_err(to_js_error)
+    }
+
+    /// Drop the state, unless the stream is already finished or closed.
+    fn close(&mut self) {
+        if let State::Open(_) = self.state {
+            self.state = State::Closed;
+        }
+    }
+
+    fn state(&mut self) -> Result<&mut T, JsError> {
+        match &mut self.state {
+            State::Open(state) => Ok(state),
+            State::Finished => Err(to_js_error(ComprsError::StreamFinished(self.name))),
+            State::Closed => Err(to_js_error(ComprsError::StreamClosed(self.name))),
+        }
+    }
+}
+
+/// The methods that every stream context class has, as in the native addon.
+/// The glue that wasm-bindgen generates adds `free()`, which also frees the
+/// object itself, and browser/index.js makes `[Symbol.dispose]()` an alias of
+/// `close()`, as the native addon does.
+macro_rules! stream_context_methods {
+    ($class:ident) => {
+        #[wasm_bindgen]
+        impl $class {
+            /// Process a chunk of input and return the output that is ready.
+            pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
+                let chunk = chunk.to_vec("chunk")?;
+                self.inner.run(|ctx| ctx.transform(&chunk))
+            }
+
+            /// Return the output of the input so far.
+            pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
+                self.inner.run(|ctx| ctx.flush())
+            }
+
+            /// End the stream and return the rest of the output. Later calls
+            /// throw.
+            pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
+                self.inner.finish(|ctx| ctx.finish())
+            }
+
+            /// Release the codec state now, for a stream that will not be
+            /// finished. Later calls throw; closing a finished or closed
+            /// context does nothing.
+            pub fn close(&mut self) {
+                self.inner.close();
+            }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Zstd streaming
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen]
 pub struct ZstdCompressContext {
-    inner: comprs_core::zstd_stream::CompressContext,
+    inner: StreamState<comprs_core::zstd_stream::CompressContext>,
 }
 
 #[wasm_bindgen]
@@ -443,28 +537,19 @@ impl ZstdCompressContext {
             .check_optional_f64(level)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::zstd_stream::CompressContext::new(level).map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::zstd_stream::CompressContext::new(level).map_err(to_js_error)?,
+                "zstd stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(ZstdCompressContext);
+
 #[wasm_bindgen]
 pub struct ZstdDecompressContext {
-    inner: comprs_core::zstd_stream::DecompressContext,
+    inner: StreamState<comprs_core::zstd_stream::DecompressContext>,
 }
 
 #[wasm_bindgen]
@@ -472,29 +557,20 @@ impl ZstdDecompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<ZstdDecompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::zstd_stream::DecompressContext::new(max_output_size)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::zstd_stream::DecompressContext::new(max_output_size)
+                    .map_err(to_js_error)?,
+                "zstd stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(ZstdDecompressContext);
+
 #[wasm_bindgen]
 pub struct ZstdCompressDictContext {
-    inner: comprs_core::zstd_stream::CompressDictContext,
+    inner: StreamState<comprs_core::zstd_stream::CompressDictContext>,
 }
 
 #[wasm_bindgen]
@@ -506,29 +582,20 @@ impl ZstdCompressDictContext {
             .check_optional_f64(level)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::zstd_stream::CompressDictContext::new(&dict, level)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::zstd_stream::CompressDictContext::new(&dict, level)
+                    .map_err(to_js_error)?,
+                "zstd stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(ZstdCompressDictContext);
+
 #[wasm_bindgen]
 pub struct ZstdDecompressDictContext {
-    inner: comprs_core::zstd_stream::DecompressDictContext,
+    inner: StreamState<comprs_core::zstd_stream::DecompressDictContext>,
 }
 
 #[wasm_bindgen]
@@ -539,28 +606,19 @@ impl ZstdDecompressDictContext {
         max_output_size: Option<f64>,
     ) -> Result<ZstdDecompressDictContext, JsError> {
         Ok(Self {
-            inner: comprs_core::zstd_stream::DecompressDictContext::new(
-                &dict.to_vec("dict")?,
-                max_output_size,
-            )
-            .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::zstd_stream::DecompressDictContext::new(
+                    &dict.to_vec("dict")?,
+                    max_output_size,
+                )
+                .map_err(to_js_error)?,
+                "zstd stream",
+            ),
         })
     }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
-    }
 }
+
+stream_context_methods!(ZstdDecompressDictContext);
 
 // ---------------------------------------------------------------------------
 // Gzip streaming
@@ -568,7 +626,7 @@ impl ZstdDecompressDictContext {
 
 #[wasm_bindgen]
 pub struct GzipCompressContext {
-    inner: comprs_core::gzip_stream::GzipCompressContext,
+    inner: StreamState<comprs_core::gzip_stream::GzipCompressContext>,
 }
 
 #[wasm_bindgen]
@@ -579,29 +637,19 @@ impl GzipCompressContext {
             .check_optional_f64(level)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::gzip_stream::GzipCompressContext::new(level)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::gzip_stream::GzipCompressContext::new(level).map_err(to_js_error)?,
+                "gzip stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(GzipCompressContext);
+
 #[wasm_bindgen]
 pub struct GzipDecompressContext {
-    inner: comprs_core::gzip_stream::GzipDecompressContext,
+    inner: StreamState<comprs_core::gzip_stream::GzipDecompressContext>,
 }
 
 #[wasm_bindgen]
@@ -609,25 +657,16 @@ impl GzipDecompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<GzipDecompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::gzip_stream::GzipDecompressContext::new(max_output_size)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::gzip_stream::GzipDecompressContext::new(max_output_size)
+                    .map_err(to_js_error)?,
+                "gzip stream",
+            ),
         })
     }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
-    }
 }
+
+stream_context_methods!(GzipDecompressContext);
 
 // ---------------------------------------------------------------------------
 // Deflate streaming
@@ -635,7 +674,7 @@ impl GzipDecompressContext {
 
 #[wasm_bindgen]
 pub struct DeflateCompressContext {
-    inner: comprs_core::gzip_stream::DeflateCompressContext,
+    inner: StreamState<comprs_core::gzip_stream::DeflateCompressContext>,
 }
 
 #[wasm_bindgen]
@@ -646,29 +685,20 @@ impl DeflateCompressContext {
             .check_optional_f64(level)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::gzip_stream::DeflateCompressContext::new(level)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::gzip_stream::DeflateCompressContext::new(level)
+                    .map_err(to_js_error)?,
+                "deflate stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(DeflateCompressContext);
+
 #[wasm_bindgen]
 pub struct DeflateDecompressContext {
-    inner: comprs_core::gzip_stream::DeflateDecompressContext,
+    inner: StreamState<comprs_core::gzip_stream::DeflateDecompressContext>,
 }
 
 #[wasm_bindgen]
@@ -676,25 +706,16 @@ impl DeflateDecompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<DeflateDecompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::gzip_stream::DeflateDecompressContext::new(max_output_size)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::gzip_stream::DeflateDecompressContext::new(max_output_size)
+                    .map_err(to_js_error)?,
+                "deflate stream",
+            ),
         })
     }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
-    }
 }
+
+stream_context_methods!(DeflateDecompressContext);
 
 // ---------------------------------------------------------------------------
 // Brotli streaming
@@ -702,7 +723,7 @@ impl DeflateDecompressContext {
 
 #[wasm_bindgen]
 pub struct BrotliCompressContext {
-    inner: comprs_core::brotli_stream::CompressContext,
+    inner: StreamState<comprs_core::brotli_stream::CompressContext>,
 }
 
 #[wasm_bindgen]
@@ -713,29 +734,19 @@ impl BrotliCompressContext {
             .check_optional_f64(quality)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::brotli_stream::CompressContext::new(quality)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::brotli_stream::CompressContext::new(quality).map_err(to_js_error)?,
+                "brotli stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(BrotliCompressContext);
+
 #[wasm_bindgen]
 pub struct BrotliDecompressContext {
-    inner: comprs_core::brotli_stream::DecompressContext,
+    inner: StreamState<comprs_core::brotli_stream::DecompressContext>,
 }
 
 #[wasm_bindgen]
@@ -743,29 +754,20 @@ impl BrotliDecompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<BrotliDecompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::brotli_stream::DecompressContext::new(max_output_size)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::brotli_stream::DecompressContext::new(max_output_size)
+                    .map_err(to_js_error)?,
+                "brotli stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(BrotliDecompressContext);
+
 #[wasm_bindgen]
 pub struct BrotliCompressDictContext {
-    inner: comprs_core::brotli_stream::CompressDictContext,
+    inner: StreamState<comprs_core::brotli_stream::CompressDictContext>,
 }
 
 #[wasm_bindgen]
@@ -777,29 +779,20 @@ impl BrotliCompressDictContext {
             .check_optional_f64(quality)
             .map_err(to_js_error)?;
         Ok(Self {
-            inner: comprs_core::brotli_stream::CompressDictContext::new(&dict, quality)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::brotli_stream::CompressDictContext::new(&dict, quality)
+                    .map_err(to_js_error)?,
+                "brotli dict stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(BrotliCompressDictContext);
+
 #[wasm_bindgen]
 pub struct BrotliDecompressDictContext {
-    inner: comprs_core::brotli_stream::DecompressDictContext,
+    inner: StreamState<comprs_core::brotli_stream::DecompressDictContext>,
 }
 
 #[wasm_bindgen]
@@ -810,28 +803,19 @@ impl BrotliDecompressDictContext {
         max_output_size: Option<f64>,
     ) -> Result<BrotliDecompressDictContext, JsError> {
         Ok(Self {
-            inner: comprs_core::brotli_stream::DecompressDictContext::new(
-                &dict.to_vec("dict")?,
-                max_output_size,
-            )
-            .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::brotli_stream::DecompressDictContext::new(
+                    &dict.to_vec("dict")?,
+                    max_output_size,
+                )
+                .map_err(to_js_error)?,
+                "brotli dict stream",
+            ),
         })
     }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
-    }
 }
+
+stream_context_methods!(BrotliDecompressDictContext);
 
 // ---------------------------------------------------------------------------
 // LZ4 streaming
@@ -839,7 +823,7 @@ impl BrotliDecompressDictContext {
 
 #[wasm_bindgen]
 pub struct Lz4CompressContext {
-    inner: comprs_core::lz4_stream::CompressContext,
+    inner: StreamState<comprs_core::lz4_stream::CompressContext>,
 }
 
 #[wasm_bindgen]
@@ -847,28 +831,19 @@ impl Lz4CompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<Lz4CompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::lz4_stream::CompressContext::new().map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::lz4_stream::CompressContext::new().map_err(to_js_error)?,
+                "lz4 stream",
+            ),
         })
-    }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.finish().map_err(to_js_error)
     }
 }
 
+stream_context_methods!(Lz4CompressContext);
+
 #[wasm_bindgen]
 pub struct Lz4DecompressContext {
-    inner: comprs_core::lz4_stream::DecompressContext,
+    inner: StreamState<comprs_core::lz4_stream::DecompressContext>,
 }
 
 #[wasm_bindgen]
@@ -876,18 +851,13 @@ impl Lz4DecompressContext {
     #[wasm_bindgen(constructor)]
     pub fn new(max_output_size: Option<f64>) -> Result<Lz4DecompressContext, JsError> {
         Ok(Self {
-            inner: comprs_core::lz4_stream::DecompressContext::new(max_output_size)
-                .map_err(to_js_error)?,
+            inner: StreamState::new(
+                comprs_core::lz4_stream::DecompressContext::new(max_output_size)
+                    .map_err(to_js_error)?,
+                "lz4 stream",
+            ),
         })
     }
-
-    pub fn transform(&mut self, chunk: &Bytes) -> Result<Vec<u8>, JsError> {
-        self.inner
-            .transform(&chunk.to_vec("chunk")?)
-            .map_err(to_js_error)
-    }
-
-    pub fn flush(&mut self) -> Result<Vec<u8>, JsError> {
-        self.inner.flush().map_err(to_js_error)
-    }
 }
+
+stream_context_methods!(Lz4DecompressContext);

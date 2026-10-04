@@ -53,3 +53,13 @@ test('detect format', async ({ page }) => {
   const format = await page.evaluate(() => window.__results.detectFormat);
   expect(format).toBe('zstd');
 });
+
+test('async round-trip', async ({ page }) => {
+  const result = await page.evaluate(() => window.__results.asyncRoundTrip);
+  expect(result).toBe(true);
+});
+
+test('Web Streams round-trip', async ({ page }) => {
+  const result = await page.evaluate(() => window.__results.streaming);
+  expect(result).toBe(true);
+});
