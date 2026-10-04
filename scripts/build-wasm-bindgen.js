@@ -6,6 +6,9 @@
  * wasm-bindgen's `web` target: the glue exports an init function that the
  * browser entry (browser/index.js) awaits, instead of importing the .wasm
  * file as an ES module, which esbuild cannot bundle.
+ *
+ * The build uses the wasm-release profile of the workspace Cargo.toml, which
+ * optimizes for size, and does not run wasm-opt (see that profile).
  */
 
 'use strict';
@@ -29,7 +32,18 @@ console.log('Building wasm-bindgen package...');
 // metacharacters reach wasm-pack unchanged.
 execFileSync(
   'wasm-pack',
-  ['build', WASM_CRATE, '--target', 'web', '--out-dir', OUT_DIR, '--out-name', 'comprs-wasm'],
+  [
+    'build',
+    WASM_CRATE,
+    '--profile',
+    'wasm-release',
+    '--target',
+    'web',
+    '--out-dir',
+    OUT_DIR,
+    '--out-name',
+    'comprs-wasm',
+  ],
   { stdio: 'inherit', cwd: ROOT },
 );
 
