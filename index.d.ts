@@ -440,26 +440,36 @@ export declare function crc32(data: Buffer | Uint8Array, initialValue?: number |
 /**
  * Decompress data by auto-detecting the compression format.
  *
- * Detects the format from magic bytes and decompresses using the
- * appropriate algorithm. The maximum decompressed size is 256 MB
- * for all formats.
+ * Detects the format like `detectFormat` and decompresses using the
+ * appropriate algorithm.
+ *
+ * `maxOutputSize` limits the decompressed size in bytes, like the
+ * `maxOutputSize` of `createDecompressStream`. It defaults to 256 MB for all
+ * formats. It is only a limit: a large value reserves no memory up front.
  *
  * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ * Data detected as brotli that does not decode as brotli throws the same
+ * error as data of unknown format, since brotli detection is heuristic.
  */
-export declare function decompress(data: Buffer | Uint8Array): Buffer
+export declare function decompress(data: Buffer | Uint8Array, maxOutputSize?: number | undefined | null): Buffer
 
 /**
  * Asynchronously decompress data by auto-detecting the compression format.
  *
- * Detects the format from magic bytes and decompresses using the
+ * Detects the format like `detectFormat` and decompresses using the
  * appropriate algorithm. Returns a Promise that resolves to the
  * decompressed data as a Buffer.
  *
+ * `maxOutputSize` limits the decompressed size in bytes, as for
+ * `decompress`. It defaults to 256 MB.
+ *
  * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ * Data detected as brotli that does not decode as brotli rejects with the
+ * same error as data of unknown format, since brotli detection is heuristic.
  */
-export declare function decompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
+export declare function decompressAsync(data: Buffer | Uint8Array, maxOutputSize?: number | undefined | null): Promise<Buffer>
 
 /**
  * Compress data using raw deflate (no gzip header/trailer).
@@ -521,10 +531,18 @@ export declare function deflateDecompressWithCapacityAsync(data: Buffer | Uint8A
  * Returns `"zstd"`, `"gzip"`, `"brotli"`, or `"lz4"`.
  * Returns `"unknown"` if the format cannot be determined.
  *
- * Note: Brotli has no magic bytes, so it is detected by elimination.
- * Data that does not match zstd, gzip, or lz4 is reported as `"brotli"` only
- * if it appears to start with a valid brotli stream. Otherwise, `"unknown"`
- * is returned.
+ * zstd, gzip and LZ4 are recognized by their magic numbers, LZ4 legacy
+ * frames (`lz4 -l`) included. Skippable frames at the start of the data,
+ * which zstd and LZ4 share, are skipped: the frame after them decides.
+ *
+ * Brotli has no magic number, so it is detected heuristically: up to the
+ * first 64 KiB of the data are decoded, and the data is reported as
+ * `"brotli"` if they decode without error and either hold a whole brotli
+ * stream that ends with the data, decode to more bytes than they hold, or
+ * fill the 64 KiB. The start of a brotli stream of data that does not
+ * compress is thus reported as `"unknown"` until it is 64 KiB long, and
+ * about 5% of random data of 64 KiB or more is reported as `"brotli"`.
+ * Raw deflate has no magic number and is not detected.
  */
 export declare function detectFormat(data: Buffer | Uint8Array): CompressionFormat
 

@@ -429,22 +429,59 @@ function enqueueIfNonEmpty(controller, result) {
 }
 
 /**
+ * How much input the auto-detecting stream waits for at most before it
+ * decides on the format: detectFormat decodes up to the first 64 KiB to
+ * recognize brotli.
+ */
+const DETECT_LIMIT = 64 * 1024;
+
+/** The length of the zstd and LZ4 magic numbers, the longest ones. */
+const MAGIC_LENGTH = 4;
+
+/**
+ * Concatenate `chunks`, whose lengths add up to `length`.
+ *
+ * @param {Uint8Array[]} chunks
+ * @param {number} length
+ * @returns {Uint8Array}
+ */
+function concatChunks(chunks, length) {
+  if (chunks.length === 1) return chunks[0];
+  const data = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return data;
+}
+
+/**
  * Create a streaming auto-detect decompression TransformStream.
  *
- * Detects the compression format (zstd, gzip, brotli, or lz4) from the first
- * few bytes and delegates to the appropriate decompression context.
+ * Detects the compression format (zstd, gzip, brotli, or lz4) like
+ * detectFormat and delegates to the appropriate decompression context.
  * Raw deflate is not supported (no magic bytes to distinguish it).
+ *
+ * The input is buffered until the format is detected: up to 64 KiB, or the
+ * whole input if it is shorter. The stream errors if the format is still
+ * unknown then.
  *
  * @param {number} [maxOutputSize] Maximum decompressed output size in bytes
  * @returns {TransformStream<Uint8Array, Uint8Array>}
  */
 function createDecompressStream(maxOutputSize) {
   let ctx = null;
-  let buffer = null;
+  // The input received before the format is detected.
+  let buffered = [];
+  let bufferedLength = 0;
+  // Detection runs once this much input has arrived, then each time the
+  // input doubles, so that small chunks do not make it run on every chunk.
+  let detectAt = MAGIC_LENGTH;
 
-  function detectAndReplay(data, controller) {
-    ctx = createDecompressContext(detectFormat(data), maxOutputSize);
-    buffer = null;
+  function start(format, data, controller) {
+    ctx = createDecompressContext(format, maxOutputSize);
+    buffered = null;
     enqueueIfNonEmpty(controller, ctx.transform(data));
   }
 
@@ -455,23 +492,28 @@ function createDecompressStream(maxOutputSize) {
         return;
       }
 
-      if (buffer === null) {
-        buffer = new Uint8Array(chunk);
-      } else {
-        const combined = new Uint8Array(buffer.length + chunk.length);
-        combined.set(buffer);
-        combined.set(chunk, buffer.length);
-        buffer = combined;
+      const copy = new Uint8Array(chunk);
+      buffered.push(copy);
+      bufferedLength += copy.length;
+      if (bufferedLength < detectAt) return;
+
+      const data = concatChunks(buffered, bufferedLength);
+      const format = detectFormat(data);
+      // More input may still reveal the format, as for the start of a
+      // brotli stream or of a skippable frame.
+      if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
+        buffered = [data];
+        detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
+        return;
       }
-
-      if (buffer.length < 4) return;
-
-      detectAndReplay(buffer, controller);
+      start(format, data, controller);
     },
     flush(controller) {
       if (!ctx) {
-        // Fewer than 4 bytes arrived. Empty input has no detectable format and throws.
-        detectAndReplay(buffer ?? new Uint8Array(0), controller);
+        // The input ended before its format was detected. Empty input has no
+        // detectable format and throws.
+        const data = concatChunks(buffered, bufferedLength);
+        start(detectFormat(data), data, controller);
       }
 
       enqueueIfNonEmpty(controller, ctx.flush());

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as native from '../index.js';
+import { ROWS, skippableFrame } from './detect-fixtures.js';
 import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
 
 // Tests the wasm-bindgen build through the browser entry, which loads it.
@@ -68,11 +69,43 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
     });
 
-    it('should auto-detect brotli via decompress', () => {
-      // Brotli has no magic bytes, so detectFormat cannot recognize it, but
-      // decompress() still tries brotli as a fallback.
+    it('should auto-detect brotli', () => {
       const compressed = wasm.brotliCompress(testData);
+      expect(wasm.detectFormat(compressed)).toBe('brotli');
       expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
+    });
+
+    it('should auto-detect lz4 after a skippable frame', () => {
+      const compressed = Buffer.concat([
+        skippableFrame(Buffer.from('metadata')),
+        native.lz4Compress(testData),
+      ]);
+      expect(wasm.detectFormat(compressed)).toBe('lz4');
+      expect(Buffer.from(wasm.decompress(compressed))).toEqual(testData);
+    });
+
+    it('should limit the output to maxOutputSize like the native addon', () => {
+      for (const [format, compressed] of [
+        ['zstd', wasm.zstdCompress(testData)],
+        ['gzip', wasm.gzipCompress(testData)],
+        ['brotli', wasm.brotliCompress(testData)],
+        ['lz4', wasm.lz4Compress(testData)],
+      ] as const) {
+        for (const maxOutputSize of [testData.length, undefined]) {
+          const output = bytes(callWasm('decompress', compressed, maxOutputSize));
+          expect(Buffer.from(output)).toEqual(testData);
+        }
+        const limit = testData.length - 1;
+        const message = `${format} decompress exceeded maximum size of ${limit} bytes`;
+        expect(() => callWasm('decompress', compressed, limit)).toThrow(message);
+        expect(() => native.decompress(compressed, limit)).toThrow(message);
+      }
+    });
+
+    it('should report raw deflate as unknown format', () => {
+      const compressed = wasm.deflateCompress(ROWS);
+      expect(wasm.detectFormat(compressed)).toBe('unknown');
+      expect(() => wasm.decompress(compressed)).toThrow(/unable to detect compression format/);
     });
   });
 
@@ -262,6 +295,12 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
           (v) => constructWasm(name, dict, v),
         ],
       ),
+      [
+        'decompress',
+        size('maxOutputSize'),
+        INVALID_SIZES,
+        (v) => callWasm('decompress', wasm.gzipCompress(data), v),
+      ],
     ];
 
     it.each(CASES)(

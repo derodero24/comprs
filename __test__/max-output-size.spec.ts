@@ -3,6 +3,8 @@ import {
   BrotliDecompressContext,
   brotliCompress,
   DeflateDecompressContext,
+  decompress,
+  decompressAsync,
   deflateCompress,
   GzipDecompressContext,
   gzipCompress,
@@ -182,6 +184,49 @@ describe('maxOutputSize on decompression contexts', () => {
       const result = ctx.transform(compressed);
       expect(result.byteLength).toBe(testData.byteLength);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maxOutputSize on auto-detecting one-shot decompression
+// ---------------------------------------------------------------------------
+
+describe('maxOutputSize on decompress() and decompressAsync()', () => {
+  const content = Buffer.from('Auto-detected decompression with a limit. '.repeat(100));
+  const formats = [
+    ['zstd', zstdCompress(content)],
+    ['gzip', gzipCompress(content)],
+    ['brotli', brotliCompress(content)],
+    ['lz4', lz4Compress(content)],
+  ] as const;
+
+  it.each(formats)('%s: should decompress output up to the limit', async (_format, compressed) => {
+    for (const maxOutputSize of [content.length, content.length + 1, Number.MAX_SAFE_INTEGER]) {
+      expect(decompress(compressed, maxOutputSize)).toEqual(content);
+      expect(await decompressAsync(compressed, maxOutputSize)).toEqual(content);
+    }
+  });
+
+  it.each(formats)('%s: should reject output above the limit', async (format, compressed) => {
+    for (const maxOutputSize of [0, content.length - 1]) {
+      const message = `${format} decompress exceeded maximum size of ${maxOutputSize} bytes`;
+      expect(() => decompress(compressed, maxOutputSize)).toThrow(message);
+      await expect(decompressAsync(compressed, maxOutputSize)).rejects.toThrow(message);
+    }
+  });
+
+  it.each(formats)('%s: should default to 256 MB when omitted', async (_format, compressed) => {
+    for (const maxOutputSize of [undefined, null]) {
+      expect(decompress(compressed, maxOutputSize)).toEqual(content);
+      expect(await decompressAsync(compressed, maxOutputSize)).toEqual(content);
+    }
+  });
+
+  it('should no longer ignore the limit', async () => {
+    const compressed = gzipCompress(Buffer.alloc(1024 * 1024));
+    const message = 'gzip decompress exceeded maximum size of 1024 bytes';
+    expect(() => decompress(compressed, 1024)).toThrow(message);
+    await expect(decompressAsync(compressed, 1024)).rejects.toThrow(message);
   });
 });
 

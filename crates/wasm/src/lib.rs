@@ -400,9 +400,13 @@ pub fn detect_format(data: &Bytes) -> Result<String, JsError> {
 }
 
 /// Decompress data by auto-detecting the compression format.
+///
+/// `max_output_size` limits the output size and defaults to 256 MB.
 #[wasm_bindgen(js_name = "decompress")]
-pub fn decompress(data: &Bytes) -> Result<Vec<u8>, JsError> {
-    comprs_core::detect::decompress(&data.to_vec("data")?).map_err(to_js_error)
+pub fn decompress(data: &Bytes, max_output_size: Option<f64>) -> Result<Vec<u8>, JsError> {
+    let data = data.to_vec("data")?;
+    let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_js_error)?;
+    comprs_core::detect::decompress_with_capacity(&data, max_size).map_err(to_js_error)
 }
 
 // ---------------------------------------------------------------------------

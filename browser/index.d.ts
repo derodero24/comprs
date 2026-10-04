@@ -133,8 +133,11 @@ export declare function lz4DecompressWithCapacity(data: Uint8Array, capacity: nu
 export declare function detectFormat(
   data: Uint8Array,
 ): 'zstd' | 'gzip' | 'brotli' | 'lz4' | 'unknown';
-/** Decompress data in any format that detectFormat() recognises, or brotli. */
-export declare function decompress(data: Uint8Array): Uint8Array;
+/**
+ * Decompress data in any format that detectFormat() recognises, failing if
+ * the output exceeds `maxOutputSize` bytes (default 256 MiB).
+ */
+export declare function decompress(data: Uint8Array, maxOutputSize?: number | null): Uint8Array;
 /** Compute the CRC32 of data, continuing from `initialValue` if given. */
 export declare function crc32(data: Uint8Array, initialValue?: number | null): number;
 /** Version of comprs. */
