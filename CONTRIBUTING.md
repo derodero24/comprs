@@ -87,7 +87,10 @@ CI also tests the WebAssembly build. To run these tests locally:
 ```bash
 pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
 pnpm run test:wasm            # WebAssembly build, compared with the native addon
+pnpm run size:wasm            # Size of the WebAssembly binary, checked against its budget
 ```
+
+The size budget is in `scripts/wasm-size.mjs`. Raise it in the pull request that needs the extra bytes, and explain why there.
 
 CI then tests the package as it would be published (see [Package tests](#package-tests)).
 

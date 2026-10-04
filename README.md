@@ -446,14 +446,15 @@ The Linux glibc binaries need glibc 2.17 or newer. The Windows binaries link the
 
 ### WASM bundle size
 
-The browser WASM binary (`wasm32-unknown-unknown`) is built via `wasm-pack` and optimized with `wasm-opt -O3` during CI builds.
+The browser WASM binary (`wasm32-unknown-unknown`) is built with `wasm-pack`, optimized for size (`opt-level = "s"`). It contains all four codecs.
 
-| | Size |
+| `comprs-wasm_bg.wasm` | Size |
 | --- | --- |
-| `comprs-wasm_bg.wasm` (optimized) | ~1.5 MB |
-| Gzip-compressed (typical CDN transfer) | ~600 KB |
+| Raw | 1.87 MB |
+| gzip (level 9) | 792 KB |
+| brotli (quality 11) | 545 KB |
 
-Exact sizes are tracked on every build — see the latest [CI run summary](https://github.com/derodero24/comprs/actions/workflows/ci.yml).
+The compressed sizes are those of Node.js's zlib; what a CDN serves depends on its compressor and level. CI reports these sizes on every pull request, and fails when the raw or gzip size grows over its budget.
 
 ## Browser Usage
 

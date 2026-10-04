@@ -335,26 +335,6 @@ jobs:
           fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
-      - name: Report WASM binary size
-        run: |
-          WASM_FILE=browser/comprs-wasm_bg.wasm
-          SIZE_KB=$(( $(stat -c%s "$WASM_FILE") / 1024 ))
-          {
-            echo "### WASM Binary Size"
-            echo ""
-            echo "| File | Size |"
-            echo "|------|------|"
-            echo "| $WASM_FILE | ${SIZE_KB} KB |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          mkdir -p wasm-size-report
-          echo "$WASM_FILE" > wasm-size-report/file.txt
-          echo "$SIZE_KB" > wasm-size-report/size.txt
-      - name: Upload WASM size report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: wasm-size-report
-          path: wasm-size-report/
-          if-no-files-found: error
       # The files sit at the root of the artifact; the jobs that download it
       # put them back into browser/.
       - name: Upload wasm-bindgen artifact
@@ -365,6 +345,22 @@ jobs:
             browser/comprs-wasm.js
             browser/comprs-wasm.d.ts
             browser/comprs-wasm_bg.wasm
+          if-no-files-found: error
+      # Fails when the binary is over its size budget, after writing the
+      # report that the step summary and the PR comment show.
+      - name: Check WASM binary size
+        run: |
+          mkdir -p wasm-size-report
+          status=0
+          node scripts/wasm-size.mjs --markdown wasm-size-report/report.md || status=$?
+          cat wasm-size-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload WASM size report
+        if: ${{ !cancelled() && hashFiles('wasm-size-report/report.md') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wasm-size-report
+          path: wasm-size-report/
           if-no-files-found: error
 
   test:
@@ -595,36 +591,45 @@ jobs:
           flags: rust,javascript
           fail_ci_if_error: false
 
+  # Posts the report of build-wasm-bindgen, also when the binary is over its
+  # budget, and updates the same comment on later pushes.
   report-wasm-size:
     name: Report WASM Size
-    if: github.event_name == 'pull_request'
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       pull-requests: write # post the size comment
     steps:
+      # Missing when the build failed before the size check.
       - name: Download WASM size report
+        id: download
+        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: wasm-size-report
           path: wasm-size-report
-      - name: Read size data
-        id: read
+      - name: Add the comment marker
+        if: steps.download.outcome == 'success'
         run: |
-          echo "file=$(cat wasm-size-report/file.txt)" >> $GITHUB_OUTPUT
-          echo "size=$(cat wasm-size-report/size.txt)" >> $GITHUB_OUTPUT
+          { echo '<!-- wasm-size-report -->'; cat wasm-size-report/report.md; } > comment.md
+      - name: Find the size comment
+        id: find
+        if: steps.download.outcome == 'success'
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: '<!-- wasm-size-report -->'
       - name: Post size comment on PR
+        if: steps.download.outcome == 'success'
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### WASM Binary Size
-
-            | File | Size |
-            |------|------|
-            | ${{ steps.read.outputs.file }} | ${{ steps.read.outputs.size }} KB |
-          comment-tag: wasm-size-report
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          body-path: comment.md
+          edit-mode: replace
 
   # ──── Release packaging, without publishing ────
   # Assembles the npm packages from this run's artifacts with the script the

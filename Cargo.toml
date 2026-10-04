@@ -37,3 +37,16 @@ codegen-units = 1
 lto = true
 opt-level = 3
 strip = "symbols"
+
+# The browser build (crates/wasm, built by scripts/build-wasm-bindgen.js).
+# Optimizing for size makes the binary 14% smaller with gzip and 12% with
+# brotli than opt-level 3. In exchange, brotli compression and
+# decompression and gzip decompression run 20-40% slower; the other codecs
+# keep most of their speed. opt-level "z" saves 3-5% more but halves LZ4
+# throughput. wasm-opt is not run: each of its optimization levels shrinks
+# the raw binary but makes the gzip and brotli downloads larger (#586).
+# lto and codegen-units come from the release profile, and panic = "abort"
+# is the default of the wasm32-unknown-unknown target.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
