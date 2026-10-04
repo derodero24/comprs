@@ -527,4 +527,19 @@ mod tests {
 
         assert_eq!(original.as_slice(), decompressed.as_slice());
     }
+
+    /// The dictionary stream compresses on `finish` through the same encoder
+    /// path as `compress_with_dict`, so it hits the same brotli 9.0.0 panic.
+    #[test]
+    fn compress_dict_context_survives_encoder_panic() {
+        let data = [
+            255, 164, 251, 255, 255, 240, 7, 0, 0, 0, 0, 0, 0, 0, 0, 41, 103, 0, 14,
+        ];
+        let dict = [254, 255];
+        let mut ctx = super::CompressDictContext::new(&dict, None).unwrap();
+        assert!(ctx.transform(&data).unwrap().is_empty());
+        let compressed = ctx.finish().unwrap();
+        let decompressed = crate::brotli::decompress_with_dict(&compressed, &dict).unwrap();
+        assert_eq!(decompressed, data);
+    }
 }

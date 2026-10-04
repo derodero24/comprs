@@ -99,11 +99,40 @@ pub fn compress_with_dict(
 }
 
 /// Low-level dictionary compression implementation.
+///
+/// brotli 9.0.0's encoder mishandles matches that would cross the end of a
+/// custom dictionary: for some inputs it panics at qualities 2-9 and, at
+/// qualities 10 and 11, emits copies that span the dictionary/data boundary,
+/// which the decoder rejects. This function catches the panic (on targets
+/// that unwind; wasm32 aborts on panic), checks quality 10-11 output by
+/// decoding it, and in either case compresses the input again without the
+/// dictionary. That stream is valid brotli and decodes with or without the
+/// dictionary.
 pub fn compress_with_dict_inner(
     input: &[u8],
     dict: &[u8],
     quality: u32,
 ) -> std::result::Result<Vec<u8>, std::io::Error> {
+    if !dict.is_empty() {
+        match std::panic::catch_unwind(|| encode(input, dict, quality)) {
+            Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => {
+                return Ok(output);
+            }
+            Ok(Err(e)) => return Err(e),
+            Ok(Ok(_)) | Err(_) => {}
+        }
+    }
+    encode(input, &[], quality)
+}
+
+/// Whether `compressed` decodes with `dict` to exactly `expected`.
+fn decodes_to(compressed: &[u8], dict: &[u8], expected: &[u8]) -> bool {
+    decompress_with_dict_with_capacity(compressed, dict, expected.len())
+        .is_ok_and(|output| output == expected)
+}
+
+/// Run the brotli encoder; an empty `dict` means no custom dictionary.
+fn encode(input: &[u8], dict: &[u8], quality: u32) -> std::result::Result<Vec<u8>, std::io::Error> {
     use std::io::Cursor;
 
     let params = brotli::enc::BrotliEncoderParams {
@@ -397,6 +426,34 @@ mod tests {
         let compressed = compress(original, None).unwrap();
         let decompressed = decompress(&compressed).unwrap();
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    /// Input from the PR #615 fuzz targets: brotli 9.0.0 cuts a match that
+    /// starts on the last dictionary byte to a 1-byte copy and panics on it at
+    /// qualities 5-9.
+    #[test]
+    fn dict_compress_survives_encoder_panic() {
+        let data = [
+            255, 164, 251, 255, 255, 240, 7, 0, 0, 0, 0, 0, 0, 0, 0, 41, 103, 0, 14,
+        ];
+        let dict = [254, 255];
+        for quality in 0..=11 {
+            let compressed = compress_with_dict(&data, &dict, Some(quality)).unwrap();
+            assert_eq!(decompress_with_dict(&compressed, &dict).unwrap(), data);
+        }
+    }
+
+    /// At qualities 10 and 11 brotli 9.0.0 encodes this input with a copy
+    /// that starts in the dictionary and runs into the data, which the
+    /// decoder rejects.
+    #[test]
+    fn dict_compress_output_decodes_at_quality_10_and_11() {
+        let data = [2, 2, 3, 1, 2, 2, 3];
+        let dict = [1, 0, 1, 1];
+        for quality in [10, 11] {
+            let compressed = compress_with_dict(&data, &dict, Some(quality)).unwrap();
+            assert_eq!(decompress_with_dict(&compressed, &dict).unwrap(), data);
+        }
     }
 
     #[test]
