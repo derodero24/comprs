@@ -39,4 +39,16 @@ const roundTrip: ReadableStream<Uint8Array> = source
   .pipeThrough(createGzipCompressStream())
   .pipeThrough(createGzipDecompressStream());
 
-export { chunks, filename, format, mtime, roundTrip, zstd };
+// The Web streams accept any binary chunk, and they still fit the narrower
+// type that their declarations used to have.
+const binary = new ReadableStream<ArrayBuffer | DataView>({
+  start(controller) {
+    controller.enqueue(input.buffer.slice(0));
+    controller.enqueue(new DataView(input.buffer));
+    controller.close();
+  },
+});
+const fromBinary: ReadableStream<Uint8Array> = binary.pipeThrough(createGzipCompressStream());
+const narrow: TransformStream<Uint8Array, Uint8Array> = createGzipDecompressStream();
+
+export { chunks, filename, format, fromBinary, mtime, narrow, roundTrip, zstd };

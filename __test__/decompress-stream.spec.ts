@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { brotliCompress, gzipCompress, lz4Compress, zstdCompress } from '../index.js';
 import { createDecompressTransform } from '../node.js';
 import { createDecompressStream } from '../streams.js';
+import { CHUNK_KINDS, readChunks, streamOf, toChunks } from './chunk-fixtures.js';
 import { lz4LegacyFrame, pseudoRandomBytes, ROWS, skippableFrame } from './detect-fixtures.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
@@ -106,6 +107,67 @@ describe('createDecompressStream', () => {
     const stream = toChunkedStream(compressed, compressed.length);
     const result = await collectStream(stream.pipeThrough(createDecompressStream()));
     expect(Buffer.compare(result, original)).toBe(0);
+  });
+});
+
+describe('createDecompressStream chunk types', () => {
+  const zstd = zstdCompress(original);
+  const ab = zstd.buffer.slice(zstd.byteOffset, zstd.byteOffset + zstd.byteLength);
+
+  it('should decompress ArrayBuffer chunks split inside the magic number', async () => {
+    const chunks = await readChunks(
+      streamOf([ab.slice(0, 2), ab.slice(2)]).pipeThrough(createDecompressStream()),
+    );
+    expect(Buffer.concat(chunks)).toEqual(original);
+  });
+
+  it('should decompress a single DataView chunk', async () => {
+    const chunks = await readChunks(
+      streamOf([new DataView(ab)]).pipeThrough(createDecompressStream()),
+    );
+    expect(Buffer.concat(chunks)).toEqual(original);
+  });
+
+  const FORMATS: [string, Buffer][] = [
+    ['zstd', zstd],
+    ['gzip', gzipCompress(original)],
+    ['brotli', brotliCompress(original)],
+    ['lz4', lz4Compress(original)],
+  ];
+
+  describe.each(FORMATS)('%s', (_format, compressed) => {
+    it.each(CHUNK_KINDS)('should decompress 2-byte %s chunks byte for byte', async (kind) => {
+      const chunks = await readChunks(
+        streamOf(toChunks(compressed, 2, kind)).pipeThrough(createDecompressStream()),
+      );
+      expect(Buffer.concat(chunks)).toEqual(original);
+    });
+  });
+
+  it('should not keep a view of a chunk while it detects the format', async () => {
+    // The writer reuses one buffer for every chunk, as soon as each write
+    // has been accepted.
+    const scratch = new Uint8Array(3);
+    const transform = createDecompressStream();
+    const output = readChunks(transform.readable);
+    const writer = transform.writable.getWriter();
+    for (let i = 0; i < zstd.length; i += scratch.length) {
+      const piece = zstd.subarray(i, i + scratch.length);
+      scratch.set(piece);
+      await writer.write(scratch.subarray(0, piece.length));
+    }
+    await writer.close();
+    expect(Buffer.concat(await output)).toEqual(original);
+  });
+
+  it('should error on a chunk that is not binary data', async () => {
+    const transform = createDecompressStream();
+    const writable: WritableStream<unknown> = transform.writable;
+    const written = streamOf(['not bytes']).pipeTo(writable);
+    const read = readChunks(transform.readable);
+    await expect(read).rejects.toBeInstanceOf(TypeError);
+    await expect(read).rejects.toThrow('chunk must be an ArrayBuffer or ArrayBufferView');
+    await expect(written).rejects.toBeInstanceOf(TypeError);
   });
 });
 

@@ -1,7 +1,41 @@
 import { randomBytes } from 'node:crypto';
+import { isArrayBuffer } from 'node:util/types';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { zstdCompress, zstdDecompress } from '../index.js';
-import { createZstdCompressStream, createZstdDecompressStream } from '../streams.js';
+import {
+  brotliCompress,
+  brotliCompressWithDict,
+  brotliDecompress,
+  brotliDecompressWithDict,
+  deflateCompress,
+  deflateDecompress,
+  gzipCompress,
+  gzipDecompress,
+  lz4Compress,
+  lz4Decompress,
+  zstdCompress,
+  zstdCompressWithDict,
+  zstdDecompress,
+  zstdDecompressWithDict,
+  zstdTrainDictionary,
+} from '../index.js';
+import {
+  createBrotliCompressDictStream,
+  createBrotliCompressStream,
+  createBrotliDecompressDictStream,
+  createBrotliDecompressStream,
+  createDeflateCompressStream,
+  createDeflateDecompressStream,
+  createGzipCompressStream,
+  createGzipDecompressStream,
+  createLz4CompressStream,
+  createLz4DecompressStream,
+  createZstdCompressDictStream,
+  createZstdCompressStream,
+  createZstdDecompressDictStream,
+  createZstdDecompressStream,
+} from '../streams.js';
+import { CHUNK_KINDS, type Chunk, readChunks, streamOf, toChunks } from './chunk-fixtures.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
 async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -136,5 +170,134 @@ describe('streaming round-trip', () => {
 
     const decompressed = zstdDecompress(compressed);
     expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('chunk types', () => {
+  // An even length, so that Uint16Array chunks cover all of it.
+  const data = Buffer.from(
+    Array.from({ length: 2000 }, (_, i) => `{"id":${i},"name":"user_${i}"}`).join('\n'),
+  ).subarray(0, 50_000);
+  const zstdDict = zstdTrainDictionary(
+    Array.from({ length: 100 }, (_, i) => Buffer.from(`{"id":${i},"name":"user_${i}"}`)),
+  );
+  const brotliDict = data.subarray(0, 1024);
+
+  type Factory = () => TransformStream<Chunk, Uint8Array>;
+  const CODECS: {
+    name: string;
+    compressStream: Factory;
+    decompressStream: Factory;
+    compress: (data: Uint8Array) => Uint8Array;
+    decompress: (data: Uint8Array) => Uint8Array;
+  }[] = [
+    {
+      name: 'zstd',
+      compressStream: () => createZstdCompressStream(),
+      decompressStream: () => createZstdDecompressStream(),
+      compress: (d) => zstdCompress(d),
+      decompress: (d) => zstdDecompress(d),
+    },
+    {
+      name: 'zstd with dictionary',
+      compressStream: () => createZstdCompressDictStream(zstdDict),
+      decompressStream: () => createZstdDecompressDictStream(zstdDict),
+      compress: (d) => zstdCompressWithDict(d, zstdDict),
+      decompress: (d) => zstdDecompressWithDict(d, zstdDict),
+    },
+    {
+      name: 'gzip',
+      compressStream: () => createGzipCompressStream(),
+      decompressStream: () => createGzipDecompressStream(),
+      compress: (d) => gzipCompress(d),
+      decompress: (d) => gzipDecompress(d),
+    },
+    {
+      name: 'deflate',
+      compressStream: () => createDeflateCompressStream(),
+      decompressStream: () => createDeflateDecompressStream(),
+      compress: (d) => deflateCompress(d),
+      decompress: (d) => deflateDecompress(d),
+    },
+    {
+      name: 'brotli',
+      compressStream: () => createBrotliCompressStream(),
+      decompressStream: () => createBrotliDecompressStream(),
+      compress: (d) => brotliCompress(d),
+      decompress: (d) => brotliDecompress(d),
+    },
+    {
+      name: 'brotli with dictionary',
+      compressStream: () => createBrotliCompressDictStream(brotliDict),
+      decompressStream: () => createBrotliDecompressDictStream(brotliDict),
+      compress: (d) => brotliCompressWithDict(d, brotliDict),
+      decompress: (d) => brotliDecompressWithDict(d, brotliDict),
+    },
+    {
+      name: 'lz4',
+      compressStream: () => createLz4CompressStream(),
+      decompressStream: () => createLz4DecompressStream(),
+      compress: (d) => lz4Compress(d),
+      decompress: (d) => lz4Decompress(d),
+    },
+  ];
+
+  describe.each(CODECS)('$name', ({ compressStream, decompressStream, compress, decompress }) => {
+    it.each(CHUNK_KINDS)('should compress %s chunks byte for byte', async (kind) => {
+      const chunks = await readChunks(
+        streamOf(toChunks(data, 4096, kind)).pipeThrough(compressStream()),
+      );
+      expect(Buffer.from(decompress(Buffer.concat(chunks))).equals(data)).toBe(true);
+    });
+
+    it.each(CHUNK_KINDS)('should decompress %s chunks byte for byte', async (kind) => {
+      const chunks = await readChunks(
+        streamOf(toChunks(compress(data), 64, kind)).pipeThrough(decompressStream()),
+      );
+      expect(Buffer.concat(chunks).equals(data)).toBe(true);
+    });
+
+    it('should error on a chunk that is not binary data', async () => {
+      const transform = compressStream();
+      const writable: WritableStream<unknown> = transform.writable;
+      const written = streamOf(['not bytes']).pipeTo(writable);
+      const read = readChunks(transform.readable);
+      await expect(read).rejects.toBeInstanceOf(TypeError);
+      await expect(read).rejects.toThrow('chunk must be an ArrayBuffer or ArrayBufferView');
+      await expect(written).rejects.toBeInstanceOf(TypeError);
+    });
+  });
+
+  it('should accept an ArrayBuffer from another realm', async () => {
+    // Such as the ArrayBuffer of a Buffer that Node.js returns to code that
+    // runs in a vm context: instanceof ArrayBuffer is false for it.
+    const compressed = zstdCompress(data);
+    const foreign: unknown = runInNewContext(`new ArrayBuffer(${compressed.byteLength})`);
+    if (!isArrayBuffer(foreign)) throw new Error('expected an ArrayBuffer');
+    expect(foreign).not.toBeInstanceOf(ArrayBuffer);
+    new Uint8Array(foreign).set(compressed);
+
+    const chunks = await readChunks(streamOf([foreign]).pipeThrough(createZstdDecompressStream()));
+    expect(Buffer.concat(chunks).equals(data)).toBe(true);
+  });
+});
+
+describe('Web stream output', () => {
+  // A reader may transfer an output chunk to a worker: the chunks are copies
+  // of the native output, which itself cannot be detached.
+  it.each([
+    ['compress', () => createGzipCompressStream(), (d: Uint8Array) => d, gzipDecompress],
+    ['decompress', () => createZstdDecompressStream(), zstdCompress, (d: Uint8Array) => d],
+  ])('should %s into chunks that can be transferred', async (_, stream, prepare, read) => {
+    const data = Buffer.from('Hello, comprs streaming output! '.repeat(1000));
+    const chunks = await readChunks(streamOf([prepare(data)]).pipeThrough(stream()));
+    const moved = chunks.map((chunk) => {
+      const { buffer } = chunk;
+      if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+      return structuredClone(chunk, { transfer: [buffer] });
+    });
+
+    expect(chunks.every((chunk) => chunk.byteLength === 0)).toBe(true);
+    expect(Buffer.from(read(Buffer.concat(moved))).equals(data)).toBe(true);
   });
 });
