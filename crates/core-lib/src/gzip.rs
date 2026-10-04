@@ -65,10 +65,13 @@ pub fn compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, ComprsError>
             context: "gzip compress",
             source: e.into(),
         })?;
-    encoder.finish().map_err(|e| ComprsError::Operation {
-        context: "gzip compress",
-        source: e.into(),
-    })
+    encoder
+        .finish()
+        .map(crate::finish_output)
+        .map_err(|e| ComprsError::Operation {
+            context: "gzip compress",
+            source: e.into(),
+        })
 }
 
 /// Compress data using gzip with custom header metadata.
@@ -95,10 +98,13 @@ pub fn compress_with_header(
             context: "gzip compress with header",
             source: e.into(),
         })?;
-    encoder.finish().map_err(|e| ComprsError::Operation {
-        context: "gzip compress with header",
-        source: e.into(),
-    })
+    encoder
+        .finish()
+        .map(crate::finish_output)
+        .map_err(|e| ComprsError::Operation {
+            context: "gzip compress with header",
+            source: e.into(),
+        })
 }
 
 /// Check that `filename` can be stored in a gzip header and read back.
@@ -199,10 +205,13 @@ pub fn deflate_compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, Comp
             context: "deflate compress",
             source: e.into(),
         })?;
-    encoder.finish().map_err(|e| ComprsError::Operation {
-        context: "deflate compress",
-        source: e.into(),
-    })
+    encoder
+        .finish()
+        .map(crate::finish_output)
+        .map_err(|e| ComprsError::Operation {
+            context: "deflate compress",
+            source: e.into(),
+        })
 }
 
 /// Decompress raw deflate-compressed data.
@@ -230,7 +239,7 @@ fn deflate_decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8
     if !inflater.stream_end() {
         return Err(ComprsError::Truncated("deflate"));
     }
-    Ok(output.take())
+    Ok(crate::finish_output(output.take()))
 }
 
 /// Upper bound for the first output window an inflate call gets, the buffer

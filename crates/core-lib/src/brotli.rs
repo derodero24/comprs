@@ -58,7 +58,7 @@ pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsErro
         // Drop compressor to flush and finalize
     }
 
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress Brotli-compressed data.
@@ -163,7 +163,7 @@ fn encode(input: &[u8], dict: &[u8], quality: u32) -> std::result::Result<Vec<u8
         dict,
         std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected eof"),
     )?;
-    Ok(output)
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
