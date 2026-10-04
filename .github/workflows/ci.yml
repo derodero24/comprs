@@ -182,6 +182,10 @@ jobs:
       - run: pnpm run build
       - name: Verify generated binding files are up to date
         run: git diff --exit-code index.js index.d.ts
+      # Type-checks the packed package from strict ES module and CommonJS
+      # consumer projects, with TypeScript 7 and 5.9 (#566).
+      - name: Consumer type check
+        run: pnpm run test:types
       - run: pnpm run typecheck
       - name: Middleware typecheck
         run: pnpm --filter @derodero24/comprs-middleware typecheck

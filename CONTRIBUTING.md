@@ -74,6 +74,7 @@ Before pushing, run all of the following:
 ```bash
 pnpm run check        # Biome lint
 pnpm run typecheck    # TypeScript (requires prior build)
+pnpm run test:types   # Packed package, type-checked by strict consumer projects
 pnpm test             # Vitest tests
 cargo test            # Rust tests
 cargo clippy          # Rust lint

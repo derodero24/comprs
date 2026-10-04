@@ -208,6 +208,9 @@ importers:
       typescript:
         specifier: ^7.0.0
         version: 7.0.2
+      typescript-5:
+        specifier: npm:typescript@~5.9.3
+        version: typescript@5.9.3
       vite:
         specifier: ^8.0.16
         version: 8.3.0(@types/node@24.13.4)(jiti@2.6.1)(yaml@2.9.1)
@@ -2515,6 +2518,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -4768,6 +4776,8 @@ snapshots:
       mime-types: 3.0.2
 
   typescript@5.6.1-rc: {}
+
+  typescript@5.9.3: {}
 
   typescript@6.0.3: {}
 
