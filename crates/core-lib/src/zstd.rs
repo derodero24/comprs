@@ -1,7 +1,10 @@
 //! Zstandard compression and decompression.
 
-use zstd::zstd_safe;
+use std::cell::RefCell;
 
+use zstd::zstd_safe::{self, CCtx, CParameter, DCtx, ResetDirective};
+
+use crate::zstd_stream::zstd_error;
 use crate::{ComprsError, IntArg};
 
 /// Default compression level for zstd (same as the C library default).
@@ -40,15 +43,29 @@ pub const DICT_SIZE: IntArg<usize> = IntArg {
 const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 
 /// Compress data using Zstandard.
+///
+/// The output is the same as that of `zstd::bulk::compress`. The compression
+/// context is reused across the calls on a thread; see [`with_cctx`].
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
     let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
+    let compress_error = |code| ComprsError::Operation {
+        context: "zstd compress",
+        source: zstd_error(code),
+    };
 
-    zstd::bulk::compress(data, level)
-        .map(crate::finish_output)
-        .map_err(|e| ComprsError::Operation {
-            context: "zstd compress",
-            source: e.into(),
-        })
+    with_cctx(|cctx| {
+        cctx.set_parameter(CParameter::CompressionLevel(level))
+            .map_err(compress_error)?;
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(zstd_safe::compress_bound(data.len()))
+            .map_err(|e| ComprsError::Operation {
+                context: "zstd compress",
+                source: e.into(),
+            })?;
+        cctx.compress2(&mut output, data).map_err(compress_error)?;
+        Ok(crate::finish_output(output))
+    })
 }
 
 /// Decompress Zstandard-compressed data.
@@ -138,20 +155,14 @@ fn decompress_with_limit(
     context: &'static str,
 ) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "zstd")?;
-    let init_error = |e: std::io::Error| ComprsError::Operation {
-        context: "zstd decompressor init",
-        source: e.into(),
-    };
 
     let Some(size) = trusted_output_size(data, limit, context)? else {
-        let decoder = crate::zstd_stream::decoder(dict).map_err(|code| ComprsError::Operation {
-            context: "zstd decompressor init",
-            source: crate::zstd_stream::zstd_error(code),
-        })?;
         // Start at the input size: incompressible data then fits as is, and
         // compressible data grows the buffer geometrically.
-        return crate::zstd_stream::decompress_all(decoder, data, limit, data.len(), context)
-            .map(crate::finish_output);
+        return with_dctx(dict, |dctx| {
+            crate::zstd_stream::decompress_all(dctx, data, limit, data.len(), context)
+        })
+        .map(crate::finish_output);
     };
 
     let mut output = Vec::new();
@@ -161,14 +172,93 @@ fn decompress_with_limit(
             context,
             source: e.into(),
         })?;
-    zstd::bulk::Decompressor::with_dictionary(dict)
-        .map_err(init_error)?
-        .decompress_to_buffer(data, &mut output)
-        .map_err(|e| ComprsError::Operation {
-            context,
-            source: e.into(),
-        })?;
+    with_dctx(dict, |dctx| {
+        dctx.decompress(&mut output, data)
+            .map_err(|code| ComprsError::Operation {
+                context,
+                source: zstd_error(code),
+            })
+    })?;
     Ok(crate::finish_output(output))
+}
+
+/// Largest context, in bytes, that a thread keeps for its next one-shot
+/// call (8 MiB).
+///
+/// Contexts for small inputs need far less, while a high level or a large
+/// input can make the workspace tens of megabytes, which a thread should
+/// not hold on to between calls.
+const MAX_CACHED_CONTEXT_SIZE: usize = 8 * 1024 * 1024;
+
+thread_local! {
+    /// The compression context of [`with_cctx`].
+    static CCTX: RefCell<Option<CCtx<'static>>> = const { RefCell::new(None) };
+    /// The decompression context of [`with_dctx`].
+    static DCTX: RefCell<Option<DCtx<'static>>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with the thread's compression context, creating it on first use.
+///
+/// Creating and initializing a context costs more than compressing a small
+/// message, so the one-shot calls on a thread share one. The context comes
+/// with default parameters and no dictionary, and is cached again only if
+/// `f` succeeds and the context holds at most [`MAX_CACHED_CONTEXT_SIZE`]
+/// bytes. A nested call gets a new context of its own.
+fn with_cctx<T>(
+    f: impl FnOnce(&mut CCtx<'static>) -> Result<T, ComprsError>,
+) -> Result<T, ComprsError> {
+    let cached = CCTX.try_with(RefCell::take).ok().flatten();
+    let mut cctx = match cached {
+        Some(mut cctx) => {
+            cctx.reset(ResetDirective::SessionAndParameters)
+                .map_err(|code| ComprsError::Operation {
+                    context: "zstd compressor init",
+                    source: zstd_error(code),
+                })?;
+            cctx
+        }
+        None => CCtx::create(),
+    };
+    let result = f(&mut cctx)?;
+    if cctx.sizeof() <= MAX_CACHED_CONTEXT_SIZE {
+        // A thread that is exiting has no cache left; the context is dropped.
+        let _ = CCTX.try_with(|cached| cached.replace(Some(cctx)));
+    }
+    Ok(result)
+}
+
+/// Run `f` with a decompression context for `dict` (empty for none).
+///
+/// Without a dictionary, this is the thread's cached context, reused as in
+/// [`with_cctx`]. A dictionary is loaded into a new context, so that the
+/// cached one never holds a dictionary.
+fn with_dctx<T>(
+    dict: &[u8],
+    f: impl FnOnce(&mut DCtx<'static>) -> Result<T, ComprsError>,
+) -> Result<T, ComprsError> {
+    let init_error = |code| ComprsError::Operation {
+        context: "zstd decompressor init",
+        source: zstd_error(code),
+    };
+    if !dict.is_empty() {
+        let mut dctx = crate::zstd_stream::decoder(dict).map_err(init_error)?;
+        return f(&mut dctx);
+    }
+
+    let cached = DCTX.try_with(RefCell::take).ok().flatten();
+    let mut dctx = match cached {
+        Some(mut dctx) => {
+            dctx.reset(ResetDirective::SessionAndParameters)
+                .map_err(init_error)?;
+            dctx
+        }
+        None => crate::zstd_stream::decoder(&[]).map_err(init_error)?,
+    };
+    let result = f(&mut dctx)?;
+    if dctx.sizeof() <= MAX_CACHED_CONTEXT_SIZE {
+        let _ = DCTX.try_with(|cached| cached.replace(Some(dctx)));
+    }
+    Ok(result)
 }
 
 /// The total content size that the frames in `data` declare, if it can size
@@ -511,6 +601,125 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The size of the thread's cached compression context, if it has one.
+    fn cached_cctx_size() -> Option<usize> {
+        CCTX.with_borrow(|cctx| cctx.as_ref().map(CCtx::sizeof))
+    }
+
+    /// The size of the thread's cached decompression context, if it has one.
+    fn cached_dctx_size() -> Option<usize> {
+        DCTX.with_borrow(|dctx| dctx.as_ref().map(DCtx::sizeof))
+    }
+
+    /// JSON messages, one per line, that differ in their fields.
+    fn json_lines(len: usize) -> Vec<u8> {
+        let mut output = Vec::with_capacity(len + 128);
+        let mut i: u64 = 0;
+        while output.len() < len {
+            let user = i * 7919 % 100_000;
+            output.extend(
+                format!(
+                    "{{\"id\":{i},\"user\":\"user_{user}\",\"ts\":{},\"active\":{}}}\n",
+                    1_700_000_000 + i * 37,
+                    i.is_multiple_of(3)
+                )
+                .bytes(),
+            );
+            i += 1;
+        }
+        output.truncate(len);
+        output
+    }
+
+    #[test]
+    fn compress_matches_the_bulk_api_on_a_reused_context() {
+        for data in [&b"{\"id\":1}"[..], &json_lines(100), &json_lines(100_000)] {
+            for level in [-5, 1, 3, 19, 3] {
+                assert!(
+                    compress(data, Some(level)).unwrap()
+                        == zstd::bulk::compress(data, level).unwrap(),
+                    "{} bytes at level {level}",
+                    data.len()
+                );
+                assert!(cached_cctx_size().is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn one_shot_calls_do_not_cache_large_contexts() {
+        assert!(compress(b"small", Some(19)).unwrap().len() < 32);
+        let small = cached_cctx_size().unwrap();
+        assert!(small <= MAX_CACHED_CONTEXT_SIZE, "{small} bytes");
+
+        // At level 19, the workspace for this input exceeds the bound.
+        let data = json_lines(1536 * 1024);
+        let frame = compress(&data, Some(19)).unwrap();
+        assert_eq!(cached_cctx_size(), None);
+        compress(b"small", None).unwrap();
+        assert!(cached_cctx_size().is_some());
+
+        assert!(decompress(&frame).unwrap() == data);
+        assert!(cached_dctx_size().unwrap() <= MAX_CACHED_CONTEXT_SIZE);
+
+        // A frame without a content size and with an 8 MiB window: the
+        // streaming decoder allocates the window.
+        let mut large_window = vec![0x28, 0xB5, 0x2F, 0xFD, 0x00, (23 - 10) << 3];
+        let block_header = 1 | (5 << 3);
+        large_window.extend(&(block_header as u32).to_le_bytes()[..3]);
+        large_window.extend(b"hello");
+        assert_eq!(decompress(&large_window).unwrap(), b"hello");
+        assert_eq!(cached_dctx_size(), None);
+    }
+
+    #[test]
+    fn decompress_recovers_from_errors_on_a_reused_context() {
+        let original = text(4096);
+        let with_size = compress(&original, None).unwrap();
+        let without_size = compress_without_content_size(&original);
+        let failures = [
+            // The content is shorter than the declared size.
+            decompress(&frame_declaring(10, b"hello")),
+            // The declared size is too large to trust, so the streaming
+            // decoder finds the frame corrupt.
+            decompress(&frame_declaring(200 * 1024 * 1024, b"hello")),
+            decompress(&without_size[..without_size.len() / 2]),
+            decompress_with_capacity(&with_size, 4095),
+            decompress_with_capacity(&without_size, 4095),
+            decompress(&compress_with_dict(&original, DICT, None).unwrap()),
+        ];
+        for result in failures {
+            assert!(result.is_err());
+            assert_eq!(decompress(&with_size).unwrap(), original);
+            assert_eq!(decompress(&without_size).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn decompress_reuses_the_context_for_concatenated_and_skippable_frames() {
+        let original = text(4096);
+        let skippable = skippable_frame(b"metadata");
+        decompress(&compress(b"first call", None).unwrap()).unwrap();
+        assert!(cached_dctx_size().is_some());
+        for frame in [
+            compress(&original, None).unwrap(),
+            compress_without_content_size(&original),
+        ] {
+            let input = [&frame[..], &skippable[..], &frame[..]].concat();
+            assert_eq!(decompress(&input).unwrap(), original.repeat(2));
+            assert!(cached_dctx_size().is_some());
+        }
+        // Dictionaries are loaded into contexts of their own, so the cached
+        // one still decodes frames without a dictionary.
+        let with_dict = compress_with_dict(&original, DICT, None).unwrap();
+        assert_eq!(decompress_with_dict(&with_dict, DICT).unwrap(), original);
+        assert!(decompress(&with_dict).is_err());
+        assert_eq!(
+            decompress(&compress(&original, None).unwrap()).unwrap(),
+            original
+        );
     }
 
     #[test]
