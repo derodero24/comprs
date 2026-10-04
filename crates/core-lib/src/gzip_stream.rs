@@ -5,12 +5,26 @@ use std::io::Write;
 use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
 
-use crate::ComprsError;
 use crate::gzip::{DEFLATE_LEVEL, Inflater, LEVEL};
 use crate::limited::LimitedVec;
+use crate::{ComprsError, MemoryUsage};
 
 /// Default compression level for gzip/deflate (same as zlib default).
 pub const DEFAULT_LEVEL: u32 = 6;
+
+// flate2 does not report the memory of its streams, but zlib-rs allocates a
+// fixed amount for each, whatever the level and the data. The sizes below
+// were measured with flate2 1.1.9 and zlib-rs 0.6.
+
+/// Heap memory of a deflate stream: its 64 KiB window, hash chains and
+/// pending output (371 KiB).
+const DEFLATE_STATE_SIZE: usize = 380_032;
+
+/// Heap memory of an inflate stream: its 32 KiB window and decoding tables.
+const INFLATE_STATE_SIZE: usize = 47_552;
+
+/// Buffer that flate2's `write` encoders and decoders keep.
+const WRITER_BUFFER_SIZE: usize = 32 * 1024;
 
 /// Streaming gzip compression context.
 pub struct GzipCompressContext {
@@ -69,6 +83,14 @@ impl GzipCompressContext {
         encoder.finish().map_err(|e| ComprsError::Operation {
             context: "gzip stream finish",
             source: e.into(),
+        })
+    }
+}
+
+impl MemoryUsage for GzipCompressContext {
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, |encoder| {
+            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
         })
     }
 }
@@ -142,6 +164,14 @@ impl GzipDecompressContext {
     }
 }
 
+impl MemoryUsage for GzipDecompressContext {
+    fn memory_usage(&self) -> usize {
+        self.decoder.as_ref().map_or(0, |decoder| {
+            INFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + decoder.get_ref().capacity()
+        })
+    }
+}
+
 /// Streaming raw deflate compression context.
 pub struct DeflateCompressContext {
     encoder: Option<DeflateEncoder<Vec<u8>>>,
@@ -199,6 +229,14 @@ impl DeflateCompressContext {
         encoder.finish().map_err(|e| ComprsError::Operation {
             context: "deflate stream finish",
             source: e.into(),
+        })
+    }
+}
+
+impl MemoryUsage for DeflateCompressContext {
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, |encoder| {
+            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
         })
     }
 }
@@ -264,6 +302,12 @@ impl DeflateDecompressContext {
     }
 }
 
+impl MemoryUsage for DeflateDecompressContext {
+    fn memory_usage(&self) -> usize {
+        self.inflater.as_ref().map_or(0, |_| INFLATE_STATE_SIZE) + self.output.capacity()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -273,10 +317,10 @@ mod tests {
     use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder};
 
     use super::{
-        DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
-        GzipDecompressContext,
+        DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
+        GzipDecompressContext, INFLATE_STATE_SIZE,
     };
-    use crate::ComprsError;
+    use crate::{ComprsError, MemoryUsage};
 
     const DEFAULT_LEVEL: u32 = 6;
 
@@ -411,6 +455,33 @@ mod tests {
             err.to_string(),
             "deflate stream decompress failed: unexpected data after the end of the stream"
         );
+    }
+
+    #[test]
+    fn contexts_report_the_zlib_state_until_finish() {
+        let data = b"gzip and deflate streams ".repeat(100);
+
+        let mut gzip = GzipCompressContext::new(None).unwrap();
+        let mut deflate = DeflateCompressContext::new(None).unwrap();
+        for ctx in [&gzip as &dyn MemoryUsage, &deflate] {
+            assert!(ctx.memory_usage() >= DEFLATE_STATE_SIZE);
+        }
+        let gzipped = [gzip.transform(&data).unwrap(), gzip.finish().unwrap()].concat();
+        let deflated = [deflate.transform(&data).unwrap(), deflate.finish().unwrap()].concat();
+        assert_eq!(gzip.memory_usage(), 0);
+        assert_eq!(deflate.memory_usage(), 0);
+
+        let mut gunzip = GzipDecompressContext::new(None).unwrap();
+        let mut inflate = DeflateDecompressContext::new(None).unwrap();
+        for ctx in [&gunzip as &dyn MemoryUsage, &inflate] {
+            assert!(ctx.memory_usage() >= INFLATE_STATE_SIZE);
+        }
+        gunzip.transform(&gzipped).unwrap();
+        gunzip.finish().unwrap();
+        inflate.transform(&deflated).unwrap();
+        inflate.finish().unwrap();
+        assert_eq!(gunzip.memory_usage(), 0);
+        assert_eq!(inflate.memory_usage(), inflate.output.capacity());
     }
 
     #[test]

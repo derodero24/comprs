@@ -1,9 +1,10 @@
 //! Zstandard streaming compression and decompression.
 
-use zstd::stream::raw::{Decoder, Encoder, InBuffer, Operation, OutBuffer};
+use zstd::stream::raw::{InBuffer, OutBuffer};
+use zstd::zstd_safe::{self, CCtx, CParameter, DCtx};
 
-use crate::ComprsError;
 use crate::zstd::LEVEL;
+use crate::{ComprsError, MemoryUsage};
 
 /// Default compression level for zstd (same as the C library default).
 pub const DEFAULT_LEVEL: i32 = 3;
@@ -11,19 +12,46 @@ pub const DEFAULT_LEVEL: i32 = 3;
 /// Initial output buffer size for streaming operations.
 const INITIAL_BUF_SIZE: usize = 128 * 1024;
 
+/// The error source for a zstd error code: its name, such as "Data
+/// corruption detected".
+pub(crate) fn zstd_error(code: zstd_safe::ErrorCode) -> Box<dyn std::error::Error + Send + Sync> {
+    zstd_safe::get_error_name(code).into()
+}
+
+/// Create a compression context for `level` and `dict` (empty for none).
+///
+/// The contexts use `zstd_safe` directly rather than `zstd::stream::raw`,
+/// whose encoder and decoder do not expose the context's memory usage.
+fn encoder(level: i32, dict: &[u8], context: &'static str) -> Result<CCtx<'static>, ComprsError> {
+    let mut encoder = CCtx::create();
+    encoder
+        .set_parameter(CParameter::CompressionLevel(level))
+        .and_then(|_| encoder.load_dictionary(dict))
+        .map_err(|code| ComprsError::Creation {
+            context,
+            source: zstd_error(code),
+        })?;
+    Ok(encoder)
+}
+
+/// Create a decompression context for `dict` (empty for none).
+pub(crate) fn decoder(dict: &[u8]) -> Result<DCtx<'static>, zstd_safe::ErrorCode> {
+    let mut decoder = DCtx::create();
+    decoder.init()?;
+    decoder.load_dictionary(dict)?;
+    Ok(decoder)
+}
+
 /// Streaming zstd compression context.
 pub struct CompressContext {
-    encoder: Option<Encoder<'static>>,
+    encoder: Option<CCtx<'static>>,
     output_buf: Vec<u8>,
 }
 
 impl CompressContext {
     pub fn new(level: Option<i32>) -> Result<Self, ComprsError> {
         let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-        let encoder = Encoder::new(level).map_err(|e| ComprsError::Creation {
-            context: "zstd encoder",
-            source: e.into(),
-        })?;
+        let encoder = encoder(level, &[], "zstd encoder")?;
         Ok(Self {
             encoder: Some(encoder),
             output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
@@ -46,10 +74,10 @@ impl CompressContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             encoder
-                .run(&mut in_buf, &mut out_buf)
-                .map_err(|e| ComprsError::Operation {
+                .compress_stream(&mut out_buf, &mut in_buf)
+                .map_err(|code| ComprsError::Operation {
                     context: "zstd stream compress",
-                    source: e.into(),
+                    source: zstd_error(code),
                 })?;
             total_written = out_buf.pos();
             if total_written >= self.output_buf.len() {
@@ -72,12 +100,13 @@ impl CompressContext {
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
-            let remaining = encoder
-                .flush(&mut out_buf)
-                .map_err(|e| ComprsError::Operation {
-                    context: "zstd stream flush",
-                    source: e.into(),
-                })?;
+            let remaining =
+                encoder
+                    .flush_stream(&mut out_buf)
+                    .map_err(|code| ComprsError::Operation {
+                        context: "zstd stream flush",
+                        source: zstd_error(code),
+                    })?;
             total_written = out_buf.pos();
             if remaining == 0 {
                 break;
@@ -104,10 +133,10 @@ impl CompressContext {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 encoder
-                    .finish(&mut out_buf, true)
-                    .map_err(|e| ComprsError::Operation {
+                    .end_stream(&mut out_buf)
+                    .map_err(|code| ComprsError::Operation {
                         context: "zstd stream finish",
-                        source: e.into(),
+                        source: zstd_error(code),
                     })?;
             total_written = out_buf.pos();
             if remaining == 0 {
@@ -119,6 +148,12 @@ impl CompressContext {
         }
 
         Ok(self.output_buf[..total_written].to_vec())
+    }
+}
+
+impl MemoryUsage for CompressContext {
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, CCtx::sizeof) + self.output_buf.capacity()
     }
 }
 
@@ -130,9 +165,9 @@ pub struct DecompressContext {
 impl DecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decoder = Decoder::new().map_err(|e| ComprsError::Creation {
+        let decoder = decoder(&[]).map_err(|code| ComprsError::Creation {
             context: "zstd decoder",
-            source: e.into(),
+            source: zstd_error(code),
         })?;
         Ok(Self {
             inner: StreamDecoder::new(decoder, max_size, "zstd stream decompress"),
@@ -156,19 +191,22 @@ impl DecompressContext {
     }
 }
 
+impl MemoryUsage for DecompressContext {
+    fn memory_usage(&self) -> usize {
+        self.inner.memory_usage()
+    }
+}
+
 /// Streaming zstd compression context with dictionary.
 pub struct CompressDictContext {
-    encoder: Option<Encoder<'static>>,
+    encoder: Option<CCtx<'static>>,
     output_buf: Vec<u8>,
 }
 
 impl CompressDictContext {
     pub fn new(dict: &[u8], level: Option<i32>) -> Result<Self, ComprsError> {
         let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-        let encoder = Encoder::with_dictionary(level, dict).map_err(|e| ComprsError::Creation {
-            context: "zstd dict encoder",
-            source: e.into(),
-        })?;
+        let encoder = encoder(level, dict, "zstd dict encoder")?;
         Ok(Self {
             encoder: Some(encoder),
             output_buf: Vec::with_capacity(INITIAL_BUF_SIZE),
@@ -191,10 +229,10 @@ impl CompressDictContext {
         while in_buf.pos() < in_buf.src.len() {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             encoder
-                .run(&mut in_buf, &mut out_buf)
-                .map_err(|e| ComprsError::Operation {
+                .compress_stream(&mut out_buf, &mut in_buf)
+                .map_err(|code| ComprsError::Operation {
                     context: "zstd stream compress",
-                    source: e.into(),
+                    source: zstd_error(code),
                 })?;
             total_written = out_buf.pos();
             if total_written >= self.output_buf.len() {
@@ -217,12 +255,13 @@ impl CompressDictContext {
 
         loop {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
-            let remaining = encoder
-                .flush(&mut out_buf)
-                .map_err(|e| ComprsError::Operation {
-                    context: "zstd stream flush",
-                    source: e.into(),
-                })?;
+            let remaining =
+                encoder
+                    .flush_stream(&mut out_buf)
+                    .map_err(|code| ComprsError::Operation {
+                        context: "zstd stream flush",
+                        source: zstd_error(code),
+                    })?;
             total_written = out_buf.pos();
             if remaining == 0 {
                 break;
@@ -249,10 +288,10 @@ impl CompressDictContext {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let remaining =
                 encoder
-                    .finish(&mut out_buf, true)
-                    .map_err(|e| ComprsError::Operation {
+                    .end_stream(&mut out_buf)
+                    .map_err(|code| ComprsError::Operation {
                         context: "zstd stream finish",
-                        source: e.into(),
+                        source: zstd_error(code),
                     })?;
             total_written = out_buf.pos();
             if remaining == 0 {
@@ -267,6 +306,12 @@ impl CompressDictContext {
     }
 }
 
+impl MemoryUsage for CompressDictContext {
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, CCtx::sizeof) + self.output_buf.capacity()
+    }
+}
+
 /// Streaming zstd decompression context with dictionary.
 pub struct DecompressDictContext {
     inner: StreamDecoder,
@@ -275,9 +320,9 @@ pub struct DecompressDictContext {
 impl DecompressDictContext {
     pub fn new(dict: &[u8], max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
-        let decoder = Decoder::with_dictionary(dict).map_err(|e| ComprsError::Creation {
+        let decoder = decoder(dict).map_err(|code| ComprsError::Creation {
             context: "zstd dict decoder",
-            source: e.into(),
+            source: zstd_error(code),
         })?;
         Ok(Self {
             inner: StreamDecoder::new(decoder, max_size, "zstd stream decompress"),
@@ -301,6 +346,12 @@ impl DecompressDictContext {
     }
 }
 
+impl MemoryUsage for DecompressDictContext {
+    fn memory_usage(&self) -> usize {
+        self.inner.memory_usage()
+    }
+}
+
 /// Decompress `input`, which must end with a complete frame, in one call.
 ///
 /// `input` may hold several frames, including skippable ones. The output
@@ -309,7 +360,7 @@ impl DecompressDictContext {
 /// Exceeding `max_output_size` fails with [`ComprsError::SizeLimit`] and
 /// `context`, which also prefixes decoder errors.
 pub(crate) fn decompress_all(
-    decoder: Decoder<'static>,
+    decoder: DCtx<'static>,
     input: &[u8],
     max_output_size: usize,
     initial_capacity: usize,
@@ -327,7 +378,7 @@ pub(crate) fn decompress_all(
 /// and [`decompress_all`].
 struct StreamDecoder {
     /// `None` once the stream is finished.
-    decoder: Option<Decoder<'static>>,
+    decoder: Option<DCtx<'static>>,
     output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
@@ -339,7 +390,7 @@ struct StreamDecoder {
 }
 
 impl StreamDecoder {
-    fn new(decoder: Decoder<'static>, max_output_size: usize, limit_context: &'static str) -> Self {
+    fn new(decoder: DCtx<'static>, max_output_size: usize, limit_context: &'static str) -> Self {
         Self {
             decoder: Some(decoder),
             output_buf: Vec::new(),
@@ -393,13 +444,12 @@ impl StreamDecoder {
             let capacity = self.output_buf.capacity();
             let in_pos = in_buf.pos();
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
-            let hint =
-                decoder
-                    .run(&mut in_buf, &mut out_buf)
-                    .map_err(|e| ComprsError::Operation {
-                        context,
-                        source: e.into(),
-                    })?;
+            let hint = decoder
+                .decompress_stream(&mut out_buf, &mut in_buf)
+                .map_err(|code| ComprsError::Operation {
+                    context,
+                    source: zstd_error(code),
+                })?;
             // A call without input or output, such as a drain at a frame
             // boundary, reports the header size of the next frame instead.
             if in_buf.pos() > in_pos || out_buf.pos() > total_written {
@@ -439,6 +489,12 @@ impl StreamDecoder {
         }
         Ok(output)
     }
+
+    /// The memory of the decoder, including the window and the input buffer
+    /// that it allocates for the first frame, and of the output buffer.
+    fn memory_usage(&self) -> usize {
+        self.decoder.as_ref().map_or(0, DCtx::sizeof) + self.output_buf.capacity()
+    }
 }
 
 /// Grow `buf` to a capacity of at least `capacity` bytes, reporting a failed
@@ -453,6 +509,8 @@ fn reserve(buf: &mut Vec<u8>, capacity: usize, context: &'static str) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use zstd::stream::raw::Operation;
+
     use super::*;
 
     /// Decompression limit used by the size-limit tests.
@@ -560,6 +618,49 @@ mod tests {
         ));
         assert!(matches!(ctx.flush(), Err(ComprsError::StreamFinished(_))));
         assert!(matches!(ctx.finish(), Err(ComprsError::StreamFinished(_))));
+    }
+
+    #[test]
+    fn compress_context_reports_the_encoder_workspace() {
+        let mut fast = CompressContext::new(Some(1)).unwrap();
+        let mut strong = CompressContext::new(Some(9)).unwrap();
+        // zstd allocates the workspace for the level with the first data.
+        let empty = strong.memory_usage();
+        assert!(empty < 256 * 1024, "{empty} bytes");
+
+        fast.transform(b"first data").unwrap();
+        strong.transform(b"first data").unwrap();
+        assert!(
+            fast.memory_usage() > 1024 * 1024,
+            "{} bytes",
+            fast.memory_usage()
+        );
+        assert!(
+            strong.memory_usage() > 4 * fast.memory_usage(),
+            "{} bytes at level 9, {} at level 1",
+            strong.memory_usage(),
+            fast.memory_usage()
+        );
+
+        strong.finish().unwrap();
+        assert_eq!(strong.memory_usage(), strong.output_buf.capacity());
+    }
+
+    #[test]
+    fn decompress_context_reports_the_window() {
+        let original = vec![7u8; 1024 * 1024];
+        let compressed = crate::zstd::compress(&original, None).unwrap();
+        let mut ctx = DecompressContext::new(None).unwrap();
+        let empty = ctx.memory_usage();
+
+        let output = ctx.transform(&compressed).unwrap();
+        // The decoder keeps a window of up to the frame's content size, and
+        // the output buffer the whole output of the call.
+        assert!(ctx.memory_usage() > empty + 2 * original.len());
+        assert_eq!(output, original);
+
+        ctx.finish().unwrap();
+        assert_eq!(ctx.memory_usage(), ctx.inner.output_buf.capacity());
     }
 
     #[test]

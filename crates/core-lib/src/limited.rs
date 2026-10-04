@@ -43,7 +43,6 @@ impl LimitedVec {
     }
 
     /// Capacity of the buffer holding output that has not been taken yet.
-    #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.buf.capacity()
     }

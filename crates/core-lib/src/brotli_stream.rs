@@ -1,26 +1,86 @@
 //! Brotli streaming compression and decompression.
 
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use brotli::enc::StandardAlloc;
+use brotli::enc::writer::CompressorWriterCustomAlloc;
+use brotli::enc::{Allocator, BrotliAlloc, SliceWrapper, StandardAlloc};
 use brotli::{BrotliDecompressStream, BrotliResult, BrotliState};
 
-use crate::ComprsError;
 use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE, QUALITY};
 use crate::limited::LimitedVec;
+use crate::{ComprsError, MemoryUsage};
+
+/// Allocator for the brotli encoder and decoder states that counts the bytes
+/// they hold, which the brotli crate does not report otherwise. Clones share
+/// the count.
+///
+/// The states take all their memory from the allocator and return it with
+/// `free_cell`, so the count follows them as they grow: the encoder holds a
+/// few kilobytes before the first block and tens of megabytes at high
+/// qualities, the decoder sizes its ring buffer from the stream's window.
+#[derive(Clone, Default)]
+struct CountingAlloc {
+    allocated: Arc<AtomicUsize>,
+}
+
+impl CountingAlloc {
+    /// Bytes allocated and not freed yet.
+    fn allocated(&self) -> usize {
+        self.allocated.load(Ordering::Relaxed)
+    }
+
+    fn add(&self, bytes: usize) {
+        self.allocated.fetch_add(bytes, Ordering::Relaxed);
+    }
+}
+
+impl<T: Clone + Default> Allocator<T> for CountingAlloc {
+    type AllocatedMemory = <StandardAlloc as Allocator<T>>::AllocatedMemory;
+
+    fn alloc_cell(&mut self, len: usize) -> Self::AllocatedMemory {
+        self.add(len.saturating_mul(size_of::<T>()));
+        StandardAlloc::default().alloc_cell(len)
+    }
+
+    fn free_cell(&mut self, data: Self::AllocatedMemory) {
+        let bytes = size_of_val(data.slice());
+        // Saturate rather than wrap should a state ever free memory that it
+        // did not allocate here.
+        let _ = self
+            .allocated
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |allocated| {
+                Some(allocated.saturating_sub(bytes))
+            });
+    }
+}
+
+impl BrotliAlloc for CountingAlloc {}
+
+type Compressor = CompressorWriterCustomAlloc<
+    Vec<u8>,
+    <CountingAlloc as Allocator<u8>>::AllocatedMemory,
+    CountingAlloc,
+>;
 
 /// Streaming brotli compression context.
 pub struct CompressContext {
-    compressor: Option<brotli::CompressorWriter<Vec<u8>>>,
+    compressor: Option<Compressor>,
+    /// Shares its count with the compressor's allocator.
+    alloc: CountingAlloc,
 }
 
 impl CompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self, ComprsError> {
         let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
+        let mut alloc = CountingAlloc::default();
+        let buffer = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut alloc, BUFFER_SIZE);
         let compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, quality, LG_WINDOW_SIZE);
+            Compressor::new(Vec::new(), buffer, alloc.clone(), quality, LG_WINDOW_SIZE);
         Ok(Self {
             compressor: Some(compressor),
+            alloc,
         })
     }
 
@@ -69,6 +129,14 @@ impl CompressContext {
     }
 }
 
+impl MemoryUsage for CompressContext {
+    fn memory_usage(&self) -> usize {
+        self.compressor.as_ref().map_or(0, |compressor| {
+            self.alloc.allocated() + compressor.get_ref().capacity()
+        })
+    }
+}
+
 /// Streaming brotli decompression context.
 pub struct DecompressContext {
     inner: StreamDecoder,
@@ -100,6 +168,12 @@ impl DecompressContext {
     /// complete brotli stream.
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
         self.inner.finish("brotli stream finish")
+    }
+}
+
+impl MemoryUsage for DecompressContext {
+    fn memory_usage(&self) -> usize {
+        self.inner.memory_usage()
     }
 }
 
@@ -159,6 +233,14 @@ impl CompressDictContext {
     }
 }
 
+impl MemoryUsage for CompressDictContext {
+    /// The dictionary and the buffered input. The encoder only exists while
+    /// `finish` runs.
+    fn memory_usage(&self) -> usize {
+        self.dict.as_ref().map_or(0, Vec::capacity) + self.chunks.capacity()
+    }
+}
+
 /// Streaming brotli decompression context with custom dictionary.
 pub struct DecompressDictContext {
     inner: StreamDecoder,
@@ -194,7 +276,13 @@ impl DecompressDictContext {
     }
 }
 
-type DecoderState = BrotliState<StandardAlloc, StandardAlloc, StandardAlloc>;
+impl MemoryUsage for DecompressDictContext {
+    fn memory_usage(&self) -> usize {
+        self.inner.memory_usage()
+    }
+}
+
+type DecoderState = BrotliState<CountingAlloc, CountingAlloc, CountingAlloc>;
 
 /// Decoder state shared by [`DecompressContext`] and [`DecompressDictContext`].
 ///
@@ -204,6 +292,8 @@ type DecoderState = BrotliState<StandardAlloc, StandardAlloc, StandardAlloc>;
 struct StreamDecoder {
     /// `None` once the stream is finished.
     state: Option<DecoderState>,
+    /// Shares its count with the allocators of `state`.
+    alloc: CountingAlloc,
     /// Buffer each decoder call fills before its output moves to `output`.
     buffer: Vec<u8>,
     total_out: usize,
@@ -216,16 +306,20 @@ struct StreamDecoder {
 
 impl StreamDecoder {
     fn new(dict: Vec<u8>, output: LimitedVec, name: &'static str) -> Self {
+        let alloc = CountingAlloc::default();
+        // The state owns the dictionary and frees it with the allocator.
+        alloc.add(dict.len());
         let mut state = DecoderState::new_with_custom_dictionary(
-            StandardAlloc::default(),
-            StandardAlloc::default(),
-            StandardAlloc::default(),
+            alloc.clone(),
+            alloc.clone(),
+            alloc.clone(),
             dict.into(),
         );
         // Decode RFC 7932 streams only: see `crate::brotli::reject_large_window`.
         state.large_window = false;
         Self {
             state: Some(state),
+            alloc,
             buffer: vec![0; BUFFER_SIZE],
             total_out: 0,
             output,
@@ -296,15 +390,21 @@ impl StreamDecoder {
         }
         Ok(output)
     }
+
+    /// The memory of the decoder state, including its ring buffer and the
+    /// dictionary, and of the output buffers.
+    fn memory_usage(&self) -> usize {
+        self.alloc.allocated() + self.buffer.capacity() + self.output.capacity()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
 
-    use super::{DecompressContext, DecompressDictContext};
-    use crate::ComprsError;
+    use super::{CompressContext, CompressDictContext, DecompressContext, DecompressDictContext};
     use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE};
+    use crate::{ComprsError, MemoryUsage};
 
     /// Decompression limit used by the size-limit tests.
     const LIMIT: usize = 64 * 1024;
@@ -354,6 +454,82 @@ mod tests {
         output.extend(ctx.flush()?);
         output.extend(ctx.finish()?);
         Ok(output)
+    }
+
+    /// 256 KiB of text-like data that brotli compresses well.
+    fn text() -> Vec<u8> {
+        (0..256 * 1024u32)
+            .map(|i| b"lorem ipsum dolor sit amet "[(i * 7 % 27) as usize])
+            .collect()
+    }
+
+    #[test]
+    fn compress_context_reports_the_encoder_state() {
+        let mut fast = CompressContext::new(Some(1)).unwrap();
+        let mut strong = CompressContext::new(Some(9)).unwrap();
+        let empty = strong.memory_usage();
+        assert!(empty < 64 * 1024, "{empty} bytes");
+
+        // The encoder allocates its ring buffer and hash tables as data
+        // arrives, more of them at higher qualities.
+        let data = text();
+        fast.transform(&data).unwrap();
+        strong.transform(&data).unwrap();
+        assert!(
+            fast.memory_usage() > data.len(),
+            "{} bytes",
+            fast.memory_usage()
+        );
+        assert!(
+            strong.memory_usage() > 4 * fast.memory_usage(),
+            "{} bytes at quality 9, {} at quality 1",
+            strong.memory_usage(),
+            fast.memory_usage()
+        );
+
+        strong.finish().unwrap();
+        assert_eq!(strong.memory_usage(), 0);
+        // The encoder returned all its memory to the allocator, except the
+        // buffer of the writer, which drops it.
+        assert_eq!(strong.alloc.allocated(), BUFFER_SIZE);
+    }
+
+    #[test]
+    fn compress_dict_context_reports_the_buffered_input() {
+        let dict = b"brotli dictionary ".repeat(100);
+        let mut ctx = CompressDictContext::new(&dict, None).unwrap();
+        ctx.transform(&text()).unwrap();
+        assert!(ctx.memory_usage() >= dict.len() + text().len());
+        ctx.finish().unwrap();
+        assert_eq!(ctx.memory_usage(), 0);
+    }
+
+    #[test]
+    fn decompress_context_reports_the_ring_buffer() {
+        let data = text();
+        let compressed = crate::brotli::compress(&data, None).unwrap();
+        let mut ctx = DecompressContext::new(None).unwrap();
+        let empty = ctx.memory_usage();
+
+        assert_eq!(ctx.transform(&compressed).unwrap(), data);
+        // The ring buffer holds up to a window of output.
+        assert!(ctx.memory_usage() > empty + data.len());
+
+        ctx.finish().unwrap();
+        // Dropping the state returned all its memory to the allocator.
+        assert_eq!(ctx.inner.alloc.allocated(), 0);
+    }
+
+    #[test]
+    fn decompress_dict_context_reports_the_dictionary() {
+        let dict = b"brotli dictionary ".repeat(1000);
+        let compressed = crate::brotli::compress_with_dict(&dict, &dict, None).unwrap();
+        let mut ctx = DecompressDictContext::new(&dict, None).unwrap();
+        assert!(ctx.memory_usage() >= dict.len());
+
+        assert_eq!(ctx.transform(&compressed).unwrap(), dict);
+        ctx.finish().unwrap();
+        assert_eq!(ctx.inner.alloc.allocated(), 0);
     }
 
     #[test]

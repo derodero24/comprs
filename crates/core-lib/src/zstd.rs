@@ -1,6 +1,5 @@
 //! Zstandard compression and decompression.
 
-use zstd::stream::raw::Decoder;
 use zstd::zstd_safe;
 
 use crate::{ComprsError, IntArg};
@@ -142,7 +141,10 @@ fn decompress_with_limit(
     };
 
     let Some(size) = trusted_output_size(data, limit, context)? else {
-        let decoder = Decoder::with_dictionary(dict).map_err(init_error)?;
+        let decoder = crate::zstd_stream::decoder(dict).map_err(|code| ComprsError::Operation {
+            context: "zstd decompressor init",
+            source: crate::zstd_stream::zstd_error(code),
+        })?;
         // Start at the input size: incompressible data then fits as is, and
         // compressible data grows the buffer geometrically.
         return crate::zstd_stream::decompress_all(decoder, data, limit, data.len(), context);

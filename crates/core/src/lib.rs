@@ -2,6 +2,7 @@
 
 mod brotli_impl;
 mod brotli_stream;
+mod context;
 mod crc;
 mod detect;
 mod error;
@@ -27,6 +28,7 @@ fn as_bytes(data: &Either<Buffer, Uint8Array>) -> &[u8] {
 
 pub use brotli_impl::*;
 pub use brotli_stream::*;
+pub use context::init;
 pub use crc::*;
 pub use detect::*;
 pub use gzip::*;

@@ -20,6 +20,21 @@ pub use error::ComprsError;
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 pub const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 
+/// Heap memory held by a stream context, so that bindings can report it to
+/// their runtime: a JavaScript engine sees only a small wrapper object and
+/// does not otherwise know that collecting it frees megabytes.
+pub trait MemoryUsage {
+    /// Number of bytes of heap memory the context holds: its codec state and
+    /// its buffers.
+    ///
+    /// zstd and brotli contexts measure their state; gzip, deflate and lz4
+    /// contexts use the fixed size of theirs. The figure changes as the
+    /// stream progresses: zstd and brotli allocate most of their state once
+    /// data arrives, decoders size their window from the stream, and
+    /// contexts that buffer input grow with it.
+    fn memory_usage(&self) -> usize;
+}
+
 /// Reject empty input to a decompressor: no supported format has a valid
 /// zero-length encoding, so empty input is treated as truncated.
 pub(crate) fn require_input(data: &[u8], format: &'static str) -> Result<(), ComprsError> {
