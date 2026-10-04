@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { normalizePath } from 'vite';
 import type { Plugin } from 'vitest/config';
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 
 // Module IDs use forward slashes, also on Windows.
 const STREAM_ADAPTERS = normalizePath(
@@ -32,13 +32,17 @@ function wasmBindgenStub(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [wasmBindgenStub()],
   test: {
     include: ['__test__/**/*.spec.ts'],
     exclude: ['node_modules', 'target', '.claude'],
     benchmark: {
       include: ['__test__/**/*.bench.ts'],
+      // `pnpm run bench:ci` (`vitest bench --mode ci`) leaves out the
+      // comparisons with other libraries. The --exclude option cannot:
+      // Vitest collects benchmark files with these two settings alone.
+      exclude: mode === 'ci' ? [...defaultExclude, '**/*.compare.bench.ts'] : defaultExclude,
     },
     coverage: {
       provider: 'v8',
@@ -52,4 +56,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

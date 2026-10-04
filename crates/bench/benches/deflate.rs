@@ -1,59 +1,58 @@
-use std::io::{Read, Write};
+use std::io::Read;
 
-use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
+use comprs_bench::{inputs, json_84kb, run_stream, stream_inputs};
+use comprs_core::gzip::{deflate_compress, deflate_decompress};
+use comprs_core::gzip_stream::{DeflateCompressContext, DeflateDecompressContext};
 use criterion::{Criterion, criterion_group, criterion_main};
-use flate2::Compression;
 use flate2::read::DeflateDecoder;
-use flate2::write::DeflateEncoder;
-
-fn compress(data: &[u8], level: u32) -> Vec<u8> {
-    let mut encoder = DeflateEncoder::new(Vec::with_capacity(data.len()), Compression::new(level));
-    encoder.write_all(data).unwrap();
-    encoder.finish().unwrap()
-}
-
-fn decompress(data: &[u8]) -> Vec<u8> {
-    let mut decoder = DeflateDecoder::new(data);
-    let mut output = Vec::new();
-    decoder.read_to_end(&mut output).unwrap();
-    output
-}
 
 fn bench_deflate(c: &mut Criterion) {
-    let p10k = patterned_10kb();
-    let p1m = patterned_1mb();
-    let r10k = random_10kb();
-    let r1m = random_1mb();
+    for (name, data) in inputs() {
+        let compressed = deflate_compress(&data, None).unwrap();
+        c.bench_function(&format!("deflate compress {name}"), |b| {
+            b.iter(|| deflate_compress(&data, None).unwrap())
+        });
+        c.bench_function(&format!("deflate decompress {name}"), |b| {
+            b.iter(|| deflate_decompress(&compressed).unwrap())
+        });
+    }
 
-    let p10k_c = compress(&p10k, 6);
-    let p1m_c = compress(&p1m, 6);
-    let r10k_c = compress(&r10k, 6);
-    let r1m_c = compress(&r1m, 6);
+    for (name, data) in stream_inputs() {
+        let compressed = deflate_compress(&data, None).unwrap();
+        c.bench_function(&format!("deflate stream compress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    DeflateCompressContext::new(None).unwrap(),
+                    &data,
+                    DeflateCompressContext::transform,
+                    DeflateCompressContext::finish,
+                )
+            })
+        });
+        c.bench_function(&format!("deflate stream decompress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    DeflateDecompressContext::new(None).unwrap(),
+                    &compressed,
+                    DeflateDecompressContext::transform,
+                    DeflateDecompressContext::finish,
+                )
+            })
+        });
+    }
 
-    c.bench_function("deflate compress patterned 10KB", |b| {
-        b.iter(|| compress(&p10k, 6))
-    });
-    c.bench_function("deflate compress patterned 1MB", |b| {
-        b.iter(|| compress(&p1m, 6))
-    });
-    c.bench_function("deflate compress random 10KB", |b| {
-        b.iter(|| compress(&r10k, 6))
-    });
-    c.bench_function("deflate compress random 1MB", |b| {
-        b.iter(|| compress(&r1m, 6))
-    });
-
-    c.bench_function("deflate decompress patterned 10KB", |b| {
-        b.iter(|| decompress(&p10k_c))
-    });
-    c.bench_function("deflate decompress patterned 1MB", |b| {
-        b.iter(|| decompress(&p1m_c))
-    });
-    c.bench_function("deflate decompress random 10KB", |b| {
-        b.iter(|| decompress(&r10k_c))
-    });
-    c.bench_function("deflate decompress random 1MB", |b| {
-        b.iter(|| decompress(&r1m_c))
+    // Baseline: flate2 alone. The difference is what comprs adds to
+    // decompression: its own inflate loop, which detects truncated input
+    // and enforces the output limit.
+    let compressed = deflate_compress(&json_84kb(), None).unwrap();
+    c.bench_function("deflate decompress json 84KB (upstream)", |b| {
+        b.iter(|| {
+            let mut output = Vec::new();
+            DeflateDecoder::new(compressed.as_slice())
+                .read_to_end(&mut output)
+                .unwrap();
+            output
+        })
     });
 }
 
