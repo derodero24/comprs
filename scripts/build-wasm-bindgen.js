@@ -9,6 +9,7 @@
  *
  * The build uses the wasm-release profile of the workspace Cargo.toml, which
  * optimizes for size, and does not run wasm-opt (see that profile).
+ * scripts/wasm-size.mjs reports the size of the result.
  */
 
 'use strict';
