@@ -349,6 +349,8 @@ import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
 The package root re-exports the stream helpers for `import` only, and not in browsers (see [Browser Usage](#browser-usage)); `@derodero24/comprs/streams` works with both `import` and `require()`.
 
+These streams accept the chunks that `CompressionStream` accepts, any `ArrayBuffer` or `ArrayBufferView` (a `DataView`, a `Uint16Array`, ...), as well as a `SharedArrayBuffer`, and read them byte for byte, both with the native addon (Node.js, Deno and Bun) and in the browser build.
+
 <details>
 <summary><strong>Full streaming API list</strong></summary>
 
@@ -387,6 +389,8 @@ await pipeline(
   createWriteStream('output.gz'),
 );
 ```
+
+The transforms push their output in chunks of at most `readableHighWaterMark` bytes (64 KiB by default), even when a single small input chunk decompresses to many megabytes.
 
 <details>
 <summary><strong>Full Node.js Transform API list</strong></summary>

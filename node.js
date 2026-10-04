@@ -17,8 +17,28 @@ const {
   detectFormat,
 } = require('./index.js');
 
-function pushIfNonEmpty(stream, result) {
-  if (result.byteLength > 0) stream.push(result);
+/**
+ * Push `buf`, which a stream context returned, in chunks of at most
+ * `readableHighWaterMark` bytes. The chunks are views of `buf`, not copies.
+ *
+ * A single input chunk can decompress to many megabytes; slicing keeps the
+ * chunks that readers receive as small as those of `node:zlib`. The return
+ * value of push() is ignored: backpressure still applies between input
+ * chunks, as the stream calls transform() again only once readers catch up.
+ *
+ * @param {Transform} stream
+ * @param {Buffer} buf
+ */
+function pushSliced(stream, buf) {
+  if (buf.byteLength === 0) return;
+  const size = stream.readableHighWaterMark || 65536;
+  if (buf.byteLength <= size) {
+    stream.push(buf);
+    return;
+  }
+  for (let i = 0; i < buf.byteLength; i += size) {
+    stream.push(buf.subarray(i, i + size));
+  }
 }
 
 /**
@@ -66,10 +86,10 @@ function closingTransform(transform, flush, close) {
  */
 function contextTransform(ctx) {
   return closingTransform(
-    (stream, chunk) => pushIfNonEmpty(stream, ctx.transform(chunk)),
+    (stream, chunk) => pushSliced(stream, ctx.transform(chunk)),
     (stream) => {
-      pushIfNonEmpty(stream, ctx.flush());
-      pushIfNonEmpty(stream, ctx.finish());
+      pushSliced(stream, ctx.flush());
+      pushSliced(stream, ctx.finish());
     },
     () => ctx.close(),
   );
@@ -250,13 +270,13 @@ function createDecompressTransform(maxOutputSize) {
   function start(stream, format, data) {
     ctx = createDecompressContext(format, maxOutputSize);
     buffered = null;
-    pushIfNonEmpty(stream, ctx.transform(data));
+    pushSliced(stream, ctx.transform(data));
   }
 
   return closingTransform(
     (stream, chunk) => {
       if (ctx) {
-        pushIfNonEmpty(stream, ctx.transform(chunk));
+        pushSliced(stream, ctx.transform(chunk));
         return;
       }
 
@@ -284,9 +304,9 @@ function createDecompressTransform(maxOutputSize) {
         start(stream, detectFormat(data), data);
       }
 
-      pushIfNonEmpty(stream, ctx.flush());
+      pushSliced(stream, ctx.flush());
       // finish() verifies that the input contained the whole stream.
-      pushIfNonEmpty(stream, ctx.finish());
+      pushSliced(stream, ctx.finish());
     },
     () => {
       ctx?.close();

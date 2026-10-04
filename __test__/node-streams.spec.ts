@@ -25,6 +25,7 @@ import {
   createBrotliCompressTransform,
   createBrotliDecompressDictTransform,
   createBrotliDecompressTransform,
+  createDecompressTransform,
   createDeflateCompressTransform,
   createDeflateDecompressTransform,
   createGzipCompressTransform,
@@ -581,4 +582,40 @@ describe('Node transform decompression of a single highly compressible chunk', (
     // Inflating any one of the chunks completely would add 128 MiB.
     expect(peakRssKiB() - peakBefore).toBeLessThan(32 * 1024);
   });
+});
+
+describe('Node transform output chunk size', () => {
+  // 8 MiB of zeros compress to a few KiB, which one transform() call
+  // decompresses at once.
+  const plain = Buffer.alloc(8 * 1024 * 1024);
+  const CASES: [string, () => Buffer, () => Transform][] = [
+    ['zstd', () => zstdCompress(plain), () => createZstdDecompressTransform()],
+    ['gzip', () => gzipCompress(plain), () => createGzipDecompressTransform()],
+    ['deflate', () => deflateCompress(plain), () => createDeflateDecompressTransform()],
+    ['brotli', () => brotliCompress(plain, 1), () => createBrotliDecompressTransform()],
+    ['lz4', () => lz4Compress(plain), () => createLz4DecompressTransform()],
+    ['auto-detected zstd', () => zstdCompress(plain), () => createDecompressTransform()],
+    ['auto-detected brotli', () => brotliCompress(plain, 1), () => createDecompressTransform()],
+  ];
+
+  it.each(CASES)(
+    'should push %s output in chunks of at most readableHighWaterMark bytes',
+    { timeout: 30_000 },
+    async (_name, compress, createTransform) => {
+      const transform = createTransform();
+      const chunks: Buffer[] = [];
+      const sink = new Writable({
+        write(chunk, _encoding, callback) {
+          chunks.push(chunk);
+          callback();
+        },
+      });
+      await pipeline(Readable.from([compress()]), transform, sink);
+
+      expect(Math.max(...chunks.map((chunk) => chunk.length))).toBeLessThanOrEqual(
+        transform.readableHighWaterMark,
+      );
+      expect(Buffer.concat(chunks).equals(plain)).toBe(true);
+    },
+  );
 });
