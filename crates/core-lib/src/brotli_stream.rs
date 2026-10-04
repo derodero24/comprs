@@ -479,10 +479,8 @@ impl StreamDecoder {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
-
     use super::{CompressContext, CompressDictContext, DecompressContext, DecompressDictContext};
-    use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE};
+    use crate::brotli::BUFFER_SIZE;
     use crate::{ComprsError, MemoryUsage};
 
     /// Decompression limit used by the size-limit tests.
@@ -725,62 +723,6 @@ mod tests {
         let mut output = ctx.transform(&compressed).unwrap();
         output.extend(ctx.flush().unwrap());
         assert_eq!(output, data);
-    }
-
-    #[test]
-    fn stream_round_trip() {
-        let original = b"Hello, comprs streaming! ".repeat(100);
-
-        // Compress in chunks using CompressorWriter<Vec<u8>>
-        let mut compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        for chunk in original.chunks(256) {
-            compressor.write_all(chunk).unwrap();
-        }
-        let compressed = compressor.into_inner();
-
-        // Decompress using Decompressor
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn stream_empty_input() {
-        let compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        let compressed = compressor.into_inner();
-
-        // Should produce a valid (empty) brotli stream
-        assert!(!compressed.is_empty());
-
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert!(decompressed.is_empty());
-    }
-
-    #[test]
-    fn stream_decompressor_writer_round_trip() {
-        let original = b"DecompressorWriter test data ".repeat(100);
-
-        // Compress
-        let mut compressor =
-            brotli::CompressorWriter::new(Vec::new(), BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE);
-        compressor.write_all(&original).unwrap();
-        let compressed = compressor.into_inner();
-
-        // Decompress in chunks using DecompressorWriter<Vec<u8>>
-        let mut decompressor = brotli::DecompressorWriter::new(Vec::new(), BUFFER_SIZE);
-        for chunk in compressed.chunks(64) {
-            decompressor.write_all(chunk).unwrap();
-        }
-        decompressor.flush().unwrap();
-        let decompressed = decompressor.into_inner().unwrap();
-
-        assert_eq!(original.as_slice(), decompressed.as_slice());
     }
 
     /// The dictionary stream compresses on `finish` through the same encoder

@@ -310,11 +310,10 @@ impl MemoryUsage for DeflateDecompressContext {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::Write;
 
     use flate2::Compression;
-    use flate2::read::GzDecoder as GzReadDecoder;
-    use flate2::write::{DeflateDecoder, DeflateEncoder, GzEncoder};
+    use flate2::write::{DeflateEncoder, GzEncoder};
 
     use super::{
         DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
@@ -533,57 +532,6 @@ mod tests {
     }
 
     #[test]
-    fn gzip_stream_round_trip() {
-        let original = b"Hello, comprs gzip streaming! ".repeat(100);
-
-        // Compress in chunks using GzEncoder
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        for chunk in original.chunks(256) {
-            encoder.write_all(chunk).unwrap();
-        }
-        let compressed = encoder.finish().unwrap();
-
-        // Verify with standard read decoder
-        let mut decoder = GzReadDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn gzip_stream_empty_input() {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(b"").unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        // Should produce a valid (empty) gzip frame
-        assert!(!compressed.is_empty());
-
-        let mut decoder = GzReadDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert!(decompressed.is_empty());
-    }
-
-    #[test]
-    fn deflate_stream_round_trip() {
-        let original = b"Hello, comprs deflate streaming! ".repeat(100);
-
-        // Compress in chunks
-        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        for chunk in original.chunks(256) {
-            encoder.write_all(chunk).unwrap();
-        }
-        let compressed = encoder.finish().unwrap();
-
-        // Decompress
-        let mut decoder = DeflateDecoder::new(Vec::new());
-        decoder.write_all(&compressed).unwrap();
-        let decompressed = decoder.finish().unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
     fn gzip_stream_rejects_level_above_9() {
         assert!(GzipCompressContext::new(Some(9)).is_ok());
         let err = GzipCompressContext::new(Some(10)).err().unwrap();
@@ -601,19 +549,5 @@ mod tests {
             err.to_string(),
             "deflate compression level must be an integer between 0 and 9"
         );
-    }
-
-    #[test]
-    fn deflate_stream_empty_input() {
-        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(DEFAULT_LEVEL));
-        encoder.write_all(b"").unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        assert!(!compressed.is_empty());
-
-        let mut decoder = DeflateDecoder::new(Vec::new());
-        decoder.write_all(&compressed).unwrap();
-        let decompressed = decoder.finish().unwrap();
-        assert!(decompressed.is_empty());
     }
 }

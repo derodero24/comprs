@@ -400,120 +400,36 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of brotli compression.";
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_empty() {
-        let original = b"";
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let mut compressed = Vec::new();
-        {
-            let mut compressor = brotli::CompressorWriter::new(
-                &mut compressed,
-                BUFFER_SIZE,
-                DEFAULT_QUALITY,
-                LG_WINDOW_SIZE,
-            );
-            compressor.write_all(&original).unwrap();
-        }
-        let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original, decompressed);
-        // Compression should actually reduce size for repetitive data
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
     fn compression_quality_levels() {
         let data = b"Repeating data for compression quality testing. ".repeat(100);
-        let compress_at = |q: u32| {
-            let mut compressed = Vec::new();
-            {
-                let mut compressor =
-                    brotli::CompressorWriter::new(&mut compressed, BUFFER_SIZE, q, LG_WINDOW_SIZE);
-                compressor.write_all(&data).unwrap();
-            }
-            compressed
-        };
+        let compressed: Vec<_> = (0..=11)
+            .map(|quality| compress(&data, Some(quality)).unwrap())
+            .collect();
+        for (quality, output) in compressed.iter().enumerate() {
+            assert_eq!(decompress(output).unwrap(), data, "quality {quality}");
+        }
 
-        let fast = compress_at(0);
-        let default = compress_at(DEFAULT_QUALITY);
-        let best = compress_at(11);
-
-        // Higher quality should generally produce smaller output
-        assert!(best.len() <= default.len());
-        assert!(default.len() <= fast.len());
+        let fast = compressed[0].len();
+        let default = compressed[DEFAULT_QUALITY as usize].len();
+        let best = compressed[11].len();
+        assert!(
+            best <= default,
+            "{best} bytes at quality 11, {default} at 6"
+        );
+        assert!(default <= fast, "{default} bytes at quality 6, {fast} at 0");
     }
 
     #[test]
     fn dict_round_trip() {
         let dict = br#"{"id":0,"name":"user","email":"@example.com"}"#.repeat(10);
         let original = br#"{"id":42,"name":"test_user","email":"test@example.com","active":true}"#;
-        let compressed = compress_with_dict_inner(original, &dict, DEFAULT_QUALITY).unwrap();
-        let mut decompressor = brotli::Decompressor::new_with_custom_dict(
-            compressed.as_slice(),
-            BUFFER_SIZE,
-            dict.into(),
-        );
-        let mut decompressed = Vec::new();
-        decompressor.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
+        let compressed = compress_with_dict(original, &dict, None).unwrap();
+        assert_eq!(decompress_with_dict(&compressed, &dict).unwrap(), original);
 
-    #[test]
-    fn all_quality_levels_round_trip() {
-        let data = b"Quality level test data. ".repeat(50);
-        for quality in 0..=11 {
-            let mut compressed = Vec::new();
-            {
-                let mut compressor = brotli::CompressorWriter::new(
-                    &mut compressed,
-                    BUFFER_SIZE,
-                    quality,
-                    LG_WINDOW_SIZE,
-                );
-                compressor.write_all(&data).unwrap();
-            }
-            let mut decompressor = brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE);
-            let mut decompressed = Vec::new();
-            decompressor.read_to_end(&mut decompressed).unwrap();
-            assert_eq!(data.as_slice(), decompressed.as_slice());
-        }
+        // The output refers to the dictionary: it is smaller than without
+        // one, and does not decode to the original without it.
+        assert!(compressed.len() < compress(original, None).unwrap().len());
+        assert_ne!(decompress(&compressed).ok().as_deref(), Some(&original[..]));
     }
 
     #[test]

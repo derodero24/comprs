@@ -364,10 +364,9 @@ fn not_a_frame(at_start: bool, context: &'static str) -> ComprsError {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
     use std::time::{Duration, Instant};
 
-    use lz4_flex::frame::{BlockMode, BlockSize, FrameDecoder};
+    use lz4_flex::frame::{BlockMode, BlockSize};
 
     use super::*;
 
@@ -381,60 +380,6 @@ mod tests {
             decompress_with_capacity(&[], 1024),
             Err(ComprsError::Truncated("lz4"))
         ));
-    }
-
-    #[test]
-    fn round_trip_basic() {
-        let original = b"Hello, comprs! This is a test of LZ4 compression.";
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_empty() {
-        let original = b"";
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original.as_slice(), decompressed.as_slice());
-    }
-
-    #[test]
-    fn round_trip_large() {
-        let original: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(&original).unwrap();
-        encoder.finish().unwrap();
-
-        let mut decoder = FrameDecoder::new(compressed.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(original, decompressed);
-        assert!(compressed.len() < original.len());
-    }
-
-    #[test]
-    fn lz4_frame_magic_bytes() {
-        let mut compressed = Vec::new();
-        let mut encoder = FrameEncoder::new(&mut compressed);
-        encoder.write_all(b"test").unwrap();
-        encoder.finish().unwrap();
-
-        assert!(compressed.len() >= 4);
-        assert_eq!(&compressed[..4], &[0x04, 0x22, 0x4D, 0x18]);
     }
 
     /// Repetitive text of `len` bytes.
