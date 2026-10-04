@@ -4,10 +4,19 @@ Thank you for your interest in contributing! This guide covers everything you ne
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) ≥ 1.85 (stable toolchain)
-- [Node.js](https://nodejs.org/) ≥ 22
-- [pnpm](https://pnpm.io/) ≥ 10
+- [Rust](https://rustup.rs/) ≥ 1.88 (CI lints and tests with the latest stable)
+- A C compiler, for the zstd C sources (Clang for the WebAssembly build)
+- [Node.js](https://nodejs.org/) ≥ 22.13
+- [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
+
+`rust-version` in `Cargo.toml` is the minimum supported Rust version. The `Rust MSRV` CI job checks the workspace with exactly that version, so a dependency update that needs a newer Rust fails there. Such an update raises `rust-version`, and the Rust version in this section, in the same pull request. To run the check locally:
+
+```bash
+rustup toolchain install 1.88 --profile minimal --target wasm32-unknown-unknown
+cargo +1.88 check --workspace --all-targets --locked
+cargo +1.88 check -p comprs-wasm --target wasm32-unknown-unknown --locked
+```
 
 ## Development setup
 
