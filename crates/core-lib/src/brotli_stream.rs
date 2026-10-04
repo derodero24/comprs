@@ -216,12 +216,14 @@ struct StreamDecoder {
 
 impl StreamDecoder {
     fn new(dict: Vec<u8>, output: LimitedVec, name: &'static str) -> Self {
-        let state = DecoderState::new_with_custom_dictionary(
+        let mut state = DecoderState::new_with_custom_dictionary(
             StandardAlloc::default(),
             StandardAlloc::default(),
             StandardAlloc::default(),
             dict.into(),
         );
+        // Decode RFC 7932 streams only: see `crate::brotli::reject_large_window`.
+        state.large_window = false;
         Self {
             state: Some(state),
             buffer: vec![0; BUFFER_SIZE],
@@ -396,6 +398,36 @@ mod tests {
             ctx.finish(),
             Err(ComprsError::Truncated("brotli"))
         ));
+    }
+
+    #[test]
+    fn decompress_contexts_reject_large_window_streams() {
+        let compressed =
+            crate::brotli::compress_large_window(&b"large window brotli ".repeat(50), 30);
+        let dict = b"brotli dictionary";
+        for chunk_size in [1, compressed.len()] {
+            let mut ctx = DecompressContext::new(None).unwrap();
+            let err = compressed
+                .chunks(chunk_size)
+                .find_map(|chunk| ctx.transform(chunk).err())
+                .expect("a large-window stream decoded");
+            assert_eq!(
+                err.to_string(),
+                "brotli stream decompress failed: Invalid Data",
+                "chunk size {chunk_size}"
+            );
+
+            let mut ctx = DecompressDictContext::new(dict, None).unwrap();
+            let err = compressed
+                .chunks(chunk_size)
+                .find_map(|chunk| ctx.transform(chunk).err())
+                .expect("a large-window stream decoded");
+            assert_eq!(
+                err.to_string(),
+                "brotli dict stream decompress failed: Invalid Data",
+                "chunk size {chunk_size}"
+            );
+        }
     }
 
     #[test]

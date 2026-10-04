@@ -1,6 +1,12 @@
-import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { brotliCompress, brotliDecompress, brotliDecompressWithCapacity } from '../index.js';
+import {
+  BrotliDecompressContext,
+  brotliCompress,
+  brotliDecompress,
+  brotliDecompressWithCapacity,
+  decompress,
+} from '../index.js';
 import { createBrotliCompressStream, createBrotliDecompressStream } from '../streams.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
@@ -157,6 +163,27 @@ describe('brotli interop with Node.js zlib', () => {
     const compressed = brotliCompressSync(data);
     const decompressed = brotliDecompress(compressed);
     expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+
+  it('should reject Large Window Brotli streams like Node.js zlib', async () => {
+    // RFC 7932 decoders reject this extension; decoding it would reserve a
+    // ring buffer of the declared window, here 1 GiB, whatever the limit.
+    const largeWindow = brotliCompressSync(data, {
+      params: {
+        [constants.BROTLI_PARAM_LARGE_WINDOW]: 1,
+        [constants.BROTLI_PARAM_LGWIN]: 30,
+      },
+    });
+    expect(() => brotliDecompressSync(largeWindow)).toThrow();
+
+    const message = 'large-window brotli streams are not supported';
+    expect(() => brotliDecompress(largeWindow)).toThrow(message);
+    expect(() => brotliDecompressWithCapacity(largeWindow, 1024)).toThrow(message);
+    expect(() => decompress(largeWindow)).toThrow();
+    expect(() => new BrotliDecompressContext().transform(largeWindow)).toThrow('Invalid Data');
+    await expect(
+      collectStream(toChunkedStream(largeWindow, 1).pipeThrough(createBrotliDecompressStream())),
+    ).rejects.toThrow('Invalid Data');
   });
 });
 
