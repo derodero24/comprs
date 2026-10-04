@@ -232,12 +232,14 @@ const CASES = Object.entries(ARGUMENTS).flatMap(([argument, { calls, ...checks }
 );
 
 describe('numeric argument validation', () => {
-  it.each(CASES)('%s: should reject invalid %s values', (_name, _argument, check) => {
+  it.each(CASES)('%s: should reject invalid %s values', async (name, _argument, check) => {
+    const error = expect.objectContaining({ code: 'InvalidArg', message: check.message });
     for (const value of check.invalid) {
-      // Async functions validate their arguments before they return a Promise.
-      expect(() => check.call(value), String(value)).toThrow(
-        expect.objectContaining({ code: 'InvalidArg', message: check.message }),
-      );
+      if (name.endsWith('Async')) {
+        await expect(check.call(value), String(value)).rejects.toThrow(error);
+      } else {
+        expect(() => check.call(value), String(value)).toThrow(error);
+      }
     }
   });
 

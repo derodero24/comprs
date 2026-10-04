@@ -4,6 +4,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compress data using Brotli.
@@ -73,19 +74,24 @@ impl Task for BrotliCompressTask {
 /// Returns a Promise that resolves to the compressed data as a Buffer.
 /// Quality is an integer from 0 (fastest) to 11 (best compression). Default
 /// is 6.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, quality?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    quality: Option<f64>,
-) -> Result<AsyncTask<BrotliCompressTask>> {
-    let quality = comprs_core::brotli::QUALITY
-        .check_optional_f64(quality)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(BrotliCompressTask {
-        data: input,
-        quality,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    quality: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<BrotliCompressTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality.get()?)
+            .map_err(to_napi_error)?;
+        Ok(BrotliCompressTask {
+            data: crate::as_bytes(&data).to_vec(),
+            quality,
+        })
+    })
 }
 
 pub struct BrotliDecompressTask {
@@ -110,12 +116,18 @@ impl Task for BrotliDecompressTask {
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_decompress_async(
-    data: Either<Buffer, Uint8Array>,
-) -> AsyncTask<BrotliDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(BrotliDecompressTask { data: input })
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<BrotliDecompressTask>> {
+    checked(|| {
+        Ok(BrotliDecompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 pub struct BrotliDecompressWithCapacityTask {
@@ -142,17 +154,22 @@ impl Task for BrotliDecompressWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<BrotliDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(BrotliDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<BrotliDecompressWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(BrotliDecompressWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            capacity: cap,
+        })
+    })
 }
 
 // --- Dictionary compression/decompression ---
@@ -239,22 +256,27 @@ impl Task for BrotliCompressWithDictTask {
 /// The same dictionary must be used for decompression via `brotliDecompressWithDict`.
 /// Quality is an integer from 0 (fastest) to 11 (best compression). Default
 /// is 6.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_compress_with_dict_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-    quality: Option<f64>,
-) -> Result<AsyncTask<BrotliCompressWithDictTask>> {
-    let quality = comprs_core::brotli::QUALITY
-        .check_optional_f64(quality)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    Ok(AsyncTask::new(BrotliCompressWithDictTask {
-        data: input,
-        dict: dict_bytes,
-        quality,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+    quality: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<BrotliCompressWithDictTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        let quality = comprs_core::brotli::QUALITY
+            .check_optional_f64(quality.get()?)
+            .map_err(to_napi_error)?;
+        Ok(BrotliCompressWithDictTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+            quality,
+        })
+    })
 }
 
 pub struct BrotliDecompressWithDictTask {
@@ -279,16 +301,21 @@ impl Task for BrotliDecompressWithDictTask {
 /// Asynchronously decompress Brotli-compressed data that was compressed with a custom dictionary.
 ///
 /// The same dictionary used for compression must be provided.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_decompress_with_dict_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-) -> AsyncTask<BrotliDecompressWithDictTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    AsyncTask::new(BrotliDecompressWithDictTask {
-        data: input,
-        dict: dict_bytes,
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<BrotliDecompressWithDictTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        Ok(BrotliDecompressWithDictTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+        })
     })
 }
 
@@ -323,18 +350,23 @@ impl Task for BrotliDecompressWithDictWithCapacityTask {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 /// The same dictionary used for compression must be provided.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn brotli_decompress_with_dict_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    dict: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<BrotliDecompressWithDictWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    let dict_bytes = crate::as_bytes(&dict).to_vec();
-    Ok(AsyncTask::new(BrotliDecompressWithDictWithCapacityTask {
-        data: input,
-        dict: dict_bytes,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    dict: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<BrotliDecompressWithDictWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let dict = dict.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(BrotliDecompressWithDictWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            dict: crate::as_bytes(&dict).to_vec(),
+            capacity: cap,
+        })
+    })
 }

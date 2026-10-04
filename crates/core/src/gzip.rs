@@ -4,6 +4,7 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compress data using gzip.
@@ -185,17 +186,24 @@ impl Task for GzipCompressTask {
 /// Returns a Promise that resolves to the compressed data as a Buffer.
 /// Level is an integer from 0 (no compression) to 9 (best compression).
 /// Default is 6.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn gzip_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    level: Option<f64>,
-) -> Result<AsyncTask<GzipCompressTask>> {
-    // Validate level eagerly
-    let level = comprs_core::gzip::LEVEL
-        .check_optional_f64(level)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(GzipCompressTask { data: input, level }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<GzipCompressTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let level = comprs_core::gzip::LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        Ok(GzipCompressTask {
+            data: crate::as_bytes(&data).to_vec(),
+            level,
+        })
+    })
 }
 
 pub struct GzipDecompressTask {
@@ -221,10 +229,18 @@ impl Task for GzipDecompressTask {
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
 /// for larger data.
-#[napi]
-pub fn gzip_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<GzipDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(GzipDecompressTask { data: input })
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
+pub fn gzip_decompress_async(
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<GzipDecompressTask>> {
+    checked(|| {
+        Ok(GzipDecompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 pub struct DeflateCompressTask {
@@ -251,16 +267,24 @@ impl Task for DeflateCompressTask {
 /// Returns a Promise that resolves to the compressed data as a Buffer.
 /// Level is an integer from 0 (no compression) to 9 (best compression).
 /// Default is 6.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    level: Option<f64>,
-) -> Result<AsyncTask<DeflateCompressTask>> {
-    let level = comprs_core::gzip::DEFLATE_LEVEL
-        .check_optional_f64(level)
-        .map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(DeflateCompressTask { data: input, level }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<DeflateCompressTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let level = comprs_core::gzip::DEFLATE_LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        Ok(DeflateCompressTask {
+            data: crate::as_bytes(&data).to_vec(),
+            level,
+        })
+    })
 }
 
 pub struct DeflateDecompressTask {
@@ -286,12 +310,18 @@ impl Task for DeflateDecompressTask {
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
 /// for larger data. Rejects if the input ends before the final deflate block.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_decompress_async(
-    data: Either<Buffer, Uint8Array>,
-) -> AsyncTask<DeflateDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(DeflateDecompressTask { data: input })
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<DeflateDecompressTask>> {
+    checked(|| {
+        Ok(DeflateDecompressTask {
+            data: crate::as_bytes(&data.get()?).to_vec(),
+        })
+    })
 }
 
 pub struct GzipDecompressWithCapacityTask {
@@ -318,17 +348,22 @@ impl Task for GzipDecompressWithCapacityTask {
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn gzip_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<GzipDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(GzipDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<GzipDecompressWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(GzipDecompressWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            capacity: cap,
+        })
+    })
 }
 
 pub struct DeflateDecompressWithCapacityTask {
@@ -356,15 +391,20 @@ impl Task for DeflateDecompressWithCapacityTask {
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 /// Rejects if the input ends before the final deflate block.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<DeflateDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(DeflateDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<DeflateDecompressWithCapacityTask>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        Ok(DeflateDecompressWithCapacityTask {
+            data: crate::as_bytes(&data).to_vec(),
+            capacity: cap,
+        })
+    })
 }
