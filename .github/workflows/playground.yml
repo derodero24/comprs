@@ -7,6 +7,7 @@ on:
       - 'playground/**'
       - '.github/workflows/playground.yml'
       - 'crates/**'
+      - 'package.json'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'browser/**'
@@ -61,6 +62,9 @@ jobs:
       - name: Build wasm-bindgen WASM
         run: pnpm run build:wasm-bindgen
 
+      # After the WebAssembly build: the file:.. dependency installs the
+      # package with the files that exist at install time, and the playground
+      # build fails if the binary is missing.
       - name: Install playground dependencies
         run: cd playground && pnpm install --frozen-lockfile
 
