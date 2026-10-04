@@ -13,6 +13,27 @@ pub const BUFFER_SIZE: usize = 4096;
 /// Default log2 of the sliding window size for brotli.
 pub const LG_WINDOW_SIZE: u32 = 22;
 
+/// Reject a stream that uses the Large Window Brotli extension.
+///
+/// Such a stream starts with the seven bits 0010001 (`0x11` in the low bits
+/// of the first byte), a window size code that RFC 7932 leaves invalid; the
+/// next byte then picks a window of up to 1 GiB. brotli-decompressor accepts
+/// these streams unless told otherwise, and allocates its ring buffer at the
+/// window size whatever the output limit: 12 bytes of input made it allocate
+/// 512 MiB. `brotli::Decompressor` has no switch for it, so the one-shot
+/// functions check the header themselves; the stream contexts turn
+/// `large_window` off in the decoder state. RFC 7932 decoders, Node's zlib
+/// among them, reject the same streams.
+pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<(), ComprsError> {
+    if data.first().is_some_and(|&byte| byte & 0x7f == 0x11) {
+        return Err(ComprsError::Operation {
+            context,
+            source: "large-window brotli streams are not supported".into(),
+        });
+    }
+    Ok(())
+}
+
 /// Compress data using Brotli.
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
     let quality = quality.unwrap_or(DEFAULT_QUALITY);
@@ -41,6 +62,7 @@ pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsErro
 /// Decompress Brotli-compressed data.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
+    reject_large_window(data, "brotli decompress")?;
     let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
     let init_cap = (data.len().saturating_mul(4)).min(crate::MAX_DECOMPRESSED_SIZE);
     crate::decompress_with_limit(
@@ -54,6 +76,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 /// Decompress Brotli-compressed data with explicit capacity.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
+    reject_large_window(data, "brotli decompress")?;
     let decompressor = brotli::Decompressor::new(data, BUFFER_SIZE);
     let init_cap = (data.len().saturating_mul(4)).min(capacity);
     crate::decompress_with_limit(decompressor, capacity, init_cap, "brotli decompress")
@@ -120,6 +143,7 @@ pub fn compress_with_dict_inner(
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
+    reject_large_window(data, "brotli decompress with dict")?;
     let dict_bytes = dict.to_vec();
     let decompressor =
         brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
@@ -139,6 +163,7 @@ pub fn decompress_with_dict_with_capacity(
     capacity: usize,
 ) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
+    reject_large_window(data, "brotli decompress with dict")?;
     let dict_bytes = dict.to_vec();
     let decompressor =
         brotli::Decompressor::new_with_custom_dict(data, BUFFER_SIZE, dict_bytes.into());
@@ -149,6 +174,21 @@ pub fn decompress_with_dict_with_capacity(
         init_cap,
         "brotli decompress with dict",
     )
+}
+
+/// `data` compressed as a Large Window Brotli stream with a window of
+/// 2^`lgwin` bytes, for the tests.
+#[cfg(test)]
+pub(crate) fn compress_large_window(data: &[u8], lgwin: i32) -> Vec<u8> {
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 5,
+        lgwin,
+        large_window: true,
+        ..Default::default()
+    };
+    let mut output = Vec::new();
+    brotli::BrotliCompress(&mut &data[..], &mut output, &params).unwrap();
+    output
 }
 
 #[cfg(test)]
@@ -167,6 +207,64 @@ mod tests {
             decompress_with_dict_with_capacity(&[], dict, 1024),
         ] {
             assert!(matches!(result, Err(ComprsError::Truncated("brotli"))));
+        }
+    }
+
+    #[test]
+    fn decompress_rejects_large_window_streams() {
+        let original = b"large window brotli ".repeat(50);
+        for lgwin in [22, 30] {
+            let compressed = compress_large_window(&original, lgwin);
+            assert_eq!(compressed[0] & 0x7f, 0x11, "lgwin {lgwin}");
+            assert_eq!(i32::from(compressed[1] & 0x3f), lgwin, "lgwin {lgwin}");
+            if lgwin == 22 {
+                // brotli-decompressor decodes the stream on its own (the 2^30
+                // one too, after allocating 1 GiB, so that one is skipped)...
+                let mut decompressed = Vec::new();
+                brotli::Decompressor::new(compressed.as_slice(), BUFFER_SIZE)
+                    .read_to_end(&mut decompressed)
+                    .unwrap();
+                assert_eq!(decompressed, original);
+            }
+            // ...but comprs rejects it before the decoder allocates the window.
+            let dict = b"brotli dictionary";
+            for result in [
+                decompress(&compressed),
+                decompress_with_capacity(&compressed, 1024),
+                decompress_with_dict(&compressed, dict),
+                decompress_with_dict_with_capacity(&compressed, dict, 1024),
+            ] {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .ends_with("failed: large-window brotli streams are not supported"),
+                    "lgwin {lgwin}"
+                );
+            }
+        }
+        // The input that the brotli fuzz target found: 12 bytes that made the
+        // decoder allocate a 512 MiB ring buffer.
+        let fuzzed = [17, 29, 29, 29, 29, 29, 17, 17, 17, 42, 3, 10];
+        assert!(
+            decompress_with_capacity(&fuzzed, 524_576)
+                .unwrap_err()
+                .to_string()
+                .ends_with("large-window brotli streams are not supported")
+        );
+    }
+
+    #[test]
+    fn decompress_accepts_every_rfc_window_size() {
+        let original = b"window sizes ".repeat(50);
+        for lgwin in 10..=24 {
+            let mut compressed = Vec::new();
+            {
+                let mut compressor =
+                    brotli::CompressorWriter::new(&mut compressed, BUFFER_SIZE, 5, lgwin);
+                compressor.write_all(&original).unwrap();
+            }
+            assert_eq!(decompress(&compressed).unwrap(), original, "lgwin {lgwin}");
         }
     }
 
