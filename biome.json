@@ -163,7 +163,7 @@
       }
     },
     {
-      "includes": ["index.d.mts"],
+      "includes": ["index.mjs", "index.d.mts"],
       "linter": {
         "rules": {
           "performance": {

@@ -1,0 +1,8 @@
+{
+  "name": "comprs-consumer-cjs-nodenext",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "@derodero24/comprs": "*"
+  }
+}
