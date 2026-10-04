@@ -146,7 +146,9 @@ describe('browser entry', () => {
       );
     });
 
-    // browser/index.d.ts is written by hand.
+    // browser/index.d.ts is written by hand. This checks the names it
+    // declares; wasm-parity.spec.ts checks, when it is type-checked, that
+    // its signatures agree with the native declarations.
     it('exports what its type declarations declare', () => {
       const result = runWithBrowserCondition(
         `console.log(JSON.stringify(Object.keys(await import('@derodero24/comprs'))));`,

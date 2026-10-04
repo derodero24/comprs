@@ -128,7 +128,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:deno": "deno test --allow-ffi --allow-read --allow-env e2e/deno.test.ts",
-    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/browser-entry.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/browser-entry.spec.ts",
     "test:bun": "bun test e2e/bun.test.ts",
     "test:watch": "vitest watch",
     "bench": "vitest bench",
