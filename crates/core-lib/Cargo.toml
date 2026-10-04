@@ -21,3 +21,6 @@ lz4_flex = { workspace = true }
 crc32fast = { workspace = true }
 twox-hash = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }
