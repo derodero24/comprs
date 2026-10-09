@@ -1,11 +1,11 @@
 //! LZ4 frame compression and decompression.
 
-use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
+use crate::task::{LegacyBuffer, OneShot};
 
 /// Compress data using LZ4 frame format.
 ///
@@ -48,24 +48,6 @@ pub fn lz4_decompress_with_capacity(
 
 // --- Async tasks ---
 
-pub struct Lz4CompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for Lz4CompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::lz4::compress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously compress data using LZ4 frame format.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer. The
@@ -76,30 +58,11 @@ impl Task for Lz4CompressTask {
 )]
 pub fn lz4_compress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<Lz4CompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
-        Ok(Lz4CompressTask {
-            data: crate::as_bytes(&data.get()?).to_vec(),
-        })
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || comprs_core::lz4::compress(&data)))
     })
-}
-
-pub struct Lz4DecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for Lz4DecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::lz4::decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress LZ4 frame-compressed data.
@@ -114,31 +77,11 @@ impl Task for Lz4DecompressTask {
 )]
 pub fn lz4_decompress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<Lz4DecompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
-        Ok(Lz4DecompressTask {
-            data: crate::as_bytes(&data.get()?).to_vec(),
-        })
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || comprs_core::lz4::decompress(&data)))
     })
-}
-
-pub struct Lz4DecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for Lz4DecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::lz4::decompress_with_capacity(&self.data, self.capacity).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress LZ4 frame-compressed data with explicit capacity.
@@ -152,13 +95,13 @@ impl Task for Lz4DecompressWithCapacityTask {
 pub fn lz4_decompress_with_capacity_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     capacity: AsyncArg<f64>,
-) -> AsyncTask<Checked<Lz4DecompressWithCapacityTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
-        Ok(Lz4DecompressWithCapacityTask {
-            data: crate::as_bytes(&data).to_vec(),
-            capacity: cap,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::lz4::decompress_with_capacity(&data, cap)
+        }))
     })
 }

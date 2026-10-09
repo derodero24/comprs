@@ -588,8 +588,12 @@ jobs:
       - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
           tool: cargo-llvm-cov
+      # The report covers comprs-core alone. Only the JS tests run the napi
+      # and wasm-bindgen bindings, and the benchmarks are not tests, so their
+      # lines would count as uncovered and fail Codecov's patch status on
+      # every change to them (#659).
       - name: Rust coverage
-        run: cargo llvm-cov --lcov --output-path rust-lcov.info
+        run: cargo llvm-cov --lcov --output-path rust-lcov.info --ignore-filename-regex 'crates/(core|wasm|bench)/'
 
       # JS coverage
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6

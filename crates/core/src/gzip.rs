@@ -1,11 +1,11 @@
 //! Gzip and raw deflate compression and decompression.
 
-use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
+use crate::task::{LegacyBuffer, OneShot};
 
 /// Compress data using gzip.
 ///
@@ -162,25 +162,6 @@ pub fn deflate_decompress_with_capacity(
 
 // --- Async tasks ---
 
-pub struct GzipCompressTask {
-    data: Vec<u8>,
-    level: Option<u32>,
-}
-
-#[napi]
-impl Task for GzipCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::compress(&self.data, self.level).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously compress data using gzip.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
@@ -193,35 +174,17 @@ impl Task for GzipCompressTask {
 pub fn gzip_compress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     level: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<GzipCompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let level = comprs_core::gzip::LEVEL
             .check_optional_f64(level.get()?)
             .map_err(to_napi_error)?;
-        Ok(GzipCompressTask {
-            data: crate::as_bytes(&data).to_vec(),
-            level,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::compress(&data, level)
+        }))
     })
-}
-
-pub struct GzipDecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for GzipDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress gzip-compressed data.
@@ -235,31 +198,11 @@ impl Task for GzipDecompressTask {
 )]
 pub fn gzip_decompress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<GzipDecompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
-        Ok(GzipDecompressTask {
-            data: crate::as_bytes(&data.get()?).to_vec(),
-        })
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || comprs_core::gzip::decompress(&data)))
     })
-}
-
-pub struct DeflateCompressTask {
-    data: Vec<u8>,
-    level: Option<u32>,
-}
-
-#[napi]
-impl Task for DeflateCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_compress(&self.data, self.level).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously compress data using raw deflate (no gzip header/trailer).
@@ -274,35 +217,17 @@ impl Task for DeflateCompressTask {
 pub fn deflate_compress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     level: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<DeflateCompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let level = comprs_core::gzip::DEFLATE_LEVEL
             .check_optional_f64(level.get()?)
             .map_err(to_napi_error)?;
-        Ok(DeflateCompressTask {
-            data: crate::as_bytes(&data).to_vec(),
-            level,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_compress(&data, level)
+        }))
     })
-}
-
-pub struct DeflateDecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for DeflateDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress raw deflate-compressed data.
@@ -316,32 +241,13 @@ impl Task for DeflateDecompressTask {
 )]
 pub fn deflate_decompress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<DeflateDecompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
-        Ok(DeflateDecompressTask {
-            data: crate::as_bytes(&data.get()?).to_vec(),
-        })
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_decompress(&data)
+        }))
     })
-}
-
-pub struct GzipDecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for GzipDecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::decompress_with_capacity(&self.data, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress gzip-compressed data with explicit capacity.
@@ -355,35 +261,15 @@ impl Task for GzipDecompressWithCapacityTask {
 pub fn gzip_decompress_with_capacity_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     capacity: AsyncArg<f64>,
-) -> AsyncTask<Checked<GzipDecompressWithCapacityTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
-        Ok(GzipDecompressWithCapacityTask {
-            data: crate::as_bytes(&data).to_vec(),
-            capacity: cap,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::decompress_with_capacity(&data, cap)
+        }))
     })
-}
-
-pub struct DeflateDecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for DeflateDecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_decompress_with_capacity(&self.data, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress raw deflate-compressed data with explicit capacity.
@@ -398,13 +284,13 @@ impl Task for DeflateDecompressWithCapacityTask {
 pub fn deflate_decompress_with_capacity_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     capacity: AsyncArg<f64>,
-) -> AsyncTask<Checked<DeflateDecompressWithCapacityTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
-        Ok(DeflateDecompressWithCapacityTask {
-            data: crate::as_bytes(&data).to_vec(),
-            capacity: cap,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_decompress_with_capacity(&data, cap)
+        }))
     })
 }

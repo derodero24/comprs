@@ -285,3 +285,27 @@ describe('*Async functions with invalid arguments', () => {
     }
   });
 });
+
+describe('*Async functions with valid arguments', () => {
+  // The arguments are valid, but `data` is not compressed data, so every
+  // decompressor fails (`decompressAsync` with an InvalidArg code, the others
+  // with GenericFailure), and so does the dictionary training on two short
+  // samples. The error of the operation, too, is the one that the
+  // synchronous variant throws.
+  it.each(Object.entries(ASYNC_FUNCTIONS))(
+    '%s should settle as its synchronous variant returns or throws',
+    async (_name, { fn, sync, parameters }) => {
+      const args = parameters.map((parameter) => VALUES[parameter].valid);
+      let expected: unknown;
+      try {
+        expected = callUnchecked(sync, args);
+      } catch (error) {
+        await expect(callAsync(fn, args)).rejects.toThrow(
+          expect.objectContaining(codeAndMessage(error)),
+        );
+        return;
+      }
+      await expect(callAsync(fn, args)).resolves.toEqual(expected);
+    },
+  );
+});

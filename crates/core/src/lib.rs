@@ -11,6 +11,7 @@ mod gzip;
 mod gzip_stream;
 mod lz4;
 mod lz4_stream;
+mod task;
 mod zstd;
 mod zstd_stream;
 
