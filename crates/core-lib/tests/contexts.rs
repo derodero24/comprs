@@ -9,6 +9,10 @@ use comprs_core::{
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
 
+/// Workers for the zstd contexts that take them. Builds without the zstdmt
+/// feature accept only 0.
+const ZSTD_WORKERS: u32 = if cfg!(feature = "zstdmt") { 2 } else { 0 };
+
 /// A one-shot function of the same format, for comparison.
 type OneShot = fn(&[u8]) -> Result<Vec<u8>, ComprsError>;
 
@@ -74,6 +78,35 @@ const CODECS: &[Codec] = &[
         compressor: || boxed(zstd_stream::CompressDictContext::new(DICT, None)),
         decompressor: |limit| boxed(zstd_stream::DecompressDictContext::new(DICT, limit)),
         compress: |data| zstd::compress_with_dict(data, DICT, None),
+        decompress: |data| zstd::decompress_with_dict(data, DICT),
+        flush_emits_input: true,
+    },
+    Codec {
+        // The context uses the workers however short the stream, the
+        // one-shot function for inputs above 512 KiB.
+        name: "zstd workers",
+        compressor: || {
+            boxed(zstd_stream::CompressContext::with_workers(
+                None,
+                ZSTD_WORKERS,
+            ))
+        },
+        decompressor: |limit| boxed(zstd_stream::DecompressContext::new(limit)),
+        compress: |data| zstd::compress_with_workers(data, None, ZSTD_WORKERS),
+        decompress: zstd::decompress,
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "zstd dict workers",
+        compressor: || {
+            boxed(zstd_stream::CompressDictContext::with_workers(
+                DICT,
+                None,
+                ZSTD_WORKERS,
+            ))
+        },
+        decompressor: |limit| boxed(zstd_stream::DecompressDictContext::new(DICT, limit)),
+        compress: |data| zstd::compress_with_dict_and_workers(data, DICT, None, ZSTD_WORKERS),
         decompress: |data| zstd::decompress_with_dict(data, DICT),
         flush_emits_input: true,
     },
