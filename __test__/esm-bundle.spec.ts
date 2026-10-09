@@ -16,6 +16,10 @@ const require = createRequire(__filename);
 // comprs.<platform>.node, in the package directory or a platform package.
 // require.cache can hold other native modules, such as the test runner's.
 const NATIVE_ADDON = /[\\/]comprs\.[^\\/]+\.node$/;
+// How long the bundle may run. Vitest fails a test that outlasts its own
+// timeout (5 s by default) even while it waits in execFileSync, so the test
+// gets twice this, which also leaves room for esbuild.
+const PROCESS_TIMEOUT = 30_000;
 
 const workDir = mkdtempSync(join(tmpdir(), 'comprs-esm-bundle-'));
 afterAll(() => {
@@ -32,7 +36,7 @@ function nativeAddonPath(): string {
   return addon;
 }
 
-describe('ES module entry bundled for Node.js', () => {
+describe('ES module entry bundled for Node.js', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   it('exports what the CommonJS entry and the stream helpers export', async () => {
     const outfile = join(workDir, 'bundle.mjs');
     await build({
@@ -71,7 +75,7 @@ describe('ES module entry bundled for Node.js', () => {
       cwd: workDir,
       encoding: 'utf8',
       env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: nativeAddonPath() },
-      timeout: 30_000,
+      timeout: PROCESS_TIMEOUT,
     });
     const expectedKeys = new Set([
       ...Object.keys(require('@derodero24/comprs')),
