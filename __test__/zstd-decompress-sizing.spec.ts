@@ -49,6 +49,11 @@ function skippableFrame(payload: Buffer): Buffer {
   return Buffer.concat([header, payload]);
 }
 
+// How long runIsolated() lets the process run. Vitest fails a test that
+// outlasts its own timeout (5 s by default) even while it waits in
+// spawnSync, so the tests that call it get twice this.
+const PROCESS_TIMEOUT = 60_000;
+
 /**
  * Run `script` in a separate Node.js process, with `comprs` bound to the
  * native addon, and return the JSON it prints. Calls that used to abort the
@@ -58,7 +63,7 @@ function runIsolated(script: string): unknown {
   const addon = JSON.stringify(resolve(__dirname, '../index.js'));
   const child = spawnSync(process.execPath, ['-e', `const comprs = require(${addon});${script}`], {
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: PROCESS_TIMEOUT,
   });
   expect(child.stderr).toBe('');
   expect(child.status).toBe(0);
@@ -203,7 +208,7 @@ describe('zstd one-shot decompression limits', () => {
   });
 });
 
-describe('huge capacities', () => {
+describe('huge capacities', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   it('should not be allocated up front', () => {
     const results = runIsolated(`
       const hello = Buffer.from('hello');
@@ -240,7 +245,7 @@ describe('zstdTrainDictionary maxDictSize', () => {
     await expect(zstdTrainDictionaryAsync(samples, 2 ** 24 + 1)).rejects.toThrow(message);
   });
 
-  it('should reject a huge value without allocating it', () => {
+  it('should reject a huge value without allocating it', { timeout: 2 * PROCESS_TIMEOUT }, () => {
     const results = runIsolated(`
       const samples = Array.from({ length: 100 }, (_, i) => Buffer.from('sample ' + i));
       const messages = [comprs.zstdTrainDictionary, comprs.zstdTrainDictionaryAsync].map(

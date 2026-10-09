@@ -15,6 +15,10 @@ const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
 const BROWSER_MODULES = ['index.js', 'streams.js', 'comprs-wasm.js'].map((file) =>
   resolve(ROOT, 'browser', file),
 );
+// How long each Node.js process may run. Vitest fails a test that outlasts
+// its own timeout (5 s by default) even while it waits in spawnSync, so the
+// tests get twice this.
+const PROCESS_TIMEOUT = 30_000;
 
 /**
  * Run an ES module in Node with the `browser` condition, which bundlers set
@@ -28,7 +32,7 @@ function runWithBrowserCondition(source: string, preload?: string) {
   return spawnSync(
     process.execPath,
     ['--conditions=browser', ...preloadArgs, '--input-type=module', '--eval', source],
-    { cwd: ROOT, encoding: 'utf8', timeout: 30_000 },
+    { cwd: ROOT, encoding: 'utf8', timeout: PROCESS_TIMEOUT },
   );
 }
 
@@ -93,7 +97,7 @@ function declaredExports(file: string) {
   ).sort();
 }
 
-describe('browser entry', () => {
+describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   // The entry uses top-level await, so it can only be imported. require()
   // keeps resolving to the native addon, as in 2.0.x, for test runners that
   // set the browser condition for CommonJS, such as Jest with jsdom. So does
