@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { deflateRawSync as nodeDeflate, inflateRawSync as nodeInflate } from 'node:zlib';
 import { deflateSync, inflateSync } from 'fflate';
 import * as pako from 'pako';
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 import { deflateCompress, deflateDecompress } from '../index.js';
+import { BENCH_OPTIONS } from './bench-fixtures.js';
 
 // --- Patterned data (compressible) ---
 const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
@@ -52,186 +53,222 @@ const RANDOM_LARGE_NODE = nodeDeflate(RANDOM_LARGE);
 // Compression benchmarks
 // =====================================================
 
-describe('deflate compress - 150B patterned', () => {
-  bench('comprs', () => {
-    deflateCompress(SMALL);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(SMALL);
-  });
-  bench('fflate', () => {
-    deflateSync(SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(SMALL);
-  });
+test('deflate compress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(SMALL);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(SMALL);
+    }),
+    bench('fflate', () => {
+      deflateSync(SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate compress - 10KB patterned', () => {
-  bench('comprs', () => {
-    deflateCompress(MEDIUM);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(MEDIUM);
-  });
-  bench('fflate', () => {
-    deflateSync(MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(MEDIUM);
-  });
+test('deflate compress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(MEDIUM);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(MEDIUM);
+    }),
+    bench('fflate', () => {
+      deflateSync(MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate compress - 1MB patterned', () => {
-  bench('comprs', () => {
-    deflateCompress(LARGE);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(LARGE);
-  });
-  bench('fflate', () => {
-    deflateSync(LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(LARGE);
-  });
+test('deflate compress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(LARGE);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(LARGE);
+    }),
+    bench('fflate', () => {
+      deflateSync(LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate compress - 150B random', () => {
-  bench('comprs', () => {
-    deflateCompress(RANDOM_SMALL);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(RANDOM_SMALL);
-  });
-  bench('fflate', () => {
-    deflateSync(RANDOM_SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(RANDOM_SMALL);
-  });
+test('deflate compress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(RANDOM_SMALL);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(RANDOM_SMALL);
+    }),
+    bench('fflate', () => {
+      deflateSync(RANDOM_SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(RANDOM_SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate compress - 10KB random', () => {
-  bench('comprs', () => {
-    deflateCompress(RANDOM_MEDIUM);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(RANDOM_MEDIUM);
-  });
-  bench('fflate', () => {
-    deflateSync(RANDOM_MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(RANDOM_MEDIUM);
-  });
+test('deflate compress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(RANDOM_MEDIUM);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(RANDOM_MEDIUM);
+    }),
+    bench('fflate', () => {
+      deflateSync(RANDOM_MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(RANDOM_MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate compress - 1MB random', () => {
-  bench('comprs', () => {
-    deflateCompress(RANDOM_LARGE);
-  });
-  bench('pako', () => {
-    pako.deflateRaw(RANDOM_LARGE);
-  });
-  bench('fflate', () => {
-    deflateSync(RANDOM_LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeDeflate(RANDOM_LARGE);
-  });
+test('deflate compress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateCompress(RANDOM_LARGE);
+    }),
+    bench('pako', () => {
+      pako.deflateRaw(RANDOM_LARGE);
+    }),
+    bench('fflate', () => {
+      deflateSync(RANDOM_LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeDeflate(RANDOM_LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
 // =====================================================
 // Decompression benchmarks
 // =====================================================
 
-describe('deflate decompress - 150B patterned', () => {
-  bench('comprs', () => {
-    deflateDecompress(SMALL_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(SMALL_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(SMALL_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(SMALL_NODE);
-  });
+test('deflate decompress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(SMALL_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(SMALL_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(SMALL_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate decompress - 10KB patterned', () => {
-  bench('comprs', () => {
-    deflateDecompress(MEDIUM_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(MEDIUM_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(MEDIUM_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(MEDIUM_NODE);
-  });
+test('deflate decompress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(MEDIUM_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(MEDIUM_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(MEDIUM_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate decompress - 1MB patterned', () => {
-  bench('comprs', () => {
-    deflateDecompress(LARGE_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(LARGE_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(LARGE_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(LARGE_NODE);
-  });
+test('deflate decompress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(LARGE_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(LARGE_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(LARGE_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate decompress - 150B random', () => {
-  bench('comprs', () => {
-    deflateDecompress(RANDOM_SMALL_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(RANDOM_SMALL_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(RANDOM_SMALL_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(RANDOM_SMALL_NODE);
-  });
+test('deflate decompress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(RANDOM_SMALL_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(RANDOM_SMALL_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(RANDOM_SMALL_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(RANDOM_SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate decompress - 10KB random', () => {
-  bench('comprs', () => {
-    deflateDecompress(RANDOM_MEDIUM_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(RANDOM_MEDIUM_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(RANDOM_MEDIUM_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(RANDOM_MEDIUM_NODE);
-  });
+test('deflate decompress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(RANDOM_MEDIUM_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(RANDOM_MEDIUM_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(RANDOM_MEDIUM_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(RANDOM_MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('deflate decompress - 1MB random', () => {
-  bench('comprs', () => {
-    deflateDecompress(RANDOM_LARGE_COMPRS);
-  });
-  bench('pako', () => {
-    pako.inflateRaw(RANDOM_LARGE_PAKO);
-  });
-  bench('fflate', () => {
-    inflateSync(RANDOM_LARGE_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeInflate(RANDOM_LARGE_NODE);
-  });
+test('deflate decompress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      deflateDecompress(RANDOM_LARGE_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.inflateRaw(RANDOM_LARGE_PAKO);
+    }),
+    bench('fflate', () => {
+      inflateSync(RANDOM_LARGE_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeInflate(RANDOM_LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });

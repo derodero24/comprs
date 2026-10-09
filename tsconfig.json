@@ -21,11 +21,5 @@
     "types": ["node"]
   },
   "include": ["__test__/**/*.ts", "*.ts"],
-  "exclude": [
-    "node_modules",
-    "__test__/**/*.bench.ts",
-    "vitest.config.mts",
-    "e2e",
-    "__test__/consumer-types"
-  ]
+  "exclude": ["node_modules", "vitest.config.mts", "e2e", "__test__/consumer-types"]
 }
