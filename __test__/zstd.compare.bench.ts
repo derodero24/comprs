@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import * as zlib from 'node:zlib';
-import { bench, describe } from 'vitest';
+import { type Bench, type BenchFn, test } from 'vitest';
 import { zstdCompress, zstdDecompress } from '../index.js';
+import { BENCH_OPTIONS } from './bench-fixtures.js';
 
 const HAS_NODE_ZSTD = typeof zlib.zstdCompressSync === 'function';
 
@@ -11,6 +12,21 @@ const nodeZstdCompress = (data: Buffer): Buffer =>
   });
 
 const nodeZstdDecompress = (data: Buffer): Buffer => zlib.zstdDecompressSync(data);
+
+// Compares comprs with node:zlib, or measures comprs alone where node:zlib
+// has no zstd (Node.js before 22.15).
+async function compareWithNodeZlib(
+  bench: Bench,
+  comprs: BenchFn,
+  nodeZlib: BenchFn,
+): Promise<void> {
+  const comprsBench = bench('comprs', comprs);
+  if (HAS_NODE_ZSTD) {
+    await bench.compare(comprsBench, bench('node:zlib', nodeZlib), BENCH_OPTIONS);
+  } else {
+    await comprsBench.run(BENCH_OPTIONS);
+  }
+}
 
 // --- Patterned data (compressible) ---
 const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
@@ -47,114 +63,150 @@ const RANDOM_LARGE_NODE = HAS_NODE_ZSTD ? nodeZstdCompress(RANDOM_LARGE) : RANDO
 // Compression benchmarks
 // =====================================================
 
-describe('zstd compress - 150B patterned', () => {
-  bench('comprs', () => {
-    zstdCompress(SMALL);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(SMALL);
-  });
+test('zstd compress - 150B patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(SMALL);
+    },
+    () => {
+      nodeZstdCompress(SMALL);
+    },
+  );
 });
 
-describe('zstd compress - 10KB patterned', () => {
-  bench('comprs', () => {
-    zstdCompress(MEDIUM);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(MEDIUM);
-  });
+test('zstd compress - 10KB patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(MEDIUM);
+    },
+    () => {
+      nodeZstdCompress(MEDIUM);
+    },
+  );
 });
 
-describe('zstd compress - 1MB patterned', () => {
-  bench('comprs', () => {
-    zstdCompress(LARGE);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(LARGE);
-  });
+test('zstd compress - 1MB patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(LARGE);
+    },
+    () => {
+      nodeZstdCompress(LARGE);
+    },
+  );
 });
 
-describe('zstd compress - 150B random', () => {
-  bench('comprs', () => {
-    zstdCompress(RANDOM_SMALL);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(RANDOM_SMALL);
-  });
+test('zstd compress - 150B random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(RANDOM_SMALL);
+    },
+    () => {
+      nodeZstdCompress(RANDOM_SMALL);
+    },
+  );
 });
 
-describe('zstd compress - 10KB random', () => {
-  bench('comprs', () => {
-    zstdCompress(RANDOM_MEDIUM);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(RANDOM_MEDIUM);
-  });
+test('zstd compress - 10KB random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(RANDOM_MEDIUM);
+    },
+    () => {
+      nodeZstdCompress(RANDOM_MEDIUM);
+    },
+  );
 });
 
-describe('zstd compress - 1MB random', () => {
-  bench('comprs', () => {
-    zstdCompress(RANDOM_LARGE);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdCompress(RANDOM_LARGE);
-  });
+test('zstd compress - 1MB random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdCompress(RANDOM_LARGE);
+    },
+    () => {
+      nodeZstdCompress(RANDOM_LARGE);
+    },
+  );
 });
 
 // =====================================================
 // Decompression benchmarks
 // =====================================================
 
-describe('zstd decompress - 150B patterned', () => {
-  bench('comprs', () => {
-    zstdDecompress(SMALL_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(SMALL_NODE);
-  });
+test('zstd decompress - 150B patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(SMALL_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(SMALL_NODE);
+    },
+  );
 });
 
-describe('zstd decompress - 10KB patterned', () => {
-  bench('comprs', () => {
-    zstdDecompress(MEDIUM_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(MEDIUM_NODE);
-  });
+test('zstd decompress - 10KB patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(MEDIUM_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(MEDIUM_NODE);
+    },
+  );
 });
 
-describe('zstd decompress - 1MB patterned', () => {
-  bench('comprs', () => {
-    zstdDecompress(LARGE_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(LARGE_NODE);
-  });
+test('zstd decompress - 1MB patterned', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(LARGE_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(LARGE_NODE);
+    },
+  );
 });
 
-describe('zstd decompress - 150B random', () => {
-  bench('comprs', () => {
-    zstdDecompress(RANDOM_SMALL_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(RANDOM_SMALL_NODE);
-  });
+test('zstd decompress - 150B random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(RANDOM_SMALL_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(RANDOM_SMALL_NODE);
+    },
+  );
 });
 
-describe('zstd decompress - 10KB random', () => {
-  bench('comprs', () => {
-    zstdDecompress(RANDOM_MEDIUM_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(RANDOM_MEDIUM_NODE);
-  });
+test('zstd decompress - 10KB random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(RANDOM_MEDIUM_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(RANDOM_MEDIUM_NODE);
+    },
+  );
 });
 
-describe('zstd decompress - 1MB random', () => {
-  bench('comprs', () => {
-    zstdDecompress(RANDOM_LARGE_COMPRS);
-  });
-  bench.skipIf(!HAS_NODE_ZSTD)('node:zlib', () => {
-    nodeZstdDecompress(RANDOM_LARGE_NODE);
-  });
+test('zstd decompress - 1MB random', async ({ bench }) => {
+  await compareWithNodeZlib(
+    bench,
+    () => {
+      zstdDecompress(RANDOM_LARGE_COMPRS);
+    },
+    () => {
+      nodeZstdDecompress(RANDOM_LARGE_NODE);
+    },
+  );
 });

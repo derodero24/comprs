@@ -3,8 +3,9 @@ import {
   brotliCompressSync as nodeBrotliCompress,
   brotliDecompressSync as nodeBrotliDecompress,
 } from 'node:zlib';
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 import { brotliCompress, brotliDecompress } from '../index.js';
+import { BENCH_OPTIONS } from './bench-fixtures.js';
 
 // --- Patterned data (compressible) ---
 const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
@@ -41,114 +42,150 @@ const RANDOM_LARGE_NODE = nodeBrotliCompress(RANDOM_LARGE);
 // Compression benchmarks
 // =====================================================
 
-describe('brotli compress - 150B patterned', () => {
-  bench('comprs', () => {
-    brotliCompress(SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(SMALL);
-  });
+test('brotli compress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli compress - 10KB patterned', () => {
-  bench('comprs', () => {
-    brotliCompress(MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(MEDIUM);
-  });
+test('brotli compress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli compress - 1MB patterned', () => {
-  bench('comprs', () => {
-    brotliCompress(LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(LARGE);
-  });
+test('brotli compress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli compress - 150B random', () => {
-  bench('comprs', () => {
-    brotliCompress(RANDOM_SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(RANDOM_SMALL);
-  });
+test('brotli compress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(RANDOM_SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(RANDOM_SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli compress - 10KB random', () => {
-  bench('comprs', () => {
-    brotliCompress(RANDOM_MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(RANDOM_MEDIUM);
-  });
+test('brotli compress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(RANDOM_MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(RANDOM_MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli compress - 1MB random', () => {
-  bench('comprs', () => {
-    brotliCompress(RANDOM_LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliCompress(RANDOM_LARGE);
-  });
+test('brotli compress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliCompress(RANDOM_LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliCompress(RANDOM_LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
 // =====================================================
 // Decompression benchmarks
 // =====================================================
 
-describe('brotli decompress - 150B patterned', () => {
-  bench('comprs', () => {
-    brotliDecompress(SMALL_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(SMALL_NODE);
-  });
+test('brotli decompress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(SMALL_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli decompress - 10KB patterned', () => {
-  bench('comprs', () => {
-    brotliDecompress(MEDIUM_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(MEDIUM_NODE);
-  });
+test('brotli decompress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(MEDIUM_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli decompress - 1MB patterned', () => {
-  bench('comprs', () => {
-    brotliDecompress(LARGE_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(LARGE_NODE);
-  });
+test('brotli decompress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(LARGE_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli decompress - 150B random', () => {
-  bench('comprs', () => {
-    brotliDecompress(RANDOM_SMALL_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(RANDOM_SMALL_NODE);
-  });
+test('brotli decompress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(RANDOM_SMALL_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(RANDOM_SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli decompress - 10KB random', () => {
-  bench('comprs', () => {
-    brotliDecompress(RANDOM_MEDIUM_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(RANDOM_MEDIUM_NODE);
-  });
+test('brotli decompress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(RANDOM_MEDIUM_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(RANDOM_MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('brotli decompress - 1MB random', () => {
-  bench('comprs', () => {
-    brotliDecompress(RANDOM_LARGE_COMPRS);
-  });
-  bench('node:zlib', () => {
-    nodeBrotliDecompress(RANDOM_LARGE_NODE);
-  });
+test('brotli decompress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      brotliDecompress(RANDOM_LARGE_COMPRS);
+    }),
+    bench('node:zlib', () => {
+      nodeBrotliDecompress(RANDOM_LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });

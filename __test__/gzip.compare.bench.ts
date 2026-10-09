@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { gunzipSync as nodeGunzip, gzipSync as nodeGzip } from 'node:zlib';
 import { decompressSync, gzipSync } from 'fflate';
 import * as pako from 'pako';
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 import { gzipCompress, gzipDecompress } from '../index.js';
+import { BENCH_OPTIONS } from './bench-fixtures.js';
 
 // --- Patterned data (compressible) ---
 const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
@@ -52,186 +53,222 @@ const RANDOM_LARGE_NODE = nodeGzip(RANDOM_LARGE);
 // Compression benchmarks
 // =====================================================
 
-describe('gzip compress - 150B patterned', () => {
-  bench('comprs', () => {
-    gzipCompress(SMALL);
-  });
-  bench('pako', () => {
-    pako.gzip(SMALL);
-  });
-  bench('fflate', () => {
-    gzipSync(SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(SMALL);
-  });
+test('gzip compress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(SMALL);
+    }),
+    bench('pako', () => {
+      pako.gzip(SMALL);
+    }),
+    bench('fflate', () => {
+      gzipSync(SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip compress - 10KB patterned', () => {
-  bench('comprs', () => {
-    gzipCompress(MEDIUM);
-  });
-  bench('pako', () => {
-    pako.gzip(MEDIUM);
-  });
-  bench('fflate', () => {
-    gzipSync(MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(MEDIUM);
-  });
+test('gzip compress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(MEDIUM);
+    }),
+    bench('pako', () => {
+      pako.gzip(MEDIUM);
+    }),
+    bench('fflate', () => {
+      gzipSync(MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip compress - 1MB patterned', () => {
-  bench('comprs', () => {
-    gzipCompress(LARGE);
-  });
-  bench('pako', () => {
-    pako.gzip(LARGE);
-  });
-  bench('fflate', () => {
-    gzipSync(LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(LARGE);
-  });
+test('gzip compress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(LARGE);
+    }),
+    bench('pako', () => {
+      pako.gzip(LARGE);
+    }),
+    bench('fflate', () => {
+      gzipSync(LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip compress - 150B random', () => {
-  bench('comprs', () => {
-    gzipCompress(RANDOM_SMALL);
-  });
-  bench('pako', () => {
-    pako.gzip(RANDOM_SMALL);
-  });
-  bench('fflate', () => {
-    gzipSync(RANDOM_SMALL);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(RANDOM_SMALL);
-  });
+test('gzip compress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(RANDOM_SMALL);
+    }),
+    bench('pako', () => {
+      pako.gzip(RANDOM_SMALL);
+    }),
+    bench('fflate', () => {
+      gzipSync(RANDOM_SMALL);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(RANDOM_SMALL);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip compress - 10KB random', () => {
-  bench('comprs', () => {
-    gzipCompress(RANDOM_MEDIUM);
-  });
-  bench('pako', () => {
-    pako.gzip(RANDOM_MEDIUM);
-  });
-  bench('fflate', () => {
-    gzipSync(RANDOM_MEDIUM);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(RANDOM_MEDIUM);
-  });
+test('gzip compress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(RANDOM_MEDIUM);
+    }),
+    bench('pako', () => {
+      pako.gzip(RANDOM_MEDIUM);
+    }),
+    bench('fflate', () => {
+      gzipSync(RANDOM_MEDIUM);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(RANDOM_MEDIUM);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip compress - 1MB random', () => {
-  bench('comprs', () => {
-    gzipCompress(RANDOM_LARGE);
-  });
-  bench('pako', () => {
-    pako.gzip(RANDOM_LARGE);
-  });
-  bench('fflate', () => {
-    gzipSync(RANDOM_LARGE);
-  });
-  bench('node:zlib', () => {
-    nodeGzip(RANDOM_LARGE);
-  });
+test('gzip compress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipCompress(RANDOM_LARGE);
+    }),
+    bench('pako', () => {
+      pako.gzip(RANDOM_LARGE);
+    }),
+    bench('fflate', () => {
+      gzipSync(RANDOM_LARGE);
+    }),
+    bench('node:zlib', () => {
+      nodeGzip(RANDOM_LARGE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
 // =====================================================
 // Decompression benchmarks
 // =====================================================
 
-describe('gzip decompress - 150B patterned', () => {
-  bench('comprs', () => {
-    gzipDecompress(SMALL_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(SMALL_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(SMALL_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(SMALL_NODE);
-  });
+test('gzip decompress - 150B patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(SMALL_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(SMALL_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(SMALL_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip decompress - 10KB patterned', () => {
-  bench('comprs', () => {
-    gzipDecompress(MEDIUM_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(MEDIUM_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(MEDIUM_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(MEDIUM_NODE);
-  });
+test('gzip decompress - 10KB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(MEDIUM_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(MEDIUM_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(MEDIUM_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip decompress - 1MB patterned', () => {
-  bench('comprs', () => {
-    gzipDecompress(LARGE_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(LARGE_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(LARGE_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(LARGE_NODE);
-  });
+test('gzip decompress - 1MB patterned', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(LARGE_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(LARGE_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(LARGE_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip decompress - 150B random', () => {
-  bench('comprs', () => {
-    gzipDecompress(RANDOM_SMALL_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(RANDOM_SMALL_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(RANDOM_SMALL_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(RANDOM_SMALL_NODE);
-  });
+test('gzip decompress - 150B random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(RANDOM_SMALL_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(RANDOM_SMALL_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(RANDOM_SMALL_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(RANDOM_SMALL_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip decompress - 10KB random', () => {
-  bench('comprs', () => {
-    gzipDecompress(RANDOM_MEDIUM_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(RANDOM_MEDIUM_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(RANDOM_MEDIUM_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(RANDOM_MEDIUM_NODE);
-  });
+test('gzip decompress - 10KB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(RANDOM_MEDIUM_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(RANDOM_MEDIUM_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(RANDOM_MEDIUM_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(RANDOM_MEDIUM_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });
 
-describe('gzip decompress - 1MB random', () => {
-  bench('comprs', () => {
-    gzipDecompress(RANDOM_LARGE_COMPRS);
-  });
-  bench('pako', () => {
-    pako.ungzip(RANDOM_LARGE_PAKO);
-  });
-  bench('fflate', () => {
-    decompressSync(RANDOM_LARGE_FFLATE);
-  });
-  bench('node:zlib', () => {
-    nodeGunzip(RANDOM_LARGE_NODE);
-  });
+test('gzip decompress - 1MB random', async ({ bench }) => {
+  await bench.compare(
+    bench('comprs', () => {
+      gzipDecompress(RANDOM_LARGE_COMPRS);
+    }),
+    bench('pako', () => {
+      pako.ungzip(RANDOM_LARGE_PAKO);
+    }),
+    bench('fflate', () => {
+      decompressSync(RANDOM_LARGE_FFLATE);
+    }),
+    bench('node:zlib', () => {
+      nodeGunzip(RANDOM_LARGE_NODE);
+    }),
+    BENCH_OPTIONS,
+  );
 });

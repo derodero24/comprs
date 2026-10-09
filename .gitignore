@@ -32,6 +32,9 @@ Thumbs.db
 coverage/
 *.lcov
 
+# Vitest reports and attachments
+.vitest/
+
 # IDE
 .idea/
 .vscode/
