@@ -19,6 +19,27 @@ pub const LEVEL: IntArg<i32> = IntArg {
     max: 22,
 };
 
+/// The number of worker threads that compress zstd data: 0 compresses on the
+/// calling thread, and 1 to 256 on that many threads, which zstd starts in
+/// addition to it.
+///
+/// 256 is `ZSTDMT_NBWORKERS_MAX` on 64-bit targets (zstd 1.5.7,
+/// `zstdmt_compress.h`), which all native builds are; zstd caps the number
+/// at 64 on 32-bit targets. Builds without the `zstdmt` feature, such as the
+/// WebAssembly build, accept only 0.
+pub const WORKERS: IntArg<u32> = IntArg {
+    name: "zstd workers",
+    min: 0,
+    max: 256,
+};
+
+/// Largest input, in bytes, that zstd compresses in one call on the calling
+/// thread whatever the number of workers (512 KiB): with the input's size
+/// known, `ZSTD_CCtx_init_compressStream2` sets the number of workers to 0
+/// if the size is at most `ZSTDMT_JOBSIZE_MIN` (zstd 1.5.7,
+/// `zstd_compress.c` and `zstdmt_compress.h`).
+const MAX_SINGLE_THREADED_INPUT: usize = 512 * 1024;
+
 /// Default maximum dictionary size (110 KB, zstd default).
 pub const DEFAULT_MAX_DICT_SIZE: usize = 110 * 1024;
 
@@ -48,24 +69,50 @@ const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 /// context is reused across the calls on a thread; see [`with_cctx`].
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
     let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-    let compress_error = |code| ComprsError::Operation {
-        context: "zstd compress",
-        source: zstd_error(code),
-    };
 
     with_cctx(|cctx| {
         cctx.set_parameter(CParameter::CompressionLevel(level))
-            .map_err(compress_error)?;
-        let mut output = Vec::new();
-        output
-            .try_reserve_exact(zstd_safe::compress_bound(data.len()))
-            .map_err(|e| ComprsError::Operation {
+            .map_err(|code| ComprsError::Operation {
                 context: "zstd compress",
-                source: e.into(),
+                source: zstd_error(code),
             })?;
-        cctx.compress2(&mut output, data).map_err(compress_error)?;
-        Ok(crate::finish_output(output))
+        compress_all(cctx, data, "zstd compress")
     })
+}
+
+/// Compress data using Zstandard on `workers` threads.
+///
+/// 0 workers is [`compress`], and so is an input of up to 512 KiB, which
+/// zstd compresses on the calling thread without starting any threads:
+/// both give the output of [`compress`] and reuse the thread's context.
+/// With 1 or more workers and a larger input, zstd starts that many threads
+/// for the call and splits the input into jobs, which the threads compress
+/// in parallel; the threads stop before the call returns. zstd sizes the
+/// jobs from the window of the level: four times the window and at least
+/// 1 MiB, which makes 2 MiB at level 1 and 8 MiB at level 3. Only an input
+/// that spans several jobs compresses faster. The output is the same for
+/// any number of workers from 1 up, but can differ from that of
+/// [`compress`].
+///
+/// Workers cost memory: zstd buffers the input of `workers + 3` jobs, which
+/// makes 56 MiB for 4 workers at level 3, and gives each worker a context
+/// of its own.
+///
+/// `workers` must be within [`WORKERS`]. Builds without the `zstdmt`
+/// feature accept only 0, and report any other number as
+/// [`ComprsError::InvalidArg`].
+pub fn compress_with_workers(
+    data: &[u8],
+    level: Option<i32>,
+    workers: u32,
+) -> Result<Vec<u8>, ComprsError> {
+    // zstd would compress a short input on this thread anyway, with the
+    // output of `compress`, which reuses the thread's context instead of
+    // creating one.
+    if check_workers(workers)? == 0 || data.len() <= MAX_SINGLE_THREADED_INPUT {
+        return compress(data, level);
+    }
+    compress_on_workers(data, &[], level, workers, "zstd compress")
 }
 
 /// Decompress Zstandard-compressed data.
@@ -117,6 +164,82 @@ pub fn compress_with_dict(
             context: "zstd compress with dict",
             source: e.into(),
         })
+}
+
+/// Compress data using Zstandard with a pre-trained dictionary on `workers`
+/// threads.
+///
+/// 0 workers is [`compress_with_dict`], with the same output. Otherwise
+/// `workers` works as in [`compress_with_workers`]; only the first job
+/// refers to the dictionary.
+pub fn compress_with_dict_and_workers(
+    data: &[u8],
+    dict: &[u8],
+    level: Option<i32>,
+    workers: u32,
+) -> Result<Vec<u8>, ComprsError> {
+    if check_workers(workers)? == 0 {
+        return compress_with_dict(data, dict, level);
+    }
+    compress_on_workers(data, dict, level, workers, "zstd compress with dict")
+}
+
+/// Check `workers` against [`WORKERS`] and the build: without the `zstdmt`
+/// feature, only 0 is accepted.
+pub(crate) fn check_workers(workers: u32) -> Result<u32, ComprsError> {
+    let workers = WORKERS.check(workers)?;
+    if workers > 0 && !cfg!(feature = "zstdmt") {
+        return Err(ComprsError::InvalidArg(
+            "zstd workers are not supported in this build".to_string(),
+        ));
+    }
+    Ok(workers)
+}
+
+/// Compress `data` with `dict` (empty for none) on `workers` threads, for
+/// [`compress_with_workers`] and [`compress_with_dict_and_workers`].
+///
+/// The context is created for the call and never cached: a cached context
+/// would keep the pool of worker threads alive on every thread that used
+/// it.
+fn compress_on_workers(
+    data: &[u8],
+    dict: &[u8],
+    level: Option<i32>,
+    workers: u32,
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
+    let mut cctx = crate::zstd_stream::encoder(level, workers, dict).map_err(|code| {
+        ComprsError::Operation {
+            context: "zstd compressor init",
+            source: zstd_error(code),
+        }
+    })?;
+    compress_all(&mut cctx, data, context)
+}
+
+/// Compress `data` into one frame with the parameters of `cctx`. The output
+/// buffer has room for `compress_bound` bytes, which the frame never
+/// exceeds, with workers too.
+fn compress_all(
+    cctx: &mut CCtx<'_>,
+    data: &[u8],
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(zstd_safe::compress_bound(data.len()))
+        .map_err(|e| ComprsError::Operation {
+            context,
+            source: e.into(),
+        })?;
+    cctx.compress2(&mut output, data)
+        .map_err(|code| ComprsError::Operation {
+            context,
+            source: zstd_error(code),
+        })?;
+    Ok(crate::finish_output(output))
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
@@ -746,6 +869,161 @@ mod tests {
             decompress(&input),
             Err(ComprsError::Corrupt { .. })
         ));
+    }
+
+    /// Input that zstd compresses in four jobs at level 1, whose jobs hold
+    /// 2 MiB.
+    #[cfg(feature = "zstdmt")]
+    const WORKER_INPUT_LEN: usize = 8 * 1024 * 1024;
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_with_workers_round_trips() {
+        compress(b"small", None).unwrap();
+        let cached = cached_cctx_size().unwrap();
+
+        let data = json_lines(WORKER_INPUT_LEN);
+        let mut frames = Vec::new();
+        for workers in [1, 2, 4] {
+            let frame = compress_with_workers(&data, Some(1), workers).unwrap();
+            assert_eq!(
+                zstd_safe::get_frame_content_size(&frame).ok().flatten(),
+                Some(data.len() as u64),
+                "{workers} workers"
+            );
+            assert!(decompress(&frame).unwrap() == data, "{workers} workers");
+            frames.push(frame);
+        }
+        // The calls neither took the context that the thread caches nor
+        // cached theirs.
+        assert_eq!(cached_cctx_size(), Some(cached));
+        // zstd's output does not depend on the number of workers from 1 up.
+        assert!(frames[0] == frames[1] && frames[0] == frames[2]);
+        // The workers compress the jobs independently, so the frame differs
+        // from the one that the calling thread compresses alone.
+        assert!(frames[0] != compress(&data, Some(1)).unwrap());
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_with_dict_and_workers_round_trips() {
+        let data = json_lines(WORKER_INPUT_LEN);
+        // The first job refers to the dictionary, so the frame does not
+        // decode without it.
+        let dict = &data[..64 * 1024];
+        let frame = compress_with_dict_and_workers(&data, dict, Some(1), 2).unwrap();
+        assert_eq!(
+            zstd_safe::get_frame_content_size(&frame).ok().flatten(),
+            Some(data.len() as u64)
+        );
+        assert!(decompress_with_dict(&frame, dict).unwrap() == data);
+        assert!(decompress(&frame).is_err());
+        assert!(frame == compress_with_dict_and_workers(&data, dict, Some(1), 4).unwrap());
+        assert!(frame != compress_with_dict(&data, dict, Some(1)).unwrap());
+    }
+
+    /// Pseudo-random bytes, which zstd stores in raw blocks.
+    #[cfg(feature = "zstdmt")]
+    fn random(len: usize) -> Vec<u8> {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 32) as u8
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_with_workers_fits_incompressible_data_in_the_bound() {
+        // Each job adds its own block headers, and the jobs together still
+        // fit in the buffer that compress_bound sizes for the whole input.
+        let data = random(4 * 1024 * 1024);
+        let frame = compress_with_workers(&data, Some(1), 2).unwrap();
+        assert!(frame.len() <= zstd_safe::compress_bound(data.len()));
+        assert!(decompress(&frame).unwrap() == data);
+    }
+
+    /// Compress `data` with `workers` after a short input, and check that the
+    /// call took the thread's cached context, whose workspace grows for
+    /// `data`, and gave the output of [`compress`].
+    fn assert_compresses_with_the_cached_context(data: &[u8], workers: u32) {
+        CCTX.take();
+        compress(b"small", Some(1)).unwrap();
+        let small = cached_cctx_size().unwrap();
+        let frame = compress_with_workers(data, Some(1), workers).unwrap();
+        assert!(cached_cctx_size().unwrap() > small, "{workers} workers");
+        assert!(
+            frame == compress(data, Some(1)).unwrap(),
+            "{workers} workers"
+        );
+    }
+
+    #[test]
+    fn compress_with_no_workers_uses_the_cached_context() {
+        // Longer than an input that zstd compresses on the calling thread
+        // whatever the number of workers.
+        assert_compresses_with_the_cached_context(&json_lines(MAX_SINGLE_THREADED_INPUT + 1), 0);
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_with_workers_compresses_short_input_with_the_cached_context() {
+        // zstd compresses this input on the calling thread, so a new context
+        // for the workers would only cost its creation.
+        assert_compresses_with_the_cached_context(&json_lines(MAX_SINGLE_THREADED_INPUT), 2);
+    }
+
+    #[test]
+    fn compress_with_workers_validates_its_arguments() {
+        for result in [
+            compress_with_workers(b"data", None, 257),
+            compress_with_dict_and_workers(b"data", DICT, None, 257),
+            compress_with_workers(b"data", None, u32::MAX),
+            // The workers are checked before the level.
+            compress_with_workers(b"data", Some(23), 257),
+            compress_with_dict_and_workers(b"data", DICT, Some(23), 257),
+        ] {
+            let err = result.unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd workers must be an integer between 0 and 256"
+            );
+        }
+        for workers in [0, 2] {
+            let err = compress_with_workers(b"data", Some(23), workers).unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+            let err = compress_with_dict_and_workers(b"data", DICT, Some(23), workers).unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+        }
+        // zstd accepts the whole range. compress_with_dict_and_workers sets
+        // it on a new context even for input this small, which zstd
+        // compresses on the calling thread, so no threads are started.
+        #[cfg(feature = "zstdmt")]
+        for workers in [1, 256] {
+            let frame = compress_with_dict_and_workers(b"data", DICT, None, workers).unwrap();
+            assert_eq!(decompress_with_dict(&frame, DICT).unwrap(), b"data");
+        }
+    }
+
+    #[cfg(not(feature = "zstdmt"))]
+    #[test]
+    fn compress_with_workers_needs_the_zstdmt_feature() {
+        for result in [
+            compress_with_workers(b"data", None, 1),
+            compress_with_dict_and_workers(b"data", DICT, None, 1),
+        ] {
+            let err = result.unwrap_err();
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd workers are not supported in this build"
+            );
+        }
     }
 
     #[test]

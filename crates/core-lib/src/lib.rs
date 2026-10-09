@@ -170,6 +170,10 @@ mod tests {
 
     const DICT: &[u8] = b"a dictionary of the kind that the dictionary functions take";
 
+    /// Workers for the zstd functions that take them. Builds without the
+    /// zstdmt feature accept only 0.
+    const ZSTD_WORKERS: u32 = if cfg!(feature = "zstdmt") { 2 } else { 0 };
+
     /// Every one-shot encoder, each with every one-shot decoder of its
     /// output.
     const CODECS: &[(&str, OneShot, &[Named])] = &[
@@ -210,6 +214,29 @@ mod tests {
         (
             "zstd::compress_with_dict",
             |data, _| zstd::compress_with_dict(data, DICT, None),
+            &[
+                ("zstd::decompress_with_dict", |data, _| {
+                    zstd::decompress_with_dict(data, DICT)
+                }),
+                ("zstd::decompress_with_dict_with_capacity", |data, limit| {
+                    zstd::decompress_with_dict_with_capacity(data, DICT, limit)
+                }),
+            ],
+        ),
+        (
+            "zstd::compress_with_workers",
+            |data, _| zstd::compress_with_workers(data, None, ZSTD_WORKERS),
+            &[
+                ("zstd::decompress", |data, _| zstd::decompress(data)),
+                (
+                    "zstd::decompress_with_capacity",
+                    zstd::decompress_with_capacity,
+                ),
+            ],
+        ),
+        (
+            "zstd::compress_with_dict_and_workers",
+            |data, _| zstd::compress_with_dict_and_workers(data, DICT, None, ZSTD_WORKERS),
             &[
                 ("zstd::decompress_with_dict", |data, _| {
                     zstd::decompress_with_dict(data, DICT)

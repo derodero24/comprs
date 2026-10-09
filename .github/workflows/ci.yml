@@ -281,6 +281,11 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo test
+      # The workspace run builds comprs-core with the zstdmt feature, which
+      # crates/core and crates/bench enable for the whole build. Alone,
+      # comprs-core builds without it, as the WebAssembly build does: this
+      # run tests that such builds reject zstd workers.
+      - run: cargo test -p comprs-core
 
   # Checks the workspace with the oldest Rust it supports, the rust-version in
   # Cargo.toml; the other jobs use the latest stable. Cargo refuses a

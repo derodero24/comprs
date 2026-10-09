@@ -37,20 +37,42 @@ pub(crate) fn decode_error(code: zstd_safe::ErrorCode, context: &'static str) ->
     }
 }
 
-/// Create a compression context for `level` and `dict` (empty for none).
+/// Create a compression context for `level`, `workers` and `dict` (empty for
+/// none), which the caller has checked: zstd clamps levels and numbers of
+/// workers out of range instead of failing.
 ///
 /// The contexts use `zstd_safe` directly rather than `zstd::stream::raw`,
 /// whose encoder and decoder do not expose the context's memory usage.
-fn encoder(level: i32, dict: &[u8], context: &'static str) -> Result<CCtx<'static>, ComprsError> {
+pub(crate) fn encoder(
+    level: i32,
+    workers: u32,
+    dict: &[u8],
+) -> Result<CCtx<'static>, zstd_safe::ErrorCode> {
     let mut encoder = CCtx::create();
-    encoder
-        .set_parameter(CParameter::CompressionLevel(level))
-        .and_then(|_| encoder.load_dictionary(dict))
-        .map_err(|code| ComprsError::Creation {
-            context,
-            source: zstd_error(code),
-        })?;
+    encoder.set_parameter(CParameter::CompressionLevel(level))?;
+    if workers > 0 {
+        encoder.set_parameter(CParameter::NbWorkers(workers))?;
+    }
+    encoder.load_dictionary(dict)?;
     Ok(encoder)
+}
+
+/// Create a [`StreamEncoder`] for the arguments of
+/// [`CompressContext::with_workers`] and [`CompressDictContext::with_workers`].
+fn stream_encoder(
+    level: Option<i32>,
+    workers: u32,
+    dict: &[u8],
+    context: &'static str,
+) -> Result<StreamEncoder, ComprsError> {
+    // The workers first, as the one-shot functions check them.
+    let workers = crate::zstd::check_workers(workers)?;
+    let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
+    let encoder = encoder(level, workers, dict).map_err(|code| ComprsError::Creation {
+        context,
+        source: zstd_error(code),
+    })?;
+    Ok(StreamEncoder::new(encoder, workers))
 }
 
 /// Create a decompression context for `dict` (empty for none).
@@ -68,10 +90,30 @@ pub struct CompressContext {
 
 impl CompressContext {
     pub fn new(level: Option<i32>) -> Result<Self, ComprsError> {
-        let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-        let encoder = encoder(level, &[], "zstd encoder")?;
+        Self::with_workers(level, 0)
+    }
+
+    /// Create a context that compresses on `workers` threads, which
+    /// [`crate::zstd::compress_with_workers`] describes. 0 workers is
+    /// [`new`](Self::new).
+    ///
+    /// With workers, the first [`transform`](Self::transform) or
+    /// [`flush`](Self::flush) starts the threads and allocates their
+    /// buffers, however short the stream: unlike a one-shot call, zstd does
+    /// not know the size of the input. The threads stop when the stream
+    /// finishes or the context is dropped, which waits for the jobs in
+    /// progress. `transform` returns once zstd has taken the chunk, while
+    /// the workers may still be compressing it; `flush` and
+    /// [`finish`](Self::finish) wait for them.
+    ///
+    /// With workers, [`memory_usage`](MemoryUsage::memory_usage) reports
+    /// the memory that zstd held the last time it had no job in progress
+    /// after a call: on creation, after a `flush`, and after a `transform`
+    /// whose jobs had finished. zstd cannot measure the workers' contexts
+    /// while they compress.
+    pub fn with_workers(level: Option<i32>, workers: u32) -> Result<Self, ComprsError> {
         Ok(Self {
-            inner: StreamEncoder::new(encoder),
+            inner: stream_encoder(level, workers, &[], "zstd encoder")?,
         })
     }
 
@@ -141,10 +183,19 @@ pub struct CompressDictContext {
 
 impl CompressDictContext {
     pub fn new(dict: &[u8], level: Option<i32>) -> Result<Self, ComprsError> {
-        let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-        let encoder = encoder(level, dict, "zstd dict encoder")?;
+        Self::with_workers(dict, level, 0)
+    }
+
+    /// Create a context that compresses on `workers` threads, as
+    /// [`CompressContext::with_workers`] does. 0 workers is
+    /// [`new`](Self::new).
+    pub fn with_workers(
+        dict: &[u8],
+        level: Option<i32>,
+        workers: u32,
+    ) -> Result<Self, ComprsError> {
         Ok(Self {
-            inner: StreamEncoder::new(encoder),
+            inner: stream_encoder(level, workers, dict, "zstd dict encoder")?,
         })
     }
 
@@ -211,6 +262,18 @@ impl MemoryUsage for DecompressDictContext {
 struct StreamEncoder {
     /// `None` once the stream is finished.
     encoder: Option<CCtx<'static>>,
+    /// With workers, the size of `encoder` on creation or after the last
+    /// call that left no job in progress; `None` without workers.
+    ///
+    /// With workers, `ZSTD_sizeof_CCtx` also reads the context of every
+    /// worker, whose workspace a running job reallocates, and zstd documents
+    /// the sizes of its pools as valid only at initialization, not during
+    /// compression (zstd 1.5.7, `zstdmt_compress.c`). A job returns its
+    /// context to the pool before it reports itself complete under its
+    /// mutex, and `ZSTD_getFrameProgression` reads every job under that
+    /// mutex and counts the unfinished ones in `nbActiveWorkers`: the encoder
+    /// is measured only when that count is 0.
+    encoder_size: Option<usize>,
     /// The output of the current call. zstd writes into its spare capacity,
     /// and the buffer keeps its capacity for the next call, so a call that
     /// produces little or nothing allocates nothing beyond its exact-size
@@ -219,8 +282,10 @@ struct StreamEncoder {
 }
 
 impl StreamEncoder {
-    fn new(encoder: CCtx<'static>) -> Self {
+    fn new(encoder: CCtx<'static>, workers: u32) -> Self {
         Self {
+            // No job runs before the first call.
+            encoder_size: (workers > 0).then(|| encoder.sizeof()),
             encoder: Some(encoder),
             output_buf: Vec::new(),
         }
@@ -266,6 +331,12 @@ impl StreamEncoder {
     /// work left: input bytes to consume, or bytes that zstd still has to
     /// flush. The output buffer gets room for `initial_capacity` bytes and
     /// doubles whenever a step fills it.
+    ///
+    /// With workers, zstd compresses in the background: `compress_stream`
+    /// may return before it has taken the whole chunk, once it has taken or
+    /// written something, and `flush_stream` and `end_stream` report work
+    /// left until the workers have finished every job and zstd has written
+    /// their output. Calling `step` until no work is left covers both.
     fn run(
         &mut self,
         initial_capacity: usize,
@@ -296,13 +367,31 @@ impl StreamEncoder {
             }
         }
 
+        // With workers, measure the encoder while no job is in progress,
+        // which `flush_stream` and `end_stream` have waited for; see
+        // `encoder_size`.
+        #[cfg(feature = "zstdmt")]
+        if self.encoder_size.is_some() && encoder.get_frame_progression().nbActiveWorkers == 0 {
+            self.encoder_size = Some(encoder.sizeof());
+        }
+
         Ok(self.output_buf.to_vec())
     }
 
     /// The memory of the encoder, including the workspace that it allocates
     /// for the first data, and of the output buffer.
+    ///
+    /// With workers, the encoder also holds their buffers and contexts, and
+    /// the figure is the one measured on creation or after the last call
+    /// that left no job in progress: after a `transform` whose jobs are
+    /// still running, it reports the previous measurement, which `flush`
+    /// renews. Without workers, zstd measures the encoder on every call of
+    /// this function.
     fn memory_usage(&self) -> usize {
-        self.encoder.as_ref().map_or(0, CCtx::sizeof) + self.output_buf.capacity()
+        let encoder = self.encoder.as_ref().map_or(0, |encoder| {
+            self.encoder_size.unwrap_or_else(|| encoder.sizeof())
+        });
+        encoder + self.output_buf.capacity()
     }
 }
 
@@ -699,6 +788,208 @@ mod tests {
                     assert!(decompressed.unwrap() == data, "{case}");
                 }
             }
+        }
+    }
+
+    /// A compression context with `workers` threads, with `dict` if it is
+    /// not empty.
+    fn encoder_with_workers(level: i32, workers: u32, dict: &[u8]) -> StreamEncoder {
+        if dict.is_empty() {
+            CompressContext::with_workers(Some(level), workers)
+                .unwrap()
+                .inner
+        } else {
+            CompressDictContext::with_workers(dict, Some(level), workers)
+                .unwrap()
+                .inner
+        }
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_contexts_with_workers_round_trip() {
+        // Four jobs at level 1, whose jobs hold 2 MiB.
+        let data = words(8 * 1024 * 1024);
+        for dict in [&[][..], DICT] {
+            let frames = [1, 4].map(|workers| {
+                let mut ctx = encoder_with_workers(1, workers, dict);
+                let frame = compress_chunks(&mut ctx, &data, 64 * 1024);
+                let decompressed = if dict.is_empty() {
+                    crate::zstd::decompress(&frame)
+                } else {
+                    crate::zstd::decompress_with_dict(&frame, dict)
+                };
+                let case = format!("{workers} workers, {}-byte dictionary", dict.len());
+                assert!(decompressed.unwrap() == data, "{case}");
+                frame
+            });
+            // zstd's output does not depend on the number of workers from 1
+            // up.
+            assert!(frames[0] == frames[1], "{}-byte dictionary", dict.len());
+            // The workers compress the jobs independently, so the frame
+            // differs from the one that the calling thread compresses alone.
+            let single = compress_chunks(&mut encoder_with_workers(1, 0, dict), &data, 64 * 1024);
+            assert!(frames[0] != single, "{}-byte dictionary", dict.len());
+        }
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_context_with_workers_flushes_every_job() {
+        let data = words(6 * 1024 * 1024);
+        // More than two jobs: the workers may still be compressing the
+        // input when transform returns, and flush waits for them.
+        let (head, tail) = data.split_at(5 * 1024 * 1024 + 1);
+        let mut ctx = CompressContext::with_workers(Some(1), 2).unwrap();
+        let mut frame = ctx.transform(head).unwrap();
+        frame.extend(ctx.flush().unwrap());
+        let mut decoder = DecompressContext::new(None).unwrap();
+        assert!(decoder.transform(&frame).unwrap() == head);
+
+        let rest = [ctx.transform(tail).unwrap(), ctx.finish().unwrap()].concat();
+        assert!(decoder.transform(&rest).unwrap() == tail);
+        decoder.finish().unwrap();
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_contexts_with_workers_drop_with_jobs_in_progress() {
+        // The bindings drop a context whose stream JavaScript abandoned:
+        // freeing the encoder waits for the jobs and stops the threads.
+        let data = words(4 * 1024 * 1024 + 1);
+        for dict in [&[][..], DICT] {
+            let mut ctx = encoder_with_workers(1, 2, dict);
+            ctx.transform(&data).unwrap();
+            // Two jobs of 2 MiB have started.
+            let progression = ctx.encoder.as_ref().unwrap().get_frame_progression();
+            assert_eq!(
+                progression.currentJobID,
+                2,
+                "{}-byte dictionary",
+                dict.len()
+            );
+            drop(ctx);
+        }
+    }
+
+    /// The memory of `encoder`, measured now. With workers, only while no
+    /// job is in progress: see [`StreamEncoder::encoder_size`].
+    fn measured_now(encoder: &StreamEncoder) -> usize {
+        encoder.encoder.as_ref().map_or(0, CCtx::sizeof) + encoder.output_buf.capacity()
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_context_reports_the_workers_memory() {
+        let data = words(2 * 1024 * 1024);
+        let mut single = CompressContext::new(Some(1)).unwrap();
+        let mut multi = CompressContext::with_workers(Some(1), 2).unwrap();
+        for ctx in [&mut single, &mut multi] {
+            ctx.transform(&data).unwrap();
+            // flush waits for every job, so the figure is measured after it.
+            ctx.flush().unwrap();
+        }
+        // The workers have buffers for their jobs and contexts of their own.
+        assert!(
+            multi.memory_usage() > 2 * single.memory_usage(),
+            "{} bytes with 2 workers, {} without",
+            multi.memory_usage(),
+            single.memory_usage()
+        );
+        assert_eq!(multi.memory_usage(), measured_now(&multi.inner));
+        multi.finish().unwrap();
+        assert_eq!(multi.memory_usage(), multi.inner.output_buf.capacity());
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_context_with_workers_measures_no_job_in_progress() {
+        use std::time::{Duration, Instant};
+
+        let mut ctx = CompressContext::with_workers(Some(1), 2).unwrap();
+        let created = ctx.memory_usage();
+        assert_eq!(created, measured_now(&ctx.inner));
+
+        // Two jobs of 2 MiB, which the workers are likely still compressing
+        // when transform returns.
+        ctx.transform(&words(4 * 1024 * 1024 + 1)).unwrap();
+        let reported = ctx.memory_usage();
+        let encoder = ctx.inner.encoder.as_ref().unwrap();
+        let start = Instant::now();
+        while encoder.get_frame_progression().nbActiveWorkers > 0 {
+            assert!(
+                start.elapsed() < Duration::from_secs(60),
+                "jobs in progress"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // The finished jobs have handed their contexts back to the pool, but
+        // the figure changes only when the context calls zstd, never while
+        // the workers may be compressing.
+        assert_eq!(ctx.memory_usage(), reported);
+
+        ctx.flush().unwrap();
+        assert_eq!(ctx.memory_usage(), measured_now(&ctx.inner));
+        assert!(ctx.memory_usage() > created);
+    }
+
+    #[test]
+    fn compress_contexts_with_no_workers_measure_the_encoder_when_asked() {
+        let data = words(256 * 1024);
+        for dict in [&[][..], DICT] {
+            // Without workers, the figure is zstd's measurement at the time
+            // of the call, as before workers existed.
+            let mut ctx = encoder_with_workers(5, 0, dict);
+            assert_eq!(ctx.encoder_size, None, "{}-byte dictionary", dict.len());
+            assert_eq!(ctx.memory_usage(), measured_now(&ctx));
+            for chunk in data.chunks(64 * 1024) {
+                ctx.transform(chunk).unwrap();
+                assert_eq!(ctx.memory_usage(), measured_now(&ctx));
+            }
+            ctx.flush().unwrap();
+            assert_eq!(ctx.memory_usage(), measured_now(&ctx));
+            ctx.finish().unwrap();
+            assert_eq!(ctx.memory_usage(), ctx.output_buf.capacity());
+        }
+    }
+
+    /// The error of creating a context with `workers`, with `dict` if it is
+    /// not empty.
+    fn with_workers_error(level: Option<i32>, workers: u32, dict: &[u8]) -> ComprsError {
+        let result = if dict.is_empty() {
+            CompressContext::with_workers(level, workers).map(drop)
+        } else {
+            CompressDictContext::with_workers(dict, level, workers).map(drop)
+        };
+        result.unwrap_err()
+    }
+
+    #[test]
+    fn compress_contexts_validate_workers() {
+        for dict in [&[][..], DICT] {
+            // The workers are checked before the level, as in the one-shot
+            // functions.
+            let err = with_workers_error(Some(23), 257, dict);
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd workers must be an integer between 0 and 256"
+            );
+            let err = with_workers_error(Some(23), 0, dict);
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+        }
+    }
+
+    #[cfg(not(feature = "zstdmt"))]
+    #[test]
+    fn compress_contexts_with_workers_need_the_zstdmt_feature() {
+        for dict in [&[][..], DICT] {
+            let err = with_workers_error(None, 1, dict);
+            assert!(matches!(err, ComprsError::InvalidArg(_)), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd workers are not supported in this build"
+            );
         }
     }
 

@@ -12,7 +12,14 @@ crate-type = ["lib"]
 
 [features]
 default = []
-zstdmt = ["zstd/zstdmt"]
+# Builds libzstd with multi-threading, so that zstd can compress on worker
+# threads (zstd::WORKERS). Without it, only 0 workers are accepted.
+# zstd/experimental binds ZSTD_getFrameProgression, which tells a stream
+# with workers when no job is in progress: zstd can measure the workers'
+# memory only then. It changes no code path that comprs-core takes; in the
+# zstd crate, it only lets zstd::bulk::Decompressor bound its output by the
+# frame headers.
+zstdmt = ["zstd/zstdmt", "zstd/experimental"]
 
 [dependencies]
 brotli = { workspace = true }
