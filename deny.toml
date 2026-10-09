@@ -19,6 +19,13 @@ multiple-versions = "deny"
 # and futures-macro still use syn 2. Both are proc-macro-only crates, so the
 # duplicate does not reach the published binary. Drop once the rest catch up.
 skip = [{ name = "syn", version = "2" }]
+# web-sys pins js-sys and wasm-bindgen to exact versions, so with web-sys in
+# Cargo.lock Renovate cannot update the wasm-bindgen and js-sys of
+# crates/wasm (#640). It came in through criterion's `plotters` feature,
+# which crates/bench turns off.
+deny = [
+  { crate = "web-sys", reason = "its exact js-sys and wasm-bindgen pins block their updates (#640)" },
+]
 
 [sources]
 unknown-registry = "deny"
