@@ -218,8 +218,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Audit npm dependencies
         run: pnpm audit --prod
+      # A binary rather than EmbarkStudios/cargo-deny-action, a Docker
+      # container action that builds its image from Docker Hub on every run,
+      # where the pull limit for anonymous users can fail it (#664). The
+      # command is the one that the action ran by default.
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-deny
       - name: Audit Rust dependencies
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        run: cargo deny --log-level warn --all-features check
       - name: Install cargo-audit
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
@@ -423,11 +431,13 @@ jobs:
       # GitHub runs JavaScript actions in Alpine containers on x64 runners
       # only, so the musl legs set up on the runner and run just the tests in
       # a node:<version>-alpine container. The workspace keeps its path, so
-      # the links in node_modules resolve.
+      # the links in node_modules resolve. The image comes from Google's
+      # cache of Docker Hub's official images, which does not apply Docker
+      # Hub's pull limit for anonymous users (#664).
       - name: Run tests in Alpine Linux
         if: matrix.alpine
         env:
-          IMAGE: node:${{ matrix.node }}-alpine
+          IMAGE: mirror.gcr.io/library/node:${{ matrix.node }}-alpine
         run: >-
           docker run --rm --env CI
           --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" --workdir "$GITHUB_WORKSPACE"
