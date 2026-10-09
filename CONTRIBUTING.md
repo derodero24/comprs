@@ -82,7 +82,7 @@ cargo clippy          # Rust lint
 pnpm run build        # napi-rs build
 ```
 
-CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails when the coverage falls below the thresholds in `vitest.config.mts` and writes the report to `coverage/`. It also measures the Rust tests with `cargo llvm-cov`; both reports go to Codecov.
+CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails when the coverage falls below the thresholds in `vitest.config.mts` and writes the report to `coverage/`. It also measures the Rust tests of comprs-core with `cargo llvm-cov`, without the napi and wasm-bindgen bindings, which only the JS tests run; both reports go to Codecov.
 
 CI also tests the WebAssembly build. To run these tests locally:
 
