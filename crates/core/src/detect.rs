@@ -11,6 +11,11 @@ use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
 
 /// Compression format detected from input data.
+///
+/// Compare a result with the members, such as `CompressionFormat.Zstd`, or
+/// with their values, the strings `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` and
+/// `'unknown'`. The members of the runtime object are not enumerable
+/// (`Object.keys()` and `Object.values()` return `[]`), so use them by name.
 #[napi(string_enum)]
 pub enum CompressionFormat {
     #[napi(value = "zstd")]

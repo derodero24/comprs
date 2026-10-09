@@ -141,6 +141,8 @@ const limited = decompress(compressedData, 10 * 1024 * 1024);
 
 zstd, gzip and LZ4 are recognized by their magic numbers. Brotli has none, so it is recognized heuristically, by decoding up to the first 64 KiB of the data: a truncated brotli stream, or other data that happens to pass for brotli, makes `decompress()` throw the same error as data of unknown format. The auto-detecting streams buffer up to 64 KiB of input to detect the format. Raw deflate cannot be detected: use `deflateDecompress()` for it.
 
+`detectFormat()` returns the format, without decompressing, as a member of the `CompressionFormat` enum. Compare it with a member, such as `CompressionFormat.Zstd`, which also lets TypeScript check that a `switch` over the members handles every format, or with the member's value, one of the strings `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` and `'unknown'`. The members are not enumerable: `Object.keys(CompressionFormat)` and `Object.values(CompressionFormat)` return `[]`, so use them by name.
+
 ### Async
 
 ```typescript
@@ -264,7 +266,7 @@ The Web Streams and Node.js Transforms process each chunk synchronously on the c
 | Function | Description |
 | --- | --- |
 | `decompress(data, maxOutputSize?)` | Auto-detect format and decompress (zstd, gzip, brotli, lz4). `maxOutputSize` limits the output (default: 256 MB) |
-| `detectFormat(data)` | Detect compression format. Returns `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
+| `detectFormat(data)` | Detect compression format. Returns a `CompressionFormat`: `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'`, or `'unknown'` |
 
 #### Utilities
 
@@ -496,9 +498,9 @@ if (!response.body) throw new Error('Response has no body');
 const json = await new Response(response.body.pipeThrough(createGzipDecompressStream())).json();
 ```
 
-The WebAssembly build has the one-shot functions, their `*Async` variants and the streaming contexts (`GzipCompressContext` and the like). They take the same arguments as those of the native addon, and return the same values, except that:
+The WebAssembly build has the one-shot functions, their `*Async` variants, the streaming contexts (`GzipCompressContext` and the like) and the `CompressionFormat` enum. They take the same arguments as those of the native addon, and return the same values, except that:
 
-- functions return `Uint8Array` rather than `Buffer`, and `detectFormat()` returns a plain string;
+- functions return `Uint8Array` rather than `Buffer`;
 - the `*Async` functions do not run on another thread. Each one runs its synchronous function on the calling thread before it returns, and returns a Promise of the result: they keep code written for the native addon working, but block the page as long as the synchronous call. To keep a page responsive while it compresses large data, use comprs in a Web Worker. Every error, including an invalid argument, rejects the Promise and none is thrown, as with the native functions;
 - the streaming contexts keep their state in WebAssembly memory, which garbage collection frees, and do not report it to the engine. As on Node.js, `close()` and `[Symbol.dispose]()` release that state at once; in addition, `free()` frees the context object itself. A closed or freed context throws when it is used. The streams of `@derodero24/comprs/streams` free their context as soon as they end or fail, and when they are cancelled, where the runtime calls the `cancel()` method of their transformer;
 - a panic, which aborts the native addon, makes the WebAssembly build throw `RuntimeError: unreachable`, after it logs the panic message with `console.error()`.

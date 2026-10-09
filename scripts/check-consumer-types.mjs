@@ -5,17 +5,19 @@
  *
  * Each directory of __test__/consumer-types is a small consumer project: an
  * ES module and a CommonJS one that resolve the package like Node.js does,
- * and an ES module that resolves it like a bundler does. They type-check
- * their dependencies' declarations (`skipLibCheck: false`), which the
- * repository's own tsconfig.json skips, and they use the package by its name,
- * so that the `exports` conditions pick the declaration files.
+ * and two ES modules that resolve it like a bundler does, one of them with
+ * the `browser` condition, the DOM library and no Node.js types (#567). They
+ * type-check their dependencies' declarations (`skipLibCheck: false`),
+ * which the repository's own tsconfig.json skips, and they use the package
+ * by its name, so that the `exports` conditions pick the declaration files.
  *
  * The script packs the root package into a temporary tarball, as `npm
  * publish` would, extracts it into each project's
  * node_modules/@derodero24/comprs (gitignored) and type-checks the project
  * with TypeScript 7 and TypeScript 5.9 (the `typescript-5` devDependency).
- * @types/node resolves from the repository's node_modules. It reports every
- * failure, exits non-zero if there is any, and removes what it installed.
+ * @types/node, for the projects that use it, resolves from the repository's
+ * node_modules. It reports every failure, exits non-zero if there is any,
+ * and removes what it installed.
  *
  * Usage:
  *   node scripts/check-consumer-types.mjs

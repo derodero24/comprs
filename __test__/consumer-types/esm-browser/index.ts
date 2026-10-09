@@ -1,31 +1,30 @@
-// An ES module consumer that resolves the package like a bundler does, with
-// strict settings and its dependencies' declarations type-checked
+// An ES module consumer that resolves the package like a bundler does for
+// browsers, with the `browser` condition, which selects the declarations of
+// the WebAssembly build. It has strict settings, the DOM library and no
+// Node.js types, and its dependencies' declarations are type-checked
 // (skipLibCheck: false). scripts/check-consumer-types.mjs installs the packed
 // package next to it and runs tsc.
 import type { GzipHeader } from '@derodero24/comprs';
 import {
   CompressionFormat,
-  createGzipDecompressStream,
   detectFormat,
   GzipCompressContext,
   gzipCompress,
+  gzipCompressAsync,
   gzipReadHeader,
   zstdCompress,
-  zstdCompressAsync,
 } from '@derodero24/comprs';
-import { createZstdCompressTransform } from '@derodero24/comprs/node';
-import { createGzipCompressStream } from '@derodero24/comprs/streams';
+import { createDecompressStream, createGzipCompressStream } from '@derodero24/comprs/streams';
 
 const input = new TextEncoder().encode('hello');
 
-const gzipped: Buffer = gzipCompress(input, 6);
+const gzipped: Uint8Array = gzipCompress(input, 6);
 const header: GzipHeader = gzipReadHeader(gzipped);
 const mtime: number = header.mtime;
 const filename: string = header.filename ?? '';
 const format: CompressionFormat = detectFormat(gzipped);
-// CompressionFormat is a regular enum, so its members are values that
-// isolatedModules and verbatimModuleSyntax allow (#567); the strings still
-// compare with it.
+// The browser entry exports CompressionFormat as well, with the members of
+// the native one (#567); the strings still compare with it.
 const isZstd: boolean = detectFormat(zstdCompress(input)) === CompressionFormat.Zstd;
 const isGzip: boolean = format === 'gzip';
 
@@ -46,11 +45,9 @@ function label(detected: CompressionFormat): string {
 }
 
 const context = new GzipCompressContext();
-const chunks: Buffer[] = [context.transform(input), context.finish()];
+const chunks: Uint8Array[] = [context.transform(input), context.finish()];
 
-const zstd: Buffer = await zstdCompressAsync(input);
-const transform = createZstdCompressTransform(3);
-transform.end(input);
+const compressed: Uint8Array = await gzipCompressAsync(input);
 
 const source = new ReadableStream<Uint8Array>({
   start(controller) {
@@ -60,6 +57,6 @@ const source = new ReadableStream<Uint8Array>({
 });
 const roundTrip: ReadableStream<Uint8Array> = source
   .pipeThrough(createGzipCompressStream())
-  .pipeThrough(createGzipDecompressStream());
+  .pipeThrough(createDecompressStream());
 
-export { chunks, filename, format, isGzip, isZstd, label, mtime, roundTrip, zstd };
+export { chunks, compressed, filename, format, isGzip, isZstd, label, mtime, roundTrip };

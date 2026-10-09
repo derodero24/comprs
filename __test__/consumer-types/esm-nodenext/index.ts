@@ -2,13 +2,15 @@
 // strict settings and its dependencies' declarations type-checked
 // (skipLibCheck: false). scripts/check-consumer-types.mjs installs the packed
 // package next to it and runs tsc.
-import type { CompressionFormat, GzipHeader } from '@derodero24/comprs';
+import type { GzipHeader } from '@derodero24/comprs';
 import {
+  CompressionFormat,
   createGzipDecompressStream,
   detectFormat,
   GzipCompressContext,
   gzipCompress,
   gzipReadHeader,
+  zstdCompress,
   zstdCompressAsync,
 } from '@derodero24/comprs';
 import { createZstdCompressTransform } from '@derodero24/comprs/node';
@@ -21,6 +23,27 @@ const header: GzipHeader = gzipReadHeader(gzipped);
 const mtime: number = header.mtime;
 const filename: string = header.filename ?? '';
 const format: CompressionFormat = detectFormat(gzipped);
+// CompressionFormat is a regular enum, so its members are values that
+// isolatedModules and verbatimModuleSyntax allow (#567); the strings still
+// compare with it.
+const isZstd: boolean = detectFormat(zstdCompress(input)) === CompressionFormat.Zstd;
+const isGzip: boolean = format === 'gzip';
+
+/** A switch over every member, with no default: TS2366 if one is missing. */
+function label(detected: CompressionFormat): string {
+  switch (detected) {
+    case CompressionFormat.Zstd:
+      return 'Zstandard';
+    case CompressionFormat.Gzip:
+      return 'gzip';
+    case CompressionFormat.Brotli:
+      return 'Brotli';
+    case CompressionFormat.Lz4:
+      return 'LZ4';
+    case CompressionFormat.Unknown:
+      return 'unknown format';
+  }
+}
 
 const context = new GzipCompressContext();
 const chunks: Buffer[] = [context.transform(input), context.finish()];
@@ -51,4 +74,16 @@ const binary = new ReadableStream<ArrayBuffer | DataView>({
 const fromBinary: ReadableStream<Uint8Array> = binary.pipeThrough(createGzipCompressStream());
 const narrow: TransformStream<Uint8Array, Uint8Array> = createGzipDecompressStream();
 
-export { chunks, filename, format, fromBinary, mtime, narrow, roundTrip, zstd };
+export {
+  chunks,
+  filename,
+  format,
+  fromBinary,
+  isGzip,
+  isZstd,
+  label,
+  mtime,
+  narrow,
+  roundTrip,
+  zstd,
+};
