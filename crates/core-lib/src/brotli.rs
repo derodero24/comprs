@@ -100,24 +100,45 @@ pub fn compress_with_dict(
 /// qualities 10 and 11, emits copies that span the dictionary/data boundary,
 /// which the decoder rejects. This function catches the panic (on targets
 /// that unwind; wasm32 aborts on panic), checks quality 10-11 output by
-/// decoding it, and in either case compresses the input again without the
-/// dictionary. That stream is valid brotli and decodes with or without the
+/// decoding it, and in either case compresses the input again with neither
+/// the custom dictionary nor brotli's built-in one
+/// (`encode_without_dictionaries`). That stream decodes with or without the
 /// dictionary.
 pub fn compress_with_dict_inner(
     input: &[u8],
     dict: &[u8],
     quality: u32,
 ) -> std::result::Result<Vec<u8>, std::io::Error> {
-    if !dict.is_empty() {
-        match std::panic::catch_unwind(|| encode(input, dict, quality)) {
-            Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => {
-                return Ok(output);
-            }
-            Ok(Err(e)) => return Err(e),
-            Ok(Ok(_)) | Err(_) => {}
-        }
+    // The encoder turns the built-in dictionary off when given a custom one.
+    let params = encoder_params(quality, true);
+    if dict.is_empty() {
+        return encode(input, dict, &params);
     }
-    encode(input, &[], quality)
+    match std::panic::catch_unwind(|| encode(input, dict, &params)) {
+        Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
+        Ok(Err(e)) => Err(e),
+        Ok(Ok(_)) | Err(_) => encode_without_dictionaries(input, quality),
+    }
+}
+
+/// Compress `input` with neither a custom dictionary nor brotli's built-in
+/// one: the fallback of [`compress_with_dict_inner`].
+///
+/// A decoder treats a custom dictionary as data that precedes the stream:
+/// the distances that reach past the decoded data in the window point into
+/// it, and only those past its end into the built-in dictionary. A stream
+/// encoded without a custom dictionary refers to the built-in one with the
+/// distances just past the decoded data, which a decoder given a custom
+/// dictionary reads as copies from that dictionary or as other words: it
+/// returns different bytes, often without an error. With the built-in
+/// dictionary off, the stream decodes the same with or without a custom
+/// dictionary. Text that the built-in dictionary covers compresses less
+/// without it, a cost that only the rare inputs that take the fallback pay.
+fn encode_without_dictionaries(
+    input: &[u8],
+    quality: u32,
+) -> std::result::Result<Vec<u8>, std::io::Error> {
+    encode(input, &[], &encoder_params(quality, false))
 }
 
 /// Whether `compressed` decodes with `dict` to exactly `expected`.
@@ -126,15 +147,28 @@ fn decodes_to(compressed: &[u8], dict: &[u8], expected: &[u8]) -> bool {
         .is_ok_and(|output| output == expected)
 }
 
-/// Run the brotli encoder; an empty `dict` means no custom dictionary.
-fn encode(input: &[u8], dict: &[u8], quality: u32) -> std::result::Result<Vec<u8>, std::io::Error> {
-    use std::io::Cursor;
-
-    let params = brotli::enc::BrotliEncoderParams {
+/// The parameters of the low-level encoder: `quality`, a window of
+/// 2^[`LG_WINDOW_SIZE`] bytes and, if `use_dictionary`, brotli's built-in
+/// dictionary.
+pub(crate) fn encoder_params(
+    quality: u32,
+    use_dictionary: bool,
+) -> brotli::enc::BrotliEncoderParams {
+    brotli::enc::BrotliEncoderParams {
         quality: quality as i32,
         lgwin: LG_WINDOW_SIZE as i32,
+        use_dictionary,
         ..Default::default()
-    };
+    }
+}
+
+/// Run the brotli encoder; an empty `dict` means no custom dictionary.
+fn encode(
+    input: &[u8],
+    dict: &[u8],
+    params: &brotli::enc::BrotliEncoderParams,
+) -> std::result::Result<Vec<u8>, std::io::Error> {
+    use std::io::Cursor;
 
     let mut r = Cursor::new(input);
     let mut output = Vec::with_capacity(input.len());
@@ -152,7 +186,7 @@ fn encode(input: &[u8], dict: &[u8], quality: u32) -> std::result::Result<Vec<u8
         &mut brotli::IoWriterWrapper(&mut output),
         &mut input_buffer[..],
         &mut output_buffer[..],
-        &params,
+        params,
         alloc,
         &mut nop,
         dict,
@@ -200,6 +234,30 @@ pub(crate) fn compress_large_window(data: &[u8], lgwin: i32) -> Vec<u8> {
     let mut output = Vec::new();
     brotli::BrotliCompress(&mut &data[..], &mut output, &params).unwrap();
     output
+}
+
+/// English text, which brotli encodes with words of its built-in
+/// dictionary, for the tests.
+#[cfg(test)]
+const TEXT: &[u8] = b"The quick brown fox jumps over the lazy dog. However, the government \
+    and the people of the world have been working together in order to provide information \
+    about something important. ";
+
+/// The dictionary of [`dict_fallback_input`], for the tests.
+#[cfg(test)]
+pub(crate) const FALLBACK_DICT: [u8; 2] = [254, 255];
+
+/// An input that brotli 9.0.0 fails to encode with [`FALLBACK_DICT`] at
+/// qualities 5-11, so that [`compress_with_dict_inner`] takes its fallback,
+/// for the tests: the input from the PR #615 fuzz targets, then [`TEXT`] 20
+/// times.
+#[cfg(test)]
+pub(crate) fn dict_fallback_input() -> Vec<u8> {
+    let mut data = vec![
+        255, 164, 251, 255, 255, 240, 7, 0, 0, 0, 0, 0, 0, 0, 0, 41, 103, 0, 14,
+    ];
+    data.extend(TEXT.repeat(20));
+    data
 }
 
 #[cfg(test)]
@@ -474,6 +532,60 @@ mod tests {
         for quality in [10, 11] {
             let compressed = compress_with_dict(&data, &dict, Some(quality)).unwrap();
             assert_eq!(decompress_with_dict(&compressed, &dict).unwrap(), data);
+        }
+    }
+
+    /// The fallback stream must not use brotli's built-in dictionary: a
+    /// decoder given the custom dictionary reads its references as copies
+    /// from the custom dictionary, and returns different bytes (#642).
+    #[test]
+    fn dict_compress_fallback_decodes_with_the_dictionary() {
+        let data = dict_fallback_input();
+        for quality in 0..=11 {
+            let compressed = compress_with_dict(&data, &FALLBACK_DICT, Some(quality)).unwrap();
+            let decompressed = decompress_with_dict(&compressed, &FALLBACK_DICT).unwrap();
+            assert!(decompressed == data, "quality {quality}");
+            if quality >= 5 {
+                // The output of the fallback, which needs no dictionary.
+                assert!(
+                    decompress(&compressed).unwrap() == data,
+                    "quality {quality}"
+                );
+            }
+        }
+    }
+
+    /// The fallback's output decodes with any custom dictionary, also for
+    /// text that the built-in dictionary would encode.
+    #[test]
+    fn dict_fallback_decodes_with_any_dictionary() {
+        let text_dict: Vec<u8> = b"lorem ipsum dolor sit amet "
+            .iter()
+            .copied()
+            .cycle()
+            .take(2048)
+            .collect();
+        for quality in 0..=11 {
+            let compressed = encode_without_dictionaries(TEXT, quality).unwrap();
+            assert_eq!(decompress(&compressed).unwrap(), TEXT, "quality {quality}");
+            // Encoded with the built-in dictionary, the text decodes to other
+            // bytes, or not at all, with a custom dictionary.
+            let with_built_in = encode(TEXT, &[], &encoder_params(quality, true)).unwrap();
+            for dict in [&FALLBACK_DICT[..], &text_dict] {
+                let context = format!("quality {quality}, {}-byte dictionary", dict.len());
+                assert_eq!(
+                    decompress_with_dict(&compressed, dict).unwrap(),
+                    TEXT,
+                    "{context}"
+                );
+                if quality >= 4 {
+                    assert_ne!(
+                        decompress_with_dict(&with_built_in, dict).ok().as_deref(),
+                        Some(TEXT),
+                        "{context}"
+                    );
+                }
+            }
         }
     }
 

@@ -357,4 +357,25 @@ describe('brotli dictionary encoder defects (#623)', () => {
     const output = Buffer.concat([ctx.transform(data), ctx.finish()]);
     expect(brotliDecompressWithDict(output, dict)).toEqual(data);
   });
+
+  // Followed by text, the first input makes brotli 9.0.0 fail at qualities
+  // 5-11, and comprs compresses it again without the dictionary. The text
+  // uses words of brotli's built-in dictionary, which that stream must not
+  // refer to: a decoder given the custom dictionary reads them as copies
+  // from it (#642).
+  const text =
+    'The quick brown fox jumps over the lazy dog. However, the government and the people ' +
+    'of the world have been working together in order to provide information about ' +
+    'something important. ';
+  const withText = Buffer.concat([panicking.data, Buffer.from(text.repeat(20))]);
+
+  it.each([5, 9, 11])('should keep the fallback decodable at quality %i', (quality) => {
+    const { dict } = panicking;
+    const compressed = brotliCompressWithDict(withText, dict, quality);
+    expect(brotliDecompressWithDict(compressed, dict)).toEqual(withText);
+
+    const ctx = new BrotliCompressDictContext(dict, quality);
+    const output = Buffer.concat([ctx.transform(withText), ctx.finish()]);
+    expect(brotliDecompressWithDict(output, dict)).toEqual(withText);
+  });
 });
