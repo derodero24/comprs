@@ -128,7 +128,7 @@ fn is_brotli(data: &[u8]) -> bool {
 
 /// The error for data whose format [`detect`] cannot determine.
 fn unknown_format() -> ComprsError {
-    ComprsError::InvalidArg(
+    ComprsError::UnknownFormat(
         "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress, or deflateDecompress for raw deflate) instead".to_string(),
     )
 }
@@ -137,7 +137,8 @@ fn unknown_format() -> ComprsError {
 ///
 /// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes. Brotli is
 /// only a guess: data detected as brotli that does not decode as brotli fails
-/// with the error for an unknown format, not a brotli error.
+/// with [`ComprsError::UnknownFormat`], as data of no known format does, not
+/// with a brotli error.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
     decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
 }
@@ -153,7 +154,9 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
         Format::Gzip => crate::gzip::decompress_with_capacity(data, capacity),
         Format::Brotli => {
             crate::brotli::decompress_with_capacity(data, capacity).map_err(|e| match e {
-                ComprsError::Operation { .. } | ComprsError::Truncated(_) => unknown_format(),
+                ComprsError::Operation { .. }
+                | ComprsError::Corrupt { .. }
+                | ComprsError::Truncated(_) => unknown_format(),
                 e => e,
             })
         }
@@ -252,7 +255,10 @@ mod tests {
 
     #[test]
     fn decompress_unknown_format() {
-        assert!(decompress(b"not compressed").is_err());
+        assert!(matches!(
+            decompress(b"not compressed"),
+            Err(ComprsError::UnknownFormat(_))
+        ));
     }
 
     #[test]
@@ -491,6 +497,7 @@ mod tests {
         for input in [truncated, &corrupted] {
             assert_eq!(detect(input), Format::Brotli);
             let err = decompress(input).unwrap_err();
+            assert!(matches!(err, ComprsError::UnknownFormat(_)), "{err:?}");
             assert!(
                 err.to_string()
                     .starts_with("unable to detect compression format"),

@@ -33,7 +33,7 @@ pub const LG_WINDOW_SIZE: u32 = 22;
 /// them, reject the same streams.
 pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<(), ComprsError> {
     if data.first().is_some_and(|&byte| byte & 0x7f == 0x11) {
-        return Err(ComprsError::Operation {
+        return Err(ComprsError::Corrupt {
             context,
             source: "large-window brotli streams are not supported".into(),
         });
@@ -307,10 +307,10 @@ mod tests {
                 decompress_with_dict(&compressed, dict),
                 decompress_with_dict_with_capacity(&compressed, dict, 1024),
             ] {
+                let err = result.unwrap_err();
+                assert!(matches!(err, ComprsError::Corrupt { .. }), "lgwin {lgwin}");
                 assert!(
-                    result
-                        .unwrap_err()
-                        .to_string()
+                    err.to_string()
                         .ends_with("failed: large-window brotli streams are not supported"),
                     "lgwin {lgwin}"
                 );

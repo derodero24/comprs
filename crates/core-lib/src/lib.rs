@@ -15,7 +15,7 @@ pub mod zstd;
 pub mod zstd_stream;
 
 pub use args::{IntArg, validate_capacity, validate_max_output_size};
-pub use error::ComprsError;
+pub use error::{ComprsError, ERROR_CODES};
 
 /// Maximum allowed decompressed size (256 MB) to prevent memory exhaustion.
 pub const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -70,6 +70,11 @@ pub(crate) fn require_input(data: &[u8], format: &'static str) -> Result<(), Com
 /// `init_cap` bytes are reserved up front, so callers derive it from the
 /// input; a failed reservation is reported as an error instead of aborting.
 /// Large spare capacity is released before the output is returned.
+///
+/// The errors of `decoder` are reported as [`ComprsError::Corrupt`], except
+/// [`std::io::ErrorKind::OutOfMemory`], which `read_to_end` returns when the
+/// output cannot grow: that is a [`ComprsError::Operation`], like a failed
+/// reservation.
 pub fn decompress_with_limit(
     decoder: impl std::io::Read,
     max_size: usize,
@@ -84,12 +89,23 @@ pub fn decompress_with_limit(
             context,
             source: e.into(),
         })?;
+    // Known limit: the gzip decoder, MultiGzDecoder, reports input that ends
+    // inside a member as an UnexpectedEof error, the kind of error it also
+    // gives for a few bytes of garbage after a member. Such input is
+    // therefore classified as corrupt rather than truncated; its message is
+    // unchanged.
     decoder
         .take((max_size as u64).saturating_add(1))
         .read_to_end(&mut output)
-        .map_err(|e| ComprsError::Operation {
-            context,
-            source: e.into(),
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::OutOfMemory => ComprsError::Operation {
+                context,
+                source: e.into(),
+            },
+            _ => ComprsError::Corrupt {
+                context,
+                source: e.into(),
+            },
         })?;
     if output.len() > max_size {
         return Err(ComprsError::SizeLimit {
@@ -119,6 +135,30 @@ mod tests {
         let output = finish_output(oversized);
         assert_eq!(output, [1; 19]);
         assert!(output.capacity() <= 19 + 4096, "{}", output.capacity());
+    }
+
+    /// A decoder that fails with an error of the given kind.
+    struct FailingDecoder(std::io::ErrorKind);
+
+    impl std::io::Read for FailingDecoder {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(self.0.into())
+        }
+    }
+
+    #[test]
+    fn decompress_with_limit_tells_failed_allocations_from_corrupt_data() {
+        let corrupt = FailingDecoder(std::io::ErrorKind::InvalidData);
+        assert!(matches!(
+            decompress_with_limit(corrupt, 1024, 0, "test"),
+            Err(ComprsError::Corrupt { .. })
+        ));
+        // The error of read_to_end when the output cannot grow.
+        let out_of_memory = FailingDecoder(std::io::ErrorKind::OutOfMemory);
+        assert!(matches!(
+            decompress_with_limit(out_of_memory, 1024, 0, "test"),
+            Err(ComprsError::Operation { .. })
+        ));
     }
 
     /// A one-shot function, called with its input and, for the decoders that

@@ -115,7 +115,10 @@ impl GzipDecompressContext {
     /// verifying the CRC32 and size of the last member.
     ///
     /// Fails with [`ComprsError::Truncated`] when the input ended before the
-    /// header of a member was complete, including empty input.
+    /// header of a member was complete, including empty input. Input that
+    /// ends later in a member fails with flate2's checksum error, a
+    /// [`ComprsError::Corrupt`]: `MultiGzDecoder` reports a missing trailer
+    /// as it reports a mismatching one.
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
         let mut decoder = self
             .decoder
@@ -233,7 +236,7 @@ impl DeflateDecompressContext {
             .inflate(input, &mut self.output)
             .map_err(|e| self.output.error(e, context))?;
         if consumed < input.len() {
-            return Err(ComprsError::Operation {
+            return Err(ComprsError::Corrupt {
                 context,
                 source: "unexpected data after the end of the stream".into(),
             });

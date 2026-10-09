@@ -4,7 +4,7 @@ use std::cell::RefCell;
 
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx, ResetDirective};
 
-use crate::zstd_stream::zstd_error;
+use crate::zstd_stream::{decode_error, zstd_error};
 use crate::{ComprsError, IntArg};
 
 /// Default compression level for zstd (same as the C library default).
@@ -174,10 +174,7 @@ fn decompress_with_limit(
         })?;
     with_dctx(dict, |dctx| {
         dctx.decompress(&mut output, data)
-            .map_err(|code| ComprsError::Operation {
-                context,
-                source: zstd_error(code),
-            })
+            .map_err(|code| decode_error(code, context))
     })?;
     Ok(crate::finish_output(output))
 }
@@ -417,8 +414,27 @@ mod tests {
         );
         assert!(matches!(
             decompress(&forged),
-            Err(ComprsError::Operation { .. })
+            Err(ComprsError::Corrupt { .. })
         ));
+    }
+
+    #[test]
+    fn decompress_reports_frames_that_do_not_fill_their_size_as_corrupt() {
+        // The declared size is trusted, so the frame is decoded straight into
+        // a buffer of that size rather than by the streaming decoder.
+        let frame = frame_declaring(10, b"hello");
+        assert_eq!(
+            trusted_output_size(&frame, usize::MAX, "test").unwrap(),
+            Some(10)
+        );
+        for result in [decompress(&frame), decompress_with_capacity(&frame, 10)] {
+            let err = result.unwrap_err();
+            assert!(matches!(err, ComprsError::Corrupt { .. }), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd decompress failed: Data corruption detected"
+            );
+        }
     }
 
     #[test]
@@ -728,7 +744,7 @@ mod tests {
         input.extend(b"trailing garbage");
         assert!(matches!(
             decompress(&input),
-            Err(ComprsError::Operation { .. })
+            Err(ComprsError::Corrupt { .. })
         ));
     }
 

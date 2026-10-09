@@ -291,7 +291,7 @@ fn detect_routes_every_format() {
                 match detected {
                     // Raw deflate has no header to recognize.
                     Detected::Unknown => assert!(
-                        matches!(result, Err(ComprsError::InvalidArg(_))),
+                        matches!(result, Err(ComprsError::UnknownFormat(_))),
                         "{}",
                         codec.name
                     ),

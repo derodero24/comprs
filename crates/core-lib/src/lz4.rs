@@ -97,7 +97,8 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 ///
 /// Fails with [`ComprsError::Truncated`] when the input ends inside a frame,
 /// including a frame that lacks its end mark, and with
-/// [`ComprsError::Operation`] when data that is not a frame follows a frame.
+/// [`ComprsError::Corrupt`] when a frame is invalid or data that is not a
+/// frame follows a frame.
 pub(crate) fn decompress_frames(
     data: &[u8],
     max_size: usize,
@@ -306,9 +307,13 @@ impl Decoder {
 
     /// The error for invalid frame data.
     fn error(&self, e: FrameError) -> ComprsError {
-        self.operation_error(e.into())
+        ComprsError::Corrupt {
+            context: self.context,
+            source: e.into(),
+        }
     }
 
+    /// The error for a failed allocation.
     fn operation_error(&self, source: Box<dyn std::error::Error + Send + Sync>) -> ComprsError {
         ComprsError::Operation {
             context: self.context,
@@ -352,7 +357,7 @@ fn is_magic_prefix(data: &[u8]) -> bool {
 /// The error for input that does not start with a frame's magic number,
 /// either at the start of the input or after a frame.
 fn not_a_frame(at_start: bool, context: &'static str) -> ComprsError {
-    ComprsError::Operation {
+    ComprsError::Corrupt {
         context,
         source: if at_start {
             FrameError::WrongMagicNumber.into()
@@ -479,7 +484,7 @@ mod tests {
         let last_literal = compressed.len() - 9;
         compressed[last_literal] ^= 0x01;
         let err = decompress(&compressed).unwrap_err();
-        assert!(matches!(err, ComprsError::Operation { .. }));
+        assert!(matches!(err, ComprsError::Corrupt { .. }));
         assert!(err.to_string().contains("ContentChecksumError"), "{err}");
     }
 
@@ -751,7 +756,7 @@ mod tests {
         for trailing in [&b"garbage"[..], b"\n", &[0; 4]] {
             let input = [&frame[..], trailing].concat();
             let err = decompress(&input).unwrap_err();
-            assert!(matches!(err, ComprsError::Operation { .. }), "{err}");
+            assert!(matches!(err, ComprsError::Corrupt { .. }), "{err}");
             assert_eq!(
                 err.to_string(),
                 "lz4 decompress failed: unexpected data after the end of a frame"

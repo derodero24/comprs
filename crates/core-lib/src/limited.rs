@@ -91,7 +91,9 @@ impl LimitedVec {
 
     /// Convert an error from the decoder writing into this sink into a
     /// [`ComprsError`]: [`ComprsError::SizeLimit`] once the budget is
-    /// exhausted, otherwise [`ComprsError::Operation`] with `context`.
+    /// exhausted, otherwise [`ComprsError::Corrupt`] with `context`. The sink
+    /// fails only when the budget is exhausted, so any other error comes from
+    /// the decoder, which rejects its input.
     pub(crate) fn error(&self, e: io::Error, context: &'static str) -> ComprsError {
         if self.exceeded {
             ComprsError::SizeLimit {
@@ -99,7 +101,7 @@ impl LimitedVec {
                 limit: self.limit,
             }
         } else {
-            ComprsError::Operation {
+            ComprsError::Corrupt {
                 context,
                 source: e.into(),
             }
@@ -236,12 +238,12 @@ mod tests {
     }
 
     #[test]
-    fn maps_other_errors_to_operation() {
+    fn maps_other_errors_to_corrupt() {
         let sink = LimitedVec::new(4, "test");
         let err = io::Error::new(io::ErrorKind::InvalidData, "bad data");
         assert!(matches!(
             sink.error(err, "test"),
-            ComprsError::Operation { .. }
+            ComprsError::Corrupt { .. }
         ));
     }
 }

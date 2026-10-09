@@ -128,8 +128,14 @@ fn validate_filename(filename: &str) -> Result<(), ComprsError> {
 }
 
 /// Read gzip header metadata without fully decompressing the data.
+///
+/// Data without a complete, valid gzip header fails with
+/// [`ComprsError::InvalidArg`].
 pub fn read_header(data: &[u8]) -> Result<GzipHeader, ComprsError> {
     let decoder = GzDecoder::new(data);
+    // Not ComprsError::Corrupt, whose message has another form and which the
+    // bindings report as a generic failure: the error keeps the message and
+    // the code that it has always had.
     let header = decoder.header().ok_or_else(|| {
         ComprsError::InvalidArg("invalid gzip data: unable to parse header".to_string())
     })?;
@@ -527,7 +533,7 @@ mod tests {
         );
         assert!(matches!(
             decompress_with_capacity(&forged, 1 << 33),
-            Err(ComprsError::Operation { .. })
+            Err(ComprsError::Corrupt { .. })
         ));
 
         // A large one cannot reserve more than MAX_INITIAL_CAPACITY.
