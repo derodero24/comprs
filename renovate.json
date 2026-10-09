@@ -60,12 +60,6 @@
       "matchManagers": ["npm"],
       "matchDepNames": ["typescript-5"],
       "allowedVersions": "<6"
-    },
-    {
-      "description": "Respect the flate2 =1.1.9 pin in Cargo.toml: 1.1.10 makes gzip/deflate much slower with zlib-rs (#509)",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["flate2"],
-      "allowedVersions": "<=1.1.9"
     }
   ]
 }
