@@ -104,7 +104,7 @@ CI then tests the package as it would be published (see [Package tests](#package
 | `detect` | Format detection, auto-detecting decompression and `gzip::read_header` |
 | `round_trip` | Compression in one call or in chunks, then every way of decompressing the result |
 
-A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations). The Fuzz workflow runs each target for 10 minutes every week and for 1 minute on pull requests that change the fuzz crate, and uploads failing inputs as artifacts. On pull requests that change `comprs-core` or its dependencies, it checks that the fuzz crate still builds and passes its tests.
+A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations). The Fuzz workflow runs each target for 10 minutes every week and for 1 minute on pull requests that change the fuzz crate, starting with the inputs of fixed failures in `crates/core-lib/fuzz/regressions/<target>/`, and uploads failing inputs as artifacts. On pull requests that change `comprs-core` or its dependencies, it checks that the fuzz crate still builds and passes its tests.
 
 One kind of panic does not fail a target: brotli 9.0.0's encoder panics on some inputs with a custom dictionary ([#623](https://github.com/derodero24/comprs/issues/623)), and `comprs-core` catches that panic and compresses again without the dictionary ([#624](https://github.com/derodero24/comprs/pull/624)). The `brotli` and `round_trip` targets let exactly these panics unwind to `comprs-core` (`crates/core-lib/fuzz/src/panic_hook.rs`), and log a line for each; any other panic, including an encoder panic outside that `catch_unwind`, still aborts the target. The exception names the brotli version, so it ends with the next brotli upgrade; once a release fixes the encoder, remove it together with the fallback in `comprs-core`.
 
@@ -125,6 +125,8 @@ To reproduce a failure from CI, download the input and pass it to the target:
 gh run download <run-id> --name fuzz-zstd --dir fuzz-zstd
 cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd fuzz-zstd/crash-<hash>
 ```
+
+With the fix, add the input to `crates/core-lib/fuzz/regressions/<target>/`, so that every Fuzz run checks it.
 
 The fuzz crate is a workspace of its own, as cargo-fuzz sets it up, so that it builds with its own release profile and stays out of the cargo commands run on the comprs workspace. Its `Cargo.lock` must keep the versions of the workspace's `Cargo.lock`, so that the fuzzers build the dependencies that comprs ships; the Fuzz workflow checks this. After changing `Cargo.lock` or the dependencies of `comprs-core`, update it:
 
