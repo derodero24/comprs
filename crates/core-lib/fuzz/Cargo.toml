@@ -16,6 +16,11 @@ libfuzzer-sys = "0.4"
 # fuzzers build the code that comprs ships.
 comprs-core = { path = "..", features = ["zstdmt"] }
 
+[dev-dependencies]
+# The tests of the panic hook run comprs-core's brotli encoder outside
+# comprs-core: the same version, with the workspace's features.
+brotli = { version = "9", default-features = false, features = ["std"] }
+
 # A workspace of its own, as cargo-fuzz sets it up. As a member of the comprs
 # workspace, the fuzzers would build with its release profile (fat LTO,
 # stripped symbols), and every cargo command on the workspace, cargo-deny's

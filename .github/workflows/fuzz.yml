@@ -111,6 +111,12 @@ jobs:
       - name: Lint
         working-directory: crates/core-lib/fuzz
         run: cargo clippy --locked --all-targets -- -W clippy::all
+      # The tests of the panic hook also fail when comprs-core's brotli
+      # fallback or the brotli encoder changes in a way that ends the
+      # exception the hook makes for the encoder's panics.
+      - name: Test
+        working-directory: crates/core-lib/fuzz
+        run: cargo test --locked
 
   fuzz:
     name: Fuzz ${{ matrix.target }}

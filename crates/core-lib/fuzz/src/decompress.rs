@@ -19,7 +19,10 @@ const MAX_COMPRESSED_INPUT: usize = 2 * MAX_LIMIT;
 /// reaches deeper into the decoder than random bytes, and repeated data
 /// makes decompression bombs. Checks that:
 ///
-/// - nothing panics, and no call outputs more than its limit;
+/// - nothing panics, and no call outputs more than its limit. The exception
+///   is the panics of brotli 9.0.0's dictionary encoder, which comprs-core
+///   catches (#623): [`crate::panic_hook`] lets them through until a brotli
+///   release fixes the encoder;
 /// - each call's heap usage, including each call to a stream context, stays
 ///   within [`crate::heap_bound`];
 /// - one-shot decompression succeeds under a limit exactly when the full
