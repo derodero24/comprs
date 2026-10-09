@@ -769,4 +769,21 @@ mod tests {
         let decompressed = crate::brotli::decompress_with_dict(&compressed, &dict).unwrap();
         assert_eq!(decompressed, data);
     }
+
+    /// The fallback that `finish` takes when the encoder fails decodes with
+    /// the dictionary (#642).
+    #[test]
+    fn compress_dict_context_fallback_decodes_with_the_dictionary() {
+        let data = crate::brotli::dict_fallback_input();
+        let dict = crate::brotli::FALLBACK_DICT;
+        for quality in 5..=11 {
+            let mut ctx = CompressDictContext::new(&dict, Some(quality)).unwrap();
+            for chunk in data.chunks(1000) {
+                assert!(ctx.transform(chunk).unwrap().is_empty());
+            }
+            let compressed = ctx.finish().unwrap();
+            let decompressed = crate::brotli::decompress_with_dict(&compressed, &dict).unwrap();
+            assert!(decompressed == data, "quality {quality}");
+        }
+    }
 }

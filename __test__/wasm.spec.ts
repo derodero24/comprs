@@ -477,6 +477,34 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build', () => {
     });
   });
 
+  // brotli 9.0.0 encodes this input with this dictionary into a stream that
+  // does not decode at qualities 10 and 11, so comprs compresses it again
+  // without the dictionary. (At qualities 5-9 the encoder panics, which
+  // traps in WebAssembly.) The text uses words of brotli's built-in
+  // dictionary, which that stream must not refer to: a decoder given the
+  // custom dictionary reads them as copies from it (#642).
+  describe('brotli dictionary fallback', () => {
+    const dict = new Uint8Array([254, 255]);
+    const text =
+      'The quick brown fox jumps over the lazy dog. However, the government and the people ' +
+      'of the world have been working together in order to provide information about ' +
+      'something important. ';
+    const data = Buffer.concat([
+      Buffer.from([255, 164, 251, 255, 255, 240, 7, 0, 0, 0, 0, 0, 0, 0, 0, 41, 103, 0, 14]),
+      Buffer.from(text.repeat(20)),
+    ]);
+
+    it.each([10, 11])('decodes with the dictionary at quality %i', (quality) => {
+      const compressed = wasm.brotliCompressWithDict(data, dict, quality);
+      expect(Buffer.from(wasm.brotliDecompressWithDict(compressed, dict))).toEqual(data);
+      expect(native.brotliDecompressWithDict(compressed, dict)).toEqual(data);
+
+      const context = new wasm.BrotliCompressDictContext(dict, quality);
+      const output = Buffer.concat([context.transform(data), context.finish()]);
+      expect(Buffer.from(wasm.brotliDecompressWithDict(output, dict))).toEqual(data);
+    });
+  });
+
   // Last, as a trap leaves the instance in whatever state the panic left.
   describe('panics', () => {
     // A panic traps with a bare `RuntimeError: unreachable`, so the build
