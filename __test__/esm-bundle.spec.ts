@@ -16,9 +16,9 @@ const require = createRequire(__filename);
 // comprs.<platform>.node, in the package directory or a platform package.
 // require.cache can hold other native modules, such as the test runner's.
 const NATIVE_ADDON = /[\\/]comprs\.[^\\/]+\.node$/;
-// How long the bundle may run. Vitest fails a test that outlasts its own
-// timeout (5 s by default) even while it waits in execFileSync, so the test
-// gets twice this, which also leaves room for esbuild.
+// How long each Node.js process may run. Vitest fails a test that outlasts
+// its own timeout (5 s by default) even while it waits in execFileSync, so
+// the test, which runs two of them after esbuild, gets three times this.
 const PROCESS_TIMEOUT = 30_000;
 
 const workDir = mkdtempSync(join(tmpdir(), 'comprs-esm-bundle-'));
@@ -36,7 +36,7 @@ function nativeAddonPath(): string {
   return addon;
 }
 
-describe('ES module entry bundled for Node.js', { timeout: 2 * PROCESS_TIMEOUT }, () => {
+describe('ES module entry bundled for Node.js', { timeout: 3 * PROCESS_TIMEOUT }, () => {
   it('exports what the CommonJS entry and the stream helpers export', async () => {
     const outfile = join(workDir, 'bundle.mjs');
     await build({
@@ -77,11 +77,26 @@ describe('ES module entry bundled for Node.js', { timeout: 2 * PROCESS_TIMEOUT }
       env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: nativeAddonPath() },
       timeout: PROCESS_TIMEOUT,
     });
-    const expectedKeys = new Set([
-      ...Object.keys(require('@derodero24/comprs')),
-      ...Object.keys(require('@derodero24/comprs/streams')),
-    ]);
+    // The names that the CommonJS entries export, read in a process of
+    // its own. A require() of the streams entry here would load streams.js
+    // a second time next to the copy that Vitest transforms, and V8 would
+    // report both copies under one URL, which corrupts the coverage of
+    // streams.js.
+    const cjsKeys: unknown = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '--eval',
+          [
+            "const keys = new Set([...Object.keys(require('@derodero24/comprs')),",
+            "  ...Object.keys(require('@derodero24/comprs/streams'))]);",
+            'process.stdout.write(JSON.stringify([...keys].sort()));',
+          ].join('\n'),
+        ],
+        { cwd: ROOT, encoding: 'utf8', timeout: PROCESS_TIMEOUT },
+      ),
+    );
     const bundled: unknown = JSON.parse(stdout);
-    expect(bundled).toEqual({ keys: [...expectedKeys].sort(), restored: 'bundled' });
+    expect(bundled).toEqual({ keys: cjsKeys, restored: 'bundled' });
   });
 });
