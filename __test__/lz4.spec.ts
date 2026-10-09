@@ -46,7 +46,7 @@ describe('lz4Compress / lz4Decompress', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should round-trip 1MB of data', { timeout: 30_000 }, () => {
+  it('should round-trip 1MB of data', () => {
     const input = Buffer.alloc(1024 * 1024);
     for (let i = 0; i < input.length; i++) {
       input[i] = i % 256;
