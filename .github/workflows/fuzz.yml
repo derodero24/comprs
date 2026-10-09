@@ -111,6 +111,12 @@ jobs:
       - name: Lint
         working-directory: crates/core-lib/fuzz
         run: cargo clippy --locked --all-targets -- -W clippy::all
+      # The tests of the panic hook also fail when comprs-core's brotli
+      # fallback or the brotli encoder changes in a way that ends the
+      # exception the hook makes for the encoder's panics.
+      - name: Test
+        working-directory: crates/core-lib/fuzz
+        run: cargo test --locked
 
   fuzz:
     name: Fuzz ${{ matrix.target }}
@@ -155,10 +161,15 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
+        # libFuzzer first runs every input in both directories, so a target
+        # also fails when it fails again on the input of a fixed failure in
+        # regressions/. It adds the inputs it finds to the first directory.
         # -rss_limit_mb also bounds the zstd C library's allocations, which
         # the targets' own heap checks do not see.
         run: |
-          cargo "+$NIGHTLY" fuzz run --fuzz-dir "$FUZZ_DIR" "$TARGET" -- \
+          mkdir -p "$FUZZ_DIR/corpus/$TARGET" "$FUZZ_DIR/regressions/$TARGET"
+          cargo "+$NIGHTLY" fuzz run --fuzz-dir "$FUZZ_DIR" "$TARGET" \
+            "$FUZZ_DIR/corpus/$TARGET" "$FUZZ_DIR/regressions/$TARGET" -- \
             -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=60 \
             -print_final_stats=1
       - name: Save the corpus

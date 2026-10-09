@@ -85,6 +85,7 @@ dependencies = [
 name = "comprs-core-fuzz"
 version = "0.0.0"
 dependencies = [
+ "brotli",
  "comprs-core",
  "libfuzzer-sys",
 ]
