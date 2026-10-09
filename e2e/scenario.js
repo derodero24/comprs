@@ -26,12 +26,24 @@
  * @property {Codec} lz4Decompress
  * @property {Codec} decompress
  * @property {(data: Uint8Array) => string} detectFormat
+ * @property {FormatEnum} CompressionFormat
  * @property {(data: Uint8Array) => number} crc32
  * @property {() => string} version
  * @property {StreamFactory} createZstdCompressStream
  * @property {StreamFactory} createDecompressStream
  * @property {() => Promise<AsyncFunctions>} importAsync Import the *Async
  *   functions, which browser/app.js imports dynamically.
+ */
+
+/**
+ * The members of the `CompressionFormat` enum.
+ *
+ * @typedef {object} FormatEnum
+ * @property {string} Zstd
+ * @property {string} Gzip
+ * @property {string} Brotli
+ * @property {string} Lz4
+ * @property {string} Unknown
  */
 
 /**
@@ -94,13 +106,24 @@ export async function checkPackage(comprs) {
     });
   }
   await run('format detection', () => {
-    // Raw deflate data has no header to detect.
-    for (const name of ['zstd', 'gzip', 'brotli', 'lz4']) {
+    const { CompressionFormat } = comprs;
+    /** @type {[string, string][]} */
+    const formats = [
+      ['zstd', CompressionFormat.Zstd],
+      ['gzip', CompressionFormat.Gzip],
+      ['brotli', CompressionFormat.Brotli],
+      ['lz4', CompressionFormat.Lz4],
+    ];
+    for (const [name, member] of formats) {
       const output = compressed.get(name) ?? new Uint8Array();
       const format = comprs.detectFormat(output);
       assert(format === name, `detectFormat() returned ${format} for ${name}`);
+      assert(format === member, `CompressionFormat has ${member} for ${name}`);
       assertBytes(comprs.decompress(output), data);
     }
+    // Raw deflate data has no header to detect.
+    const deflate = comprs.detectFormat(compressed.get('deflate') ?? new Uint8Array());
+    assert(deflate === CompressionFormat.Unknown, `detectFormat() returned ${deflate} for deflate`);
   });
   await run('corrupt input', () => {
     // Overwrite 16 bytes in the middle of the deflate data.

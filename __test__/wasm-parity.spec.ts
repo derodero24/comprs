@@ -766,6 +766,15 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
     wasm = await importBrowserEntry();
   });
 
+  // The browser entry defines the enum's members as napi-rs defines them
+  // (#567): read-only and not enumerable, so that Object.keys() and
+  // Object.values() give the same results in both builds.
+  it('CompressionFormat', () => {
+    expect(Object.getOwnPropertyDescriptors(wasm.CompressionFormat)).toStrictEqual(
+      Object.getOwnPropertyDescriptors(native.CompressionFormat),
+    );
+  });
+
   it.each(CALLS)('%s', (_label, call) => {
     expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
   });

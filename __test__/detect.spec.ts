@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   brotliCompress,
+  CompressionFormat,
   decompress,
   decompressAsync,
   deflateCompress,
@@ -52,6 +53,61 @@ describe('detectFormat', () => {
     const data = new Uint8Array(Buffer.from('test'));
     const compressed = zstdCompress(data);
     expect(detectFormat(compressed)).toBe('zstd');
+  });
+});
+
+// CompressionFormat is declared as a regular enum rather than a const enum,
+// so that code compiled one file at a time (isolatedModules, esbuild, swc)
+// can use its members as values (#567); the type check covers that.
+describe('CompressionFormat', () => {
+  /** A switch over every member, with no default: TS2366 if one is missing. */
+  function label(format: CompressionFormat): string {
+    switch (format) {
+      case CompressionFormat.Zstd:
+        return 'Zstandard';
+      case CompressionFormat.Gzip:
+        return 'gzip';
+      case CompressionFormat.Brotli:
+        return 'Brotli';
+      case CompressionFormat.Lz4:
+        return 'LZ4';
+      case CompressionFormat.Unknown:
+        return 'unknown format';
+    }
+  }
+
+  it('names what detectFormat returns', () => {
+    const data = Buffer.from('test data for format detection');
+    expect(detectFormat(zstdCompress(data))).toBe(CompressionFormat.Zstd);
+    expect(detectFormat(gzipCompress(data))).toBe(CompressionFormat.Gzip);
+    expect(detectFormat(brotliCompress(data))).toBe(CompressionFormat.Brotli);
+    expect(detectFormat(lz4Compress(data))).toBe(CompressionFormat.Lz4);
+    expect(detectFormat(data)).toBe(CompressionFormat.Unknown);
+  });
+
+  it('can be switched over exhaustively', () => {
+    const data = Buffer.from('test data for format detection');
+    expect(label(detectFormat(lz4Compress(data)))).toBe('LZ4');
+    expect(label(detectFormat(data))).toBe('unknown format');
+  });
+
+  // As napi-rs defines them: read-only and not enumerable, so that
+  // Object.keys() and Object.values() return []. The browser entry defines
+  // its members the same way (wasm-parity.spec.ts).
+  it('has read-only members that are not enumerable', () => {
+    const member = (value: string) => ({
+      value,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    expect(Object.getOwnPropertyDescriptors(CompressionFormat)).toStrictEqual({
+      Zstd: member('zstd'),
+      Gzip: member('gzip'),
+      Brotli: member('brotli'),
+      Lz4: member('lz4'),
+      Unknown: member('unknown'),
+    });
   });
 });
 

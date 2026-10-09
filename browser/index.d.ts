@@ -1,11 +1,11 @@
 // Types of the browser entry point (index.js), which exports the functions
-// and stream contexts of the wasm-bindgen build (crates/wasm), and *Async
-// variants of its one-shot functions.
+// and stream contexts of the wasm-bindgen build (crates/wasm), *Async
+// variants of its one-shot functions, and the CompressionFormat enum.
 //
 // They take the arguments of the native declarations in ../index.d.ts, but
-// results are Uint8Array rather than Buffer, detectFormat() returns a plain
-// string, and the stream contexts also have the free() method of the glue.
-// __test__/wasm-parity.spec.ts checks them against the native declarations.
+// results are Uint8Array rather than Buffer, and the stream contexts also
+// have the free() method of the glue. __test__/wasm-parity.spec.ts checks
+// them against the native declarations.
 // They are written by hand rather than re-exported from the generated
 // comprs-wasm.d.ts, which has no *Async functions, declares the init
 // functions that the entry calls itself, and needs the DOM library.
@@ -15,7 +15,10 @@ export {};
 
 // -- zstd --
 
-/** Compress data with zstd. `level` ranges from 1 to 22 (default 3). */
+/**
+ * Compress data with zstd. `level` ranges from -131072 to 22 (default 3);
+ * negative levels select fast mode, and 0 is the default level.
+ */
 export declare function zstdCompress(data: Uint8Array, level?: number | null): Uint8Array;
 /** Decompress zstd-compressed data. */
 export declare function zstdDecompress(data: Uint8Array): Uint8Array;
@@ -129,10 +132,23 @@ export declare function lz4DecompressWithCapacity(data: Uint8Array, capacity: nu
 
 // -- Auto-detection and utilities --
 
+/**
+ * Compression format that detectFormat() returns. Compare a result with the
+ * members, such as `CompressionFormat.Zstd`, or with their values, the
+ * strings `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` and `'unknown'`. The
+ * members of the runtime object are not enumerable (`Object.keys()` and
+ * `Object.values()` return `[]`), so use them by name.
+ */
+export declare enum CompressionFormat {
+  Zstd = 'zstd',
+  Gzip = 'gzip',
+  Brotli = 'brotli',
+  Lz4 = 'lz4',
+  Unknown = 'unknown',
+}
+
 /** Detect the compression format of data from its magic bytes. */
-export declare function detectFormat(
-  data: Uint8Array,
-): 'zstd' | 'gzip' | 'brotli' | 'lz4' | 'unknown';
+export declare function detectFormat(data: Uint8Array): CompressionFormat;
 /**
  * Decompress data in any format that detectFormat() recognises, failing if
  * the output exceeds `maxOutputSize` bytes (default 256 MiB).

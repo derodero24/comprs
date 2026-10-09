@@ -104,6 +104,8 @@
   "napi": {
     "binaryName": "comprs",
     "dtsHeaderFile": "crates/core/dts-header.d.ts",
+    "constEnum": false,
+    "runtimeStringEnum": true,
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",

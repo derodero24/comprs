@@ -88,11 +88,11 @@ function hasSideEffects(sideEffects: unknown, packageDir: string, file: string):
   });
 }
 
-/** The names that a declaration file declares as exported functions and classes. */
+/** The names that a declaration file declares as exported functions, classes and enums. */
 function declaredExports(file: string) {
   const declarations = readFileSync(resolve(ROOT, file), 'utf8');
   return Array.from(
-    declarations.matchAll(/^export declare (?:function|class) (\w+)/gm),
+    declarations.matchAll(/^export declare (?:function|class|enum) (\w+)/gm),
     ([, name]) => name,
   ).sort();
 }

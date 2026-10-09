@@ -16,6 +16,7 @@
 import {
   brotliCompress,
   brotliDecompress,
+  CompressionFormat,
   crc32,
   decompress,
   deflateCompress,
@@ -47,6 +48,7 @@ try {
     lz4Decompress,
     decompress,
     detectFormat,
+    CompressionFormat,
     crc32,
     version,
     createZstdCompressStream,

@@ -620,8 +620,15 @@ export declare function brotliDecompressWithDictWithCapacity(data: Buffer | Uint
  */
 export declare function brotliDecompressWithDictWithCapacityAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 
-/** Compression format detected from input data. */
-export declare const enum CompressionFormat {
+/**
+ * Compression format detected from input data.
+ *
+ * Compare a result with the members, such as `CompressionFormat.Zstd`, or
+ * with their values, the strings `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` and
+ * `'unknown'`. The members of the runtime object are not enumerable
+ * (`Object.keys()` and `Object.values()` return `[]`), so use them by name.
+ */
+export declare enum CompressionFormat {
   Zstd = 'zstd',
   Gzip = 'gzip',
   Brotli = 'brotli',

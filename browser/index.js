@@ -135,6 +135,22 @@ export {
   zstdTrainDictionary,
 } from './comprs-wasm.js';
 
+// The CompressionFormat enum of the native addon, whose members name the
+// values that detectFormat() returns. napi-rs defines them read-only and
+// not enumerable, and so does this object: enumerable members, as in a
+// frozen object literal, would make Object.keys() and Object.values()
+// differ between the builds, which __test__/wasm-parity.spec.ts checks.
+export const CompressionFormat = Object.defineProperties(
+  {},
+  {
+    Zstd: { value: 'zstd' },
+    Gzip: { value: 'gzip' },
+    Brotli: { value: 'brotli' },
+    Lz4: { value: 'lz4' },
+    Unknown: { value: 'unknown' },
+  },
+);
+
 // The *Async functions, for code that also runs on the native addon, which
 // runs them on the libuv thread pool. There is no such pool here: they call
 // the synchronous function on the calling thread before they return, and
