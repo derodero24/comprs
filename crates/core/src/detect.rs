@@ -3,12 +3,12 @@
 //! Detects the compression format from its magic number, or for brotli by
 //! decoding the start of the data, and decompresses accordingly.
 
-use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
+use crate::task::{LegacyBuffer, OneShot};
 
 /// Compression format detected from input data.
 ///
@@ -83,26 +83,6 @@ pub fn decompress(
         .map_err(to_napi_error)
 }
 
-pub struct DecompressTask {
-    data: Vec<u8>,
-    max_output_size: usize,
-}
-
-#[napi]
-impl Task for DecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::detect::decompress_with_capacity(&self.data, self.max_output_size)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously decompress data by auto-detecting the compression format.
 ///
 /// Detects the format like `detectFormat` and decompresses using the
@@ -123,14 +103,14 @@ impl Task for DecompressTask {
 pub fn decompress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     max_output_size: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<DecompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let max_size =
             comprs_core::validate_max_output_size(max_output_size.get()?).map_err(to_napi_error)?;
-        Ok(DecompressTask {
-            data: crate::as_bytes(&data).to_vec(),
-            max_output_size: max_size,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::detect::decompress_with_capacity(&data, max_size)
+        }))
     })
 }

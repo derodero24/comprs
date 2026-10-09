@@ -11,12 +11,6 @@ const require = createRequire(import.meta.url);
 const PACKAGE = '@derodero24/comprs';
 const DECLARED_VALUE = /^export declare (?:function|class|(?:const )?enum|const) (\w+)/gm;
 
-// The CommonJS root also exports the classes napi-rs generates for the *Async
-// functions (ZstdCompressTask and the like), which are not declared. Allowed
-// until they are removed from the native addon (#568).
-const UNDECLARED_TASK = /Task$/;
-const MAX_UNDECLARED_TASKS = 23;
-
 /** @param {string} file */
 function declaredNames(file) {
   const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
@@ -43,13 +37,12 @@ const problems = [];
  * @param {string} label
  * @param {string[]} actual
  * @param {string[]} expected
- * @param {(name: string) => boolean} [allowExtra]
  */
-function compare(label, actual, expected, allowExtra = () => false) {
+function compare(label, actual, expected) {
   const actualSet = new Set(actual);
   const expectedSet = new Set(expected);
   const missing = expected.filter((name) => !actualSet.has(name)).sort();
-  const extra = actual.filter((name) => !expectedSet.has(name) && !allowExtra(name)).sort();
+  const extra = actual.filter((name) => !expectedSet.has(name)).sort();
   if (missing.length > 0 || extra.length > 0) {
     problems.push(
       [
@@ -73,17 +66,7 @@ if (rootNames.length < 60) {
   );
 }
 
-const cjsRoot = Object.keys(require(PACKAGE));
-compare('require(root)', cjsRoot, rootNames, (name) => UNDECLARED_TASK.test(name));
-const undeclaredTasks = cjsRoot.filter(
-  (name) => UNDECLARED_TASK.test(name) && !rootNames.includes(name),
-);
-if (undeclaredTasks.length > MAX_UNDECLARED_TASKS) {
-  problems.push(
-    `require(root): ${undeclaredTasks.length} undeclared *Task exports, at most ` +
-      `${MAX_UNDECLARED_TASKS} allowed`,
-  );
-}
+compare('require(root)', Object.keys(require(PACKAGE)), rootNames);
 // The ES module root also re-exports the stream helpers (index.d.mts).
 compare('import(root)', keysOf(await import(PACKAGE)), [...rootNames, ...streamNames]);
 

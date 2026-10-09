@@ -8,7 +8,4 @@ re-exports the CommonJS loader and the stream helpers with `export *`, so
 the two entries cannot drift apart. Node.js and Deno see the same exports
 as before. Bundlers now follow the entry into the loader and bundle it,
 instead of leaving a `require('./index.js')` that fails once the bundle
-moves; as before, the native addon itself must stay external. Bun and
-bundlers read the loader's names at run time, so their view of the package
-root now also lists the `*Task` classes that `require()` has always
-exported; they are not part of the API.
+moves; as before, the native addon itself must stay external.
