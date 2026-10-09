@@ -47,12 +47,18 @@ impl<T: Clone + Default> Allocator<T> for CountingAlloc {
     fn free_cell(&mut self, data: Self::AllocatedMemory) {
         let bytes = size_of_val(data.slice());
         // Saturate rather than wrap should a state ever free memory that it
-        // did not allocate here.
-        let _ = self
-            .allocated
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |allocated| {
-                Some(allocated.saturating_sub(bytes))
-            });
+        // did not allocate here. This is the loop that `fetch_update` runs,
+        // written out: Rust 1.99 deprecates `fetch_update` for `try_update`,
+        // which needs Rust 1.95, newer than the rust-version in Cargo.toml.
+        let mut allocated = self.allocated.load(Ordering::Relaxed);
+        while let Err(current) = self.allocated.compare_exchange_weak(
+            allocated,
+            allocated.saturating_sub(bytes),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            allocated = current;
+        }
     }
 }
 
@@ -479,7 +485,12 @@ impl StreamDecoder {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompressContext, CompressDictContext, DecompressContext, DecompressDictContext};
+    use brotli::enc::{Allocator, StandardAlloc};
+
+    use super::{
+        CompressContext, CompressDictContext, CountingAlloc, DecompressContext,
+        DecompressDictContext,
+    };
     use crate::brotli::BUFFER_SIZE;
     use crate::{ComprsError, MemoryUsage};
 
@@ -607,6 +618,25 @@ mod tests {
         assert_eq!(ctx.transform(&compressed).unwrap(), dict);
         ctx.finish().unwrap();
         assert_eq!(ctx.inner.alloc.allocated(), 0);
+    }
+
+    #[test]
+    fn counting_alloc_clamps_the_count_at_zero() {
+        let mut alloc = CountingAlloc::default();
+        let small = <CountingAlloc as Allocator<u32>>::alloc_cell(&mut alloc, 2);
+        let large = <CountingAlloc as Allocator<u32>>::alloc_cell(&mut alloc, 8);
+        assert_eq!(alloc.allocated(), 40);
+
+        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, small);
+        assert_eq!(alloc.allocated(), 32);
+        // Freeing memory that another allocator handed out stops at zero
+        // instead of wrapping around.
+        let foreign =
+            <StandardAlloc as Allocator<u32>>::alloc_cell(&mut StandardAlloc::default(), 16);
+        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, foreign);
+        assert_eq!(alloc.allocated(), 0);
+        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, large);
+        assert_eq!(alloc.allocated(), 0);
     }
 
     #[test]
