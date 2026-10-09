@@ -1,6 +1,6 @@
 //! Gzip and raw deflate streaming compression and decompression.
 
-use std::io::Write;
+use std::io::{self, Write};
 
 use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
@@ -25,7 +25,7 @@ const WRITER_BUFFER_SIZE: usize = 32 * 1024;
 
 /// Streaming gzip compression context.
 pub struct GzipCompressContext {
-    encoder: Option<GzEncoder<Vec<u8>>>,
+    inner: FlateEncoder<GzEncoder<Vec<u8>>>,
 }
 
 impl GzipCompressContext {
@@ -33,62 +33,34 @@ impl GzipCompressContext {
         let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = GzEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
-            encoder: Some(encoder),
+            inner: FlateEncoder::new(
+                encoder,
+                "gzip stream",
+                Labels {
+                    compress: "gzip stream compress",
+                    flush: "gzip stream flush",
+                    finish: "gzip stream finish",
+                },
+            ),
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .as_mut()
-            .ok_or(ComprsError::StreamFinished("gzip stream"))?;
-
-        encoder
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "gzip stream compress",
-                source: e.into(),
-            })?;
-
-        let output = encoder.get_mut();
-        let data = std::mem::take(output);
-        Ok(data)
+        self.inner.transform(chunk)
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .as_mut()
-            .ok_or(ComprsError::StreamFinished("gzip stream"))?;
-
-        encoder.flush().map_err(|e| ComprsError::Operation {
-            context: "gzip stream flush",
-            source: e.into(),
-        })?;
-
-        let output = encoder.get_mut();
-        let data = std::mem::take(output);
-        Ok(data)
+        self.inner.flush()
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .take()
-            .ok_or(ComprsError::StreamFinished("gzip stream"))?;
-
-        encoder.finish().map_err(|e| ComprsError::Operation {
-            context: "gzip stream finish",
-            source: e.into(),
-        })
+        self.inner.finish()
     }
 }
 
 impl MemoryUsage for GzipCompressContext {
     fn memory_usage(&self) -> usize {
-        self.encoder.as_ref().map_or(0, |encoder| {
-            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
-        })
+        self.inner.memory_usage()
     }
 }
 
@@ -171,7 +143,7 @@ impl MemoryUsage for GzipDecompressContext {
 
 /// Streaming raw deflate compression context.
 pub struct DeflateCompressContext {
-    encoder: Option<DeflateEncoder<Vec<u8>>>,
+    inner: FlateEncoder<DeflateEncoder<Vec<u8>>>,
 }
 
 impl DeflateCompressContext {
@@ -179,62 +151,34 @@ impl DeflateCompressContext {
         let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
-            encoder: Some(encoder),
+            inner: FlateEncoder::new(
+                encoder,
+                "deflate stream",
+                Labels {
+                    compress: "deflate stream compress",
+                    flush: "deflate stream flush",
+                    finish: "deflate stream finish",
+                },
+            ),
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .as_mut()
-            .ok_or(ComprsError::StreamFinished("deflate stream"))?;
-
-        encoder
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "deflate stream compress",
-                source: e.into(),
-            })?;
-
-        let output = encoder.get_mut();
-        let data = std::mem::take(output);
-        Ok(data)
+        self.inner.transform(chunk)
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .as_mut()
-            .ok_or(ComprsError::StreamFinished("deflate stream"))?;
-
-        encoder.flush().map_err(|e| ComprsError::Operation {
-            context: "deflate stream flush",
-            source: e.into(),
-        })?;
-
-        let output = encoder.get_mut();
-        let data = std::mem::take(output);
-        Ok(data)
+        self.inner.flush()
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
-            .encoder
-            .take()
-            .ok_or(ComprsError::StreamFinished("deflate stream"))?;
-
-        encoder.finish().map_err(|e| ComprsError::Operation {
-            context: "deflate stream finish",
-            source: e.into(),
-        })
+        self.inner.finish()
     }
 }
 
 impl MemoryUsage for DeflateCompressContext {
     fn memory_usage(&self) -> usize {
-        self.encoder.as_ref().map_or(0, |encoder| {
-            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
-        })
+        self.inner.memory_usage()
     }
 }
 
@@ -302,6 +246,118 @@ impl DeflateDecompressContext {
 impl MemoryUsage for DeflateDecompressContext {
     fn memory_usage(&self) -> usize {
         self.inflater.as_ref().map_or(0, |_| INFLATE_STATE_SIZE) + self.output.capacity()
+    }
+}
+
+/// A flate2 `write` encoder into a `Vec<u8>`. flate2 gives each encoder
+/// these methods but no trait for them, so [`FlateEncoder`] calls them
+/// through this one.
+trait Encoder: Write {
+    fn get_ref(&self) -> &Vec<u8>;
+    fn get_mut(&mut self) -> &mut Vec<u8>;
+    fn finish(self) -> io::Result<Vec<u8>>;
+}
+
+// `$encoder::method` names the inherent method, which takes precedence over
+// the trait method of the same name.
+macro_rules! impl_encoder {
+    ($($encoder:ident),+ $(,)?) => {$(
+        impl Encoder for $encoder<Vec<u8>> {
+            fn get_ref(&self) -> &Vec<u8> {
+                $encoder::get_ref(self)
+            }
+
+            fn get_mut(&mut self) -> &mut Vec<u8> {
+                $encoder::get_mut(self)
+            }
+
+            fn finish(self) -> io::Result<Vec<u8>> {
+                $encoder::finish(self)
+            }
+        }
+    )+};
+}
+
+impl_encoder!(GzEncoder, DeflateEncoder);
+
+/// The error contexts of the operations of a [`FlateEncoder`].
+struct Labels {
+    compress: &'static str,
+    flush: &'static str,
+    finish: &'static str,
+}
+
+/// Encoder state shared by [`GzipCompressContext`] and
+/// [`DeflateCompressContext`].
+struct FlateEncoder<E> {
+    /// `None` once the stream is finished.
+    encoder: Option<E>,
+    /// What [`ComprsError::StreamFinished`] calls the stream.
+    name: &'static str,
+    labels: Labels,
+}
+
+impl<E: Encoder> FlateEncoder<E> {
+    fn new(encoder: E, name: &'static str, labels: Labels) -> Self {
+        Self {
+            encoder: Some(encoder),
+            name,
+            labels,
+        }
+    }
+
+    /// Compress `chunk`, returning the output that the encoder has written
+    /// so far.
+    fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or(ComprsError::StreamFinished(self.name))?;
+
+        encoder
+            .write_all(chunk)
+            .map_err(|e| ComprsError::Operation {
+                context: self.labels.compress,
+                source: e.into(),
+            })?;
+
+        Ok(std::mem::take(encoder.get_mut()))
+    }
+
+    /// Flush the input written so far, returning the output.
+    fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or(ComprsError::StreamFinished(self.name))?;
+
+        encoder.flush().map_err(|e| ComprsError::Operation {
+            context: self.labels.flush,
+            source: e.into(),
+        })?;
+
+        Ok(std::mem::take(encoder.get_mut()))
+    }
+
+    /// End the stream, returning the rest of the output.
+    fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        let encoder = self
+            .encoder
+            .take()
+            .ok_or(ComprsError::StreamFinished(self.name))?;
+
+        encoder.finish().map_err(|e| ComprsError::Operation {
+            context: self.labels.finish,
+            source: e.into(),
+        })
+    }
+
+    /// The deflate state and flate2's buffer, and the output that has not
+    /// been returned yet.
+    fn memory_usage(&self) -> usize {
+        self.encoder.as_ref().map_or(0, |encoder| {
+            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
+        })
     }
 }
 
@@ -489,6 +545,35 @@ mod tests {
             Err(ComprsError::StreamFinished("deflate stream"))
         ));
         assert!(matches!(ctx.finish(), Err(ComprsError::StreamFinished(_))));
+    }
+
+    #[test]
+    fn compress_contexts_cannot_be_used_after_finish() {
+        let mut gzip = GzipCompressContext::new(None).unwrap();
+        gzip.transform(b"finished").unwrap();
+        gzip.finish().unwrap();
+        let gzip_results = [gzip.transform(b"more"), gzip.flush(), gzip.finish()];
+
+        let mut deflate = DeflateCompressContext::new(None).unwrap();
+        deflate.transform(b"finished").unwrap();
+        deflate.finish().unwrap();
+        let deflate_results = [
+            deflate.transform(b"more"),
+            deflate.flush(),
+            deflate.finish(),
+        ];
+
+        for (results, stream) in [
+            (gzip_results, "gzip stream"),
+            (deflate_results, "deflate stream"),
+        ] {
+            for result in results {
+                assert!(
+                    matches!(result, Err(ComprsError::StreamFinished(name)) if name == stream),
+                    "{stream}: {result:?}"
+                );
+            }
+        }
     }
 
     #[test]
