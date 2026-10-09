@@ -86,11 +86,7 @@ pub fn compress_with_dict(
     quality: Option<u32>,
 ) -> Result<Vec<u8>, ComprsError> {
     let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-
-    compress_with_dict_inner(input, dict, quality).map_err(|e| ComprsError::Operation {
-        context: "brotli compress with dict",
-        source: e.into(),
-    })
+    compress_with_dict_inner(input, dict, quality, "brotli compress with dict")
 }
 
 /// Low-level dictionary compression implementation.
@@ -104,21 +100,29 @@ pub fn compress_with_dict(
 /// the custom dictionary nor brotli's built-in one
 /// (`encode_without_dictionaries`). That stream decodes with or without the
 /// dictionary.
-pub fn compress_with_dict_inner(
+///
+/// Takes a checked `quality`, and reports encoder errors with `context`.
+pub(crate) fn compress_with_dict_inner(
     input: &[u8],
     dict: &[u8],
     quality: u32,
-) -> std::result::Result<Vec<u8>, std::io::Error> {
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
     // The encoder turns the built-in dictionary off when given a custom one.
     let params = encoder_params(quality, true);
-    if dict.is_empty() {
-        return encode(input, dict, &params);
-    }
-    match std::panic::catch_unwind(|| encode(input, dict, &params)) {
-        Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
-        Ok(Err(e)) => Err(e),
-        Ok(Ok(_)) | Err(_) => encode_without_dictionaries(input, quality),
-    }
+    let output = if dict.is_empty() {
+        encode(input, dict, &params)
+    } else {
+        match std::panic::catch_unwind(|| encode(input, dict, &params)) {
+            Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(_)) | Err(_) => encode_without_dictionaries(input, quality),
+        }
+    };
+    output.map_err(|e| ComprsError::Operation {
+        context,
+        source: e.into(),
+    })
 }
 
 /// Compress `input` with neither a custom dictionary nor brotli's built-in

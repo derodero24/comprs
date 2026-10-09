@@ -79,7 +79,7 @@ const CODECS: &[Codec] = &[
     },
     Codec {
         name: "lz4",
-        compressor: || boxed(lz4_stream::CompressContext::new()),
+        compressor: || boxed(Ok(lz4_stream::CompressContext::new())),
         decompressor: |limit| boxed(lz4_stream::DecompressContext::new(limit)),
         compress: lz4::compress,
         decompress: lz4::decompress,

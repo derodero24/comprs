@@ -832,7 +832,7 @@ impl Lz4CompressContext {
     pub fn new() -> Result<Lz4CompressContext, JsError> {
         Ok(Self {
             inner: StreamState::new(
-                comprs_core::lz4_stream::CompressContext::new().map_err(to_js_error)?,
+                comprs_core::lz4_stream::CompressContext::new(),
                 "lz4 stream",
             ),
         })

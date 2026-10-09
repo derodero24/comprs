@@ -5,11 +5,8 @@ use std::borrow::BorrowMut;
 use zstd::stream::raw::{InBuffer, OutBuffer};
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx};
 
-use crate::zstd::LEVEL;
+use crate::zstd::{DEFAULT_LEVEL, LEVEL};
 use crate::{ComprsError, MemoryUsage};
-
-/// Default compression level for zstd (same as the C library default).
-pub const DEFAULT_LEVEL: i32 = 3;
 
 /// Initial output buffer size for streaming operations.
 const INITIAL_BUF_SIZE: usize = 128 * 1024;

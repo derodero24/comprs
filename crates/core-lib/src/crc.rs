@@ -14,6 +14,7 @@ pub const INITIAL_VALUE: IntArg<u32> = IntArg {
 /// Optionally accepts an initial CRC value for incremental computation:
 /// split data into chunks, pass the result of each chunk as `initial_value`
 /// for the next.
+#[must_use]
 pub fn crc32(data: &[u8], initial_value: Option<u32>) -> u32 {
     let mut hasher = match initial_value {
         Some(init) => crc32fast::Hasher::new_with_initial(init),

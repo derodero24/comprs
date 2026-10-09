@@ -38,6 +38,7 @@ pub const MTIME: IntArg<u32> = IntArg {
 pub const MAX_FILENAME_LEN: usize = 65535;
 
 /// Options for customizing the gzip header during compression.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GzipHeaderOptions {
     /// Must not contain NUL characters, which end the field in the header,
     /// and must be at most [`MAX_FILENAME_LEN`] bytes long.
@@ -46,6 +47,7 @@ pub struct GzipHeaderOptions {
 }
 
 /// Parsed gzip header metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GzipHeader {
     pub filename: Option<String>,
     pub mtime: u32,

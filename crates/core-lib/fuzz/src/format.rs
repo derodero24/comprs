@@ -177,7 +177,7 @@ impl Format {
                 dict,
                 unsigned(level),
             )?),
-            (Format::Lz4, _) => Box::new(lz4_stream::CompressContext::new()?),
+            (Format::Lz4, _) => Box::new(lz4_stream::CompressContext::new()),
         })
     }
 }

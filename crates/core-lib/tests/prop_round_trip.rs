@@ -94,7 +94,7 @@ const CODECS: &[Codec] = &[
     Codec {
         name: "lz4",
         levels: 0..=0,
-        compressor: |_, _| boxed(lz4_stream::CompressContext::new()),
+        compressor: |_, _| boxed(Ok(lz4_stream::CompressContext::new())),
         decompressor: |_| boxed(lz4_stream::DecompressContext::new(None)),
         compress: |data, _, _| lz4::compress(data),
         decompress: |data, _| lz4::decompress(data),
