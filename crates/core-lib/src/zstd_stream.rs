@@ -3,6 +3,7 @@
 use std::borrow::BorrowMut;
 
 use zstd::stream::raw::{InBuffer, OutBuffer};
+use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx};
 
 use crate::zstd::{DEFAULT_LEVEL, LEVEL};
@@ -15,6 +16,25 @@ const INITIAL_BUF_SIZE: usize = 128 * 1024;
 /// corruption detected".
 pub(crate) fn zstd_error(code: zstd_safe::ErrorCode) -> Box<dyn std::error::Error + Send + Sync> {
     zstd_safe::get_error_name(code).into()
+}
+
+/// The code of `ZSTD_error_memory_allocation`: zstd returns its error `e` as
+/// the code `(size_t)-e`, which `ZSTD_getErrorCode` turns back into `e`.
+const MEMORY_ALLOCATION: zstd_safe::ErrorCode =
+    0usize.wrapping_sub(ZSTD_ErrorCode::ZSTD_error_memory_allocation as usize);
+
+/// The error for a code that a zstd decoder returned:
+/// [`ComprsError::Operation`] for `ZSTD_error_memory_allocation`, which
+/// zstd returns when its malloc fails, as for any other failed allocation,
+/// and [`ComprsError::Corrupt`] for any other code, which reports input that
+/// the decoder rejects.
+pub(crate) fn decode_error(code: zstd_safe::ErrorCode, context: &'static str) -> ComprsError {
+    let source = zstd_error(code);
+    if code == MEMORY_ALLOCATION {
+        ComprsError::Operation { context, source }
+    } else {
+        ComprsError::Corrupt { context, source }
+    }
 }
 
 /// Create a compression context for `level` and `dict` (empty for none).
@@ -381,10 +401,7 @@ impl<D: BorrowMut<DCtx<'static>>> StreamDecoder<D> {
             let mut out_buf = OutBuffer::around_pos(&mut self.output_buf, total_written);
             let hint = decoder
                 .decompress_stream(&mut out_buf, &mut in_buf)
-                .map_err(|code| ComprsError::Operation {
-                    context,
-                    source: zstd_error(code),
-                })?;
+                .map_err(|code| decode_error(code, context))?;
             // A call without input or output, such as a drain at a frame
             // boundary, reports the header size of the next frame instead.
             if in_buf.pos() > in_pos || out_buf.pos() > total_written {
@@ -450,6 +467,40 @@ mod tests {
 
     /// Decompression limit used by the size-limit tests.
     const LIMIT: usize = 64 * 1024;
+
+    /// The code that zstd returns for its error `e`.
+    fn error_code(e: ZSTD_ErrorCode) -> zstd_safe::ErrorCode {
+        0usize.wrapping_sub(e as usize)
+    }
+
+    #[test]
+    fn decode_error_tells_failed_allocations_from_corrupt_data() {
+        // get_error_name decodes the code as ZSTD_getErrorCode does, so the
+        // names check how the codes are encoded.
+        let allocation = error_code(ZSTD_ErrorCode::ZSTD_error_memory_allocation);
+        assert_eq!(
+            zstd_safe::get_error_name(allocation),
+            "Allocation error : not enough memory"
+        );
+        let err = decode_error(allocation, "zstd decompress");
+        assert!(matches!(err, ComprsError::Operation { .. }), "{err:?}");
+        assert_eq!(
+            err.to_string(),
+            "zstd decompress failed: Allocation error : not enough memory"
+        );
+
+        let corruption = error_code(ZSTD_ErrorCode::ZSTD_error_corruption_detected);
+        assert_eq!(
+            zstd_safe::get_error_name(corruption),
+            "Data corruption detected"
+        );
+        let err = decode_error(corruption, "zstd decompress");
+        assert!(matches!(err, ComprsError::Corrupt { .. }), "{err:?}");
+        assert_eq!(
+            err.to_string(),
+            "zstd decompress failed: Data corruption detected"
+        );
+    }
 
     #[test]
     fn decompress_context_stops_decoding_at_the_limit() {

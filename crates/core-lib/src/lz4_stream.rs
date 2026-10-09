@@ -127,8 +127,9 @@ impl DecompressContext {
     /// Like [`crate::lz4::decompress`], it decodes every frame, skipping
     /// skippable frames. Fails with [`ComprsError::Truncated`] when no input
     /// was received at all or the input ends inside a frame, and with
-    /// [`ComprsError::Operation`] when data that is not a frame follows a
-    /// frame. Calling it again after a successful call returns an empty Vec.
+    /// [`ComprsError::Corrupt`] when a frame is invalid or data that is not a
+    /// frame follows a frame. Calling it again after a successful call
+    /// returns an empty Vec.
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         let buffer = self
             .buffer

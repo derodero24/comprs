@@ -24,7 +24,7 @@ pub fn fuzz_detect(input: &[u8]) {
         Detected::Lz4 => Format::Lz4,
         Detected::Unknown => {
             assert!(
-                matches!(result, Err(ComprsError::InvalidArg(_))),
+                matches!(result, Err(ComprsError::UnknownFormat(_))),
                 "auto-detecting decompression accepted data of unknown format"
             );
             return;

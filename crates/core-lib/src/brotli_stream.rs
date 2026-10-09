@@ -324,8 +324,11 @@ const DECOMPRESS_ALL_CHUNK: usize = 64 * 1024;
 /// buffer is reported as an error, as in [`crate::decompress_with_limit`].
 ///
 /// Like `brotli::Decompressor`, it ignores data after the end of the stream
-/// and fails with "Invalid Data" on invalid and on truncated input; `context`
-/// prefixes the errors. Exceeding `max_output_size` fails with
+/// and fails with "Invalid Data", prefixed by `context`, on invalid and on
+/// truncated input. Both are [`ComprsError::Corrupt`]: the one-shot
+/// functions keep that message for truncated input, so unlike the
+/// decompression contexts they do not report it as
+/// [`ComprsError::Truncated`]. Exceeding `max_output_size` fails with
 /// [`ComprsError::SizeLimit`].
 pub(crate) fn decompress_all(
     input: &[u8],
@@ -369,7 +372,7 @@ pub(crate) fn decompress_all(
             BrotliResult::NeedsMoreOutput => {}
             BrotliResult::ResultSuccess => return Ok(crate::finish_output(output.take())),
             BrotliResult::NeedsMoreInput | BrotliResult::ResultFailure => {
-                return Err(ComprsError::Operation {
+                return Err(ComprsError::Corrupt {
                     context,
                     source: std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid Data")
                         .into(),
@@ -445,7 +448,7 @@ impl StreamDecoder {
                 BrotliResult::ResultSuccess => {
                     self.ended = true;
                     if input_offset < input.len() {
-                        return Err(ComprsError::Operation {
+                        return Err(ComprsError::Corrupt {
                             context,
                             source: "unexpected data after the end of the stream".into(),
                         });
@@ -453,7 +456,7 @@ impl StreamDecoder {
                     break;
                 }
                 BrotliResult::ResultFailure => {
-                    return Err(ComprsError::Operation {
+                    return Err(ComprsError::Corrupt {
                         context,
                         source: "Invalid Data".into(),
                     });
