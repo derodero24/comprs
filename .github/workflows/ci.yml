@@ -232,6 +232,17 @@ jobs:
           tool: cargo-shear
       - name: Detect unused dependencies
         run: cargo shear
+      # zlib-rs detects SSE4.2, AVX2, PCLMULQDQ and the aarch64 CRC
+      # instructions at run time only with its std feature, which flate2
+      # turns on through runtime_detection. Without it zlib-rs falls back to
+      # scalar CRC-32 and match finding, and gzip and deflate run up to 3x
+      # slower (#509).
+      - name: Check that zlib-rs keeps run-time CPU detection
+        run: |
+          # Captured first, so grep -q exiting early cannot fail cargo tree
+          # with SIGPIPE when the shell runs with pipefail.
+          tree=$(cargo tree -p comprs -e features -i zlib-rs --locked)
+          grep -q 'zlib-rs feature "std"' <<<"$tree" || { echo '::error file=Cargo.toml::flate2 no longer enables zlib-rs/std; gzip and deflate lose SIMD (#509)'; exit 1; }
 
   rust-lint:
     name: Rust Lint

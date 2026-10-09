@@ -14,7 +14,7 @@ pub const DEFAULT_LEVEL: u32 = 6;
 
 // flate2 does not report the memory of its streams, but zlib-rs allocates a
 // fixed amount for each, whatever the level and the data. The sizes below
-// were measured with flate2 1.1.9 and zlib-rs 0.6.
+// were measured with flate2 1.1.10 and zlib-rs 0.6.
 
 /// Heap memory of a deflate stream: its 64 KiB window, hash chains and
 /// pending output (371 KiB).
