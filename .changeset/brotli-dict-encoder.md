@@ -12,5 +12,7 @@ the input, comprs now compresses that input again with neither the
 dictionary nor brotli's built-in one, whose references a decoder given the
 custom dictionary would misread. The result is a valid brotli stream that
 decodes with or without the dictionary, only less compressed in these cases.
+The native addon recovers from the panic without printing it to stderr;
+every other panic still prints.
 In the WebAssembly build, where panics cannot be caught, the panic still
 traps until brotli is fixed.

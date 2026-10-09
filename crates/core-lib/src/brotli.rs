@@ -99,7 +99,8 @@ pub fn compress_with_dict(
 /// decoding it, and in either case compresses the input again with neither
 /// the custom dictionary nor brotli's built-in one
 /// (`encode_without_dictionaries`). That stream decodes with or without the
-/// dictionary.
+/// dictionary. The encoder runs under [`crate::panic_guard::catch`], so that
+/// a panic hook can leave out the panics recovered from here.
 ///
 /// Takes a checked `quality`, and reports encoder errors with `context`.
 pub(crate) fn compress_with_dict_inner(
@@ -113,7 +114,7 @@ pub(crate) fn compress_with_dict_inner(
     let output = if dict.is_empty() {
         encode(input, dict, &params)
     } else {
-        match std::panic::catch_unwind(|| encode(input, dict, &params)) {
+        match crate::panic_guard::catch(|| encode(input, dict, &params)) {
             Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
             Ok(Err(e)) => Err(e),
             Ok(Ok(_)) | Err(_) => encode_without_dictionaries(input, quality),
