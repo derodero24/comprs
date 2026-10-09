@@ -5,6 +5,7 @@ pub mod brotli;
 pub mod brotli_stream;
 pub mod crc;
 pub mod detect;
+pub mod dictionary;
 pub mod error;
 pub mod gzip;
 pub mod gzip_stream;
@@ -119,7 +120,10 @@ pub fn decompress_with_limit(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
+    use crate::dictionary::{Dictionary, DictionaryFormat};
 
     #[test]
     fn finish_output_releases_large_spare_capacity_only() {
@@ -170,6 +174,10 @@ mod tests {
     type Named = (&'static str, OneShot);
 
     const DICT: &[u8] = b"a dictionary of the kind that the dictionary functions take";
+
+    /// [`DICT`], prepared for zstd.
+    static PREPARED: LazyLock<Dictionary> =
+        LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap());
 
     /// Workers for the zstd functions that take them. Builds without the
     /// zstdmt feature accept only 0.
@@ -244,6 +252,18 @@ mod tests {
                 }),
                 ("zstd::decompress_with_dict_with_capacity", |data, limit| {
                     zstd::decompress_with_dict_with_capacity(data, DICT, limit)
+                }),
+            ],
+        ),
+        (
+            "zstd::compress_prepared",
+            |data, _| zstd::compress_prepared(data, &PREPARED, None, ZSTD_WORKERS),
+            &[
+                ("zstd::decompress_prepared", |data, limit| {
+                    zstd::decompress_prepared(data, &PREPARED, limit)
+                }),
+                ("zstd::decompress_with_dict", |data, _| {
+                    zstd::decompress_with_dict(data, DICT)
                 }),
             ],
         ),

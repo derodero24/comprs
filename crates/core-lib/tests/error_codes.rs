@@ -2,12 +2,20 @@
 
 mod common;
 
+use std::sync::LazyLock;
+
 use common::{BoxedContext, boxed, text};
+use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::gzip::{FlateWrapper, GzipHeaderOptions};
 use comprs_core::{
     ComprsError, ERROR_CODES, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, detect, gzip,
     gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
 };
+
+/// A prepared zstd dictionary.
+static PREPARED: LazyLock<Dictionary> = LazyLock::new(|| {
+    Dictionary::new(b"a dictionary of data", DictionaryFormat::Zstd, None).unwrap()
+});
 
 const INVALID_ARG: &str = "ERR_COMPRS_INVALID_ARG";
 const UNKNOWN_FORMAT: &str = "ERR_COMPRS_UNKNOWN_FORMAT";
@@ -118,6 +126,35 @@ const CODECS: &[Codec] = &[
         invalid_levels: &[
             || zstd::compress(b"data", Some(23)).map(drop),
             || zstd_stream::CompressContext::new(Some(23)).map(drop),
+        ],
+        cut: TRUNCATED,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "zstd prepared dict",
+        compress: |data| zstd::compress_prepared(data, &PREPARED, None, 0),
+        decoders: &[
+            |data, _| zstd::decompress_prepared(data, &PREPARED, MAX_DECOMPRESSED_SIZE),
+            |data, limit| zstd::decompress_prepared(data, &PREPARED, limit),
+        ],
+        compressor: || {
+            boxed(zstd_stream::CompressDictContext::with_prepared(
+                &PREPARED, None, 0,
+            ))
+        },
+        decompressor: |limit| {
+            boxed(zstd_stream::DecompressDictContext::with_prepared(
+                &PREPARED, limit,
+            ))
+        },
+        corrupt: &[
+            |_| CORRUPT_ZSTD.to_vec(),
+            |_| CORRUPT_ZSTD_WITH_SIZE.to_vec(),
+        ],
+        invalid_levels: &[
+            || zstd::compress_prepared(b"data", &PREPARED, Some(23), 0).map(drop),
+            || zstd_stream::CompressDictContext::with_prepared(&PREPARED, Some(23), 0).map(drop),
+            || Dictionary::new(b"dictionary", DictionaryFormat::Zstd, Some(23.0)).map(drop),
         ],
         cut: TRUNCATED,
         cut_stream: TRUNCATED,
