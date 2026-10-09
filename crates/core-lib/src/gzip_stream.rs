@@ -5,12 +5,9 @@ use std::io::Write;
 use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
 
-use crate::gzip::{DEFLATE_LEVEL, Inflater, LEVEL};
+use crate::gzip::{DEFAULT_LEVEL, DEFLATE_LEVEL, Inflater, LEVEL};
 use crate::limited::LimitedVec;
 use crate::{ComprsError, MemoryUsage};
-
-/// Default compression level for gzip/deflate (same as zlib default).
-pub const DEFAULT_LEVEL: u32 = 6;
 
 // flate2 does not report the memory of its streams, but zlib-rs allocates a
 // fixed amount for each, whatever the level and the data. The sizes below
@@ -319,9 +316,8 @@ mod tests {
         DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
         GzipDecompressContext, INFLATE_STATE_SIZE,
     };
+    use crate::gzip::DEFAULT_LEVEL;
     use crate::{ComprsError, MemoryUsage};
-
-    const DEFAULT_LEVEL: u32 = 6;
 
     /// Decompression limit used by the size-limit tests.
     const LIMIT: usize = 64 * 1024;

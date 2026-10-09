@@ -24,7 +24,7 @@ impl Lz4CompressContext {
         Ok(Self {
             inner: NativeState::new(
                 &env,
-                comprs_core::lz4_stream::CompressContext::new().map_err(to_napi_error)?,
+                comprs_core::lz4_stream::CompressContext::new(),
                 "lz4 stream",
             ),
         })

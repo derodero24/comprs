@@ -126,7 +126,7 @@ const CODECS: &[Codec] = &[
         truncated: "lz4",
         detected: Some(Detected::Lz4),
         encoders: [lz4::compress, |data| {
-            stream(lz4_stream::CompressContext::new(), data)
+            stream(Ok(lz4_stream::CompressContext::new()), data)
         }],
         decompress: lz4::decompress,
         decompress_with_capacity: lz4::decompress_with_capacity,

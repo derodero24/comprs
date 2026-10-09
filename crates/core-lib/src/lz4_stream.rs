@@ -23,11 +23,10 @@ pub struct CompressContext {
 }
 
 impl CompressContext {
-    pub fn new() -> Result<Self, ComprsError> {
-        let encoder = crate::lz4::frame_encoder(Vec::new());
-        Ok(Self {
-            encoder: Some(encoder),
-        })
+    pub fn new() -> Self {
+        Self {
+            encoder: Some(crate::lz4::frame_encoder(Vec::new())),
+        }
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
@@ -71,6 +70,12 @@ impl CompressContext {
             context: "lz4 stream finish",
             source: e.into(),
         })
+    }
+}
+
+impl Default for CompressContext {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -196,7 +201,7 @@ mod tests {
 
     #[test]
     fn compress_context_reports_the_encoder_state() {
-        let mut ctx = CompressContext::new().unwrap();
+        let mut ctx = CompressContext::new();
         ctx.transform(b"lz4 stream").unwrap();
         assert!(ctx.memory_usage() >= ENCODER_STATE_SIZE);
         ctx.finish().unwrap();
@@ -220,7 +225,7 @@ mod tests {
             })
             .collect();
         for chunk_size in [1, 1000, 64 * 1024] {
-            let mut ctx = CompressContext::new().unwrap();
+            let mut ctx = CompressContext::new();
             let mut encoder = crate::lz4::frame_encoder(Vec::new());
             let mut compressed = Vec::new();
             for chunk in data.chunks(chunk_size) {
@@ -252,7 +257,7 @@ mod tests {
 
     /// Compress `data` with a [`CompressContext`], in chunks of 1000 bytes.
     fn compress_in_chunks(data: &[u8]) -> Vec<u8> {
-        let mut ctx = CompressContext::new().unwrap();
+        let mut ctx = CompressContext::new();
         let mut compressed = Vec::new();
         for chunk in data.chunks(1000) {
             compressed.extend(ctx.transform(chunk).unwrap());

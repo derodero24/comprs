@@ -230,12 +230,12 @@ impl CompressDictContext {
             .ok_or(ComprsError::StreamFinished("brotli dict stream"))?;
 
         let data = std::mem::take(&mut self.chunks);
-        crate::brotli::compress_with_dict_inner(&data, &dict, self.quality).map_err(|e| {
-            ComprsError::Operation {
-                context: "brotli dict stream compress",
-                source: e.into(),
-            }
-        })
+        crate::brotli::compress_with_dict_inner(
+            &data,
+            &dict,
+            self.quality,
+            "brotli dict stream compress",
+        )
     }
 }
 

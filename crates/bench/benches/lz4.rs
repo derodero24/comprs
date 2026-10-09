@@ -21,7 +21,7 @@ fn bench_lz4(c: &mut Criterion) {
         c.bench_function(&format!("lz4 stream compress {name}"), |b| {
             b.iter(|| {
                 run_stream(
-                    lz4_stream::CompressContext::new().unwrap(),
+                    lz4_stream::CompressContext::new(),
                     &data,
                     lz4_stream::CompressContext::transform,
                     lz4_stream::CompressContext::finish,

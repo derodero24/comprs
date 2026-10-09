@@ -54,6 +54,7 @@ impl std::fmt::Display for Format {
 /// it fills the 64 KiB. Other data passes only by filling them: about 5% of
 /// random data of 64 KiB or more does, as it decodes as a long uncompressed
 /// meta-block.
+#[must_use]
 pub fn detect(data: &[u8]) -> Format {
     if data.starts_with(&GZIP_MAGIC) {
         return Format::Gzip;
