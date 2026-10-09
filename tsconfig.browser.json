@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+    "skipLibCheck": false,
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "rootDir": "src/browser",
+    "outDir": "browser",
+    "rootDirs": ["src/browser", "browser"]
+  },
+  "include": [],
+  "files": ["src/browser/streams.ts"]
+}

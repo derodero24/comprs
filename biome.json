@@ -5,6 +5,23 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
+  "files": {
+    "includes": [
+      "**",
+      "!streams.js",
+      "!streams.d.ts",
+      "!node.js",
+      "!node.d.ts",
+      "!index.mjs",
+      "!index.d.mts",
+      "!browser/streams.js",
+      "!browser/streams.d.ts",
+      "!stream-schedule.js",
+      "!stream-schedule.d.ts",
+      "!next",
+      "!browser/next"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -57,7 +74,7 @@
   },
   "overrides": [
     {
-      "includes": ["index.mjs", "browser/index.js"],
+      "includes": ["src/index.mts", "browser/index.js"],
       "linter": {
         "rules": {
           "performance": {
@@ -163,7 +180,7 @@
       }
     },
     {
-      "includes": ["index.mjs", "index.d.mts"],
+      "includes": ["src/index.mts"],
       "linter": {
         "rules": {
           "performance": {

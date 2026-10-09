@@ -39,6 +39,7 @@ comprs/
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
+├── src/             ← TypeScript sources of the stream helpers and the ES module entry
 ├── browser/         ← Browser entry, and the wasm-bindgen build it loads
 ├── __test__/        ← Vitest tests and JS benchmarks
 ├── e2e/             ← Tests of the packed package in Node.js, Deno, Bun and browsers
@@ -48,6 +49,19 @@ comprs/
 └── .github/
     └── workflows/   ← CI, Release, CodeQL, Renovate, Playground
 ```
+
+### JavaScript sources
+
+The stream helpers and the ES module entry are written in TypeScript, in `src/`, and compiled into the files that npm publishes:
+
+| Source | Output |
+| ------ | ------ |
+| `src/streams.ts` | `streams.js` and `streams.d.ts`: the Web Streams helpers (`@derodero24/comprs/streams`) |
+| `src/node.ts` | `node.js` and `node.d.ts`: the Node.js transforms (`@derodero24/comprs/node`) |
+| `src/index.mts` | `index.mjs` and `index.d.mts`: the ES module entry |
+| `src/browser/streams.ts` | `browser/streams.js` and `browser/streams.d.ts`: the Web Streams helpers for browsers |
+
+The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json` and `tsconfig.browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Editors check the sources with `src/tsconfig.json` and `src/browser/tsconfig.json`, which take the options and files of those two projects. The two projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and its declarations are written by hand.
 
 ## Workflow
 
@@ -80,6 +94,7 @@ pnpm test             # Vitest tests
 cargo test            # Rust tests
 cargo clippy          # Rust lint
 pnpm run build        # napi-rs build
+pnpm run build:js     # Modules and declarations compiled from src/
 ```
 
 CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails when the coverage falls below the thresholds in `vitest.config.mts` and writes the report to `coverage/`. It also measures the Rust tests of comprs-core with `cargo llvm-cov`, without the napi and wasm-bindgen bindings, which only the JS tests run; both reports go to Codecov.

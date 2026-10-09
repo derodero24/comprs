@@ -1,0 +1,17 @@
+# Compiled from the TypeScript sources in src/ by `pnpm run build:js`
+# (scripts/build-js.mjs), and tracked, as npm publishes them. GitHub
+# collapses them in diffs and leaves them out of the language statistics.
+# The last patterns cover the outputs of sources still to be added
+# (stream-schedule and next/), as do the negations in biome.json.
+/streams.js linguist-generated
+/streams.d.ts linguist-generated
+/node.js linguist-generated
+/node.d.ts linguist-generated
+/index.mjs linguist-generated
+/index.d.mts linguist-generated
+/browser/streams.js linguist-generated
+/browser/streams.d.ts linguist-generated
+/stream-schedule.js linguist-generated
+/stream-schedule.d.ts linguist-generated
+/next/** linguist-generated
+/browser/next/** linguist-generated

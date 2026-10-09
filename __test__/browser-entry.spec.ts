@@ -196,10 +196,11 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
       });
     });
 
-    // browser/index.d.ts and browser/streams.d.ts are written by hand. This
-    // checks the names they declare; wasm-parity.spec.ts and
-    // browser-streams.spec.ts check, when they are type-checked, that their
-    // signatures agree with the native declarations.
+    // browser/index.d.ts is written by hand, and browser/streams.d.ts is
+    // generated from src/browser/streams.ts. This checks the names they
+    // declare; wasm-parity.spec.ts and browser-streams.spec.ts check, when
+    // they are type-checked, that their signatures agree with the native
+    // declarations.
     it.each([
       ['@derodero24/comprs', 'browser/index.d.ts'],
       ['@derodero24/comprs/streams', 'browser/streams.d.ts'],

@@ -1,9 +1,3 @@
-// Types of the browser module of `@derodero24/comprs/streams` (streams.js),
-// which builds the helpers of ../streams.js on the stream contexts of the
-// browser entry. They are those of ../streams.d.ts, with `Uint8Array` where
-// those take `Buffer | Uint8Array`; __test__/browser-streams.spec.ts checks
-// that they agree.
-
 /**
  * Create a streaming brotli compression TransformStream.
  *
@@ -16,10 +10,7 @@
  *
  * @param quality Compression quality (0-11). Default is 6.
  */
-export declare function createBrotliCompressStream(
-  quality?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createBrotliCompressStream(quality?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming brotli decompression TransformStream.
  *
@@ -33,10 +24,7 @@ export declare function createBrotliCompressStream(
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createBrotliDecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createBrotliDecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming zstd compression TransformStream.
  *
@@ -49,10 +37,7 @@ export declare function createBrotliDecompressStream(
  *
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
-export declare function createZstdCompressStream(
-  level?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createZstdCompressStream(level?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming zstd decompression TransformStream.
  *
@@ -66,10 +51,7 @@ export declare function createZstdCompressStream(
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createZstdDecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createZstdDecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming gzip compression TransformStream.
  *
@@ -81,10 +63,7 @@ export declare function createZstdDecompressStream(
  *
  * @param level Compression level (0-9). Default is 6.
  */
-export declare function createGzipCompressStream(
-  level?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createGzipCompressStream(level?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming gzip decompression TransformStream.
  *
@@ -99,10 +78,7 @@ export declare function createGzipCompressStream(
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createGzipDecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createGzipDecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming raw deflate compression TransformStream.
  *
@@ -114,10 +90,7 @@ export declare function createGzipDecompressStream(
  *
  * @param level Compression level (0-9). Default is 6.
  */
-export declare function createDeflateCompressStream(
-  level?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createDeflateCompressStream(level?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming raw deflate decompression TransformStream.
  *
@@ -132,39 +105,7 @@ export declare function createDeflateCompressStream(
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDeflateDecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
-/**
- * Create a streaming LZ4 frame compression TransformStream.
- *
- * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 compression.
- *
- * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
- * read byte for byte: a `Uint16Array` is not converted element by element.
- */
-export declare function createLz4CompressStream(): TransformStream<
-  ArrayBufferLike | ArrayBufferView,
-  Uint8Array
->;
-
-/**
- * Create a streaming LZ4 frame decompression TransformStream.
- *
- * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
- *
- * The stream errors on empty input.
- *
- * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
- * read byte for byte: a `Uint16Array` is not converted element by element.
- *
- * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
- */
-export declare function createLz4DecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createDeflateDecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming brotli compression TransformStream with a custom dictionary.
  *
@@ -177,11 +118,7 @@ export declare function createLz4DecompressStream(
  * @param dict Custom dictionary bytes.
  * @param quality Compression quality (0-11). Default is 6.
  */
-export declare function createBrotliCompressDictStream(
-  dict: Uint8Array,
-  quality?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createBrotliCompressDictStream(dict: Uint8Array, quality?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming brotli decompression TransformStream with a custom dictionary.
  *
@@ -197,11 +134,7 @@ export declare function createBrotliCompressDictStream(
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createBrotliDecompressDictStream(
-  dict: Uint8Array,
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createBrotliDecompressDictStream(dict: Uint8Array, maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
  *
@@ -214,11 +147,7 @@ export declare function createBrotliDecompressDictStream(
  * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
-export declare function createZstdCompressDictStream(
-  dict: Uint8Array,
-  level?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createZstdCompressDictStream(dict: Uint8Array, level?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming zstd decompression TransformStream with a pre-trained dictionary.
  *
@@ -234,11 +163,29 @@ export declare function createZstdCompressDictStream(
  * @param dict Pre-trained dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createZstdDecompressDictStream(
-  dict: Uint8Array,
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
-
+export declare function createZstdDecompressDictStream(dict: Uint8Array, maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
+/**
+ * Create a streaming LZ4 frame compression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 compression.
+ *
+ * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
+ * read byte for byte: a `Uint16Array` is not converted element by element.
+ */
+export declare function createLz4CompressStream(): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
+/**
+ * Create a streaming LZ4 frame decompression TransformStream.
+ *
+ * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
+ *
+ * The stream errors on empty input.
+ *
+ * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
+ * read byte for byte: a `Uint16Array` is not converted element by element.
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createLz4DecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
 /**
  * Create a streaming auto-detect decompression TransformStream.
  *
@@ -259,6 +206,4 @@ export declare function createZstdDecompressDictStream(
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createDecompressStream(
-  maxOutputSize?: number,
-): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
+export declare function createDecompressStream(maxOutputSize?: number): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array>;
