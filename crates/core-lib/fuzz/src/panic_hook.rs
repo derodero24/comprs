@@ -10,28 +10,15 @@
 //! (#624). [`allow_caught_brotli_encoder_panics`] lets exactly those panics
 //! unwind to comprs-core.
 
-use std::backtrace::Backtrace;
 use std::panic::{self, Location};
+
+use comprs_core::panic_guard;
 
 /// Source directory of the encoder whose panics comprs-core catches. The
 /// version in it ends the exception at the next brotli upgrade: if the new
 /// release still panics, the targets fail again, as a reminder to check
 /// whether comprs-core's fallback, and this exception, are still needed.
 const BROTLI_ENCODER_SOURCE: &str = "brotli-9.0.0/src/enc/";
-
-/// How backtraces name the closure that
-/// `comprs_core::brotli::compress_with_dict_inner` runs under `catch_unwind`,
-/// as a frame of its own or as a type parameter of the `catch_unwind`
-/// frames: `{closure#0}`, or `{closure_env#0}` in the fuzz targets, whose
-/// line tables name inlined frames without their path. A panic with either
-/// name in its backtrace unwinds to comprs-core's `catch_unwind`. The number
-/// counts the closures of that function: one added before the guard takes
-/// its number, and the tests then fail instead of letting the panics of the
-/// new closure through.
-const ENCODER_GUARD: [&str; 2] = [
-    "comprs_core::brotli::compress_with_dict_inner::{closure#0}",
-    "comprs_core::brotli::compress_with_dict_inner::{closure_env#0}",
-];
 
 /// Let the panics of brotli 9.0.0's encoder that comprs-core catches (#623)
 /// unwind to its `catch_unwind`, instead of aborting in libfuzzer-sys's
@@ -57,12 +44,13 @@ pub fn allow_caught_brotli_encoder_panics() {
 
 /// Whether a panic at `location` happens in brotli 9.0.0's encoder, called
 /// from comprs-core's `catch_unwind` around it.
+///
+/// comprs-core marks the thread while it runs code whose panics it recovers
+/// from ([`panic_guard::is_guarded`]). The location narrows that down to the
+/// encoder, so that a panic of other code that comprs-core guards still
+/// fails the target, and so does one of another brotli release.
 fn is_caught_encoder_panic(location: &Location) -> bool {
-    // The location first: resolving a backtrace takes a while.
-    location.file().contains(BROTLI_ENCODER_SOURCE) && {
-        let backtrace = Backtrace::force_capture().to_string();
-        ENCODER_GUARD.iter().any(|guard| backtrace.contains(guard))
-    }
+    location.file().contains(BROTLI_ENCODER_SOURCE) && panic_guard::is_guarded()
 }
 
 #[cfg(test)]
@@ -153,8 +141,8 @@ mod tests {
             guarded_unwound.len() == 1 && guarded_unwound[0].contains(BROTLI_ENCODER_SOURCE),
             "brotli's encoder no longer panics on the input of #623, or the panic is not let \
              through: if a release fixed the encoder, remove this exception together with \
-             comprs-core's fallback; if it still panics, update BROTLI_ENCODER_SOURCE or \
-             ENCODER_GUARD. Panics let through: {guarded_unwound:?}"
+             comprs-core's fallback; if it still panics, update BROTLI_ENCODER_SOURCE. \
+             Panics let through: {guarded_unwound:?}"
         );
         assert!(
             unguarded.is_none(),

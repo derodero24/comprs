@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   BrotliCompressDictContext,
@@ -356,6 +358,47 @@ describe('brotli dictionary encoder defects (#623)', () => {
     const ctx = new BrotliCompressDictContext(dict);
     const output = Buffer.concat([ctx.transform(data), ctx.finish()]);
     expect(brotliDecompressWithDict(output, dict)).toEqual(data);
+  });
+
+  // How long the process of the next test may run. Vitest fails a test that
+  // outlasts its own timeout (5 s by default) even while it waits in
+  // spawnSync, so the test gets twice this.
+  const PROCESS_TIMEOUT = 30_000;
+
+  // comprs catches the encoder's panic and compresses again, but the panic
+  // hook runs first, and Rust's default hook prints the panic to stderr
+  // (#650). The calls run in a Node.js process of their own, whose stderr
+  // the test reads.
+  it('should keep the panics it recovers from off stderr', {
+    timeout: 2 * PROCESS_TIMEOUT,
+  }, () => {
+    const { data, dict } = panicking;
+    const addon = JSON.stringify(resolve(__dirname, '../index.js'));
+    const script = `
+      const comprs = require(${addon});
+      const data = Buffer.from(${JSON.stringify([...data])});
+      const dict = Buffer.from(${JSON.stringify([...dict])});
+      (async () => {
+        const ctx = new comprs.BrotliCompressDictContext(dict, 5);
+        const outputs = [
+          comprs.brotliCompressWithDict(data, dict, 5),
+          await comprs.brotliCompressWithDictAsync(data, dict, 5),
+          Buffer.concat([ctx.transform(data), ctx.finish()]),
+        ];
+        for (const output of outputs) console.log(output.toString('base64'));
+      })();
+    `;
+    const child = spawnSync(process.execPath, ['-e', script], {
+      encoding: 'utf8',
+      timeout: PROCESS_TIMEOUT,
+    });
+    expect(child.stderr).toBe('');
+    expect(child.status).toBe(0);
+    const outputs = child.stdout.trim().split('\n');
+    expect(outputs).toHaveLength(3);
+    for (const output of outputs) {
+      expect(brotliDecompressWithDict(Buffer.from(output, 'base64'), dict)).toEqual(data);
+    }
   });
 
   // Followed by text, the first input makes brotli 9.0.0 fail at qualities
