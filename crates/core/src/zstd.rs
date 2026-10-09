@@ -1,11 +1,11 @@
 //! Zstandard compression and decompression.
 
-use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::error::to_napi_error;
+use crate::task::{LegacyBuffer, OneShot};
 
 /// Compress data using Zstandard.
 ///
@@ -23,25 +23,6 @@ pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<f64>) -> Re
         .map_err(to_napi_error)
 }
 
-pub struct ZstdCompressTask {
-    data: Vec<u8>,
-    level: Option<i32>,
-}
-
-#[napi]
-impl Task for ZstdCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::compress(&self.data, self.level).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously compress data using Zstandard.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
@@ -55,35 +36,17 @@ impl Task for ZstdCompressTask {
 pub fn zstd_compress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     level: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<ZstdCompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let level = comprs_core::zstd::LEVEL
             .check_optional_f64(level.get()?)
             .map_err(to_napi_error)?;
-        Ok(ZstdCompressTask {
-            data: crate::as_bytes(&data).to_vec(),
-            level,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::compress(&data, level)
+        }))
     })
-}
-
-pub struct ZstdDecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for ZstdDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress Zstandard-compressed data.
@@ -98,11 +61,10 @@ impl Task for ZstdDecompressTask {
 )]
 pub fn zstd_decompress_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<ZstdDecompressTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
-        Ok(ZstdDecompressTask {
-            data: crate::as_bytes(&data.get()?).to_vec(),
-        })
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || comprs_core::zstd::decompress(&data)))
     })
 }
 
@@ -219,26 +181,6 @@ pub fn zstd_decompress_with_dict_with_capacity(
     .map_err(to_napi_error)
 }
 
-pub struct ZstdDecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for ZstdDecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::decompress_with_capacity(&self.data, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously decompress Zstandard-compressed data with explicit capacity.
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
@@ -252,36 +194,15 @@ impl Task for ZstdDecompressWithCapacityTask {
 pub fn zstd_decompress_with_capacity_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     capacity: AsyncArg<f64>,
-) -> AsyncTask<Checked<ZstdDecompressWithCapacityTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
-        Ok(ZstdDecompressWithCapacityTask {
-            data: crate::as_bytes(&data).to_vec(),
-            capacity: cap,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::decompress_with_capacity(&data, cap)
+        }))
     })
-}
-
-pub struct ZstdCompressWithDictTask {
-    data: Vec<u8>,
-    dict: Vec<u8>,
-    level: Option<i32>,
-}
-
-#[napi]
-impl Task for ZstdCompressWithDictTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::compress_with_dict(&self.data, &self.dict, self.level)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously compress data using Zstandard with a pre-trained dictionary.
@@ -297,38 +218,19 @@ pub fn zstd_compress_with_dict_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     dict: AsyncArg<Either<Buffer, Uint8Array>>,
     level: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<ZstdCompressWithDictTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let dict = dict.get()?;
         let level = comprs_core::zstd::LEVEL
             .check_optional_f64(level.get()?)
             .map_err(to_napi_error)?;
-        Ok(ZstdCompressWithDictTask {
-            data: crate::as_bytes(&data).to_vec(),
-            dict: crate::as_bytes(&dict).to_vec(),
-            level,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        let dict = crate::as_bytes(&dict).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::compress_with_dict(&data, &dict, level)
+        }))
     })
-}
-
-pub struct ZstdDecompressWithDictTask {
-    data: Vec<u8>,
-    dict: Vec<u8>,
-}
-
-#[napi]
-impl Task for ZstdDecompressWithDictTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::decompress_with_dict(&self.data, &self.dict).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary.
@@ -341,35 +243,16 @@ impl Task for ZstdDecompressWithDictTask {
 pub fn zstd_decompress_with_dict_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     dict: AsyncArg<Either<Buffer, Uint8Array>>,
-) -> AsyncTask<Checked<ZstdDecompressWithDictTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let dict = dict.get()?;
-        Ok(ZstdDecompressWithDictTask {
-            data: crate::as_bytes(&data).to_vec(),
-            dict: crate::as_bytes(&dict).to_vec(),
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        let dict = crate::as_bytes(&dict).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::decompress_with_dict(&data, &dict)
+        }))
     })
-}
-
-pub struct ZstdTrainDictionaryTask {
-    samples: Vec<Vec<u8>>,
-    max_dict_size: usize,
-}
-
-#[napi]
-impl Task for ZstdTrainDictionaryTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::train_dictionary(&self.samples, self.max_dict_size)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously train a zstd dictionary from sample data.
@@ -386,7 +269,7 @@ impl Task for ZstdTrainDictionaryTask {
 pub fn zstd_train_dictionary_async(
     samples: AsyncArg<Vec<Either<Buffer, Uint8Array>>>,
     max_dict_size: AsyncArg<Option<f64>>,
-) -> AsyncTask<Checked<ZstdTrainDictionaryTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let samples = samples.get()?;
         let max_size = comprs_core::zstd::DICT_SIZE
@@ -397,32 +280,10 @@ pub fn zstd_train_dictionary_async(
             .iter()
             .map(|s| crate::as_bytes(s).to_vec())
             .collect();
-        Ok(ZstdTrainDictionaryTask {
-            samples: sample_vecs,
-            max_dict_size: max_size,
-        })
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::train_dictionary(&sample_vecs, max_size)
+        }))
     })
-}
-
-pub struct ZstdDecompressWithDictWithCapacityTask {
-    data: Vec<u8>,
-    dict: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for ZstdDecompressWithDictWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::zstd::decompress_with_dict_with_capacity(&self.data, &self.dict, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
 }
 
 /// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary,
@@ -441,15 +302,15 @@ pub fn zstd_decompress_with_dict_with_capacity_async(
     data: AsyncArg<Either<Buffer, Uint8Array>>,
     dict: AsyncArg<Either<Buffer, Uint8Array>>,
     capacity: AsyncArg<f64>,
-) -> AsyncTask<Checked<ZstdDecompressWithDictWithCapacityTask>> {
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
     checked(|| {
         let data = data.get()?;
         let dict = dict.get()?;
         let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
-        Ok(ZstdDecompressWithDictWithCapacityTask {
-            data: crate::as_bytes(&data).to_vec(),
-            dict: crate::as_bytes(&dict).to_vec(),
-            capacity: cap,
-        })
+        let data = crate::as_bytes(&data).to_vec();
+        let dict = crate::as_bytes(&dict).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::zstd::decompress_with_dict_with_capacity(&data, &dict, cap)
+        }))
     })
 }

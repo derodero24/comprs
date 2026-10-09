@@ -31,8 +31,10 @@
  * @property {() => string} version
  * @property {StreamFactory} createZstdCompressStream
  * @property {StreamFactory} createDecompressStream
- * @property {() => Promise<AsyncFunctions>} importAsync Import the *Async
- *   functions, which browser/app.js imports dynamically.
+ * @property {() => Promise<AsyncFunctions>} importAsync Load
+ *   `@derodero24/comprs` as the fixture does: its ES module namespace, or
+ *   what require() returns. It holds the *Async functions, which
+ *   browser/app.js imports dynamically.
  */
 
 /**
@@ -140,6 +142,15 @@ export async function checkPackage(comprs) {
   await run('async round trip', async () => {
     const { gzipCompressAsync, gzipDecompressAsync } = await comprs.importAsync();
     assertBytes(await gzipDecompressAsync(await gzipCompressAsync(data)), data);
+  });
+  await run('no task classes', async () => {
+    // napi-rs adds a class to the native binding for every `#[napi]` impl
+    // of its Task trait. require() returns the whole binding, and Bun and
+    // bundlers list all of it in the ES module namespace, so such a class
+    // would be exported although it is not declared and cannot be
+    // constructed (#568).
+    const tasks = Object.keys(await comprs.importAsync()).filter((name) => name.endsWith('Task'));
+    assert(tasks.length === 0, `the entry exports ${tasks.join(', ')}`);
   });
   await run('stream round trip', async () => {
     const stream = new Blob([data])
