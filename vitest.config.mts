@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => ({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       reportsDirectory: 'coverage',
+      // The javascript flag in codecov.yml covers the same files.
       include: ['streams.js', 'node.js'],
       thresholds: {
         lines: 70,

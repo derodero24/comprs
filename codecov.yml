@@ -17,7 +17,9 @@ flags:
     paths:
       - crates/
     carryforward: true
+  # The files that coverage.include in vitest.config.mts lists.
   javascript:
     paths:
-      - __test__/
+      - streams.js
+      - node.js
     carryforward: true

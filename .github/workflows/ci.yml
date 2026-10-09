@@ -557,6 +557,10 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --dir e2e run test:browser
 
+  # ──── Coverage ────
+  # Measures the Rust tests with cargo-llvm-cov and the Vitest tests with V8.
+  # The Vitest run fails when the coverage falls below the thresholds in
+  # vitest.config.mts. upload-coverage sends both reports to Codecov.
   coverage:
     name: Coverage
     needs: [build]
@@ -591,15 +595,75 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
+      # pnpm passes the options after the script name on to Vitest. Do not
+      # put `--` before them: pnpm passes that on too, and Vitest ignores
+      # the options after it, so the tests would run without coverage.
       - name: JS coverage
-        run: pnpm test -- --coverage
+        run: pnpm test --coverage
 
-      # Upload to Codecov
-      - name: Upload coverage to Codecov
+      # upload-coverage does not fail when Codecov rejects an upload, so
+      # check here that both reports were written.
+      - name: Check the coverage reports
+        run: |
+          for report in rust-lcov.info coverage/lcov.info; do
+            if ! grep -qs '^SF:' "$report"; then
+              echo "::error::$report is missing or covers no source file"
+              exit 1
+            fi
+          done
+      - name: Upload the coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-reports
+          path: |
+            rust-lcov.info
+            coverage/lcov.info
+          if-no-files-found: error
+
+  # Uploads the reports of the coverage job to Codecov, each on its own with
+  # its own flag (see codecov.yml). The uploads authenticate with OIDC, so no
+  # secret is needed, and this separate job keeps the ID token away from the
+  # dependencies and tests that the coverage job runs. Pull requests from
+  # forks get no ID token: codecov-action then uploads without one, which
+  # Codecov accepts from forks of public repositories. A Codecov outage must
+  # not fail CI, hence fail_ci_if_error: false and no place in CI Complete;
+  # the coverage job has already checked the reports.
+  upload-coverage:
+    name: Upload Coverage
+    needs: [coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # codecov-action authenticates the uploads with OIDC
+    steps:
+      # The Codecov CLI takes the list of the repository's files from the
+      # checkout, to map the paths in the reports to them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the coverage reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-reports
+          path: .
+      - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
-          files: rust-lcov.info,coverage/lcov.info
-          flags: rust,javascript
+          files: rust-lcov.info
+          disable_search: true
+          flags: rust
+          name: rust
+          use_oidc: true
+          fail_ci_if_error: false
+      - name: Upload JS coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          files: coverage/lcov.info
+          disable_search: true
+          flags: javascript
+          name: javascript
+          use_oidc: true
           fail_ci_if_error: false
 
   # Posts the report of build-wasm-bindgen, also when the binary is over its
