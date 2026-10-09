@@ -7,12 +7,12 @@ import type { BenchRunOptions } from 'vitest';
 // Tinybench 6, which Vitest 5 uses, defaults to at least a second and 64 runs,
 // after a warmup of 250 ms and 16 runs, which would make `pnpm run bench` take
 // twice as long, and the 1MB benchmarks of the slower libraries far longer.
-export const BENCH_OPTIONS: BenchRunOptions = {
-  time: 500,
-  iterations: 10,
-  warmupTime: 100,
-  warmupIterations: 5,
-};
+// BENCH_SMOKE=1 runs each benchmark once, without warmup: CI checks that the
+// benchmarks work without spending minutes measuring them.
+export const BENCH_OPTIONS: BenchRunOptions =
+  process.env.BENCH_SMOKE === '1'
+    ? { time: 0, iterations: 1, warmup: false }
+    : { time: 500, iterations: 10, warmupTime: 100, warmupIterations: 5 };
 
 // --- Deterministic pseudo-random data generator ---
 // Uses a linear congruential generator for reproducible benchmark inputs:

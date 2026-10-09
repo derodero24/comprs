@@ -412,6 +412,14 @@ jobs:
       - name: ESM import smoke test
         if: ${{ !matrix.alpine }}
         run: node __test__/esm-import.mjs
+      # Runs every JS benchmark once, without warmup (BENCH_SMOKE in
+      # __test__/bench-fixtures.ts), so a change that breaks the benchmarks
+      # fails CI instead of the next `pnpm run bench`.
+      - name: Benchmark smoke test
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        env:
+          BENCH_SMOKE: '1'
+        run: pnpm run bench --run
       # GitHub runs JavaScript actions in Alpine containers on x64 runners
       # only, so the musl legs set up on the runner and run just the tests in
       # a node:<version>-alpine container. The workspace keeps its path, so
