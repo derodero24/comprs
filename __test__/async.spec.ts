@@ -1,7 +1,11 @@
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   brotliCompress,
   brotliCompressAsync,
+  brotliCompressWithDict,
+  brotliCompressWithDictAsync,
   brotliDecompressAsync,
   brotliDecompressWithCapacityAsync,
   decompress,
@@ -14,6 +18,8 @@ import {
   gzipCompressAsync,
   gzipDecompressAsync,
   gzipDecompressWithCapacityAsync,
+  lz4Compress,
+  lz4CompressAsync,
   zstdCompress,
   zstdCompressAsync,
   zstdCompressWithDict,
@@ -26,6 +32,7 @@ import {
   zstdTrainDictionary,
   zstdTrainDictionaryAsync,
 } from '../index.js';
+import { JSON_DATA, RANDOM_MEDIUM } from './bench-fixtures.js';
 
 describe('zstd async', () => {
   it('should return a Promise', () => {
@@ -444,5 +451,171 @@ describe('brotliDecompressWithCapacityAsync', () => {
     await expect(brotliDecompressWithCapacityAsync(compressed, -1)).rejects.toThrow(
       'capacity must be an integer between 0 and 9007199254740991',
     );
+  });
+});
+
+// The *Async functions copy their byte array arguments before they return
+// and keep no reference to them (README, Async): what the caller does with an
+// argument afterwards cannot change the result. A task that read the caller's
+// memory on the thread pool instead would race with writes to it, and with a
+// transfer of its ArrayBuffer, whose new owner may overwrite or free that
+// memory: Node-API cannot pin an ArrayBuffer against detachment (#548).
+describe('input ownership', () => {
+  const FIXTURES: [string, Buffer][] = [
+    ['JSON', JSON_DATA],
+    ['pseudo-random', RANDOM_MEDIUM],
+  ];
+
+  /** A raw-content dictionary: the last 4 KiB of the JSON fixture. */
+  const DICT = JSON_DATA.subarray(-4096);
+
+  /**
+   * An *Async function under test and the synchronous variant whose result
+   * it must return.
+   */
+  interface Case {
+    /** The byte array arguments made from a fixture: the data, then any dictionary. */
+    args: (fixture: Buffer) => Buffer[];
+    fn: (...args: Uint8Array[]) => Promise<Buffer>;
+    sync: (...args: Uint8Array[]) => Buffer;
+  }
+
+  const CASES: Record<string, Case> = {
+    zstdCompressAsync: {
+      args: (fixture) => [fixture],
+      fn: (data) => zstdCompressAsync(data),
+      sync: (data) => zstdCompress(data),
+    },
+    gzipCompressAsync: {
+      args: (fixture) => [fixture],
+      fn: (data) => gzipCompressAsync(data),
+      sync: (data) => gzipCompress(data),
+    },
+    deflateCompressAsync: {
+      args: (fixture) => [fixture],
+      fn: (data) => deflateCompressAsync(data),
+      sync: (data) => deflateCompress(data),
+    },
+    brotliCompressAsync: {
+      args: (fixture) => [fixture],
+      fn: (data) => brotliCompressAsync(data),
+      sync: (data) => brotliCompress(data),
+    },
+    lz4CompressAsync: {
+      args: (fixture) => [fixture],
+      fn: (data) => lz4CompressAsync(data),
+      sync: (data) => lz4Compress(data),
+    },
+    zstdCompressWithDictAsync: {
+      args: (fixture) => [fixture, DICT],
+      fn: (data, dict) => zstdCompressWithDictAsync(data, dict),
+      sync: (data, dict) => zstdCompressWithDict(data, dict),
+    },
+    brotliCompressWithDictAsync: {
+      args: (fixture) => [fixture, DICT],
+      fn: (data, dict) => brotliCompressWithDictAsync(data, dict),
+      sync: (data, dict) => brotliCompressWithDict(data, dict),
+    },
+    zstdDecompressAsync: {
+      args: (fixture) => [zstdCompress(fixture)],
+      fn: (data) => zstdDecompressAsync(data),
+      sync: (data) => zstdDecompress(data),
+    },
+    decompressAsync: {
+      args: (fixture) => [zstdCompress(fixture)],
+      fn: (data) => decompressAsync(data),
+      sync: (data) => decompress(data),
+    },
+    zstdDecompressWithDictAsync: {
+      args: (fixture) => [zstdCompressWithDict(fixture, DICT), DICT],
+      fn: (data, dict) => zstdDecompressWithDictAsync(data, dict),
+      sync: (data, dict) => zstdDecompressWithDict(data, dict),
+    },
+  };
+
+  /**
+   * Ways to pass an argument. Each copies the bytes into an ArrayBuffer of
+   * its own, which {@link overwrite} may then overwrite as a whole.
+   */
+  const LAYOUTS: [string, (bytes: Uint8Array) => Uint8Array][] = [
+    [
+      'a Buffer',
+      (bytes) => {
+        const buffer = Buffer.alloc(bytes.length);
+        buffer.set(bytes);
+        return buffer;
+      },
+    ],
+    // The bytes around the view differ from the bytes in it, so a copy that
+    // read past the view would change the result.
+    [
+      'a Uint8Array at byte offset 3',
+      (bytes) => {
+        const backing = new Uint8Array(bytes.length + 6).fill(0x55);
+        backing.set(bytes, 3);
+        return backing.subarray(3, bytes.length + 3);
+      },
+    ],
+  ];
+
+  /** Overwrite every byte of the ArrayBuffer behind `arg`, the bytes around a view included. */
+  function overwrite(arg: Uint8Array): void {
+    new Uint8Array(arg.buffer).fill(0xaa);
+  }
+
+  describe.each(Object.entries(CASES))('%s', (_name, { args, fn, sync }) => {
+    describe.each(FIXTURES)('with %s data', (_fixtureName, fixture) => {
+      it.each(LAYOUTS)('copies %s that the caller overwrites after the call', async (_, place) => {
+        const pristine = args(fixture);
+        const expected = sync(...pristine);
+        const placed = pristine.map(place);
+        const result = fn(...placed);
+        for (const arg of placed) overwrite(arg);
+        expect(await result).toEqual(expected);
+      });
+    });
+  });
+
+  it.each(FIXTURES)(
+    'zstdCompressAsync copies %s data whose ArrayBuffer the caller transfers after the call',
+    async (_, fixture) => {
+      const u8 = new Uint8Array(fixture);
+      const result = zstdCompressAsync(u8);
+      // Detaches the ArrayBuffer, as postMessage() would: its memory moves to
+      // the clone, which the new owner then overwrites.
+      const moved = structuredClone(u8.buffer, { transfer: [u8.buffer] });
+      new Uint8Array(moved).fill(0xaa);
+      expect(u8.byteLength).toBe(0);
+      expect(await result).toEqual(zstdCompress(fixture));
+    },
+  );
+
+  it('zstdTrainDictionaryAsync copies samples that the caller overwrites after the call', async () => {
+    const pristine = Array.from({ length: 100 }, (_, i) =>
+      JSON_DATA.subarray(i * 800, (i + 1) * 800),
+    );
+    const samples = pristine.map((sample) => new Uint8Array(sample));
+    const result = zstdTrainDictionaryAsync(samples, 4096);
+    for (const sample of samples) sample.fill(0xaa);
+    // Training is deterministic: the same samples give the same dictionary.
+    expect(await result).toEqual(zstdTrainDictionary(pristine, 4096));
+  });
+
+  // async-gc.cjs runs in a Node.js process of its own, as global.gc() needs
+  // --expose-gc. PROCESS_TIMEOUT is how long it may run. Vitest fails a test
+  // that outlasts its own timeout (5 s by default) even while it waits in
+  // execFileSync, so the test gets twice this.
+  const PROCESS_TIMEOUT = 30_000;
+
+  it('zstdCompressAsync returns its results when the inputs are garbage-collected', {
+    timeout: 2 * PROCESS_TIMEOUT,
+  }, () => {
+    const script = resolve(__dirname, 'fixtures/async-gc.cjs');
+    expect(() =>
+      execFileSync(process.execPath, ['--expose-gc', script], {
+        stdio: 'pipe',
+        timeout: PROCESS_TIMEOUT,
+      }),
+    ).not.toThrow();
   });
 });
