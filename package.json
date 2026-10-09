@@ -124,6 +124,7 @@
   "scripts": {
     "build": "napi build --manifest-path crates/core/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path crates/core/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
+    "build:js": "node scripts/build-js.mjs",
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "size:wasm": "node scripts/wasm-size.mjs",
     "artifacts": "napi artifacts",
@@ -134,7 +135,7 @@
     "format": "biome format --write",
     "lint": "biome check",
     "lint:fix": "biome check --write",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit",
     "test": "vitest run",
     "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts",
     "test:types": "node scripts/check-consumer-types.mjs",
@@ -143,7 +144,7 @@
     "bench:ci": "vitest bench --mode ci",
     "attw": "attw --pack .",
     "publint": "publint",
-    "verify": "pnpm run check && cargo clippy --all-targets -- -W clippy::all && cargo test && pnpm run build && pnpm run typecheck && pnpm test",
+    "verify": "pnpm run check && cargo clippy --all-targets -- -W clippy::all && cargo test && pnpm run build && pnpm run build:js && pnpm run typecheck && pnpm test",
     "clean": "rm -rf target coverage *.node browser/comprs-wasm*",
     "prepare": "lefthook install"
   },

@@ -60,6 +60,12 @@
       "matchManagers": ["npm"],
       "matchDepNames": ["typescript-5"],
       "allowedVersions": "<6"
+    },
+    {
+      "description": "TypeScript compiles the JavaScript modules that npm publishes (scripts/build-js.mjs), and CI fails when their output changes. Update it in a pull request of its own, so that a release that changes the output, which then needs pnpm run build:js, holds up no other update",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["typescript"],
+      "groupName": "typescript"
     }
   ]
 }

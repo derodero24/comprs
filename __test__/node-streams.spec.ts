@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { resolve } from 'node:path';
 import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -38,6 +40,8 @@ import {
   createZstdDecompressTransform,
 } from '../node.js';
 import { BOMB_FORMATS, type BombFormat, makeBomb, peakRssKiB } from './bomb-fixtures.js';
+
+const ROOT = resolve(__dirname, '..');
 
 /** Collect output from source piped through a single transform into a Buffer. */
 async function collectTransform(source: Readable, transform: Transform): Promise<Buffer> {
@@ -618,4 +622,54 @@ describe('Node transform output chunk size', () => {
       expect(Buffer.concat(chunks).equals(plain)).toBe(true);
     },
   );
+});
+
+describe('Node transform errors from another realm', () => {
+  // How long the Node.js process may run. Vitest fails a test that outlasts
+  // its own timeout (5 s by default) even while it waits in execFileSync.
+  const PROCESS_TIMEOUT = 30_000;
+
+  // Jest runs the code of a package in a vm context, but loads native addons
+  // and Node.js modules in the main realm, so the errors that the stream
+  // contexts throw are not instances of the Error that node.js sees. The test
+  // runs in a process of its own, as loading node.js a second time here would
+  // spoil its coverage.
+  it('should emit the error that the stream context threw', {
+    timeout: 2 * PROCESS_TIMEOUT,
+  }, () => {
+    const script = [
+      "const { readFileSync } = require('node:fs');",
+      "const { createRequire } = require('node:module');",
+      "const { join } = require('node:path');",
+      "const vm = require('node:vm');",
+      "const file = join(process.cwd(), 'node.js');",
+      'function loadInContext() {',
+      "  const source = '(function (exports, require, module) {' + readFileSync(file, 'utf8') + '\\n})';",
+      '  const wrapper = vm.runInNewContext(source, { Buffer }, { filename: file });',
+      '  const module = { exports: {} };',
+      '  wrapper(module.exports, createRequire(file), module);',
+      '  return module.exports;',
+      '}',
+      'function streamError(node) {',
+      '  return new Promise((resolve) => {',
+      '    const transform = node.createZstdDecompressTransform();',
+      "    transform.on('error', (err) => resolve({ code: err.code, message: err.message }));",
+      "    transform.end(Buffer.from('not zstd data'));",
+      '  });',
+      '}',
+      'Promise.all([streamError(require(file)), streamError(loadInContext())]).then((errors) => {',
+      '  process.stdout.write(JSON.stringify(errors));',
+      '});',
+    ].join('\n');
+    const [native, inContext]: unknown[] = JSON.parse(
+      execFileSync(process.execPath, ['--eval', script], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: PROCESS_TIMEOUT,
+      }),
+    );
+
+    expect(native).toEqual({ code: 'GenericFailure', message: expect.any(String) });
+    expect(inContext).toEqual(native);
+  });
 });

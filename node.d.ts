@@ -1,5 +1,4 @@
-import type { Transform } from 'node:stream';
-
+import { Transform } from 'node:stream';
 /**
  * Create a Node.js stream.Transform for zstd compression.
  *
@@ -12,7 +11,6 @@ import type { Transform } from 'node:stream';
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
 export declare function createZstdCompressTransform(level?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for zstd decompression.
  *
@@ -28,7 +26,6 @@ export declare function createZstdCompressTransform(level?: number): Transform;
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createZstdDecompressTransform(maxOutputSize?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for gzip compression.
  *
@@ -42,7 +39,6 @@ export declare function createZstdDecompressTransform(maxOutputSize?: number): T
  * @param level Compression level (0-9). Default is 6.
  */
 export declare function createGzipCompressTransform(level?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for gzip decompression.
  *
@@ -59,7 +55,6 @@ export declare function createGzipCompressTransform(level?: number): Transform;
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createGzipDecompressTransform(maxOutputSize?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for raw deflate compression.
  *
@@ -72,7 +67,6 @@ export declare function createGzipDecompressTransform(maxOutputSize?: number): T
  * @param level Compression level (0-9). Default is 6.
  */
 export declare function createDeflateCompressTransform(level?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for raw deflate decompression.
  *
@@ -88,7 +82,6 @@ export declare function createDeflateCompressTransform(level?: number): Transfor
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createDeflateDecompressTransform(maxOutputSize?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for brotli compression.
  *
@@ -101,7 +94,6 @@ export declare function createDeflateDecompressTransform(maxOutputSize?: number)
  * @param quality Compression quality (0-11). Default is 6.
  */
 export declare function createBrotliCompressTransform(quality?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for brotli decompression.
  *
@@ -117,36 +109,6 @@ export declare function createBrotliCompressTransform(quality?: number): Transfo
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createBrotliDecompressTransform(maxOutputSize?: number): Transform;
-
-/**
- * Create a Node.js stream.Transform for LZ4 frame compression.
- *
- * Uses Node.js `stream.Transform` to provide chunked LZ4 compression compatible
- * with `stream.pipeline()` and pipe-based workflows.
- *
- * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
- */
-export declare function createLz4CompressTransform(): Transform;
-
-/**
- * Create a Node.js stream.Transform for LZ4 frame decompression.
- *
- * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
- * with `stream.pipeline()` and pipe-based workflows.
- *
- * The input may hold several concatenated frames, including skippable and
- * legacy frames. The transform emits an error if the input ends inside a
- * frame, including empty input, or if data that is not a frame follows a
- * frame.
- *
- * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
- *
- * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
- */
-export declare function createLz4DecompressTransform(maxOutputSize?: number): Transform;
-
 /**
  * Create a Node.js stream.Transform for zstd compression with a pre-trained dictionary.
  *
@@ -159,11 +121,7 @@ export declare function createLz4DecompressTransform(maxOutputSize?: number): Tr
  * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
-export declare function createZstdCompressDictTransform(
-  dict: Buffer | Uint8Array,
-  level?: number,
-): Transform;
-
+export declare function createZstdCompressDictTransform(dict: Buffer | Uint8Array, level?: number): Transform;
 /**
  * Create a Node.js stream.Transform for zstd decompression with a pre-trained dictionary.
  *
@@ -178,11 +136,7 @@ export declare function createZstdCompressDictTransform(
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
-export declare function createZstdDecompressDictTransform(
-  dict: Buffer | Uint8Array,
-  maxOutputSize?: number,
-): Transform;
-
+export declare function createZstdDecompressDictTransform(dict: Buffer | Uint8Array, maxOutputSize?: number): Transform;
 /**
  * Create a Node.js stream.Transform for brotli compression with a custom dictionary.
  *
@@ -195,11 +149,7 @@ export declare function createZstdDecompressDictTransform(
  * @param dict Custom dictionary bytes.
  * @param quality Compression quality (0-11). Default is 6.
  */
-export declare function createBrotliCompressDictTransform(
-  dict: Buffer | Uint8Array,
-  quality?: number,
-): Transform;
-
+export declare function createBrotliCompressDictTransform(dict: Buffer | Uint8Array, quality?: number): Transform;
 /**
  * Create a Node.js stream.Transform for brotli decompression with a custom dictionary.
  *
@@ -215,11 +165,7 @@ export declare function createBrotliCompressDictTransform(
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
-export declare function createBrotliDecompressDictTransform(
-  dict: Buffer | Uint8Array,
-  maxOutputSize?: number,
-): Transform;
-
+export declare function createBrotliDecompressDictTransform(dict: Buffer | Uint8Array, maxOutputSize?: number): Transform;
 /**
  * Create a Node.js stream.Transform for auto-detect decompression.
  *
@@ -241,3 +187,30 @@ export declare function createBrotliDecompressDictTransform(
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export declare function createDecompressTransform(maxOutputSize?: number): Transform;
+/**
+ * Create a Node.js stream.Transform for LZ4 frame compression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked LZ4 compression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ */
+export declare function createLz4CompressTransform(): Transform;
+/**
+ * Create a Node.js stream.Transform for LZ4 frame decompression.
+ *
+ * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
+ * with `stream.pipeline()` and pipe-based workflows.
+ *
+ * The input may hold several concatenated frames, including skippable and
+ * legacy frames. The transform emits an error if the input ends inside a
+ * frame, including empty input, or if data that is not a frame follows a
+ * frame.
+ *
+ * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
+ * default).
+ *
+ * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
+ */
+export declare function createLz4DecompressTransform(maxOutputSize?: number): Transform;

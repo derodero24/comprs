@@ -11,13 +11,14 @@ on:
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'tsconfig.json'
+      - 'tsconfig*.json'
       - 'biome.json'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
       - 'browser/**'
+      - 'src/**'
       - 'streams.js'
       - 'streams.d.ts'
       - 'index.js'
@@ -46,13 +47,14 @@ on:
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'tsconfig.json'
+      - 'tsconfig*.json'
       - 'biome.json'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
       - 'browser/**'
+      - 'src/**'
       - 'streams.js'
       - 'streams.d.ts'
       - 'index.js'
@@ -178,8 +180,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm run build
-      - name: Verify generated binding files are up to date
-        run: git diff --exit-code index.js index.d.ts
+      # pnpm run build writes the napi-rs bindings (index.js and index.d.ts),
+      # and pnpm run build:js the modules compiled from src/ and their
+      # declarations. All of them are tracked, so both commands must leave
+      # the working tree as it was committed, with no new file.
+      - name: Verify generated files are up to date
+        run: |
+          pnpm run build:js
+          status=0
+          git diff --exit-code || status=1
+          test -z "$(git status --porcelain --untracked-files=all)" || status=1
+          if [ "$status" -ne 0 ]; then
+            git status --short --untracked-files=all
+            echo "::error::Generated files are out of date: run 'pnpm run build' and 'pnpm run build:js', and commit what they change."
+            exit 1
+          fi
       # Type-checks the packed package from strict ES module and CommonJS
       # consumer projects, with TypeScript 7 and 5.9 (#566).
       - name: Consumer type check
