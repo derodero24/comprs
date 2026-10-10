@@ -24,9 +24,7 @@
 //! thread.
 
 use comprs_core::ComprsError;
-use comprs_core::unified::{
-    self, CompressOptions, DecompressOptions, DictionaryRef, Format, GzipHeaderOptions,
-};
+use comprs_core::unified;
 use js_sys::{Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 
@@ -51,36 +49,10 @@ fn coded<T>(result: Result<T, ComprsError>) -> Result<T, JsValue> {
     result.map_err(|err| coded_error(&err))
 }
 
-/// Compress `data` in the format named `format` with
-/// [`unified::compress`], which checks the options in its order. The gzip
-/// header is that of [`GzipHeaderOptions::from_fields`].
-#[allow(clippy::too_many_arguments)] // The fields of the options.
-fn compress_data(
-    data: &[u8],
-    format: &str,
-    level: Option<f64>,
-    dictionary: Option<&[u8]>,
-    gzip_header: Option<bool>,
-    gzip_filename: Option<String>,
-    gzip_mtime: Option<f64>,
-    workers: Option<f64>,
-) -> Result<Vec<u8>, ComprsError> {
-    let format: Format = format.parse()?;
-    let options = CompressOptions {
-        level,
-        dictionary: dictionary.map(DictionaryRef::Raw),
-        gzip_header: GzipHeaderOptions::from_fields(
-            gzip_header == Some(true),
-            gzip_filename,
-            gzip_mtime,
-        ),
-        workers,
-    };
-    unified::compress(data, format, &options)
-}
-
 /// Compress `data` in `format`: `compressSync()` and `compress()` of the
-/// unified API, with the fields of its options as positional arguments.
+/// unified API, with the fields of its options as positional arguments,
+/// which [`unified::compress_fields`] checks in its order, as for the
+/// native binding.
 ///
 /// `dictionary` holds the bytes of a dictionary, for zstd and brotli.
 /// `gzipHeader` tells whether the options have a gzip header, for gzip,
@@ -99,7 +71,7 @@ pub fn next_compress(
     gzip_mtime: Option<f64>,
     workers: Option<f64>,
 ) -> Result<Vec<u8>, JsValue> {
-    coded(compress_data(
+    coded(unified::compress_fields(
         data,
         format,
         level,
@@ -111,26 +83,11 @@ pub fn next_compress(
     ))
 }
 
-/// Decompress `data` in the format named `format`, or the format that
-/// detection finds for `None`, with [`unified::decompress`].
-fn decompress_data(
-    data: &[u8],
-    format: Option<&str>,
-    max_output_size: Option<f64>,
-    dictionary: Option<&[u8]>,
-) -> Result<Vec<u8>, ComprsError> {
-    let options = DecompressOptions {
-        format: format.map(str::parse).transpose()?,
-        max_output_size,
-        dictionary: dictionary.map(DictionaryRef::Raw),
-    };
-    unified::decompress(data, &options)
-}
-
 /// Decompress `data` in `format`, or in the format that detection finds if
 /// `format` is `null` or `undefined`: `decompressSync()` and `decompress()`
 /// of the unified API, with the fields of its options as positional
-/// arguments.
+/// arguments, which [`unified::decompress_fields`] checks in its order, as
+/// for the native binding.
 #[wasm_bindgen(js_name = "nextDecompress")]
 pub fn next_decompress(
     data: &[u8],
@@ -138,7 +95,7 @@ pub fn next_decompress(
     max_output_size: Option<f64>,
     dictionary: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, JsValue> {
-    coded(decompress_data(
+    coded(unified::decompress_fields(
         data,
         format.as_deref(),
         max_output_size,
