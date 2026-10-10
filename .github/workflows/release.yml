@@ -215,12 +215,16 @@ jobs:
         id: check
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
+          # Check publish status (distinguish E404 "not found" from other errors)
+          if err=$(npm view "@derodero24/comprs@${VERSION}" version 2>&1); then
             echo "Version ${VERSION} already published, skipping"
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          else
+          elif echo "$err" | grep -q "E404"; then
             echo "Version ${VERSION} not yet published, proceeding"
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error checking @derodero24/comprs@${VERSION}: $err" >&2
+            exit 1
           fi
 
   # ──── Build native binaries for all platforms ────
