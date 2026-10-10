@@ -37,15 +37,21 @@
  *      `repository.url` does not match the repository that the provenance
  *      names. `napi prepublish` publishes the platform packages before the
  *      root package, and the middleware is published last, so a mismatch in
- *      any of them would fail the release halfway.
+ *      any of them would fail the release halfway;
+ *   8. the license notices are current: each platform package's LICENSE is
+ *      the root LICENSE, and the THIRD_PARTY_LICENSES of the root package
+ *      and of each platform package equal a fresh generation by
+ *      third-party-licenses.mjs, which needs `cargo`. A stale or edited
+ *      notice fails, and so does a generated one whose index lacks zstd-sys
+ *      or brotli, which every build links.
  *
  * Usage:
  *   node scripts/check-release.mjs [--allow-missing-targets]
  *
  *   --allow-missing-targets  Skip the platform packages whose binary was not
- *                            built (steps 2 to 4), for CI runs that build
- *                            some targets. Without it, a missing binary is an
- *                            error.
+ *                            built (steps 2 to 4 and 8), for CI runs that
+ *                            build some targets. Without it, a missing binary
+ *                            is an error.
  */
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -68,6 +74,7 @@ import {
   runMain,
   runTool,
 } from './release-utils.mjs';
+import { indexedCrates, NOTICE_FILE, platformNotice, rootNotice } from './third-party-licenses.mjs';
 
 /** @typedef {import('./release-utils.mjs').Release} Release */
 /** @typedef {import('./release-utils.mjs').ReleaseTarget} ReleaseTarget */
@@ -89,6 +96,12 @@ const MAX_GLIBC = { major: 2, minor: 17 };
  * .cargo/config.toml links the C runtime statically instead.
  */
 const DYNAMIC_CRT_DLL = /\b(?:vcruntime\d+|msvcp\d+|ucrtbased?|api-ms-win-crt-[a-z\d-]+)\.dll\b/gi;
+
+/**
+ * Crates that every build links, which the index of each notice must name,
+ * in case the generator starts to leave crates out.
+ */
+const NOTICE_CRATES = ['zstd-sys', 'brotli'];
 
 /**
  * Problems found so far; any of them fails the run at the end.
@@ -122,6 +135,7 @@ await runMain(async () => {
   for (const target of targets) {
     await step(`npm pack ${relative(ROOT, target.packageDir)}`, () => checkPlatformPackage(target));
   }
+  await step('License notices', () => checkNotices(release, targets));
   await step('Platform binary requirements', () => {
     for (const target of targets) {
       checkBinaryRequirements(target);
@@ -195,8 +209,9 @@ function selectTargets(targets, allowMissing) {
   annotate(
     'notice',
     `Partial release dry run. Built: ${built.map((target) => target.abi).join(', ')}. ` +
-      `Not built, so napi prepublish, npm pack and the binary checks skip them: ` +
-      `${missing.map((target) => target.abi).join(', ')}. The root package is checked in full.`,
+      'Not built, so napi prepublish, npm pack, the binary checks and the license checks ' +
+      `skip them: ${missing.map((target) => target.abi).join(', ')}. ` +
+      'The root package is checked in full.',
   );
   return built;
 }
@@ -293,6 +308,53 @@ function checkPlatformPackage(target) {
     }
   }
   console.log(packed.join('\n'));
+}
+
+/**
+ * Check that each platform package holds a copy of the root LICENSE, and
+ * that the THIRD_PARTY_LICENSES of the root package and of each platform
+ * package are what third-party-licenses.mjs generates now.
+ *
+ * @param {Release} release
+ * @param {ReleaseTarget[]} targets
+ */
+function checkNotices(release, targets) {
+  const license = readFileSync(join(ROOT, 'LICENSE'));
+  for (const target of targets) {
+    const copy = join(target.packageDir, 'LICENSE');
+    if (!existsSync(copy) || !readFileSync(copy).equals(license)) {
+      problems.push(
+        `${relative(ROOT, copy)} is not a copy of LICENSE; run scripts/prepare-release.mjs again`,
+      );
+    }
+    checkNotice(join(target.packageDir, NOTICE_FILE), () => platformNotice(target));
+  }
+  checkNotice(join(ROOT, NOTICE_FILE), () => rootNotice(release.packageName));
+}
+
+/**
+ * Compare a package's THIRD_PARTY_LICENSES with a fresh generation.
+ *
+ * @param {string} path
+ * @param {() => string} generate
+ */
+function checkNotice(path, generate) {
+  const shownPath = relative(ROOT, path);
+  const notice = generate();
+  const indexed = new Set(indexedCrates(notice).map(({ name }) => name));
+  for (const name of NOTICE_CRATES.filter((crate) => !indexed.has(crate))) {
+    problems.push(`The generated ${shownPath} does not list ${name}, which every build links`);
+  }
+  if (!existsSync(path)) {
+    problems.push(`${shownPath} does not exist; run scripts/prepare-release.mjs again`);
+  } else if (readFileSync(path, 'utf8') !== notice) {
+    problems.push(
+      `${shownPath} differs from a fresh generation, so it is stale or was edited; ` +
+        'run scripts/prepare-release.mjs again',
+    );
+  } else {
+    console.log(`${shownPath} is current (${indexed.size} crates).`);
+  }
 }
 
 /**
