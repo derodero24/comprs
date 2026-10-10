@@ -236,10 +236,11 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 /// that cross the mark, and panics when that leaves one byte, as it does at
 /// the end of the dictionary itself (#623). The dictionary only helps the
 /// start of a stream, before the stream's own data has the strings that it
-/// holds, so its loss past [`DICT_REACH`] bytes costs little: on JSON lines
-/// with a 2 KiB dictionary, the stream came out from 5% smaller to 3% larger
-/// than the output of [`crate::brotli::compress_with_dict`], and at most
-/// 0.7% larger at qualities up to 10.
+/// holds, so its loss past [`DICT_REACH`] bytes costs little: on 4.06 to
+/// 16 MiB of JSON lines with a 2 KiB dictionary, in chunks of 4 KiB or of
+/// 64 KiB, the stream came out from 5.5% smaller to 2.2% larger than the
+/// output of [`crate::brotli::compress_with_dict`], and at most 0.8% larger
+/// at qualities 1 to 11.
 ///
 /// An error of the encoder, which no input is known to cause, ends the
 /// stream: the later calls fail with it too.
