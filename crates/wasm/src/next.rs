@@ -36,6 +36,8 @@ use comprs_core::unified::{self, DictionaryRef};
 use js_sys::{Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 
+use crate::StreamState;
+
 /// The error of the unified API for `err`, as the native binding creates
 /// it: a `TypeError` for `ERR_COMPRS_INVALID_ARG` and a plain `Error` for
 /// every other code, with the message of `err` and its code
@@ -177,6 +179,143 @@ impl NextDictionary {
     #[wasm_bindgen(js_name = "toBytes")]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.raw().to_vec()
+    }
+
+    /// A compression stream with this dictionary in place of the bytes of
+    /// one, as [`NextCompressContext::new`] creates it.
+    #[wasm_bindgen(js_name = "compressContext")]
+    pub fn compress_context(
+        &self,
+        format: &str,
+        level: Option<f64>,
+        gzip_header: Option<bool>,
+        gzip_filename: Option<String>,
+        gzip_mtime: Option<f64>,
+        workers: Option<f64>,
+    ) -> Result<NextCompressContext, JsValue> {
+        let context = unified::CompressContext::from_fields(
+            format,
+            level,
+            Some(DictionaryRef::Prepared(&self.0)),
+            gzip_header,
+            gzip_filename,
+            gzip_mtime,
+            workers,
+        );
+        coded(context).map(NextCompressContext::open)
+    }
+
+    /// A decompression stream with this dictionary in place of the bytes of
+    /// one, as [`NextDecompressContext::new`] creates it, which takes the
+    /// format of the dictionary if `format` is `null` or `undefined`.
+    #[wasm_bindgen(js_name = "decompressContext")]
+    pub fn decompress_context(
+        &self,
+        format: Option<String>,
+        max_output_size: Option<f64>,
+    ) -> Result<NextDecompressContext, JsValue> {
+        let context = unified::DecompressContext::from_fields(
+            format.as_deref(),
+            max_output_size,
+            Some(DictionaryRef::Prepared(&self.0)),
+        );
+        coded(context).map(NextDecompressContext::open)
+    }
+}
+
+/// A compression stream of the unified API, over
+/// [`unified::CompressContext`]: the `CompressionStream` class of the
+/// TypeScript layer drives it through its browser backend, and frees it
+/// with `free()` once the stream ends, fails or is cancelled. The glue frees
+/// it too when the garbage collector collects the object. The context
+/// copies what it needs of a prepared dictionary, so it outlives a
+/// `NextDictionary` that is freed first.
+#[wasm_bindgen(js_name = "NextCompressContext")]
+pub struct NextCompressContext(StreamState<unified::CompressContext>);
+
+#[wasm_bindgen(js_class = "NextCompressContext")]
+impl NextCompressContext {
+    /// Create a compression stream in `format`, with the options of
+    /// [`next_compress`], which [`unified::CompressContext::from_fields`]
+    /// checks in its order.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        format: &str,
+        level: Option<f64>,
+        dictionary: Option<Vec<u8>>,
+        gzip_header: Option<bool>,
+        gzip_filename: Option<String>,
+        gzip_mtime: Option<f64>,
+        workers: Option<f64>,
+    ) -> Result<NextCompressContext, JsValue> {
+        let context = unified::CompressContext::from_fields(
+            format,
+            level,
+            dictionary.as_deref().map(DictionaryRef::Raw),
+            gzip_header,
+            gzip_filename,
+            gzip_mtime,
+            workers,
+        );
+        coded(context).map(Self::open)
+    }
+
+    fn open(context: unified::CompressContext) -> Self {
+        Self(StreamState::new(context, "compression stream"))
+    }
+
+    /// Compress a chunk of input, and return the output that is ready.
+    pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, JsValue> {
+        coded(self.0.try_run(|context| context.transform(chunk)))
+    }
+
+    /// End the stream, and return the rest of the output. Later calls
+    /// throw.
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsValue> {
+        coded(self.0.try_finish(unified::CompressContext::finish))
+    }
+}
+
+/// A decompression stream of the unified API, over
+/// [`unified::DecompressContext`], which the `DecompressionStream` class of
+/// the TypeScript layer drives and frees as [`NextCompressContext`]
+/// describes.
+#[wasm_bindgen(js_name = "NextDecompressContext")]
+pub struct NextDecompressContext(StreamState<unified::DecompressContext>);
+
+#[wasm_bindgen(js_class = "NextDecompressContext")]
+impl NextDecompressContext {
+    /// Create a decompression stream in `format`, or one that detects the
+    /// format if `format` is `null` or `undefined`, with the options of
+    /// [`next_decompress`], which [`unified::DecompressContext::from_fields`]
+    /// checks in its order.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        format: Option<String>,
+        max_output_size: Option<f64>,
+        dictionary: Option<Vec<u8>>,
+    ) -> Result<NextDecompressContext, JsValue> {
+        let context = unified::DecompressContext::from_fields(
+            format.as_deref(),
+            max_output_size,
+            dictionary.as_deref().map(DictionaryRef::Raw),
+        );
+        coded(context).map(Self::open)
+    }
+
+    fn open(context: unified::DecompressContext) -> Self {
+        Self(StreamState::new(context, "decompression stream"))
+    }
+
+    /// Decompress a chunk of input, and return the output that is ready.
+    pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, JsValue> {
+        coded(self.0.try_run(|context| context.transform(chunk)))
+    }
+
+    /// End the stream, and return the rest of the output: it fails if the
+    /// input did not hold the whole compressed stream. Later calls throw.
+    pub fn finish(&mut self) -> Result<Vec<u8>, JsValue> {
+        coded(self.0.try_finish(unified::DecompressContext::finish))
     }
 }
 

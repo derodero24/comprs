@@ -27,6 +27,9 @@ type DictionaryHandle = object;
 /** The handle of a withdrawal, as createWithdrawal() returns it: an `External`. */
 type Withdrawal = object;
 
+/** The state of a stream, as createCompressContext() returns it: an `External`. */
+type StreamContext = object;
+
 /** The functions of the hidden binding. */
 interface NextBinding {
   compress(
@@ -79,6 +82,29 @@ interface NextBinding {
   closeDictionary(handle: DictionaryHandle): void;
   createWithdrawal(): Withdrawal;
   withdraw(withdrawal: Withdrawal): boolean;
+  createCompressContext(
+    format: string,
+    level?: number,
+    dictionary?: Uint8Array,
+    gzipHeader?: boolean,
+    gzipFilename?: string,
+    gzipMtime?: number,
+    workers?: number,
+    dictionaryHandle?: DictionaryHandle,
+  ): StreamContext;
+  createDecompressContext(
+    format?: string,
+    maxOutputSize?: number,
+    dictionary?: Uint8Array,
+    dictionaryHandle?: DictionaryHandle,
+  ): StreamContext;
+  contextTransform(context: StreamContext, chunk: Uint8Array): Uint8Array;
+  contextTransformAsync(context: StreamContext, chunk: Uint8Array): Promise<Uint8Array>;
+  contextFlush(context: StreamContext): Uint8Array;
+  contextFlushAsync(context: StreamContext): Promise<Uint8Array>;
+  contextFinish(context: StreamContext): Uint8Array;
+  contextFinishAsync(context: StreamContext): Promise<Uint8Array>;
+  contextClose(context: StreamContext): void;
   errorCodes(): string[];
 }
 
@@ -95,6 +121,15 @@ const FUNCTIONS = [
   'closeDictionary',
   'createWithdrawal',
   'withdraw',
+  'createCompressContext',
+  'createDecompressContext',
+  'contextTransform',
+  'contextTransformAsync',
+  'contextFlush',
+  'contextFlushAsync',
+  'contextFinish',
+  'contextFinishAsync',
+  'contextClose',
   'errorCodes',
 ] as const satisfies readonly (keyof NextBinding)[];
 
@@ -463,6 +498,176 @@ describe('the *Async functions', () => {
     const training = next().trainDictionaryAsync(copies, 4096);
     for (const copy of copies) copy.fill(0);
     expect(await training).toEqual(next().trainDictionary(samples, 4096));
+  });
+});
+
+describe('streams', () => {
+  /** The output of `chunks` through `context`, its calls all sync or all async. */
+  async function run(
+    context: StreamContext,
+    chunks: readonly Uint8Array[],
+    async: boolean,
+  ): Promise<Uint8Array> {
+    const parts: Uint8Array[] = [];
+    for (const chunk of chunks) {
+      parts.push(
+        async
+          ? await next().contextTransformAsync(context, chunk)
+          : next().contextTransform(context, chunk),
+      );
+    }
+    parts.push(async ? await next().contextFinishAsync(context) : next().contextFinish(context));
+    return new Uint8Array(Buffer.concat(parts));
+  }
+
+  /** `data` in chunks of `size` bytes. */
+  function chunked(data: Uint8Array, size: number): Uint8Array[] {
+    const chunks: Uint8Array[] = [];
+    for (let offset = 0; offset < data.byteLength; offset += size) {
+      chunks.push(data.subarray(offset, offset + size));
+    }
+    return chunks;
+  }
+
+  it.each(FORMATS)('give the same %s bytes from their sync and async calls', async (format) => {
+    const chunks = chunked(text, 1000);
+    const sync = await run(next().createCompressContext(format), chunks, false);
+    const async = await run(next().createCompressContext(format), chunks, true);
+    expect(async).toEqual(sync);
+    expect(next().decompress(sync, format)).toEqual(text);
+    for (const name of [format, undefined]) {
+      // Detection never finds raw deflate.
+      if (name === undefined && format === 'deflate-raw') continue;
+      const decompressed = await run(
+        next().createDecompressContext(name),
+        chunked(sync, 100),
+        true,
+      );
+      expect(decompressed).toEqual(text);
+    }
+  });
+
+  it('take the options of compress() and decompress()', async () => {
+    // A stream does not know the size of its input, which the frame of
+    // compress() declares, so the bytes differ.
+    const compressed = await run(
+      next().createCompressContext('zstd', 9, dictionary),
+      [text],
+      false,
+    );
+    expect(next().decompress(compressed, 'zstd', undefined, dictionary)).toEqual(text);
+    const decompressing = next().createDecompressContext('zstd', 100, dictionary);
+    expect(await rejection(run(decompressing, [compressed], true))).toMatchObject({
+      code: 'ERR_COMPRS_SIZE_LIMIT',
+    });
+    const header = next().createCompressContext('gzip', 1, undefined, true, 'a.txt', 7);
+    // The same bytes as the root function's, which returns a Buffer.
+    expect(Buffer.from(await run(header, [text], true))).toEqual(
+      gzipCompressWithHeader(text, { filename: 'a.txt', mtime: 7 }, 1),
+    );
+  });
+
+  it('keep a prepared dictionary that is closed after they are created', async () => {
+    const handle = next().createDictionary(dictionary, 'zstd');
+    const compressing = next().createCompressContext(
+      'zstd',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      handle,
+    );
+    const decompressing = next().createDecompressContext(undefined, undefined, undefined, handle);
+    next().closeDictionary(handle);
+    const compressed = await run(compressing, [text], true);
+    expect(next().decompress(compressed, 'zstd', undefined, dictionary)).toEqual(text);
+    expect(await run(decompressing, [compressed], false)).toEqual(text);
+  });
+
+  it('check their options when they are created, with codes', () => {
+    expect(thrown(() => next().createCompressContext('nope'))).toMatchObject({
+      constructor: TypeError,
+      code: 'ERR_COMPRS_INVALID_ARG',
+    });
+    expect(thrown(() => next().createCompressContext('gzip', 10))).toMatchObject({
+      constructor: TypeError,
+      code: 'ERR_COMPRS_INVALID_ARG',
+    });
+    expect(thrown(() => next().createDecompressContext(undefined, -1))).toMatchObject({
+      constructor: TypeError,
+      code: 'ERR_COMPRS_INVALID_ARG',
+    });
+    const handle = next().createDictionary(dictionary, 'brotli');
+    next().closeDictionary(handle);
+    expect(
+      thrown(() => next().createDecompressContext(undefined, undefined, undefined, handle)),
+    ).toMatchObject({ code: 'ERR_COMPRS_INVALID_ARG', message: 'this Dictionary is closed' });
+  });
+
+  it('fail with codes, and end the stream once finish() runs', async () => {
+    const compressed = next().compress(text, 'zstd');
+    const truncated = next().createDecompressContext('zstd');
+    next().contextTransform(truncated, compressed.subarray(0, 10));
+    expect(await rejection(next().contextFinishAsync(truncated))).toMatchObject({
+      constructor: Error,
+      code: 'ERR_COMPRS_TRUNCATED',
+    });
+    expect(thrown(() => next().contextTransform(truncated, compressed))).toMatchObject({
+      code: 'ERR_COMPRS_STREAM_FINISHED',
+      message: 'decompression stream already finished',
+    });
+    const corrupt = next().createDecompressContext('zstd');
+    expect(
+      await rejection(next().contextTransformAsync(corrupt, Uint8Array.of(1, 2, 3, 4))),
+    ).toMatchObject({ code: 'ERR_COMPRS_CORRUPT_DATA' });
+  });
+
+  it('fail after contextClose(), which may come more than once', async () => {
+    const context = next().createCompressContext('zstd');
+    next().contextTransform(context, text);
+    next().contextClose(context);
+    next().contextClose(context);
+    const closed = {
+      code: 'ERR_COMPRS_STREAM_CLOSED',
+      message: 'compression stream already closed',
+    };
+    expect(thrown(() => next().contextTransform(context, text))).toMatchObject(closed);
+    expect(thrown(() => next().contextFlush(context))).toMatchObject(closed);
+    expect(await rejection(next().contextFinishAsync(context))).toMatchObject(closed);
+  });
+
+  it('take one asynchronous call at a time, and settle it when closed meanwhile', async () => {
+    const context = next().createCompressContext('brotli', 9);
+    const pending = next().contextTransformAsync(context, text);
+    const busy = {
+      constructor: Error,
+      code: 'ERR_COMPRS_OPERATION_FAILED',
+      message: 'compression stream is busy: an asynchronous call has not finished',
+    };
+    expect(thrown(() => next().contextTransform(context, text))).toMatchObject(busy);
+    expect(await rejection(next().contextFlushAsync(context))).toMatchObject(busy);
+    next().contextClose(context);
+    expect(Object.getPrototypeOf(await pending)).toBe(Uint8Array.prototype);
+    expect(thrown(() => next().contextFinish(context))).toMatchObject({
+      code: 'ERR_COMPRS_STREAM_CLOSED',
+    });
+  });
+
+  it('copy the chunk of an asynchronous call when it is called', async () => {
+    const chunk = Uint8Array.from(text);
+    const context = next().createCompressContext('zstd');
+    const transforming = next().contextTransformAsync(context, chunk);
+    chunk.fill(0);
+    const compressed = Buffer.concat([await transforming, next().contextFinish(context)]);
+    expect(next().decompress(compressed, 'zstd')).toEqual(text);
+  });
+
+  it('refuse a handle of another kind', () => {
+    const handle = next().createDictionary(dictionary, 'zstd');
+    expect(() => next().contextTransform(handle, text)).toThrow();
+    expect(() => next().contextClose(next().createWithdrawal())).toThrow();
   });
 });
 

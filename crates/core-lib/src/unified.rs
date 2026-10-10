@@ -585,7 +585,28 @@ pub fn compress_fields(
     workers: Option<f64>,
 ) -> Result<Vec<u8>, ComprsError> {
     let format: Format = format.parse()?;
-    let options = CompressOptions {
+    let options = compress_options(
+        level,
+        dictionary,
+        gzip_header,
+        gzip_filename,
+        gzip_mtime,
+        workers,
+    );
+    compress(data, format, &options)
+}
+
+/// The options of [`compress`] from the positional arguments of
+/// [`compress_fields`].
+fn compress_options(
+    level: Option<f64>,
+    dictionary: Option<DictionaryRef<'_>>,
+    gzip_header: Option<bool>,
+    gzip_filename: Option<String>,
+    gzip_mtime: Option<f64>,
+    workers: Option<f64>,
+) -> CompressOptions<'_> {
+    CompressOptions {
         level,
         dictionary,
         gzip_header: GzipHeaderOptions::from_fields(
@@ -594,8 +615,7 @@ pub fn compress_fields(
             gzip_mtime,
         ),
         workers,
-    };
-    compress(data, format, &options)
+    }
 }
 
 /// Decompress `data` in the format named `format`, or in the format that
@@ -609,12 +629,22 @@ pub fn decompress_fields(
     max_output_size: Option<f64>,
     dictionary: Option<DictionaryRef<'_>>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let options = DecompressOptions {
+    let options = decompress_options(format, max_output_size, dictionary)?;
+    decompress(data, &options)
+}
+
+/// The options of [`decompress`] from the positional arguments of
+/// [`decompress_fields`], with the name of the format checked.
+fn decompress_options<'a>(
+    format: Option<&str>,
+    max_output_size: Option<f64>,
+    dictionary: Option<DictionaryRef<'a>>,
+) -> Result<DecompressOptions<'a>, ComprsError> {
+    Ok(DecompressOptions {
         format: format.map(str::parse).transpose()?,
         max_output_size,
         dictionary,
-    };
-    decompress(data, &options)
+    })
 }
 
 /// How much of the input detection decodes to recognize zlib and brotli,
@@ -908,6 +938,31 @@ impl CompressContext {
         })
     }
 
+    /// Create a compression stream in the format named `format`, with the
+    /// options as the bindings take them, as [`compress_fields`] does: the
+    /// name of the format is checked first, then the options, in the order
+    /// that [`compress`] describes.
+    pub fn from_fields(
+        format: &str,
+        level: Option<f64>,
+        dictionary: Option<DictionaryRef<'_>>,
+        gzip_header: Option<bool>,
+        gzip_filename: Option<String>,
+        gzip_mtime: Option<f64>,
+        workers: Option<f64>,
+    ) -> Result<Self, ComprsError> {
+        let format: Format = format.parse()?;
+        let options = compress_options(
+            level,
+            dictionary,
+            gzip_header,
+            gzip_filename,
+            gzip_mtime,
+            workers,
+        );
+        Self::new(format, &options)
+    }
+
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
         each_compressor!(self, transform(chunk))
     }
@@ -984,6 +1039,19 @@ impl DecompressContext {
             }));
         };
         Self::with_decoder(decoder, max_output_size)
+    }
+
+    /// Create a decompression stream in the format named `format`, or one
+    /// that detects the format for `None`, with the options as the bindings
+    /// take them, as [`decompress_fields`] does: the name of the format is
+    /// checked first, then the options, in the order that [`decompress`]
+    /// describes.
+    pub fn from_fields(
+        format: Option<&str>,
+        max_output_size: Option<f64>,
+        dictionary: Option<DictionaryRef<'_>>,
+    ) -> Result<Self, ComprsError> {
+        Self::new(&decompress_options(format, max_output_size, dictionary)?)
     }
 
     /// Create the context of `decoder`, with a checked `max_output_size`.

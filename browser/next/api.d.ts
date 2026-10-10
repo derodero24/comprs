@@ -440,4 +440,107 @@ export declare class Dictionary {
      */
     close(): void;
 }
+declare global {
+    interface ReadableStream<R = any> {
+    }
+    interface WritableStream<W = any> {
+    }
+}
+/**
+ * The options of {@link CompressionStream}: those of {@link compressSync},
+ * without the format, which the constructor takes first. Other properties
+ * are ignored.
+ */
+export type CompressionStreamOptions = Omit<CompressOptions, 'format'>;
+/**
+ * The options of {@link DecompressionStream}: those of
+ * {@link decompressSync}, without the format, which the constructor takes
+ * first. Other properties are ignored.
+ */
+export type DecompressionStreamOptions = Omit<DecompressOptions, 'format'>;
+/**
+ * A ponyfill of `CompressionStream` of the Compression Streams standard: it
+ * compresses the chunks written to its {@link CompressionStream.writable}
+ * side into the chunks read from its {@link CompressionStream.readable}
+ * side, in any {@link Format} and with the options of {@link compress}.
+ * Pipe data through it with `pipeThrough()`. It neither replaces nor uses
+ * the global `CompressionStream`.
+ *
+ * The chunks written may be any {@link Input}, read as the functions read
+ * their data: bytes in a SharedArrayBuffer are copied first. A chunk of any
+ * other type errors the stream with `ERR_COMPRS_INVALID_ARG`, and so does a
+ * detached buffer. The chunks read are {@link Bytes}, which together hold
+ * the compressed data: their sizes follow the codec, not the chunks
+ * written. `'deflate'` is the zlib format, as in the standard.
+ *
+ * In Node.js, a chunk that the stream predicts to take 2 ms or more is
+ * compressed on a thread of the libuv pool, so that it does not block the
+ * event loop, and cheaper ones on the calling thread, which yields to the
+ * event loop every few milliseconds, as the stream helpers of the package
+ * root do. The browser build compresses each chunk on the calling thread.
+ * Errors of the codec error the stream, with an {@link ErrorCode} as
+ * `code`.
+ */
+export declare class CompressionStream {
+    #private;
+    /**
+     * Create a stream that compresses in `format`, with `options`, which are
+     * checked here, as {@link compressSync} checks them.
+     *
+     * @throws An error with an {@link ErrorCode} as `code`, such as
+     * `ERR_COMPRS_INVALID_ARG` for an unknown format or an invalid option.
+     */
+    constructor(format: Format, options?: CompressionStreamOptions);
+    /** The side to read the compressed data from. */
+    get readable(): ReadableStream<Bytes>;
+    /** The side to write the data to compress to. */
+    get writable(): WritableStream<Input>;
+    get [Symbol.toStringTag](): string;
+}
+/**
+ * A ponyfill of `DecompressionStream` of the Compression Streams standard:
+ * it decompresses the chunks written to its
+ * {@link DecompressionStream.writable} side into the chunks read from its
+ * {@link DecompressionStream.readable} side, in any {@link Format}, or in
+ * the format that it detects, with the options of {@link decompress}. Pipe
+ * data through it with `pipeThrough()`. It neither replaces nor uses the
+ * global `DecompressionStream`.
+ *
+ * The chunks are read and written as for {@link CompressionStream}, and
+ * the stream decodes as strictly as {@link decompress} does: data that ends
+ * before the end of the compressed stream, empty data included, errors the
+ * stream with `ERR_COMPRS_TRUNCATED` once the writable side closes, data
+ * after its end with `ERR_COMPRS_CORRUPT_DATA`, and output beyond
+ * `maxOutputSize` with `ERR_COMPRS_SIZE_LIMIT`.
+ *
+ * With `'auto'`, the stream holds the start of its input until it detects
+ * the format, which takes at most 64 KiB, and then decodes as in that
+ * format, from the start. It detects the formats that {@link decompress}
+ * detects, but a zstd or lz4 frame only if its magic number comes in the
+ * first 64 KiB, after any skippable frames, and it knows brotli data only
+ * once its start decodes to more bytes than it holds, or once the input
+ * ends. Input that it does not recognize errors the stream with
+ * `ERR_COMPRS_UNKNOWN_FORMAT`. With a {@link Dictionary}, `'auto'` stands
+ * for the format of the dictionary.
+ *
+ * In Node.js, expensive chunks are decompressed on the libuv thread pool,
+ * as for {@link CompressionStream}.
+ */
+export declare class DecompressionStream {
+    #private;
+    /**
+     * Create a stream that decompresses in `format`, or in the format that
+     * it detects with `'auto'`, with `options`, which are checked here, as
+     * {@link decompressSync} checks them.
+     *
+     * @throws An error with an {@link ErrorCode} as `code`, such as
+     * `ERR_COMPRS_INVALID_ARG` for an unknown format or an invalid option.
+     */
+    constructor(format: Format | 'auto', options?: DecompressionStreamOptions);
+    /** The side to read the decompressed data from. */
+    get readable(): ReadableStream<Bytes>;
+    /** The side to write the data to decompress to. */
+    get writable(): WritableStream<Input>;
+    get [Symbol.toStringTag](): string;
+}
 export {};

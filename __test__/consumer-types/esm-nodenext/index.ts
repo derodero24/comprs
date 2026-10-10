@@ -16,6 +16,8 @@ import {
   zstdCompressAsync,
 } from '@derodero24/comprs';
 import {
+  CompressionStream,
+  DecompressionStream,
   Dictionary,
   compress as nextCompress,
   compressSync as nextCompressSync,
@@ -112,6 +114,13 @@ function compressUnlessAborted(
   return nextCompress(data, { format: 'zstd', signal });
 }
 
+// The stream classes of ./next fit pipeThrough() of a ReadableStream of the
+// Node.js types.
+const nextRoundTrip: ReadableStream<Uint8Array<ArrayBuffer>> = new Blob([input])
+  .stream()
+  .pipeThrough(new CompressionStream('zstd', { level: 9, workers: undefined }))
+  .pipeThrough(new DecompressionStream('auto', { maxOutputSize: undefined }));
+
 export {
   chunks,
   compressUnlessAborted,
@@ -125,6 +134,7 @@ export {
   label,
   mtime,
   narrow,
+  nextRoundTrip,
   roundTrip,
   zstd,
 };

@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import ts from 'typescript-5';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type {
   AbortOptions,
   Bytes,
+  CompressionStreamOptions,
   CompressOptions,
+  DecompressionStreamOptions,
   DecompressOptions,
   DictionaryOptions,
   ErrorCode,
@@ -61,8 +63,29 @@ interface PreparedDictionary {
  * Dictionary class of each build has a private field, and so do the
  * options that take one, through EitherBuild.
  */
+/**
+ * The options of the stream classes of either build, whose `dictionary` may
+ * only be bytes: unlike a method, a constructor of the type of one build
+ * accepts no options type that takes a Dictionary of the other build.
+ */
+type WithBytes<Options> = Omit<Options, 'dictionary'> & { dictionary?: Input };
+
+/** A CompressionStream or a DecompressionStream of either build. */
+interface TransformPair {
+  readonly readable: ReadableStream<Bytes>;
+  readonly writable: WritableStream<Input>;
+}
+
 interface Api {
   Dictionary: { from(bytes: Input, options: DictionaryOptions): PreparedDictionary };
+  CompressionStream: new (
+    format: Format,
+    options?: WithBytes<CompressionStreamOptions>,
+  ) => TransformPair;
+  DecompressionStream: new (
+    format: Format | 'auto',
+    options?: WithBytes<DecompressionStreamOptions>,
+  ) => TransformPair;
   compress(data: Input, options: EitherBuild<CompressOptions> & AbortOptions): Promise<Bytes>;
   compressSync(data: Input, options: EitherBuild<CompressOptions>): Bytes;
   decompress(data: Input, options?: EitherBuild<DecompressOptions> & AbortOptions): Promise<Bytes>;
@@ -539,8 +562,11 @@ function nativeErrorCodes(): string[] {
 
 describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
   let wasm: Api;
+  /** The browser build, with the types of its own declarations. */
+  let browser: Awaited<ReturnType<typeof importBrowserNext>>;
   beforeAll(async () => {
-    wasm = await importBrowserNext();
+    browser = await importBrowserNext();
+    wasm = browser;
   });
 
   /** The two builds, to call one function in each. */
@@ -1068,6 +1094,216 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
           Reflect.apply(wasm.compress, undefined, [text, { format: 'zstd', signal }]),
         ),
       ).toEqual(expected);
+    });
+  });
+
+  describe('streams', () => {
+    /** Pass `chunks` through `pair`, and return the bytes that come out. */
+    async function through(chunks: readonly unknown[], pair: TransformPair): Promise<Uint8Array> {
+      const source = new ReadableStream<unknown>({
+        start(controller): void {
+          for (const chunk of chunks) controller.enqueue(chunk);
+          controller.close();
+        },
+      });
+      const stream = source.pipeThrough<Bytes>(pair);
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    /** `data` in chunks of `size` bytes, each a Uint8Array of its own. */
+    function chunked(data: Uint8Array, size: number): Uint8Array[] {
+      const chunks: Uint8Array[] = [];
+      for (let offset = 0; offset < data.length; offset += size) {
+        chunks.push(data.slice(offset, offset + size));
+      }
+      return chunks;
+    }
+
+    /** What `chunks` through the stream that `create` makes give. */
+    function outcome(create: () => TransformPair, chunks: readonly unknown[]): Promise<Outcome> {
+      return settle(() => through(chunks, create()));
+    }
+
+    /**
+     * A build, with its own Dictionary class, `Prepared`, which its stream
+     * classes take.
+     */
+    interface PreparingBuild<Prepared extends PreparedDictionary> {
+      Dictionary: { from(bytes: Input, options: DictionaryOptions): Prepared };
+      CompressionStream: new (
+        format: Format,
+        options?: { dictionary?: Prepared | Input },
+      ) => TransformPair;
+      DecompressionStream: new (
+        format: Format | 'auto',
+        options?: { dictionary?: Prepared | Input },
+      ) => TransformPair;
+    }
+
+    /**
+     * The output of the streams of `build` in `format` with a Dictionary of
+     * {@link dictionary}, and with its bytes.
+     */
+    async function preparedOutputs<Prepared extends PreparedDictionary>(
+      build: PreparingBuild<Prepared>,
+      format: 'zstd' | 'brotli',
+    ): Promise<Record<'withPrepared' | 'withBytes' | 'restored', Uint8Array>> {
+      const prepared = build.Dictionary.from(dictionary, { format });
+      const withPrepared = await through(
+        chunked(text, 1000),
+        new build.CompressionStream(format, { dictionary: prepared }),
+      );
+      const withBytes = await through(
+        chunked(text, 1000),
+        new build.CompressionStream(format, { dictionary }),
+      );
+      const restored = await through(
+        chunked(withPrepared, 99),
+        new build.DecompressionStream('auto', { dictionary: prepared }),
+      );
+      prepared.close();
+      return { withPrepared, withBytes, restored };
+    }
+
+    /** Whether `value` has the free() method of the classes of the glue. */
+    function isFreeable(value: unknown): value is { free(): void } {
+      return (
+        typeof value === 'object' &&
+        value !== null &&
+        typeof Reflect.get(value, 'free') === 'function'
+      );
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each(FORMAT_LEVELS)(
+      'compress as in the native build in %s at level %s',
+      async (format, level) => {
+        const options = level === undefined ? {} : { level };
+        const [expected, actual] = await Promise.all(
+          both((api) => through(chunked(text, 1000), new api.CompressionStream(format, options))),
+        );
+        expect(actual).toEqual(expected);
+        expect(native.decompressSync(actual, { format })).toEqual(text);
+      },
+    );
+
+    it('compress lz4 data that each build decompresses', async () => {
+      for (const api of both((api) => api)) {
+        const compressed = await through(chunked(text, 1000), new api.CompressionStream('lz4'));
+        for (const other of both((other) => other)) {
+          const stream = new other.DecompressionStream('auto');
+          expect(await through(chunked(compressed, 333), stream)).toEqual(text);
+        }
+      }
+    });
+
+    it.each(FORMATS)('decompress %s data as the native build does', async (format) => {
+      const compressed = native.compressSync(text, { format });
+      for (const name of format === 'deflate-raw' ? [format] : [format, 'auto' as const]) {
+        const [expected, actual] = await Promise.all(
+          both((api) => outcome(() => new api.DecompressionStream(name), chunked(compressed, 99))),
+        );
+        expect(expected).toEqual({ returned: text });
+        expect(actual).toEqual(expected);
+      }
+    });
+
+    it('take a Dictionary or the bytes of one', async () => {
+      for (const format of ['zstd', 'brotli'] as const) {
+        const expected = await preparedOutputs(native, format);
+        const actual = await preparedOutputs(browser, format);
+        expect(actual).toEqual(expected);
+        expect(actual.restored).toEqual(text);
+        expect(actual.withPrepared).toEqual(actual.withBytes);
+      }
+    });
+
+    it.each(INPUT_KINDS)('read chunks from %s byte for byte', async (_, as) => {
+      const plain = await through(chunked(text, 1000), new wasm.CompressionStream('zstd'));
+      const chunks = chunked(text, 1000).map(as);
+      expect(await through(chunks, new wasm.CompressionStream('zstd'))).toEqual(plain);
+    });
+
+    it.each([
+      ['an unknown format', (api: Api) => new api.CompressionStream('nope' as Format)],
+      ['a level out of range', (api: Api) => new api.CompressionStream('brotli', { level: 12 })],
+      ['a level for lz4', (api: Api) => new api.CompressionStream('lz4', { level: 1 })],
+      ['a header for zstd', (api: Api) => new api.CompressionStream('zstd', { gzipHeader: {} })],
+      [
+        'an empty dictionary',
+        (api: Api) => new api.CompressionStream('zstd', { dictionary: new Uint8Array() }),
+      ],
+      [
+        'a negative limit',
+        (api: Api) => new api.DecompressionStream('zstd', { maxOutputSize: -1 }),
+      ],
+      [
+        'dictionary bytes with auto',
+        (api: Api) => new api.DecompressionStream('auto', { dictionary }),
+      ],
+    ])('fail to be created as in the native build for %s', (_, create) => {
+      const [expected, actual] = both((api) => run(() => create(api)));
+      expect(expected).toMatchObject({ threw: { class: 'TypeError' } });
+      expect(actual).toEqual(expected);
+    });
+
+    it('take no zstd workers, which the native build takes', () => {
+      const [expected, actual] = both((api) =>
+        run(() => new api.CompressionStream('zstd', { workers: 2 })),
+      );
+      expect(expected).toEqual({ returned: expect.anything() });
+      expect(actual).toEqual({
+        threw: {
+          class: 'TypeError',
+          code: 'ERR_COMPRS_INVALID_ARG',
+          message: 'zstd workers are not supported in this build',
+          keys: ['code'],
+        },
+      });
+    });
+
+    it('error the stream as in the native build', async () => {
+      const zstd = native.compressSync(text, { format: 'zstd' });
+      const cases: [create: (api: Api) => TransformPair, chunks: unknown[]][] = [
+        [(api) => new api.DecompressionStream('zstd', { maxOutputSize: 100 }), [zstd]],
+        [(api) => new api.DecompressionStream('zstd'), [zstd.subarray(0, 50)]],
+        [(api) => new api.DecompressionStream('gzip'), []],
+        [(api) => new api.DecompressionStream('zstd'), [zstd, Uint8Array.of(1, 2, 3)]],
+        [(api) => new api.DecompressionStream('auto'), [encoder.encode('not compressed data')]],
+        [(api) => new api.DecompressionStream('auto'), []],
+        [(api) => new api.CompressionStream('zstd'), ['text']],
+        [(api) => new api.DecompressionStream('brotli'), [Uint8Array.of(0xff, 0xff, 0xff)]],
+      ];
+      for (const [create, chunks] of cases) {
+        const [expected, actual] = await Promise.all(
+          both((api) => outcome(() => create(api), chunks)),
+        );
+        expect(expected).toMatchObject({ threw: { code: expect.any(String) } });
+        expect(actual).toEqual(expected);
+      }
+    });
+
+    it('free their contexts once they end, fail or are cancelled', async () => {
+      const glue = Object(await importGlue());
+      const free = ['NextCompressContext', 'NextDecompressContext'].map((name) => {
+        const glueClass: unknown = Reflect.get(glue, name);
+        if (typeof glueClass !== 'function') throw new Error(`the glue has no ${name}`);
+        const prototype: unknown = glueClass.prototype;
+        if (!isFreeable(prototype)) throw new Error(`${name} has no free()`);
+        return vi.spyOn(prototype, 'free');
+      });
+      const compressed = await through([text], new wasm.CompressionStream('zstd'));
+      await through([compressed], new wasm.DecompressionStream('auto'));
+      await settle(() => through([Uint8Array.of(1, 2, 3)], new wasm.DecompressionStream('zstd')));
+      const cancelled = new wasm.CompressionStream('gzip');
+      const reader = cancelled.readable.getReader();
+      reader.read().catch(() => {});
+      await cancelled.writable.getWriter().write(text);
+      await reader.cancel();
+      expect(free.map((spy) => spy.mock.calls.length)).toEqual([2, 2]);
     });
   });
 

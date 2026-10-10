@@ -14,14 +14,17 @@ import { setImmediate } from 'node:timers';
 // makes the cheap ones synchronously, yielding to the event loop now and
 // then. The output is the same either way: only the timing differs.
 
-/** The methods of a stream context that a ChunkScheduler calls. */
-export interface AsyncCapableContext {
-  transform(chunk: Uint8Array): Uint8Array;
-  transformAsync(chunk: Uint8Array): Promise<Uint8Array>;
-  flush(): Uint8Array;
-  flushAsync(): Promise<Uint8Array>;
-  finish(): Uint8Array;
-  finishAsync(): Promise<Uint8Array>;
+/**
+ * The methods of a stream context that a ChunkScheduler calls, which return
+ * `Output`, such as a Buffer.
+ */
+export interface AsyncCapableContext<Output extends Uint8Array = Uint8Array> {
+  transform(chunk: Uint8Array): Output;
+  transformAsync(chunk: Uint8Array): Promise<Output>;
+  flush(): Output;
+  flushAsync(): Promise<Output>;
+  finish(): Output;
+  finishAsync(): Promise<Output>;
 }
 
 /**
@@ -289,8 +292,8 @@ export interface ContextModel {
  * one call may be in flight: the caller waits for a Promise to settle before
  * it calls again, as streams do.
  */
-export class ChunkScheduler {
-  readonly #ctx: AsyncCapableContext;
+export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
+  readonly #ctx: AsyncCapableContext<Output>;
   readonly #prior: number;
   /** The moving average of the time per byte, or 0 before any sample. */
   #measured = 0;
@@ -316,7 +319,7 @@ export class ChunkScheduler {
    * @param model How `ctx` processes its input. Without it, the scheduler
    *   takes `ctx` to process each chunk as it comes.
    */
-  constructor(ctx: AsyncCapableContext, msPerByte: number, model: ContextModel = {}) {
+  constructor(ctx: AsyncCapableContext<Output>, msPerByte: number, model: ContextModel = {}) {
     const { block = 0, holds = 0, setupMs = 0 } = model;
     this.#ctx = ctx;
     this.#prior = msPerByte;
@@ -327,7 +330,7 @@ export class ChunkScheduler {
   }
 
   /** Call transform(chunk) or transformAsync(chunk). */
-  transform(chunk: Uint8Array): Uint8Array | Promise<Uint8Array> {
+  transform(chunk: Uint8Array): Output | Promise<Output> {
     if (spent >= YIELD_MS) return waitForTurn().then(() => this.transform(chunk));
     this.#unflushed += chunk.byteLength;
     const work = this.#work(chunk.byteLength);
@@ -349,7 +352,7 @@ export class ChunkScheduler {
   }
 
   /** Call flush() or flushAsync(). */
-  flush(): Uint8Array | Promise<Uint8Array> {
+  flush(): Output | Promise<Output> {
     if (spent >= YIELD_MS) return waitForTurn().then(() => this.flush());
     if (this.#endsAsync()) return this.#ctx.flushAsync();
     const start = performance.now();
@@ -359,7 +362,7 @@ export class ChunkScheduler {
   }
 
   /** Call finish() or finishAsync(). */
-  finish(): Uint8Array | Promise<Uint8Array> {
+  finish(): Output | Promise<Output> {
     if (spent >= YIELD_MS) return waitForTurn().then(() => this.finish());
     if (this.#endsAsync()) return this.#ctx.finishAsync();
     const start = performance.now();
@@ -427,12 +430,12 @@ export class ChunkScheduler {
  * measured speed and blocks of the codec (see msPerBytePrior() and
  * blockBytes()) and what `model` adds.
  */
-export function codecScheduler(
-  ctx: AsyncCapableContext,
+export function codecScheduler<Output extends Uint8Array>(
+  ctx: AsyncCapableContext<Output>,
   op: CodecOp,
   level: number | undefined,
   model: ContextModel = {},
-): ChunkScheduler {
+): ChunkScheduler<Output> {
   return new ChunkScheduler(ctx, msPerBytePrior(op, level), {
     block: blockBytes(op, level),
     ...model,

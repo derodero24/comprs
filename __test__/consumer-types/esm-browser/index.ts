@@ -83,6 +83,11 @@ const roundTrip: ReadableStream<Uint8Array> = source
   .pipeThrough(createGzipCompressStream())
   .pipeThrough(createDecompressStream());
 
+// The stream classes of the unified API, in the WebAssembly build.
+const nextRoundTrip: ReadableStream<Uint8Array<ArrayBuffer>> = roundTrip
+  .pipeThrough(new next.CompressionStream('lz4'))
+  .pipeThrough(new next.DecompressionStream('auto'));
+
 export {
   blob,
   chunks,
@@ -96,6 +101,7 @@ export {
   isZstd,
   label,
   mtime,
+  nextRoundTrip,
   restored,
   roundTrip,
 };

@@ -201,7 +201,7 @@ impl<T: MemoryUsage> NativeState<T> {
     }
 
     /// Run `op` on the state and update the memory reported for it.
-    fn run(
+    pub(crate) fn run(
         &self,
         memory: &impl ExternalMemory,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
@@ -215,7 +215,7 @@ impl<T: MemoryUsage> NativeState<T> {
 
     /// Run `op`, which ends the stream, then drop the state, whether `op`
     /// succeeded or not: the codecs cannot continue after either.
-    fn finish(
+    pub(crate) fn finish(
         &self,
         memory: &impl ExternalMemory,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,

@@ -486,6 +486,8 @@ try {
 | `trainDictionary(samples, options?)` | Train a zstd dictionary from an iterable of samples, on a thread of the libuv pool in Node.js |
 | `trainDictionarySync(samples, options?)` | Train a zstd dictionary on the calling thread |
 | `Dictionary.from(bytes, options)` | Prepare a zstd or brotli dictionary once, for every call that takes it as its `dictionary` (see [Prepared dictionaries](#prepared-dictionaries)) |
+| `new CompressionStream(format, options?)` | A ponyfill of the standard `CompressionStream`, in every format, with the options of `compress()` (see [Compression streams](#compression-streams)) |
+| `new DecompressionStream(format, options?)` | A ponyfill of the standard `DecompressionStream`, in every format or `'auto'`, with the options of `decompress()` |
 
 | Option | Of | Description |
 | --- | --- | --- |
@@ -535,7 +537,7 @@ await pending; // rejects with controller.signal.reason, a DOMException named Ab
 
 **Browsers.** Browser builds that import `@derodero24/comprs/next` get its WebAssembly build, through the `browser` condition, on the WebAssembly module of the browser entry (see [Browser Usage](#browser-usage)). There, the async functions do not run on another thread: they compress or decompress on the calling thread, which they block, before they return a Promise of the result. Use a Web Worker to keep a page responsive. The browser build has no worker threads either: any `workers` but 0 fails with `ERR_COMPRS_INVALID_ARG`. Its WebAssembly memory cannot hold more than 4 GiB, so a `maxOutputSize` above 4294967295 acts as 4294967295: errors name that limit, and a zstd frame that declares a larger content size fails with `ERR_COMPRS_SIZE_LIMIT`. It writes different lz4 frames from the native build for most inputs of more than a few hundred bytes, which both builds decode; the other formats come out the same in both. A panic, or an allocation that the WebAssembly memory cannot grow for, fails with a `WebAssembly.RuntimeError` without a code.
 
-`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions`, `DictionaryOptions`, and `AbortOptions` and `AbortSignalLike` for the `signal` option of the async functions.
+`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions`, `DictionaryOptions`, `CompressionStreamOptions`, `DecompressionStreamOptions`, and `AbortOptions` and `AbortSignalLike` for the `signal` option of the async functions.
 
 ### Prepared dictionaries
 
@@ -567,6 +569,36 @@ dictionary.close(); // or declare it with `using`, which closes it at the end of
 - **Memory.** A zstd `Dictionary` holds memory outside the JavaScript heap: a copy of the bytes, a digest for decompression of about their size, and a digest for each compression level that it keeps, which grows with the level. A dictionary of 110 KiB holds 0.8 MB in all at level 3, and 2 MB at level 19. The native addon reports that memory to V8 when it creates the dictionary, so that the garbage collector weighs it, but not the memory of the levels that it digests later. `close()` frees the memory once the calls that already started with the dictionary have finished; any later call with it fails with `ERR_COMPRS_INVALID_ARG` ("this Dictionary is closed").
 - **Brotli.** A brotli `Dictionary` only holds the bytes, which brotli takes as they are, so it saves little time yet: brotli still indexes the dictionary on every call.
 - **Browsers.** The browser build has the same class. A `Dictionary` of one build is no dictionary of the other, whose functions fail with `ERR_COMPRS_INVALID_ARG` for it ("dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView"): pass it to the functions of the entry that created it.
+
+### Compression streams
+
+`CompressionStream` and `DecompressionStream` are ponyfills of the classes of the [Compression Streams](https://compression.spec.whatwg.org/) standard ([#344](https://github.com/derodero24/comprs/issues/344)): pipe a stream of bytes through them with `pipeThrough()`. They take every format of the unified API, with the options of `compress()` and `decompress()` but `signal`, and they neither replace nor use the global classes.
+
+```typescript
+import { CompressionStream, DecompressionStream } from '@derodero24/comprs/next';
+
+const compressed = file.stream().pipeThrough(new CompressionStream('zstd', { level: 9 }));
+const response = new Response(compressed, { headers: { 'Content-Encoding': 'zstd' } });
+
+const body = request.body!.pipeThrough(new DecompressionStream('auto', { maxOutputSize: 10 * 1024 * 1024 }));
+```
+
+| Format | Compression | Decompression |
+| --- | --- | --- |
+| `'zstd'` | `level`, `dictionary`, `workers` | `dictionary`, `maxOutputSize` |
+| `'gzip'` | `level`, `gzipHeader` | `maxOutputSize` |
+| `'deflate'` (zlib) | `level` | `maxOutputSize` |
+| `'deflate-raw'` | `level` | `maxOutputSize` |
+| `'brotli'` | `level`, `dictionary` | `dictionary`, `maxOutputSize` |
+| `'lz4'` | none | `maxOutputSize` |
+| `'auto'` | - | `dictionary` (a `Dictionary`), `maxOutputSize` |
+
+- **Formats.** `'deflate'` is the zlib format, as in the standard: see the **`'deflate'` is zlib** warning above. Where the platform's own `CompressionStream` and `DecompressionStream` are enough, for gzip, deflate and deflate-raw without options, keep using them; these classes add the other formats, the options, the output limit and the error codes.
+- **Chunks.** The chunks written may be any `ArrayBuffer`, `SharedArrayBuffer` or `ArrayBufferView`, read byte for byte, and bytes in a `SharedArrayBuffer` are copied first. A chunk of any other type, or a detached buffer, errors the stream with `ERR_COMPRS_INVALID_ARG`. The chunks read are plain `Uint8Array`s, never empty; their sizes follow the codec, not the chunks written.
+- **Errors.** The constructors check the format and the options, as `compressSync()` and `decompressSync()` do, and throw with `ERR_COMPRS_INVALID_ARG`. Errors of the codec error the stream, with the codes of the table above: decompression is as strict as `decompress()`, so input that ends before the end of the compressed stream, empty input included, errors the stream with `ERR_COMPRS_TRUNCATED` once the writable side closes.
+- **Detection.** With `'auto'`, a `DecompressionStream` holds the start of its input until it knows the format, which takes at most 64 KiB, and then decodes as in that format. It knows zstd and lz4 frames whose magic number comes in the first 64 KiB, after any skippable frames, and brotli data once its start decodes to more bytes than the stream holds, or once the input ends. With a `Dictionary`, `'auto'` stands for the format of the dictionary.
+- **Threads.** In Node.js, a chunk that the stream predicts to take 2 ms or more is compressed or decompressed on a thread of the libuv pool, and cheaper ones on the calling thread, which yields to the event loop every few milliseconds, as for the stream helpers of the package root (see [Choosing an API mode](#choosing-an-api-mode)). In browsers, the WebAssembly build compresses each chunk on the calling thread: use a Web Worker to keep a page responsive.
+- **Memory.** A stream releases the memory of its codec when it ends, fails or is cancelled. In runtimes whose `TransformStream` does not call the `cancel()` method of its transformer, added to the Streams standard in 2023, the garbage collector releases a cancelled stream instead; the native addon reports the memory of each stream to V8, so that it weighs it.
 
 ## Supported Algorithms
 
@@ -607,9 +639,9 @@ The browser WASM binary (`wasm32-unknown-unknown`) is built with `wasm-pack`, op
 
 | `comprs-wasm_bg.wasm` | Size |
 | --- | --- |
-| Raw | 1.90 MB |
-| gzip (level 9) | 806 KB |
-| brotli (quality 11) | 558 KB |
+| Raw | 1.93 MB |
+| gzip (level 9) | 818 KB |
+| brotli (quality 11) | 567 KB |
 
 The compressed sizes are those of Node.js's zlib; what a CDN serves depends on its compressor and level. CI reports these sizes on every pull request, and fails when the raw or gzip size grows over its budget.
 

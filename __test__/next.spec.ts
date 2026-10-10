@@ -33,7 +33,7 @@ import {
   zstdCompressWithDict,
   zstdTrainDictionary,
 } from '../index.js';
-import type { Backend } from '../next/backend.js';
+import type { Backend, CodecStream } from '../next/backend.js';
 import type { Bytes, CompressOptions, Format, Input } from '../next/index.js';
 import * as next from '../next/index.js';
 import { backendModule } from './next-backend.js';
@@ -653,7 +653,27 @@ describe('bytes in a SharedArrayBuffer', () => {
       closeDictionary: (handle) => inner.closeDictionary(handle),
       createWithdrawal: () => inner.createWithdrawal(),
       withdraw: (withdrawal) => inner.withdraw(withdrawal),
+      createCompressStream: (...args) => {
+        record(args[2]);
+        return recordingStream(inner.createCompressStream(...args));
+      },
+      createDecompressStream: (...args) => {
+        record(args[2]);
+        return recordingStream(inner.createDecompressStream(...args));
+      },
     };
+
+    /** `stream`, recording the chunks that it gets. */
+    function recordingStream(stream: CodecStream): CodecStream {
+      return {
+        transform: (chunk) => {
+          record(chunk);
+          return stream.transform(chunk);
+        },
+        finish: () => stream.finish(),
+        close: () => stream.close(),
+      };
+    }
   }
 
   it('reach the backend as copies in ArrayBuffers', async () => {
@@ -683,12 +703,27 @@ describe('bytes in a SharedArrayBuffer', () => {
       const prepared = next.Dictionary.from(new DataView(shared(dictionary)), { format: 'zstd' });
       expect(prepared.toBytes()).toEqual(dictionary);
       prepared.close();
+      const compression = new next.CompressionStream('zstd', { dictionary: shared(dictionary) });
+      const writer = compression.writable.getWriter();
+      const compressed = new Response(compression.readable).arrayBuffer();
+      await writer.write(shared(text));
+      await writer.write(new Uint8Array(shared(text)));
+      await writer.close();
+      const decompression = new next.DecompressionStream('zstd', {
+        dictionary: new DataView(shared(dictionary)),
+      });
+      const decompressed = new Response(decompression.readable).arrayBuffer();
+      const decompressionWriter = decompression.writable.getWriter();
+      await decompressionWriter.write(shared(new Uint8Array(await compressed)));
+      await decompressionWriter.close();
+      expect(new Uint8Array(await decompressed)).toEqual(new Uint8Array([...text, ...text]));
     } finally {
       setBackend(original);
     }
-    // The data of each call, the dictionaries of two, the samples, and the
-    // bytes of the prepared dictionary.
-    expect(received).toHaveLength(6 + 2 + 2 * samples.length + 1);
+    // The data of each call, the dictionaries of two, the samples, the
+    // bytes of the prepared dictionary, and the dictionaries and the chunks
+    // of the streams.
+    expect(received).toHaveLength(6 + 2 + 2 * samples.length + 1 + 2 + 3);
     for (const input of received) {
       expect(Object.prototype.toString.call(input.buffer)).toBe('[object ArrayBuffer]');
     }
@@ -1304,8 +1339,10 @@ function exportedNames(namespace: object): string[] {
 }
 
 describe('the ES module entry', () => {
-  /** The functions and the class of the API. */
+  /** The functions and the classes of the API. */
   const NAMES = [
+    'CompressionStream',
+    'DecompressionStream',
     'Dictionary',
     'compress',
     'compressSync',

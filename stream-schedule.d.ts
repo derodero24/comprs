@@ -1,11 +1,14 @@
-/** The methods of a stream context that a ChunkScheduler calls. */
-export interface AsyncCapableContext {
-    transform(chunk: Uint8Array): Uint8Array;
-    transformAsync(chunk: Uint8Array): Promise<Uint8Array>;
-    flush(): Uint8Array;
-    flushAsync(): Promise<Uint8Array>;
-    finish(): Uint8Array;
-    finishAsync(): Promise<Uint8Array>;
+/**
+ * The methods of a stream context that a ChunkScheduler calls, which return
+ * `Output`, such as a Buffer.
+ */
+export interface AsyncCapableContext<Output extends Uint8Array = Uint8Array> {
+    transform(chunk: Uint8Array): Output;
+    transformAsync(chunk: Uint8Array): Promise<Output>;
+    flush(): Output;
+    flushAsync(): Promise<Output>;
+    finish(): Output;
+    finishAsync(): Promise<Output>;
 }
 /**
  * A codec and a direction, whose speed msPerBytePrior() estimates. Raw
@@ -94,7 +97,7 @@ export interface ContextModel {
  * one call may be in flight: the caller waits for a Promise to settle before
  * it calls again, as streams do.
  */
-export declare class ChunkScheduler {
+export declare class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
     #private;
     /**
      * @param ctx The context to call.
@@ -103,20 +106,20 @@ export declare class ChunkScheduler {
      * @param model How `ctx` processes its input. Without it, the scheduler
      *   takes `ctx` to process each chunk as it comes.
      */
-    constructor(ctx: AsyncCapableContext, msPerByte: number, model?: ContextModel);
+    constructor(ctx: AsyncCapableContext<Output>, msPerByte: number, model?: ContextModel);
     /** Call transform(chunk) or transformAsync(chunk). */
-    transform(chunk: Uint8Array): Uint8Array | Promise<Uint8Array>;
+    transform(chunk: Uint8Array): Output | Promise<Output>;
     /** Call flush() or flushAsync(). */
-    flush(): Uint8Array | Promise<Uint8Array>;
+    flush(): Output | Promise<Output>;
     /** Call finish() or finishAsync(). */
-    finish(): Uint8Array | Promise<Uint8Array>;
+    finish(): Output | Promise<Output>;
 }
 /**
  * A ChunkScheduler for `ctx`, a stream context of `op` at `level`, from the
  * measured speed and blocks of the codec (see msPerBytePrior() and
  * blockBytes()) and what `model` adds.
  */
-export declare function codecScheduler(ctx: AsyncCapableContext, op: CodecOp, level: number | undefined, model?: ContextModel): ChunkScheduler;
+export declare function codecScheduler<Output extends Uint8Array>(ctx: AsyncCapableContext<Output>, op: CodecOp, level: number | undefined, model?: ContextModel): ChunkScheduler<Output>;
 /**
  * Pass `result`, which a ChunkScheduler returned, to `use`: now, if it is
  * the output, or once it resolves, if it is a Promise. Return what `use`

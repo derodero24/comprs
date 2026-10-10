@@ -4,9 +4,23 @@
 // condition, and type-checks its dependencies' declarations
 // (skipLibCheck: false), so the declarations of ./next must need neither.
 // Its `signal` option takes an AbortSignalLike, which a minimal polyfill
-// of AbortSignal satisfies.
-import type { AbortSignalLike, Bytes, CompressOptions } from '@derodero24/comprs/next';
-import { compress, compressSync, Dictionary, decompress } from '@derodero24/comprs/next';
+// of AbortSignal satisfies. The stream classes declare their sides with the
+// stream interfaces of the DOM library and of the types of Node.js, which
+// ./next declares as empty ones where neither is loaded.
+import type {
+  AbortSignalLike,
+  Bytes,
+  CompressionStreamOptions,
+  CompressOptions,
+} from '@derodero24/comprs/next';
+import {
+  CompressionStream,
+  compress,
+  compressSync,
+  DecompressionStream,
+  Dictionary,
+  decompress,
+} from '@derodero24/comprs/next';
 
 const input = Uint8Array.of(104, 101, 108, 108, 111);
 
@@ -26,4 +40,10 @@ const dictionary = Dictionary.from(input, { format: 'zstd' });
 const withDictionary: Bytes = compressSync(input, { format: 'zstd', dictionary });
 dictionary.close();
 
-export { restored, withDictionary };
+const streamOptions: CompressionStreamOptions = { level: 3 };
+const sides = [
+  new CompressionStream('zstd', streamOptions).readable,
+  new DecompressionStream('auto').writable,
+];
+
+export { restored, sides, withDictionary };

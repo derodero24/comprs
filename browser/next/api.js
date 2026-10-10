@@ -256,20 +256,27 @@ function dictionaryArgs(value) {
     };
 }
 /**
- * Check the arguments of {@link compressSync}, or, if `abortable`, of
- * {@link compress}, which also takes a signal. The inputs are read last,
- * after the getters of the options, which could detach their buffers.
+ * `options`, which must be an object, or `undefined`, which stands for an
+ * object without options.
  */
-function compressArgs(data, options, abortable) {
-    if (!isObject(options)) {
+function optionsObject(options) {
+    if (options === undefined)
+        return {};
+    if (!isObject(options))
         throw invalidArg('options must be an object');
-    }
-    const format = options.format;
+    return options;
+}
+/**
+ * Check `format` and then `options`, the settings of a compression, and,
+ * if `abortable`, its signal. The dictionary is read but not checked.
+ */
+function compressSettings(format, options, abortable) {
     if (!isFormat(format))
         throw invalidArg(`format must be one of ${FORMATS.join(', ')}`);
-    const level = optionalNumber(options.level, 'level');
-    const dictionary = options.dictionary;
-    const header = options.gzipHeader;
+    const checked = optionsObject(options);
+    const level = optionalNumber(checked.level, 'level');
+    const dictionary = checked.dictionary;
+    const header = checked.gzipHeader;
     let gzipHeader;
     let gzipFilename;
     let gzipMtime;
@@ -280,50 +287,50 @@ function compressArgs(data, options, abortable) {
         gzipFilename = optionalString(header.filename, 'gzipHeader.filename');
         gzipMtime = optionalNumber(header.mtime, 'gzipHeader.mtime');
     }
-    const workers = optionalNumber(options.workers, 'workers');
-    const signal = signalOption(options, abortable);
-    return {
-        data: toBytes(data, 'data'),
-        format,
-        level,
-        ...dictionaryArgs(dictionary),
-        gzipHeader,
-        gzipFilename,
-        gzipMtime,
-        workers,
-        signal,
-    };
+    const workers = optionalNumber(checked.workers, 'workers');
+    const signal = signalOption(checked, abortable);
+    return { format, level, dictionary, gzipHeader, gzipFilename, gzipMtime, workers, signal };
+}
+/**
+ * Check the arguments of {@link compressSync}, or, if `abortable`, of
+ * {@link compress}, which also takes a signal. The inputs are read last,
+ * after the getters of the options, which could detach their buffers.
+ */
+function compressArgs(data, options, abortable) {
+    if (!isObject(options))
+        throw invalidArg('options must be an object');
+    const { dictionary, ...settings } = compressSettings(options.format, options, abortable);
+    return { ...settings, data: toBytes(data, 'data'), ...dictionaryArgs(dictionary) };
+}
+/**
+ * Check `format` and then `options`, the settings of a decompression, as
+ * compressSettings does: `format` may be `'auto'`.
+ */
+function decompressSettings(format, options, abortable) {
+    if (format !== 'auto' && !isFormat(format)) {
+        throw invalidArg(`format must be one of auto, ${FORMATS.join(', ')}`);
+    }
+    const checked = optionsObject(options);
+    const maxOutputSize = optionalNumber(checked.maxOutputSize, 'maxOutputSize');
+    const dictionary = checked.dictionary;
+    const signal = signalOption(checked, abortable);
+    return { format: format === 'auto' ? undefined : format, maxOutputSize, dictionary, signal };
 }
 /**
  * Check the arguments of {@link decompressSync}, or, if `abortable`, of
  * {@link decompress}, as compressArgs does.
  */
 function decompressArgs(data, options, abortable) {
-    let format;
-    let maxOutputSize;
-    let dictionary;
-    let signal;
+    let format = 'auto';
     if (options !== undefined) {
-        if (!isObject(options)) {
+        if (!isObject(options))
             throw invalidArg('options must be an object');
-        }
         const name = options.format;
-        if (name !== undefined && name !== 'auto') {
-            if (!isFormat(name))
-                throw invalidArg(`format must be one of auto, ${FORMATS.join(', ')}`);
+        if (name !== undefined)
             format = name;
-        }
-        maxOutputSize = optionalNumber(options.maxOutputSize, 'maxOutputSize');
-        dictionary = options.dictionary;
-        signal = signalOption(options, abortable);
     }
-    return {
-        data: toBytes(data, 'data'),
-        format,
-        maxOutputSize,
-        ...dictionaryArgs(dictionary),
-        signal,
-    };
+    const { dictionary, ...settings } = decompressSettings(format, options, abortable);
+    return { ...settings, data: toBytes(data, 'data'), ...dictionaryArgs(dictionary) };
 }
 /** Check the arguments of {@link Dictionary.from}, as compressArgs does. */
 function createDictionaryArgs(bytes, options) {
@@ -626,4 +633,196 @@ if (typeof DISPOSE === 'symbol') {
         writable: true,
         configurable: true,
     });
+}
+/**
+ * Check the arguments of the constructor of {@link CompressionStream}, as
+ * compressArgs does.
+ */
+function compressStreamArgs(format, options) {
+    const { dictionary, signal: _, ...settings } = compressSettings(format, options, false);
+    return { ...settings, ...dictionaryArgs(dictionary) };
+}
+/**
+ * Check the arguments of the constructor of {@link DecompressionStream}, as
+ * compressArgs does. With a {@link Dictionary}, `'auto'` stands for the
+ * format of the dictionary, which the stream then gets: the native backend
+ * schedules a stream by the speed of its format.
+ */
+function decompressStreamArgs(format, options) {
+    const { dictionary, signal: _, ...settings } = decompressSettings(format, options, false);
+    const args = { ...settings, ...dictionaryArgs(dictionary) };
+    if (args.format === undefined && dictionary instanceof Dictionary) {
+        args.format = dictionary.format;
+    }
+    return args;
+}
+/**
+ * A TransformStream that passes its chunks through `codec`, a stream of the
+ * backend, and enqueues its output.
+ *
+ * Each chunk is read as an {@link Input}, as the functions read their data:
+ * a chunk of another type fails with `ERR_COMPRS_INVALID_ARG`, which errors
+ * the stream. Once the writable side closes, the stream enqueues the rest of
+ * the output, which `finish()` returns. The output of each call is a new
+ * array, so the stream enqueues it as it is, unless it is empty.
+ *
+ * The stream closes `codec` once it has finished, failed or been
+ * cancelled, which releases its memory at once rather than when the
+ * garbage collector collects it, and drops the output of a call that is in
+ * flight when it is cancelled. The stream waits for the Promise of each
+ * call that it makes, and handles its rejection, even after a cancel.
+ * Runtimes whose TransformStream does not call the `cancel()` method of its
+ * transformer, from the Streams standard of 2023, leave a cancelled stream
+ * to the garbage collector.
+ */
+function codecStream(codec) {
+    let open = true;
+    let cancelled = false;
+    const close = () => {
+        if (!open)
+            return;
+        open = false;
+        codec.close();
+    };
+    // Make the call of `step`, pass its output on to `controller`, and close
+    // `codec` if it fails.
+    const settle = (step, controller) => {
+        const enqueue = (output) => {
+            if (!cancelled && output.byteLength > 0)
+                controller.enqueue(output);
+        };
+        let output;
+        try {
+            output = step();
+        }
+        catch (error) {
+            close();
+            throw error;
+        }
+        // Not instanceof: under Jest, which runs modules in a vm context, the
+        // Promises of the native addon come from another realm.
+        if (ArrayBuffer.isView(output))
+            return enqueue(output);
+        return output.then(enqueue, (error) => {
+            close();
+            throw error;
+        });
+    };
+    const transformer = {
+        transform: (chunk, controller) => settle(() => codec.transform(toBytes(chunk, 'chunk')), controller),
+        flush: (controller) => {
+            const step = settle(() => codec.finish(), controller);
+            if (step === undefined)
+                return close();
+            return step.then(close);
+        },
+        cancel: () => {
+            cancelled = true;
+            return close();
+        },
+    };
+    return new TransformStream(transformer);
+}
+/**
+ * A ponyfill of `CompressionStream` of the Compression Streams standard: it
+ * compresses the chunks written to its {@link CompressionStream.writable}
+ * side into the chunks read from its {@link CompressionStream.readable}
+ * side, in any {@link Format} and with the options of {@link compress}.
+ * Pipe data through it with `pipeThrough()`. It neither replaces nor uses
+ * the global `CompressionStream`.
+ *
+ * The chunks written may be any {@link Input}, read as the functions read
+ * their data: bytes in a SharedArrayBuffer are copied first. A chunk of any
+ * other type errors the stream with `ERR_COMPRS_INVALID_ARG`, and so does a
+ * detached buffer. The chunks read are {@link Bytes}, which together hold
+ * the compressed data: their sizes follow the codec, not the chunks
+ * written. `'deflate'` is the zlib format, as in the standard.
+ *
+ * In Node.js, a chunk that the stream predicts to take 2 ms or more is
+ * compressed on a thread of the libuv pool, so that it does not block the
+ * event loop, and cheaper ones on the calling thread, which yields to the
+ * event loop every few milliseconds, as the stream helpers of the package
+ * root do. The browser build compresses each chunk on the calling thread.
+ * Errors of the codec error the stream, with an {@link ErrorCode} as
+ * `code`.
+ */
+export class CompressionStream {
+    #stream;
+    /**
+     * Create a stream that compresses in `format`, with `options`, which are
+     * checked here, as {@link compressSync} checks them.
+     *
+     * @throws An error with an {@link ErrorCode} as `code`, such as
+     * `ERR_COMPRS_INVALID_ARG` for an unknown format or an invalid option.
+     */
+    constructor(format, options) {
+        const args = compressStreamArgs(format, options);
+        this.#stream = codecStream(backend().createCompressStream(args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers, args.dictionaryHandle));
+    }
+    /** The side to read the compressed data from. */
+    get readable() {
+        return this.#stream.readable;
+    }
+    /** The side to write the data to compress to. */
+    get writable() {
+        return this.#stream.writable;
+    }
+    get [Symbol.toStringTag]() {
+        return 'CompressionStream';
+    }
+}
+/**
+ * A ponyfill of `DecompressionStream` of the Compression Streams standard:
+ * it decompresses the chunks written to its
+ * {@link DecompressionStream.writable} side into the chunks read from its
+ * {@link DecompressionStream.readable} side, in any {@link Format}, or in
+ * the format that it detects, with the options of {@link decompress}. Pipe
+ * data through it with `pipeThrough()`. It neither replaces nor uses the
+ * global `DecompressionStream`.
+ *
+ * The chunks are read and written as for {@link CompressionStream}, and
+ * the stream decodes as strictly as {@link decompress} does: data that ends
+ * before the end of the compressed stream, empty data included, errors the
+ * stream with `ERR_COMPRS_TRUNCATED` once the writable side closes, data
+ * after its end with `ERR_COMPRS_CORRUPT_DATA`, and output beyond
+ * `maxOutputSize` with `ERR_COMPRS_SIZE_LIMIT`.
+ *
+ * With `'auto'`, the stream holds the start of its input until it detects
+ * the format, which takes at most 64 KiB, and then decodes as in that
+ * format, from the start. It detects the formats that {@link decompress}
+ * detects, but a zstd or lz4 frame only if its magic number comes in the
+ * first 64 KiB, after any skippable frames, and it knows brotli data only
+ * once its start decodes to more bytes than it holds, or once the input
+ * ends. Input that it does not recognize errors the stream with
+ * `ERR_COMPRS_UNKNOWN_FORMAT`. With a {@link Dictionary}, `'auto'` stands
+ * for the format of the dictionary.
+ *
+ * In Node.js, expensive chunks are decompressed on the libuv thread pool,
+ * as for {@link CompressionStream}.
+ */
+export class DecompressionStream {
+    #stream;
+    /**
+     * Create a stream that decompresses in `format`, or in the format that
+     * it detects with `'auto'`, with `options`, which are checked here, as
+     * {@link decompressSync} checks them.
+     *
+     * @throws An error with an {@link ErrorCode} as `code`, such as
+     * `ERR_COMPRS_INVALID_ARG` for an unknown format or an invalid option.
+     */
+    constructor(format, options) {
+        const args = decompressStreamArgs(format, options);
+        this.#stream = codecStream(backend().createDecompressStream(args.format, args.maxOutputSize, args.dictionary, args.dictionaryHandle));
+    }
+    /** The side to read the decompressed data from. */
+    get readable() {
+        return this.#stream.readable;
+    }
+    /** The side to write the data to decompress to. */
+    get writable() {
+        return this.#stream.writable;
+    }
+    get [Symbol.toStringTag]() {
+        return 'DecompressionStream';
+    }
 }
