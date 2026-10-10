@@ -1,5 +1,10 @@
 name: CI
 
+# CI runs when a file changes that it builds, tests, checks or installs with
+# (pushes to develop leave out some that only the lint jobs check; see
+# pull_request). That includes .gitignore, whose files Biome skips
+# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
+# its prepare script (lefthook install), and .npmrc, which pnpm reads.
 on:
   push:
     branches: [develop]
@@ -13,6 +18,10 @@ on:
       - 'Cargo.lock'
       - 'tsconfig*.json'
       - 'biome.json'
+      - '.gitignore'
+      - 'commitlint.config.ts'
+      - 'lefthook.yml'
+      - '.npmrc'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
@@ -37,7 +46,13 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
-  # another PR's branch) and PRs into main are checked too.
+  # another PR's branch) and PRs into main are checked too. Their list also
+  # names files that only the lint jobs check, so that a change to them is
+  # checked before it is merged: every workflow, which Workflow Lint checks,
+  # and the playground, the chart images and the configuration files that
+  # Biome checks. Pushes to develop leave out these Biome-only files and the
+  # workflows that CI neither calls nor mirrors, so that a merge that changes
+  # only those does not run the full matrix.
   pull_request:
     paths:
       - 'crates/**'
@@ -49,7 +64,10 @@ on:
       - 'Cargo.lock'
       - 'tsconfig*.json'
       - 'biome.json'
-      - '.github/workflows/ci.yml'
+      - '.gitignore'
+      - 'commitlint.config.ts'
+      - 'lefthook.yml'
+      - '.npmrc'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
@@ -70,15 +88,26 @@ on:
       - '.cargo/**'
       - 'rust-toolchain*'
       - '.nvmrc'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/release.yml'
+      - 'playground/**'
+      - 'renovate.json'
+      - '.changeset/config.json'
+      - '.devcontainer/**'
+      - '.github/assets/**'
+      - '.github/workflows/**'
+  # Maintainers can run CI on any branch from the Actions tab, such as the
+  # branch of the Version Packages pull request, which changesets/action opens
+  # with GITHUB_TOKEN and which therefore starts no workflow on its own
+  # (#574). release.yml will dispatch it on the bot pull requests.
+  workflow_dispatch:
 
-# A newer push to a pull request cancels its running CI. Pushes to develop get
-# a group per commit instead: sharing one group would still replace a pending
-# run with the next one, so a burst of merges would leave commits untested.
+# A newer push to a pull request cancels its running CI. Dispatched runs group
+# per branch in the same way, so a newer dispatch replaces the running one.
+# Pushes to develop get a group per commit instead: sharing one group would
+# still replace a pending run with the next one, so a burst of merges would
+# leave commits untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -103,10 +132,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
         run: |
-          # Pushes to develop always run the full matrix. Pull requests run it
-          # only when something that ends up in the native binary or in the
-          # release packaging changed; JS-only PRs and most dependency updates
-          # build and test on Linux alone.
+          # Pushes to develop and dispatched runs always run the full matrix.
+          # Pull requests run it only when something that ends up in the
+          # native binary or in the release packaging changed; JS-only PRs and
+          # most dependency updates build and test on Linux alone.
           native=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
@@ -217,6 +246,44 @@ jobs:
       - name: Validate middleware TypeScript type resolution
         run: pnpm --filter @derodero24/comprs-middleware attw
 
+  # actionlint checks the workflows: their syntax, expressions and contexts,
+  # the inputs of the actions they use, and, with shellcheck, their run:
+  # scripts. Parts of release.yml run only during a release, so a mistake
+  # there would otherwise surface only then. The job downloads actionlint's
+  # release binary and checks its SHA-256, rather than running its Docker
+  # image, which comes from Docker Hub, whose pull limit for anonymous users
+  # can fail a job (#664). To update actionlint, take the hash of the
+  # linux_amd64 archive from the checksums file of the release. shellcheck
+  # is pinned too, as a newer version can report new findings.
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install shellcheck
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: shellcheck@0.11.0
+      - name: Install actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+      # actionlint skips the shellcheck checks without a word when it cannot
+      # run shellcheck, so the step first makes sure that it can.
+      - name: Lint the workflows
+        run: |
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint" -color
+
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -281,7 +348,10 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
-      - run: cargo clippy --all-targets -- -W clippy::all
+      # Any warning fails the job, rustc's as well as clippy's. A new stable
+      # Rust can bring new lints, so the job can fail without a change to the
+      # code: fix what it reports.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-test:
     name: Rust Test
@@ -811,7 +881,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

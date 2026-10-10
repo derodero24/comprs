@@ -92,7 +92,7 @@ pnpm run typecheck    # TypeScript (requires prior build)
 pnpm run test:types   # Packed package, type-checked by strict consumer projects
 pnpm test             # Vitest tests
 cargo test            # Rust tests
-cargo clippy          # Rust lint
+cargo clippy --workspace --all-targets -- -D warnings   # Rust lint; warnings fail it too
 pnpm run build        # napi-rs build
 pnpm run build:js     # Modules and declarations compiled from src/
 ```
@@ -100,6 +100,16 @@ pnpm run build:js     # Modules and declarations compiled from src/
 `pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the two projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js` and `playground/`, which no tsconfig checks.
 
 `pnpm run check` runs `biome ci --error-on-warnings`, as CI does, and the pre-commit hook also fails on warnings. Besides Biome's recommended rules, `biome.json` enables some nursery rules: `noFloatingPromises` and `noMisusedPromises` everywhere, and `useExplicitType` in the published sources, `src/` and `packages/middleware/src/`, where functions, methods and their parameters declare their types. A Biome release can rename or change nursery rules, so `package.json` pins Biome to an exact version, which Renovate updates in a pull request of its own. When such an update fails the check, run `pnpm exec biome migrate --write` and fix what the new version reports.
+
+Clippy runs with `-D warnings` in CI, in the pre-push hook and in `pnpm run verify`, so any warning, from rustc or from clippy, fails it. CI lints with the latest stable Rust, whose new lints can fail a pull request that did not touch the code they flag; fix what they report. The Fuzz workflow lints the fuzz crate the same way (`cargo clippy --all-targets -- -D warnings` in `crates/core-lib/fuzz`).
+
+After changing a workflow in `.github/workflows/`, check it with [actionlint](https://github.com/rhysd/actionlint), which CI's Workflow Lint job runs. Its Docker image includes shellcheck, which actionlint runs on the `run:` scripts:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+```
+
+An installed `actionlint` works too (`actionlint -color`), but it checks the scripts only when `shellcheck` is installed as well, and skips them without a word otherwise.
 
 CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails when the coverage falls below the thresholds in `vitest.config.mts` and writes the report to `coverage/`. It also measures the Rust tests of comprs-core with `cargo llvm-cov`, without the napi and wasm-bindgen bindings, which only the JS tests run; both reports go to Codecov.
 
@@ -226,7 +236,7 @@ Without the WebAssembly build, the dev server and the build fail. To work on the
 ## Pull request checklist
 
 - [ ] Tests pass (`pnpm test` and `cargo test`)
-- [ ] Lint passes (`pnpm run check` and `cargo clippy`)
+- [ ] Lint passes (`pnpm run check` and `cargo clippy --workspace --all-targets -- -D warnings`)
 - [ ] TypeScript types checked (`pnpm run typecheck`)
 - [ ] Build succeeds (`pnpm run build`)
 - [ ] Changeset added (if applicable)
@@ -274,7 +284,7 @@ pnpm run build
 
 ## Code style
 
-- **Rust:** rustfmt + clippy. No `unsafe` code.
+- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`). Unsafe code is limited to the bindings, the napi-rs addon for N-API calls and the WebAssembly build for its global allocator, and to the counting allocators of the tests and the fuzz crate.
 - **TypeScript/JavaScript:** Biome.
 
 ## Questions?

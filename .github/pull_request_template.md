@@ -17,7 +17,7 @@
 - [ ] TypeScript type-check passes (`pnpm run typecheck`)
 - [ ] JS tests pass (`pnpm test`)
 - [ ] Rust tests pass (`cargo test`)
-- [ ] Clippy passes (`cargo clippy`)
+- [ ] Clippy passes (`cargo clippy --workspace --all-targets -- -D warnings`)
 - [ ] Build succeeds (`pnpm run build`)
 - [ ] Changeset included (if `crates/` changed)
 - [ ] Benchmarks run for performance-sensitive changes
