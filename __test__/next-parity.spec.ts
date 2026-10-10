@@ -910,6 +910,38 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
       }
     });
 
+    it('take no Dictionary of the other build', async () => {
+      // The Dictionary class of each build is its own, which its private
+      // field makes nominal: the functions of one build take a Dictionary of
+      // the other for neither a Dictionary nor the bytes of one.
+      const expected = {
+        threw: {
+          class: 'TypeError',
+          code: 'ERR_COMPRS_INVALID_ARG',
+          message:
+            'dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+        },
+      };
+      const builds: [api: Api, other: Api][] = [
+        [wasm, native],
+        [native, wasm],
+      ];
+      const outcomes: Outcome[][] = [];
+      for (const [api, other] of builds) {
+        const dictionary = prepare(other, 'zstd');
+        const outcome = [
+          run(() => api.compressSync(text, { format: 'zstd', dictionary })),
+          await settle(() => api.compress(text, { format: 'zstd', dictionary })),
+          run(() => api.decompressSync(compressed.zstd, { format: 'zstd', dictionary })),
+          await settle(() => api.decompress(compressed.zstd, { dictionary })),
+        ];
+        for (const result of outcome) expect(result).toMatchObject(expected);
+        outcomes.push(outcome);
+        dictionary.close();
+      }
+      expect(outcomes[1]).toEqual(outcomes[0]);
+    });
+
     it.each([
       [
         'a dictionary of another format',
