@@ -28,6 +28,8 @@ import {
   zstdCompressWithDict,
   zstdTrainDictionary,
 } from '../index.js';
+import type * as BackendModule from '../next/backend.js';
+import type { Backend } from '../next/backend.js';
 import type { Bytes, CompressOptions, Format, Input } from '../next/index.js';
 import * as next from '../next/index.js';
 
@@ -518,6 +520,113 @@ describe('inputs', () => {
     // Names of the root entry's arguments, which the options do not take.
     const options = { format: 'zstd', quality: 9, capacity: 1 } as const;
     expect(next.compressSync(text, options)).toEqual(plain(zstdCompress(text)));
+  });
+});
+
+/** Whether `value` is next/backend.js, as its declarations describe it. */
+function isBackendModule(value: unknown): value is typeof BackendModule {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof Reflect.get(value, 'backend') === 'function' &&
+    typeof Reflect.get(value, 'setBackend') === 'function'
+  );
+}
+
+/**
+ * next/backend.js, whose backend a test wraps, as the modules of next/
+ * share it. They load each other with the require() of Node.js, and so does
+ * this file, but Vitest would load an import of next/backend.js as a module
+ * of its own, without a backend.
+ */
+function backendModule(): typeof BackendModule {
+  const loaded: unknown = require('../next/backend.js');
+  if (!isBackendModule(loaded)) throw new Error('next/backend.js exports no backend');
+  return loaded;
+}
+
+describe('bytes in a SharedArrayBuffer', () => {
+  /** A SharedArrayBuffer that holds `bytes`. */
+  function shared(bytes: Uint8Array): SharedArrayBuffer {
+    const buffer = new SharedArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+    return buffer;
+  }
+
+  /**
+   * `inner`, recording in `received` every input that its functions get:
+   * the data, the dictionary and the samples.
+   */
+  function recording(inner: Backend, received: Uint8Array[]): Backend {
+    function record(...inputs: (Uint8Array | undefined)[]): void {
+      for (const input of inputs) {
+        if (input !== undefined) received.push(input);
+      }
+    }
+    return {
+      compress: (...args) => {
+        record(args[0], args[3]);
+        return inner.compress(...args);
+      },
+      compressAsync: (...args) => {
+        record(args[0], args[3]);
+        return inner.compressAsync(...args);
+      },
+      decompress: (...args) => {
+        record(args[0], args[3]);
+        return inner.decompress(...args);
+      },
+      decompressAsync: (...args) => {
+        record(args[0], args[3]);
+        return inner.decompressAsync(...args);
+      },
+      detectFormat: (data) => {
+        record(data);
+        return inner.detectFormat(data);
+      },
+      trainDictionary: (samples, maxSize) => {
+        record(...samples);
+        return inner.trainDictionary(samples, maxSize);
+      },
+      trainDictionaryAsync: (samples, maxSize) => {
+        record(...samples);
+        return inner.trainDictionaryAsync(samples, maxSize);
+      },
+    };
+  }
+
+  it('reach the backend as copies in ArrayBuffers', async () => {
+    // Another thread could write the bytes of a SharedArrayBuffer while
+    // Rust reads them, so api.ts copies them before the backend gets them.
+    const { backend, setBackend } = backendModule();
+    const original = backend();
+    const received: Uint8Array[] = [];
+    setBackend(recording(original, received));
+    try {
+      const zstdOptions = { format: 'zstd', dictionary: shared(dictionary) } as const;
+      const withDictionary = plain(zstdCompressWithDict(text, dictionary));
+      expect(next.compressSync(shared(text), { format: 'zstd' })).toEqual(zstdText);
+      expect(await next.compress(new Uint8Array(shared(text)), { format: 'zstd' })).toEqual(
+        zstdText,
+      );
+      expect(next.compressSync(new DataView(shared(text)), zstdOptions)).toEqual(withDictionary);
+      expect(next.decompressSync(shared(zstdText))).toEqual(text);
+      expect(await next.decompress(new Uint8Array(shared(withDictionary)), zstdOptions)).toEqual(
+        text,
+      );
+      expect(next.detectFormat(new DataView(shared(zstdText)))).toBe('zstd');
+      const trained = plain(zstdTrainDictionary(samples, 4096));
+      expect(next.trainDictionarySync(samples.map(shared), { maxSize: 4096 })).toEqual(trained);
+      const sharedViews = samples.map((sample) => new Uint8Array(shared(sample)));
+      expect(await next.trainDictionary(sharedViews, { maxSize: 4096 })).toEqual(trained);
+    } finally {
+      setBackend(original);
+    }
+    // The data of each call, the dictionaries of two, and the samples.
+    expect(received).toHaveLength(6 + 2 + 2 * samples.length);
+    for (const input of received) {
+      expect(Object.prototype.toString.call(input.buffer)).toBe('[object ArrayBuffer]');
+    }
   });
 });
 
