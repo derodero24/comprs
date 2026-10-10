@@ -1,5 +1,6 @@
 //! One interface over the per-format APIs of comprs-core.
 
+use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::{
     ComprsError, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
 };
@@ -38,6 +39,20 @@ impl Format {
     /// raw-content dictionary, which every format accepts.
     pub fn may_reject_dict(self, dict: Option<&[u8]>) -> bool {
         self == Format::Zstd && dict.is_some_and(|dict| dict.starts_with(&ZSTD_DICT_MAGIC))
+    }
+
+    /// `dict` prepared as a zstd [`Dictionary`], for the zstd functions that
+    /// take one. `None` for the other formats, whose prepared dictionaries
+    /// only hold the bytes, for no or an empty dictionary, which
+    /// [`Dictionary::new`] rejects, and for a dictionary that zstd rejects
+    /// ([`Format::may_reject_dict`]).
+    pub fn prepare(self, dict: Option<&[u8]>) -> Option<Dictionary> {
+        let dict = dict.filter(|dict| self == Format::Zstd && !dict.is_empty())?;
+        match Dictionary::new(dict, DictionaryFormat::Zstd, None) {
+            Ok(prepared) => Some(prepared),
+            Err(_) if self.may_reject_dict(Some(dict)) => None,
+            Err(error) => panic!("zstd dictionary preparation failed: {error}"),
+        }
     }
 
     /// Heap memory that a decoder may use besides its input and output, for
