@@ -3,7 +3,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::context::NativeState;
+use crate::context::{NativeState, stream_context_methods};
 use crate::error::to_napi_error;
 
 /// Streaming zstd compression context.
@@ -36,47 +36,24 @@ impl ZstdCompressContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the zstd frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for ZstdCompressContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(ZstdCompressContext);
 
 /// Streaming zstd decompression context.
 ///
@@ -106,18 +83,13 @@ impl ZstdDecompressContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the decompression stream. Returns any remaining decompressed data.
@@ -125,29 +97,11 @@ impl ZstdDecompressContext {
     /// Must be called once after all compressed data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for ZstdDecompressContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(ZstdDecompressContext);
 
 /// Streaming zstd compression context with dictionary.
 ///
@@ -180,47 +134,24 @@ impl ZstdCompressDictContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the zstd frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for ZstdCompressDictContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(ZstdCompressDictContext);
 
 /// Streaming zstd decompression context with dictionary.
 ///
@@ -257,18 +188,13 @@ impl ZstdDecompressDictContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the decompression stream. Returns any remaining decompressed data.
@@ -276,26 +202,8 @@ impl ZstdDecompressDictContext {
     /// Must be called once after all compressed data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for ZstdDecompressDictContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(ZstdDecompressDictContext);
