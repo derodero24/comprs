@@ -14,6 +14,7 @@ their input in blocks of 32 KiB, so that their output is the same however
 the input is split into chunks, and small chunks compress faster.
 `transform()` holds up to 32 KiB of input until it completes a block, and
 `flush()` and `finish()` compress what it holds.
+
 A stream that is flushed when its input pauses, as the middleware does,
 still sends each write promptly: a small write now reaches the client with
 that flush, the gzip header and the response headers included, instead of
