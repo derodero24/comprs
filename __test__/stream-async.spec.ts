@@ -70,6 +70,7 @@ import {
   createZstdDecompressDictStream,
   createZstdDecompressStream,
 } from '../streams.js';
+import { describeTicks, eventLoopTicks } from './event-loop.js';
 
 // The asynchronous methods of the stream contexts, and the stream helpers,
 // which call them for expensive chunks so that the event loop keeps turning
@@ -578,71 +579,31 @@ describe('zstd compression in small chunks', { timeout: CODEC_TIMEOUT }, () => {
 // The event loop
 // ---------------------------------------------------------------------------
 
-/**
- * Run `run` while a 1 ms interval timer counts how often the event loop
- * gets to it: the number of ticks, and the median and the longest gap
- * between them, in milliseconds.
- */
-async function timerTicks(
-  run: () => Promise<void>,
-): Promise<{ ticks: number; median: number; longest: number }> {
-  const gaps: number[] = [];
-  let last = performance.now();
-  const timer = setInterval(() => {
-    const now = performance.now();
-    gaps.push(now - last);
-    last = now;
-  }, 1);
-  try {
-    await run();
-  } finally {
-    clearInterval(timer);
-  }
-  const ticks = gaps.length;
-  gaps.push(performance.now() - last);
-  gaps.sort((a, b) => a - b);
-  return { ticks, median: gaps[gaps.length >> 1] ?? 0, longest: gaps.at(-1) ?? 0 };
-}
-
-/**
- * The largest median gap between the ticks of the timer that a test
- * accepts: 10 ms, or twice the median gap of the timer on an idle event
- * loop where timers are coarser than that, as on Windows unless a program
- * raised the resolution of its timers.
- */
-async function medianGapBound(): Promise<number> {
-  const idle = await timerTicks(() => new Promise((done) => setTimeout(done, 100)));
-  return Math.max(10, 2 * idle.median);
-}
-
 // Brotli at quality 9 takes about 17 ms per 64 KiB chunk in the release
 // build. Called synchronously on input from memory, a stream of such chunks
-// blocked the event loop until it ended: the timer did not tick once. The
-// longest gap is only reported, as shared CI runners stall now and then.
+// blocked the event loop until it ended: the timer did not tick once.
 describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
   const input = text(MiB);
 
   it('turns while a Web stream compresses with brotli at quality 9', async ({ annotate }) => {
-    const bound = await medianGapBound();
     let output = new Uint8Array();
-    const result = await timerTicks(async () => {
+    const result = await eventLoopTicks(async () => {
       const stream = ReadableStream.from(chunked(input, 64 * KiB)).pipeThrough(
         createBrotliCompressStream(9),
       );
       output = new Uint8Array(await new Response(stream).arrayBuffer());
     });
-    await annotate(`${result.ticks} ticks, longest gap ${result.longest.toFixed(1)} ms`);
+    await annotate(describeTicks(result));
     expect(result.ticks).toBeGreaterThanOrEqual(10);
-    expect(result.median).toBeLessThanOrEqual(bound);
+    expect(result.median).toBeLessThanOrEqual(result.bound);
     expect(brotliDecompress(output)).toStrictEqual(input);
   });
 
   it('turns while a Node.js Transform compresses with brotli at quality 9', async ({
     annotate,
   }) => {
-    const bound = await medianGapBound();
     const chunks: Buffer[] = [];
-    const result = await timerTicks(() =>
+    const result = await eventLoopTicks(() =>
       pipeline(
         Readable.from(chunked(input, 64 * KiB)),
         createBrotliCompressTransform(9),
@@ -654,9 +615,9 @@ describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
         }),
       ),
     );
-    await annotate(`${result.ticks} ticks, longest gap ${result.longest.toFixed(1)} ms`);
+    await annotate(describeTicks(result));
     expect(result.ticks).toBeGreaterThanOrEqual(10);
-    expect(result.median).toBeLessThanOrEqual(bound);
+    expect(result.median).toBeLessThanOrEqual(result.bound);
     expect(brotliDecompress(Buffer.concat(chunks))).toStrictEqual(input);
   });
 });
