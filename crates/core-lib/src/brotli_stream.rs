@@ -1253,7 +1253,13 @@ mod tests {
             DICT_REACH + 1,
             input.len(),
         ] {
-            check_incremental(&dict, quality, &input[..len], &[64 * KIB, MIB]);
+            // Chunks of DICT_REACH / 16 bytes end exactly at the reach.
+            check_incremental(
+                &dict,
+                quality,
+                &input[..len],
+                &[64 * KIB, MIB, DICT_REACH / 16],
+            );
         }
     }
 
@@ -1272,7 +1278,7 @@ mod tests {
         let input = mixed(DICT_REACH + 64 * KIB);
         check_incremental(&dict, quality, &input[..DICT_REACH], &[MIB]);
         check_incremental(&dict, quality, &input[..DICT_REACH + 1], &[64 * KIB]);
-        check_incremental(&dict, quality, &input, &[64 * KIB, MIB]);
+        check_incremental(&dict, quality, &input, &[64 * KIB, MIB, DICT_REACH / 16]);
     }
 
     #[test]
@@ -1376,6 +1382,35 @@ mod tests {
                     "{sizes}"
                 );
             }
+        }
+    }
+
+    /// A chunk that ends exactly at [`DICT_REACH`] bytes, and an empty one
+    /// after it, leave the context holding its input: the next chunk starts
+    /// the stream, which is the one of other chunks.
+    #[test]
+    fn incremental_dict_context_holds_a_chunk_that_ends_at_the_reach() {
+        let dict = english_dict();
+        let input = mixed(DICT_REACH + 64 * KIB);
+        let split: [&[u8]; 3] = [&input[..DICT_REACH], &[], &input[DICT_REACH..]];
+        for quality in [1, 5] {
+            let mut ctx = CompressDictContext::incremental(&dict, Some(quality)).unwrap();
+            let mut output = Vec::new();
+            for (i, chunk) in split.iter().enumerate() {
+                let transformed = ctx.transform(chunk).unwrap();
+                let flushed = ctx.flush().unwrap();
+                assert_eq!(
+                    transformed.is_empty() && flushed.is_empty(),
+                    i < 2,
+                    "quality {quality}, chunk {i}"
+                );
+                output.extend(transformed);
+                output.extend(flushed);
+            }
+            output.extend(ctx.finish().unwrap());
+            let (_, chunked) = compress_incremental(&dict, quality, &input, 64 * KIB);
+            assert!(output == chunked, "quality {quality}");
+            assert!(decompress_with_dict(&output, &dict).unwrap() == input);
         }
     }
 
