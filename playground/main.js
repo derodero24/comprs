@@ -365,6 +365,8 @@ for (const btn of sampleBtns) {
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  // Clear the selection so that picking the same file again fires `change`; `file` stays readable.
+  fileInput.value = '';
 
   if (file.size > 10 * 1024 * 1024) {
     fileError.textContent = 'File exceeds the 10 MB limit. Please use a smaller file.';
@@ -372,7 +374,6 @@ fileInput.addEventListener('change', (e) => {
     setTimeout(() => {
       fileError.hidden = true;
     }, 5000);
-    fileInput.value = '';
     return;
   }
 
@@ -388,7 +389,6 @@ fileInput.addEventListener('change', (e) => {
     setTimeout(() => {
       fileError.hidden = true;
     }, 5000);
-    fileInput.value = '';
   };
   reader.onload = (ev) => {
     const bytes = new Uint8Array(ev.target.result);

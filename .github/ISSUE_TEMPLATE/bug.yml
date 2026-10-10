@@ -15,8 +15,8 @@ body:
       label: Steps to reproduce
       description: Minimal steps to reproduce the behavior.
       placeholder: |
-        1. Install comprs
-        2. Call `compress(...)`
+        1. Install `@derodero24/comprs`
+        2. Call `zstdCompress(...)` or `decompress(...)`
         3. See error
     validations:
       required: true
@@ -34,11 +34,21 @@ body:
       description: What actually happened.
     validations:
       required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - '@derodero24/comprs'
+        - '@derodero24/comprs-middleware'
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
       label: Package version
-      placeholder: e.g. 0.1.0
+      description: The version that `npm ls` prints for the package chosen above. For the middleware, also give the version of `@derodero24/comprs`.
+      placeholder: e.g. 2.0.2
     validations:
       required: true
   - type: dropdown
@@ -50,7 +60,7 @@ body:
         - Browser (WASM)
         - Deno
         - Bun
-        - Cloudflare Workers
+        - Other
     validations:
       required: true
   - type: input
@@ -64,4 +74,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Any additional environment details (OS, architecture, bundler, etc.)
+      description: Any additional environment details (OS, architecture, bundler, etc.). If the middleware is affected, also the framework and its version (Express, Fastify or Hono).
