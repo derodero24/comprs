@@ -142,6 +142,7 @@ jobs:
       - name: Install cargo-fuzz
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=crate depName=cargo-fuzz versioning=semver
           tool: cargo-fuzz@0.13.2
           # install-action has no manifest for cargo-fuzz. Build it from
           # crates.io with its lockfile rather than fetch a third-party

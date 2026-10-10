@@ -6,7 +6,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 
 - [Rust](https://rustup.rs/) ≥ 1.88 (CI lints and tests with the latest stable)
 - A C compiler, for the zstd C sources (Clang for the WebAssembly build)
-- [Node.js](https://nodejs.org/) ≥ 22.13
+- [Node.js](https://nodejs.org/) 22 (≥ 22.20), 24 (≥ 24.12) or 26 (`engineStrict` in `pnpm-workspace.yaml` makes `pnpm install` fail on a version that a dependency's `engines` field excludes)
 - [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (`cargo install cargo-deny --locked`), which the pre-push hook runs

@@ -3,8 +3,8 @@ name: CI
 # CI runs when a file changes that it builds, tests, checks or installs with
 # (pushes to develop leave out some that only the lint jobs check; see
 # pull_request). That includes .gitignore, whose files Biome skips
-# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
-# its prepare script (lefthook install), and .npmrc, which pnpm reads.
+# (vcs.useIgnoreFile), and lefthook.yml, which every pnpm install reads
+# through its prepare script (lefthook install).
 on:
   push:
     branches: [develop]
@@ -21,7 +21,6 @@ on:
       - '.gitignore'
       - 'commitlint.config.ts'
       - 'lefthook.yml'
-      - '.npmrc'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
@@ -68,7 +67,6 @@ on:
       - '.gitignore'
       - 'commitlint.config.ts'
       - 'lefthook.yml'
-      - '.npmrc'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
@@ -268,9 +266,11 @@ jobs:
       - name: Install shellcheck
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=github-releases depName=koalaman/shellcheck extractVersion=^v(?<version>.+)$
           tool: shellcheck@0.11.0
       - name: Install actionlint
         env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
           VERSION: 1.7.12
           SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
@@ -442,6 +442,7 @@ jobs:
       - name: Install wasm-pack
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=crate depName=wasm-pack versioning=semver
           tool: wasm-pack@0.15.0
           fallback: none
       - name: Build wasm-bindgen
@@ -631,15 +632,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install the fixtures' dependencies
         run: pnpm --dir e2e install --frozen-lockfile
+      # Playwright downloads a WebKit build for each Ubuntu release
+      # (webkit-ubuntu-24.04.zip, webkit-ubuntu-26.04.zip) into the same
+      # webkit-<rev> directory, and skips the install when that directory
+      # exists. Each runner image must therefore restore only its own
+      # browsers, so the cache key names the image (ubuntu-24.04). It comes
+      # from /etc/os-release: the env context does not hold the runner's
+      # ImageOS variable.
       - name: Resolve Playwright version
         id: playwright
-        run: echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+          echo "image=$(. /etc/os-release && echo "${ID}-${VERSION_ID}")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
       - name: Install Playwright system dependencies
         run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
       # Headless Chromium runs the headless shell, so the full browser is not
