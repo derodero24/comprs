@@ -107,7 +107,7 @@ describe('gzip Node.js zlib interop', () => {
     // Random input can leave the encoder's output buffer nearly full, and
     // flush() used to stop there, up to about 16 KiB short (#701).
     const data = randomBytes(64 * 1024);
-    for (const level of [0, 1, 6, 9]) {
+    for (const level of [0, 1, 2, 6, 9]) {
       const ctx = new GzipCompressContext(level);
       const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
       const decompressed = gunzipSync(flushed, SYNC_FLUSH);
@@ -151,7 +151,7 @@ describe('deflate Node.js zlib interop', () => {
 
   it('node:zlib should decode the output of flush() to all the input so far', () => {
     const data = randomBytes(64 * 1024);
-    for (const level of [0, 1, 6, 9]) {
+    for (const level of [0, 1, 2, 6, 9]) {
       const ctx = new DeflateCompressContext(level);
       const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
       const decompressed = inflateRawSync(flushed, SYNC_FLUSH);

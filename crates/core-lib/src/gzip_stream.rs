@@ -478,7 +478,8 @@ impl<E: Encoder> FlateEncoder<E> {
     }
 
     /// Flush the input written so far, returning the output, from which a
-    /// decoder can read all that input.
+    /// decoder can read all that input but in the rare case that
+    /// [`sync_flush`] describes.
     fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         let encoder = self
             .encoder

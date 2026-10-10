@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::io::Write;
 use std::sync::LazyLock;
 
 use common::{BoxedContext, boxed, drive, noise, text};
@@ -12,7 +13,8 @@ use comprs_core::{
     ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
     zstd, zstd_stream,
 };
-use flate2::{Decompress, FlushDecompress};
+use flate2::write::{DeflateEncoder, ZlibEncoder};
+use flate2::{Compression, Decompress, FlushDecompress};
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
 
@@ -454,9 +456,12 @@ fn flate_flush_emits_all_input_so_far() {
     // A transform of poorly compressible input can leave flate2's 32 KiB
     // output buffer nearly full, and the sync flush of flush() used to stop
     // where that buffer ran out (#701). Level 0 holds back 32 KiB - 2 bytes
-    // until the flush, which stores them in a block that fills the buffer
-    // and then takes a second sync flush, unless they end as a sync flush
-    // does: the first one then looks complete, and its block holds them all.
+    // until the flush, which stores them in a block that fills the buffer,
+    // so that only a second sync flush adds the empty stored block that
+    // ends it, unless they end as a sync flush does: the first one then
+    // looks complete, and its block holds them all. The levels cover every
+    // block algorithm of zlib-rs: stored (0), quick (1), fast (2), medium
+    // with and without its early exit (4 and 6) and slow (9).
     let mut ends_like_a_flush = noise(32 * 1024 - 2, 6);
     let len = ends_like_a_flush.len();
     ends_like_a_flush[len - 4..].copy_from_slice(&[0x00, 0x00, 0xff, 0xff]);
@@ -469,7 +474,7 @@ fn flate_flush_emits_all_input_so_far() {
         ends_like_a_flush,
     ];
     for (name, wrapper, new) in FLATE_COMPRESSORS {
-        for level in [0, 1, 6, 9] {
+        for level in [0, 1, 2, 4, 6, 9] {
             for input in &inputs {
                 let case = format!("{name} at level {level}, {} bytes", input.len());
                 let mut ctx = new(Some(level)).unwrap();
@@ -477,6 +482,9 @@ fn flate_flush_emits_all_input_so_far() {
                 for round in 1..=2 {
                     compressed.extend(ctx.transform(input).unwrap());
                     compressed.extend(ctx.flush().unwrap());
+                    // It ends as a complete sync flush does, with the
+                    // lengths of an empty stored block.
+                    assert!(compressed.ends_with(&[0x00, 0x00, 0xff, 0xff]), "{case}");
                     let flushed = inflate_so_far(&compressed, wrapper);
                     assert_eq!(flushed.len(), round * input.len(), "{case}");
                     assert!(
@@ -498,6 +506,33 @@ fn flate_flush_emits_all_input_so_far() {
                 let output = strict_one_shot(&compressed, wrapper).unwrap();
                 assert!(output == input.repeat(2), "{case}");
             }
+        }
+    }
+}
+
+#[test]
+fn flate_flush_is_unchanged_where_one_sync_flush_was_complete() {
+    // Where flate2's flush() alone completed the sync flush, flush() gives
+    // the same bytes as it.
+    let inputs = [text(6000), noise(16 * 1024, 3)];
+    for level in [1, 6, 9] {
+        for input in &inputs {
+            let case = format!("level {level}, {} bytes", input.len());
+            let mut deflate = DeflateEncoder::new(Vec::new(), Compression::new(level));
+            deflate.write_all(input).unwrap();
+            deflate.flush().unwrap();
+            let mut ctx = gzip_stream::DeflateCompressContext::new(Some(level)).unwrap();
+            let mut flushed = ctx.transform(input).unwrap();
+            flushed.extend(ctx.flush().unwrap());
+            assert!(flushed == *deflate.get_ref(), "deflate at {case}");
+
+            let mut zlib = ZlibEncoder::new(Vec::new(), Compression::new(level));
+            zlib.write_all(input).unwrap();
+            zlib.flush().unwrap();
+            let mut ctx = gzip_stream::ZlibCompressContext::new(Some(level)).unwrap();
+            let mut flushed = ctx.transform(input).unwrap();
+            flushed.extend(ctx.flush().unwrap());
+            assert!(flushed == *zlib.get_ref(), "zlib at {case}");
         }
     }
 }
