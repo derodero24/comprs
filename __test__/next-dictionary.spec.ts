@@ -499,3 +499,26 @@ describe('close()', () => {
     expect(() => escaped?.toBytes()).toThrow('this Dictionary is closed');
   });
 });
+
+describe('native memory', () => {
+  it('is reported to V8, which collects dropped Dictionaries', async () => {
+    // A zstd Dictionary of 110 KiB holds about 0.8 MB at level 3 outside the
+    // JavaScript heap, which the native addon reports to V8. Unless it did,
+    // V8 would see only small objects, never collect them, and Dictionaries
+    // dropped without close() would pile up, as context-memory.spec.ts says
+    // of the stream contexts. Node.js leaves the memory that addons report
+    // out of process.memoryUsage().external, so the test waits for V8 to
+    // collect a Dictionary, which frees its memory.
+    let collected = 0;
+    const registry = new FinalizationRegistry(() => {
+      collected++;
+    });
+    for (let i = 0; i < 400 && collected === 0; i++) {
+      registry.register(Dictionary.from(raw110, { format: 'zstd' }), i);
+      // Let finalizers and FinalizationRegistry callbacks run, as a server
+      // would between requests.
+      if (i % 10 === 9) await new Promise(setImmediate);
+    }
+    expect(collected).toBeGreaterThan(0);
+  });
+});
