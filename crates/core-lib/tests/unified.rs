@@ -665,9 +665,13 @@ fn auto_decoder_holds_at_most_64_kib() {
 fn auto_decoder_flushes_once_it_knows_the_format() {
     let input = text(10_000);
     let (first, second) = input.split_at(6_000);
-    // The lz4 decompression context decodes complete frames only, so its
-    // flush ends the input.
-    for format in [Format::Zstd, Format::Gzip, Format::Deflate, Format::Brotli] {
+    for format in [
+        Format::Zstd,
+        Format::Gzip,
+        Format::Deflate,
+        Format::Brotli,
+        Format::Lz4,
+    ] {
         let mut compressor = CompressContext::new(format, &at_level(None)).unwrap();
         let mut flushed = compressor.transform(first).unwrap();
         flushed.extend(compressor.flush().unwrap());

@@ -209,10 +209,7 @@ pub struct DecompressOptions<'a> {
     /// the window of a frame: under a limit of 64 MiB or less, a frame whose
     /// window is larger than the limit allows fails with
     /// [`ComprsError::SizeLimit`] as well, as
-    /// [`zstd_stream::DecompressContext::new`] describes. Until #565, a
-    /// [`DecompressContext`] for lz4 applies it to the output of each
-    /// `flush` and of `finish` rather than to that of the whole stream, as
-    /// [`DecompressContext`] describes.
+    /// [`zstd_stream::DecompressContext::new`] describes.
     pub max_output_size: Option<f64>,
     /// The dictionary that the input was compressed with, for zstd and
     /// brotli. Raw bytes need a `format`.
@@ -882,18 +879,9 @@ impl MemoryUsage for CompressContext {
 /// prepared dictionary once for the stream,
 /// [`gzip_stream::StrictDecompressContext`] for gzip, deflate and
 /// deflate-raw, [`brotli_stream::DecompressContext`] or
-/// [`brotli_stream::DecompressDictContext`], [`lz4_stream::DecompressContext`],
-/// which decodes on `flush` and `finish`, and [`AutoDecoder`].
-///
-/// Until #565 switches lz4 to an incremental decoder, the lz4 context holds
-/// its input and decodes all of it on `flush` and `finish`, so a `flush`
-/// must fall between frames: one inside an LZ4 frame or a block, or before
-/// any input, fails with [`ComprsError::Truncated`], and one between the
-/// blocks of a legacy frame, which has no end mark, ends the frame there,
-/// so that the rest of it then fails with [`ComprsError::Corrupt`]. Nor does
-/// the context count its output across calls: `max_output_size` bounds the
-/// output of each `flush` and of `finish`, not that of the stream. The same
-/// holds for an [`AutoDecoder`] once it detects lz4.
+/// [`brotli_stream::DecompressDictContext`], [`lz4_stream::DecompressContext`]
+/// in its incremental mode, which decodes each block as it arrives, and
+/// [`AutoDecoder`].
 pub enum DecompressContext {
     Zstd(zstd_stream::DecompressContext),
     ZstdDict(zstd_stream::DecompressDictContext),
@@ -963,7 +951,7 @@ impl DecompressContext {
             Decoder::Brotli(Some(dict)) => Self::BrotliDict(
                 brotli_stream::DecompressDictContext::new(dict, max_output_size)?,
             ),
-            Decoder::Lz4 => Self::Lz4(lz4_stream::DecompressContext::new(max_output_size)?),
+            Decoder::Lz4 => Self::Lz4(lz4_stream::DecompressContext::incremental(max_output_size)?),
         })
     }
 

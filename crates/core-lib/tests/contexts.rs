@@ -349,7 +349,7 @@ const CODECS: &[Codec] = &[
         decode_as: None,
         dictionary: None,
         workers: None,
-        flush_emits_input: false,
+        flush_emits_input: true,
     ),
 ];
 
