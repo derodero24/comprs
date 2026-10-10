@@ -463,6 +463,81 @@ fn detect_prefix_takes_zlib_that_inflates_to_64_kib() {
 }
 
 #[test]
+fn detect_prefix_knows_brotli_at_64_kib_or_when_no_data_follows() {
+    // Whole streams that end before detection sees them decode to more
+    // than they hold: "hello", which brotli stores as it is, and 1000
+    // bytes that compress to a few, whose stream ends before the decoder
+    // has written 4 KiB.
+    for input in [b"hello".to_vec(), vec![b'a'; 1000]] {
+        let case = format!("{} bytes", input.len());
+        let compressed = unified::compress(&input, Format::Brotli, &at_level(None)).unwrap();
+        // Data may still follow the end of the stream, so it is brotli only
+        // when none does.
+        assert_eq!(
+            unified::detect_prefix(&compressed, false),
+            Detection::NeedMore,
+            "{case}"
+        );
+        assert_eq!(
+            unified::detect_prefix(&compressed, true),
+            Detection::Known(Format::Brotli),
+            "{case}"
+        );
+        let trailing = [&compressed[..], b"!"].concat();
+        for is_final in [false, true] {
+            assert_eq!(
+                unified::detect_prefix(&trailing, is_final),
+                Detection::Unknown,
+                "{case}"
+            );
+        }
+
+        // So the stream decodes it on finish only.
+        let mut ctx = DecompressContext::new(&as_format(None)).unwrap();
+        assert!(ctx.transform(&compressed).unwrap().is_empty(), "{case}");
+        assert!(ctx.flush().unwrap().is_empty(), "{case}");
+        assert!(ctx.finish().unwrap() == input, "{case}");
+    }
+    // A whole stream that decodes to more than 4 KiB is seen to decode to
+    // more than it holds, and a whole zlib stream is known by its checksum,
+    // so both are known without is_final, and the stream decodes them on
+    // flush.
+    for (format, input) in [
+        (Format::Brotli, vec![b'a'; 100_000]),
+        (Format::Deflate, b"hello".to_vec()),
+    ] {
+        let compressed = unified::compress(&input, format, &at_level(None)).unwrap();
+        assert_eq!(
+            unified::detect_prefix(&compressed, false),
+            Detection::Known(format),
+            "{format}"
+        );
+        let mut ctx = DecompressContext::new(&as_format(None)).unwrap();
+        let mut output = ctx.transform(&compressed).unwrap();
+        output.extend(ctx.flush().unwrap());
+        assert!(output == input, "{format}");
+    }
+
+    // A stream that does not compress is brotli once the data fills 64 KiB
+    // while the stream goes on.
+    let stored = unified::compress(&noise(100_000, 9), Format::Brotli, &at_level(None)).unwrap();
+    for (len, detection) in [
+        (64 * 1024 - 1, Detection::NeedMore),
+        (64 * 1024, Detection::Known(Format::Brotli)),
+    ] {
+        assert_eq!(
+            unified::detect_prefix(&stored[..len], false),
+            detection,
+            "{len} bytes"
+        );
+    }
+    assert_eq!(
+        unified::detect_prefix(&stored[..64 * 1024 - 1], true),
+        Detection::Unknown
+    );
+}
+
+#[test]
 fn detect_rarely_mistakes_random_data_for_a_format() {
     // Random data of 64 KiB or more passes for brotli at times, as it does
     // with detect::detect: it decodes as a long uncompressed meta-block.
