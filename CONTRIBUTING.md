@@ -370,7 +370,7 @@ pnpm run build
 
 ## Code style
 
-- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`). Unsafe code is limited to the bindings, the napi-rs addon at the Node-API boundary (`crates/core/src/async_args.rs`, `crates/core/src/convert.rs` and `crates/core/src/next.rs`) and the WebAssembly build in its global allocator (`crates/wasm/src/lib.rs`), and to test allocators: the counting allocators of comprs-core's integration tests and fuzz crate, and the allocator stubs in the unit tests of `crates/wasm`. Explain each unsafe block or implementation in a `SAFETY` comment that says why it is sound.
+- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`). Unsafe code is limited to the bindings, the napi-rs addon at the Node-API boundary (`crates/core/src/async_args.rs`, `crates/core/src/convert.rs` and `crates/core/src/next.rs`) and the WebAssembly build in its global allocator and where it copies byte arrays into its memory (`crates/wasm/src/lib.rs`), and to test allocators: the counting allocators of comprs-core's integration tests and fuzz crate, and the allocator stubs in the unit tests of `crates/wasm`. Explain each unsafe block or implementation in a `SAFETY` comment that says why it is sound.
 - **TypeScript/JavaScript:** Biome.
 
 ## Questions?

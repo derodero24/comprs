@@ -23,3 +23,11 @@ wasm-opt = false
 
 [package.metadata.wasm-pack.profile.custom]
 wasm-opt = false
+
+# Getter::call_tag in src/lib.rs needs the release glue of wasm-bindgen,
+# which reads the string that it returns as `Some(true)`: the debug glue
+# (`debug-js-glue = true`, the default of `wasm-pack build --dev`) throws for
+# a value that is not a boolean. The custom profile defaults to the release
+# glue; this keeps it.
+[package.metadata.wasm-pack.profile.custom.wasm-bindgen]
+debug-js-glue = false
