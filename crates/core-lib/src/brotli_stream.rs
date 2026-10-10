@@ -214,7 +214,9 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 /// - Buffered, as [`CompressDictContext::new`] creates it: `transform` keeps
 ///   the input and returns an empty Vec, as `flush` does, and `finish`
 ///   compresses all of it, into the output of
-///   [`crate::brotli::compress_with_dict`].
+///   [`crate::brotli::compress_with_dict`], which compresses an input of
+///   more than [`crate::brotli::DICT_INPUT_LIMIT`] bytes without
+///   dictionaries, for the reason below.
 /// - Incremental, as [`CompressDictContext::incremental`] creates it: it
 ///   holds the first [`DICT_REACH`] bytes of input in the same way, and a
 ///   stream of at most that many bytes gets the same output on `finish`.
@@ -239,8 +241,8 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 /// holds, so its loss past [`DICT_REACH`] bytes costs little: on 4.06 to
 /// 16 MiB of JSON lines with a 2 KiB dictionary, in chunks of 4 KiB or of
 /// 64 KiB, the stream came out from 5.5% smaller to 2.2% larger than the
-/// output of [`crate::brotli::compress_with_dict`], and at most 0.8% larger
-/// at qualities 1 to 11.
+/// output of [`crate::brotli::compress_with_dict`] with the dictionary, and
+/// at most 0.8% larger at qualities 1 to 11.
 ///
 /// An error of the encoder, which no input is known to cause, ends the
 /// stream: the later calls fail with it too.
@@ -1594,6 +1596,49 @@ mod tests {
             let (_, output) = compress_incremental(dict, quality, &input, 64 * KIB);
             let decompressed = decompress_with_dict(&output, dict).unwrap();
             assert!(decompressed == input, "quality {quality}");
+        }
+    }
+
+    /// One-shot dictionary compression keeps an input of more than
+    /// [`DICT_INPUT_LIMIT`] bytes, such as [`ring_buffer_input`], away from
+    /// the encoder with the dictionary, which would panic on it (#703): it
+    /// compresses the input with neither dictionary, so the output does not
+    /// depend on the dictionary and decodes the same with or without it.
+    ///
+    /// [`DICT_INPUT_LIMIT`]: crate::brotli::DICT_INPUT_LIMIT
+    #[test]
+    fn dict_compress_takes_long_inputs_without_dictionaries() {
+        let dict = b"a dictionary of a few words";
+        for (changed, quality) in [(4, 2), (3, 5)] {
+            let input = ring_buffer_input(changed);
+            let before = crate::brotli::dict_encodes();
+            let output = compress_with_dict(&input, dict, Some(quality)).unwrap();
+            assert_eq!(crate::brotli::dict_encodes(), before, "quality {quality}");
+            let other = compress_with_dict(&input, b"another dictionary", Some(quality)).unwrap();
+            assert!(output == other, "quality {quality}");
+            assert!(decompress_with_dict(&output, dict).unwrap() == input);
+            assert!(decompress(&output).unwrap() == input);
+        }
+    }
+
+    /// An input of up to [`DICT_INPUT_LIMIT`] bytes is compressed with the
+    /// dictionary, as before, and one byte more without it.
+    ///
+    /// [`DICT_INPUT_LIMIT`]: crate::brotli::DICT_INPUT_LIMIT
+    #[test]
+    fn dict_compress_keeps_the_dictionary_up_to_the_limit() {
+        let limit = crate::brotli::DICT_INPUT_LIMIT;
+        let dict = english_dict();
+        let input = english(limit + 1);
+        for (len, encodes) in [(limit, 1), (limit + 1, 0)] {
+            let before = crate::brotli::dict_encodes();
+            let output = compress_with_dict(&input[..len], &dict, Some(2)).unwrap();
+            assert_eq!(
+                crate::brotli::dict_encodes() - before,
+                encodes,
+                "{len} bytes"
+            );
+            assert!(decompress_with_dict(&output, &dict).unwrap() == input[..len]);
         }
     }
 

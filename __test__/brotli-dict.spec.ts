@@ -17,7 +17,12 @@ import {
 } from '../index.js';
 import { createBrotliCompressDictTransform } from '../node.js';
 import { createBrotliCompressDictStream, createBrotliDecompressDictStream } from '../streams.js';
-import { HAS_WASM_BUILD, importBrowserEntry, importBrowserStreams } from './load-browser-entry.js';
+import {
+  HAS_WASM_BUILD,
+  importBrowserEntry,
+  importBrowserNext,
+  importBrowserStreams,
+} from './load-browser-entry.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
 async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -435,6 +440,123 @@ describe('brotli dictionary encoder defects (#623)', () => {
     expect(brotliDecompressWithDict(output, dict)).toEqual(withText);
   });
 });
+
+describe('brotli dictionary compression of inputs over 8 MiB (#703)', () => {
+  // brotli 9.0.0's encoder panics with a dictionary on this input at quality
+  // 2 (ring_buffer_input(4) in crates/core-lib/src/brotli_stream.rs), where
+  // the input wraps around its ring buffer of 8 MiB: the WebAssembly build,
+  // which cannot catch the panic, threw `RuntimeError: unreachable`.
+  // comprs compresses inputs over 8 MiB without dictionaries instead, in
+  // both builds.
+  const dict = Buffer.from('a dictionary of a few words');
+  const input = ringBufferInput();
+
+  /** The calls that compress `input` with `dict` in one go, of `api`. */
+  function calls(api: DictApi): [string, () => Uint8Array | Promise<Uint8Array>][] {
+    return [
+      ['brotliCompressWithDict()', () => api.brotliCompressWithDict(input, dict, 2)],
+      ['brotliCompressWithDictAsync()', () => api.brotliCompressWithDictAsync(input, dict, 2)],
+      [
+        'BrotliCompressDictContext',
+        () => {
+          const ctx = new api.BrotliCompressDictContext(dict, 2);
+          return Buffer.concat([ctx.transform(input), ctx.finish()]);
+        },
+      ],
+    ];
+  }
+
+  /** Check what each call of `api` compresses `input` to. */
+  async function check(api: DictApi): Promise<void> {
+    const outputs: Uint8Array[] = [];
+    for (const [label, call] of calls(api)) {
+      const output = await call();
+      expect(brotliDecompressWithDict(output, dict).equals(input), label).toBe(true);
+      // The output does not refer to either dictionary.
+      expect(brotliDecompress(output).equals(input), label).toBe(true);
+      outputs.push(output);
+    }
+    for (const output of outputs.slice(1)) {
+      expect(Buffer.from(output).equals(Buffer.from(outputs[0] ?? []))).toBe(true);
+    }
+  }
+
+  it('should compress them without the dictionary in the native addon', { timeout: 60_000 }, () =>
+    check({ BrotliCompressDictContext, brotliCompressWithDict, brotliCompressWithDictAsync }),
+  );
+
+  it.skipIf(!HAS_WASM_BUILD)(
+    'should compress them in the WebAssembly build as in the native addon',
+    { timeout: 60_000 },
+    async () => {
+      const wasm = await importBrowserEntry();
+      await check(wasm);
+      expect(Buffer.from(wasm.brotliCompressWithDict(input, dict, 2))).toEqual(
+        brotliCompressWithDict(input, dict, 2),
+      );
+    },
+  );
+
+  it('should compress them in compress() of ./next with a brotli Dictionary', {
+    timeout: 60_000,
+  }, async () => {
+    const expected = brotliCompressWithDict(input, dict, 2);
+    const native = await import('../next/index.js');
+    using prepared = native.Dictionary.from(dict, { format: 'brotli' });
+    const output = native.compressSync(input, { format: 'brotli', level: 2, dictionary: prepared });
+    expect(Buffer.from(output).equals(expected)).toBe(true);
+    if (HAS_WASM_BUILD) {
+      const wasm = await importBrowserNext();
+      using wasmPrepared = wasm.Dictionary.from(dict, { format: 'brotli' });
+      const wasmOutput = wasm.compressSync(input, {
+        format: 'brotli',
+        level: 2,
+        dictionary: wasmPrepared,
+      });
+      expect(Buffer.from(wasmOutput).equals(expected)).toBe(true);
+    }
+  });
+});
+
+/** The dictionary compression functions of either build. */
+interface DictApi {
+  BrotliCompressDictContext: new (
+    dict: Uint8Array,
+    quality?: number,
+  ) => { transform(chunk: Uint8Array): Uint8Array; finish(): Uint8Array };
+  brotliCompressWithDict(data: Uint8Array, dict: Uint8Array, quality?: number): Uint8Array;
+  brotliCompressWithDictAsync(
+    data: Uint8Array,
+    dict: Uint8Array,
+    quality?: number,
+  ): Promise<Uint8Array>;
+}
+
+/**
+ * 8 MiB and 64 KiB that repeat 1,000 bytes of xorshift noise, with two bytes
+ * changed: from 8 MiB - 1 + 1,000 on, the input repeats the bytes from
+ * 8 MiB - 1 on, as ring_buffer_input(4) in brotli_stream.rs builds it.
+ */
+function ringBufferInput(): Buffer {
+  const mask = (1n << 64n) - 1n;
+  let state = 0x12345679n;
+  const period = new Uint8Array(1000);
+  for (let i = 0; i < period.length; i++) {
+    state ^= (state << 13n) & mask;
+    state ^= state >> 7n;
+    state ^= (state << 17n) & mask;
+    period[i] = Number((state >> 32n) & 0xffn);
+  }
+  const MiB = 1024 * 1024;
+  const input = Buffer.alloc(8 * MiB + 64 * 1024);
+  for (let i = 0; i < input.length; i += period.length) {
+    input.set(period.subarray(0, Math.min(period.length, input.length - i)), i);
+  }
+  const start = 8 * MiB - 1 + 1000;
+  input[start - 1] = (input[start - 1] ?? 0) ^ 0x55;
+  input[start + 4] = (input[start + 4] ?? 0) ^ 0x33;
+  return input;
+}
 
 /** About `length` bytes of JSON lines, like the records of the dictionary. */
 function records(length: number): Buffer {
