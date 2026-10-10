@@ -357,7 +357,11 @@ describe('samples', () => {
       if (first === undefined || second === undefined) throw new Error('expected samples');
       Object.defineProperty(copies, 1, {
         get(): Uint8Array {
-          structuredClone(first.buffer, { transfer: [first.buffer] });
+          // The transfer detaches the buffer of the first sample and hands
+          // its memory to the clone. Zeroing the clone zeroes that memory,
+          // so a binding that kept a slice of the first sample, not a copy,
+          // would train on zeros.
+          new Uint8Array(structuredClone(first.buffer, { transfer: [first.buffer] })).fill(0);
           return second;
         },
       });
@@ -497,7 +501,13 @@ const ERROR_CASES: ErrorCase[] = [
 
 /** Check that `error` has the code, the message and the class of `expected`. */
 function expectCoded(error: unknown, expected: ErrorCase): void {
-  expect(error).toMatchObject({ code: expected.code, message: expected.message });
+  // toMatchObject compares a RegExp as an object without keys, which any
+  // message matches, so a pattern goes through expect.stringMatching.
+  const message =
+    typeof expected.message === 'string'
+      ? expected.message
+      : expect.stringMatching(expected.message);
+  expect(error).toMatchObject({ code: expected.code, message });
   // ERR_COMPRS_INVALID_ARG is a TypeError, every other code a plain Error.
   const prototype = expected.code === 'ERR_COMPRS_INVALID_ARG' ? TypeError : Error;
   expect(Object.getPrototypeOf(error)).toBe(prototype.prototype);
