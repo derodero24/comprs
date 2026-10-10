@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use crate::brotli_stream::End;
+use crate::brotli_stream::{CountingAlloc, End, compressor};
 use crate::{ComprsError, IntArg};
 
 /// Default compression quality for brotli.
@@ -60,23 +60,21 @@ pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<
 }
 
 /// Compress data using Brotli.
+///
+/// The encoder recycles its ring buffer, as the streams do (see
+/// `brotli_stream::RING_BUFFER`).
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
     let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-
-    let mut output = Vec::with_capacity(data.len());
-    {
-        let mut compressor =
-            brotli::CompressorWriter::new(&mut output, BUFFER_SIZE, quality, LG_WINDOW_SIZE);
-        compressor
-            .write_all(data)
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli compress",
-                source: e.into(),
-            })?;
-        // Drop compressor to flush and finalize
-    }
-
-    Ok(crate::finish_output(output))
+    let output = Vec::with_capacity(data.len());
+    let mut compressor = compressor(output, CountingAlloc::for_encoder(), quality);
+    compressor
+        .write_all(data)
+        .map_err(|e| ComprsError::Operation {
+            context: "brotli compress",
+            source: e.into(),
+        })?;
+    // into_inner flushes the compressor and ends the stream.
+    Ok(crate::finish_output(compressor.into_inner()))
 }
 
 /// Decompress Brotli-compressed data.
@@ -229,12 +227,15 @@ fn encode(
     let mut output = Vec::with_capacity(input.len());
     let mut input_buffer = [0u8; BUFFER_SIZE];
     let mut output_buffer = [0u8; BUFFER_SIZE];
-    let alloc = brotli::enc::StandardAlloc::default();
+    // The allocator of the streams, which recycles the ring buffer of the
+    // encoder: with a custom dictionary, the encoder allocates all of it on
+    // every call (see `brotli_stream::RING_BUFFER`).
+    let alloc = CountingAlloc::for_encoder();
     let mut nop =
         |_: &mut brotli::interface::PredictionModeContextMap<brotli::InputReferenceMut>,
          _: &mut [brotli::interface::StaticCommand],
          _: brotli::InputPair,
-         _: &mut brotli::enc::StandardAlloc| {};
+         _: &mut CountingAlloc| {};
 
     brotli::BrotliCompressCustomIoCustomDict(
         &mut brotli::IoReaderWrapper(&mut r),
