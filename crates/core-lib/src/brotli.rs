@@ -21,6 +21,23 @@ pub const BUFFER_SIZE: usize = 4096;
 /// Default log2 of the sliding window size for brotli.
 pub const LG_WINDOW_SIZE: u32 = 22;
 
+/// Longest input, 8 MiB, that [`compress_with_dict`] compresses with a
+/// custom dictionary; it compresses a longer one with neither dictionary.
+///
+/// brotli 9.0.0's encoder puts a custom dictionary at the start of its ring
+/// buffer, which holds 2^([`LG_WINDOW_SIZE`] + 1) bytes at every quality
+/// (the blocks of the encoder, of at most 2^18 bytes, are smaller than its
+/// window), and cuts every match whose source crosses the end of the
+/// dictionary there (#623). It tells where a source starts by its position
+/// in the ring buffer, so once the input has wrapped around the buffer, it
+/// also cuts the matches whose source crosses that position on a later lap,
+/// and panics on a cut that leaves one byte, which it cannot encode (#703).
+/// The source of such a match runs past the first
+/// 2^([`LG_WINDOW_SIZE`] + 1) bytes of input, so an input of at most this
+/// many bytes has none. wasm32 aborts on the panic, so it cannot be caught
+/// there, and the native build would encode the input twice.
+pub const DICT_INPUT_LIMIT: usize = 1 << (LG_WINDOW_SIZE + 1);
+
 /// Reject a stream that uses the Large Window Brotli extension.
 ///
 /// Such a stream starts with the seven bits 0010001 (`0x11` in the low bits
@@ -87,6 +104,10 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
 }
 
 /// Compress data with a custom dictionary using the brotli crate's low-level API.
+///
+/// An input of more than [`DICT_INPUT_LIMIT`] bytes is compressed with
+/// neither the custom dictionary nor brotli's built-in one, into a stream
+/// that decodes the same with or without the dictionary.
 pub fn compress_with_dict(
     input: &[u8],
     dict: &[u8],
@@ -107,7 +128,10 @@ pub fn compress_with_dict(
 /// the custom dictionary nor brotli's built-in one
 /// (`encode_without_dictionaries`). That stream decodes with or without the
 /// dictionary. The encoder runs under [`crate::panic_guard::catch`], so that
-/// a panic hook can leave out the panics recovered from here.
+/// a panic hook can leave out the panics recovered from here. An input of
+/// more than [`DICT_INPUT_LIMIT`] bytes, on which the encoder can panic in
+/// another way, goes to that fallback without the encoder ever taking the
+/// dictionary.
 ///
 /// Takes a checked `quality`, and reports encoder errors with `context`.
 pub(crate) fn compress_with_dict_inner(
@@ -120,7 +144,11 @@ pub(crate) fn compress_with_dict_inner(
     let params = encoder_params(quality, true);
     let output = if dict.is_empty() {
         encode(input, dict, &params)
+    } else if input.len() > DICT_INPUT_LIMIT {
+        encode_without_dictionaries(input, quality)
     } else {
+        #[cfg(test)]
+        DICT_ENCODES.with(|count| count.set(count.get() + 1));
         match crate::panic_guard::catch(|| encode(input, dict, &params)) {
             Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
             Ok(Err(e)) => Err(e),
@@ -131,6 +159,20 @@ pub(crate) fn compress_with_dict_inner(
         context,
         source: e.into(),
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`compress_with_dict_inner`] gave the encoder a custom
+    /// dictionary on this thread, for the tests.
+    static DICT_ENCODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times [`compress_with_dict_inner`] gave the encoder a custom
+/// dictionary on this thread.
+#[cfg(test)]
+pub(crate) fn dict_encodes() -> usize {
+    DICT_ENCODES.with(std::cell::Cell::get)
 }
 
 /// Compress `input` with neither a custom dictionary nor brotli's built-in
@@ -145,7 +187,8 @@ pub(crate) fn compress_with_dict_inner(
 /// returns different bytes, often without an error. With the built-in
 /// dictionary off, the stream decodes the same with or without a custom
 /// dictionary. Text that the built-in dictionary covers compresses less
-/// without it, a cost that only the rare inputs that take the fallback pay.
+/// without it, a cost that only the inputs that take the fallback pay: rare
+/// ones, and those of more than [`DICT_INPUT_LIMIT`] bytes.
 fn encode_without_dictionaries(
     input: &[u8],
     quality: u32,
