@@ -1,8 +1,8 @@
 name: CI
 
 # CI runs when a file changes that it builds, tests, checks or installs with
-# (pushes to develop leave out some that only the lint jobs check; see
-# pull_request). That includes .gitignore, whose files Biome skips
+# (pushes to develop leave out the playground and some files that only the
+# lint jobs check; see pull_request). That includes .gitignore, whose files Biome skips
 # (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
 # its prepare script (lefthook install), and README.md, which the package
 # includes and the benchmark smoke test parses (scripts/bench-report.mjs
@@ -52,7 +52,7 @@ on:
   # another PR's branch) and PRs into main are checked too. Their list also
   # names files that the push list leaves out, so that a change to them is
   # checked before it is merged: every workflow, which Workflow Lint checks,
-  # the playground, which build-wasm-bindgen builds, and the chart images and
+  # the playground, which the playground job builds, and the chart images and
   # the configuration files that Biome checks. Pushes to develop leave these
   # out, apart from the workflows that CI calls or mirrors, so that a merge
   # that changes only those does not run the full matrix; playground.yml
@@ -436,11 +436,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-          # Build playground installs the playground's packages into the
-          # same store.
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            playground/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
@@ -484,12 +479,37 @@ jobs:
           name: wasm-size-report
           path: wasm-size-report/
           if-no-files-found: error
-      # The commands with which playground.yml builds the site that it deploys
-      # from develop. They run after the WebAssembly build, because the
-      # file:.. dependency installs the package with the files that exist at
-      # install time and the playground build fails without the binary, and
-      # last, so that a playground failure leaves the size check and its
-      # report as they are.
+
+  # Builds the playground with the commands with which playground.yml builds
+  # the site that it deploys from develop, on the WebAssembly build of
+  # build-wasm-bindgen. It is a job of its own so that a playground failure
+  # fails CI Complete without skipping the jobs that need build-wasm-bindgen.
+  playground:
+    name: Build playground
+    needs: [build-wasm-bindgen]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            playground/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # Before the playground install: the file:.. dependency installs the
+      # package with the files that exist at install time, and the playground
+      # build fails without the binary.
+      - name: Download wasm-bindgen bindings
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bindings-wasm-bindgen
+          path: browser
       - name: Build playground
         run: |
           pnpm --dir playground install --frozen-lockfile
@@ -944,7 +964,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, playground, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
