@@ -4,8 +4,10 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
+use std::io::Write;
 
 use comprs_core::{MemoryUsage, lz4, lz4_stream};
+use lz4_flex::frame::{BlockSize, FrameEncoder, FrameInfo};
 
 struct TestAllocator;
 
@@ -13,6 +15,8 @@ thread_local! {
     // Without a destructor or lazy initialization, so that the allocator
     // can use them at any time without allocating.
 
+    /// The largest allocation on the thread since the last reset.
+    static LARGEST: Cell<usize> = const { Cell::new(0) };
     /// The bytes that the thread has allocated, minus those it has freed.
     static LIVE: Cell<isize> = const { Cell::new(0) };
     /// The allocations and reallocations of at least [`LARGE`] bytes on the
@@ -26,6 +30,7 @@ const LARGE: usize = 512 * 1024;
 
 /// Record that the thread allocated `allocated` bytes and freed `freed`.
 fn record(allocated: usize, freed: usize) {
+    LARGEST.set(LARGEST.get().max(allocated));
     LIVE.set(LIVE.get() + allocated as isize - freed as isize);
     if allocated >= LARGE {
         LARGE_ALLOCATIONS.set(LARGE_ALLOCATIONS.get() + 1);
@@ -72,6 +77,13 @@ unsafe impl GlobalAlloc for TestAllocator {
 #[global_allocator]
 static ALLOCATOR: TestAllocator = TestAllocator;
 
+/// The largest allocation that `f` makes on this thread.
+fn largest_allocation<T>(f: impl FnOnce() -> T) -> (T, usize) {
+    LARGEST.set(0);
+    let result = f();
+    (result, LARGEST.get())
+}
+
 /// The number of allocations and reallocations of at least [`LARGE`] bytes
 /// that `f` makes on this thread.
 fn large_allocations<T>(f: impl FnOnce() -> T) -> (T, usize) {
@@ -112,6 +124,33 @@ fn random(len: usize) -> Vec<u8> {
             (state >> 32) as u8
         })
         .collect()
+}
+
+/// The `lz4` CLI declares blocks of up to 4 MiB by default, also for small
+/// content. The decoder used to allocate scratch space of the declared size
+/// on every call; a thread now keeps it, so later calls make no block-sized
+/// allocation. A unit test in lz4.rs checks that it is kept at its length,
+/// so that later calls do not zero-fill it again either.
+#[test]
+fn small_frames_with_4_mib_blocks_decode_without_a_block_sized_allocation() {
+    let original = text(10_000);
+    let mut encoder =
+        FrameEncoder::with_frame_info(FrameInfo::new().block_size(BlockSize::Max4MB), Vec::new());
+    encoder.write_all(&original).unwrap();
+    let frame = encoder.finish().unwrap();
+
+    // A new thread, which has no scratch space from earlier calls.
+    std::thread::spawn(move || {
+        let (output, first) = largest_allocation(|| lz4::decompress(&frame));
+        assert_eq!(output.unwrap(), original);
+        assert!(first >= 4 * 1024 * 1024, "first call: {first} bytes");
+
+        let (output, second) = largest_allocation(|| lz4::decompress(&frame));
+        assert_eq!(output.unwrap(), original);
+        assert!(second < 1024 * 1024, "second call: {second} bytes");
+    })
+    .join()
+    .unwrap();
 }
 
 /// The stream encoder writes 64 KiB blocks whatever the size of the chunks,
