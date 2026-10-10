@@ -73,7 +73,7 @@ const MAX_EXPANSION: u64 = 128 * 1024 / 4;
 /// Compress data using Zstandard.
 ///
 /// The output is the same as that of `zstd::bulk::compress`. The compression
-/// context is reused across the calls on a thread; see [`with_cctx`].
+/// context is reused across the calls on a thread; see `with_cctx`.
 pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError> {
     let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
 

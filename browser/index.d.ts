@@ -333,10 +333,10 @@ declare class StreamContext extends DisposableContext {
    *
    * At most one asynchronous call may be in flight per context: in the
    * native addon, until its Promise settles, another asynchronous call
-   * rejects and a synchronous call throws "<name> is busy: an asynchronous
-   * call has not finished", such as "zstd stream is busy: an asynchronous
-   * call has not finished". After `close()`, calls reject with "<name>
-   * already closed".
+   * rejects and a synchronous call throws `<name> is busy: an asynchronous
+   * call has not finished`, such as `zstd stream is busy: an asynchronous
+   * call has not finished`. After `close()`, calls reject with `<name>
+   * already closed`.
    */
   transformAsync(chunk: Uint8Array): Promise<Uint8Array>;
   /**
@@ -344,8 +344,8 @@ declare class StreamContext extends DisposableContext {
    * error by rejecting it. The native addon runs it on the libuv thread
    * pool; this build runs it synchronously, on the calling thread, before it
    * returns. At most one asynchronous call may be in flight per context, as
-   * for `transformAsync()`. After `close()`, calls reject with "<name>
-   * already closed".
+   * for `transformAsync()`. After `close()`, calls reject with `<name>
+   * already closed`.
    */
   flushAsync(): Promise<Uint8Array>;
   /**
@@ -354,7 +354,7 @@ declare class StreamContext extends DisposableContext {
    * libuv thread pool; this build runs it synchronously, on the calling
    * thread, before it returns. At most one asynchronous call may be in
    * flight per context, as for `transformAsync()`. After `close()`, calls
-   * reject with "<name> already closed".
+   * reject with `<name> already closed`.
    */
   finishAsync(): Promise<Uint8Array>;
 }
