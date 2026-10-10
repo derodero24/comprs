@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import * as zlib from 'node:zlib';
 import {
   brotliCompressSync,
@@ -12,8 +13,10 @@ import { describe, expect, it } from 'vitest';
 import {
   brotliCompress,
   brotliDecompress,
+  DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
   Lz4CompressContext,
@@ -25,6 +28,12 @@ import {
 
 // Check if zstd is available in current Node.js version (22.15+)
 const zstdAvailable = 'zstdCompressSync' in zlib;
+
+/**
+ * node:zlib options that decode the start of a stream as far as it goes, as
+ * the client of a flushed stream does.
+ */
+const SYNC_FLUSH = { finishFlush: zlib.constants.Z_SYNC_FLUSH };
 
 // The reference LZ4 implementation, where its CLI is installed
 const lz4CliAvailable = spawnSync('lz4', ['--version']).status === 0;
@@ -94,6 +103,20 @@ describe('gzip Node.js zlib interop', () => {
     }
   });
 
+  it('node:zlib should decode the output of flush() to all the input so far', () => {
+    // Random input can leave the encoder's output buffer nearly full, and
+    // flush() used to stop there, up to about 16 KiB short (#701).
+    const data = randomBytes(64 * 1024);
+    for (const level of [0, 1, 2, 6, 9]) {
+      const ctx = new GzipCompressContext(level);
+      const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
+      const decompressed = gunzipSync(flushed, SYNC_FLUSH);
+      expect(decompressed.length, `level ${level}`).toBe(data.length);
+      expect(decompressed.equals(data), `level ${level}`).toBe(true);
+      ctx.close();
+    }
+  });
+
   it('should round-trip through both implementations', () => {
     const step1 = gzipCompress(testData);
     const step2 = gunzipSync(step1);
@@ -123,6 +146,18 @@ describe('deflate Node.js zlib interop', () => {
       const compressed = deflateCompress(testData, level);
       const decompressed = inflateRawSync(compressed);
       expect(Buffer.from(decompressed)).toEqual(testData);
+    }
+  });
+
+  it('node:zlib should decode the output of flush() to all the input so far', () => {
+    const data = randomBytes(64 * 1024);
+    for (const level of [0, 1, 2, 6, 9]) {
+      const ctx = new DeflateCompressContext(level);
+      const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
+      const decompressed = inflateRawSync(flushed, SYNC_FLUSH);
+      expect(decompressed.length, `level ${level}`).toBe(data.length);
+      expect(decompressed.equals(data), `level ${level}`).toBe(true);
+      ctx.close();
     }
   });
 

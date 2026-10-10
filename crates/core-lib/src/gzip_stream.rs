@@ -477,14 +477,16 @@ impl<E: Encoder> FlateEncoder<E> {
         Ok(std::mem::take(encoder.get_mut()))
     }
 
-    /// Flush the input written so far, returning the output.
+    /// Flush the input written so far, returning the output, from which a
+    /// decoder can read all that input but in the rare case that
+    /// [`sync_flush`] describes.
     fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
-        encoder.flush().map_err(|e| ComprsError::Operation {
+        sync_flush(encoder).map_err(|e| ComprsError::Operation {
             context: self.labels.flush,
             source: e.into(),
         })?;
@@ -512,6 +514,68 @@ impl<E: Encoder> FlateEncoder<E> {
             DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
         })
     }
+}
+
+/// The last 4 bytes of a complete sync flush: the lengths of the empty
+/// stored block that ends it, 0 and its one's complement.
+const SYNC_FLUSH_END: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
+
+/// The most sync flushes that [`sync_flush`] runs. Two suffice, as it
+/// describes: the bound only keeps the loop finite.
+const MAX_SYNC_FLUSHES: usize = 4;
+
+/// Run a sync flush of `encoder` to its end, after which its output holds
+/// all the input written so far.
+///
+/// flate2 1.1's `flush` alone does not always get there (#701). It runs
+/// the sync flush in the room left in its 32 KiB output buffer, without
+/// writing the buffer out first, and then only drains the output that the
+/// deflate state has pending, without flushing again. A transform of
+/// poorly compressible input can leave the buffer nearly full, or more
+/// output pending than the buffer holds, and the sync flush then stops
+/// where the room runs out: before the empty stored block that ends it,
+/// and before the last block of input if it had not written that block.
+fn sync_flush<E: Encoder>(encoder: &mut E) -> io::Result<()> {
+    // An empty write writes the buffer out, then runs the deflate state
+    // without a flush, which moves pending output into the buffer and, at
+    // levels 1 to 9, compresses all but the last 261 bytes of the input
+    // that the state holds. Once two writes in a row add nothing to the
+    // output, two runs have moved nothing (one is not enough: level 1
+    // compresses into the pending output, which only the next run moves).
+    // The buffer and the pending output are then empty, and the sync flush
+    // has the whole buffer for the rest: at most a block of symbols and
+    // those 261 bytes, or at level 0 less than 32 KiB of input to store.
+    let mut idle = 0;
+    while idle < 2 {
+        let len = encoder.get_ref().len();
+        #[allow(clippy::unused_io_amount)] // It takes no input.
+        encoder.write(&[])?;
+        idle = if encoder.get_ref().len() == len {
+            idle + 1
+        } else {
+            0
+        };
+    }
+
+    // A block can still take more than 32 KiB, as can level 0's input with
+    // the header of the block that stores it. flate2 then drains what the
+    // sync flush wrote, and a second one completes it, with at most those
+    // 261 bytes of input left to write. A sync flush after a complete one
+    // would add another empty stored block (00 00 00 ff ff), so the flush
+    // runs again only while its output does not end as zlib-rs ends every
+    // complete sync flush, at any level and with any wrapper. A block that
+    // fills the buffer and happens to end with the same bytes stops the
+    // loop early, which leaves at most a few hundred bytes of input for the
+    // next call, and none at level 0, where the block holds the input
+    // itself.
+    for _ in 0..MAX_SYNC_FLUSHES {
+        let start = encoder.get_ref().len();
+        encoder.flush()?;
+        if encoder.get_ref()[start..].ends_with(&SYNC_FLUSH_END) {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
