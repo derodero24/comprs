@@ -20,6 +20,8 @@ const FUNCTIONS: readonly (keyof Backend)[] = [
   'createDictionary',
   'dictionaryToBytes',
   'closeDictionary',
+  'createWithdrawal',
+  'withdraw',
 ];
 
 function isBackend(value: unknown): value is Backend {

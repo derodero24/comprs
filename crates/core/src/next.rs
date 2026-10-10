@@ -14,11 +14,21 @@
 //! `index.d.ts`, `index.js` nor the keys of the binding list it.
 //!
 //! Every error carries the code of its category ([`ComprsError::code`]) as
-//! `code`, as [`coded_error`] describes. Results are plain `Uint8Array`s:
-//! the synchronous functions copy results of up to [`SYNC_COPY_LIMIT`] into
-//! memory that V8 allocates, as [`to_uint8array`] does. The `*Async`
-//! functions copy their inputs when they are called (#548), run on the libuv
-//! thread pool and settle as [`NextBytes`] does.
+//! `code`, as [`coded_error`] describes, except that of a withdrawn task,
+//! below. Results are plain `Uint8Array`s: the synchronous functions copy
+//! results of up to [`SYNC_COPY_LIMIT`] into memory that V8 allocates, as
+//! [`to_uint8array`] does. The `*Async` functions copy their inputs when
+//! they are called (#548), run on the libuv thread pool and settle as
+//! [`NextBytes`] does.
+//!
+//! The `*Async` functions take, last, a handle from [`create_withdrawal`] or
+//! `undefined`. Through the handle, [`withdraw`] withdraws the task of the
+//! call until a thread of the pool reaches it (#559): the TypeScript layer
+//! withdraws the task of a call whose signal aborts, and rejects with the
+//! reason of the signal itself. The withdrawn task fails with the
+//! `Cancelled` status of napi-rs when a thread reaches it, which the
+//! TypeScript layer never passes on, since it has settled the call by then.
+//! [`Withdrawable`] tells why the functions take no `AbortSignal`.
 //!
 //! The `Dictionary` class of the TypeScript layer holds a prepared
 //! dictionary as the handle that [`create_dictionary`] returns (#557), which
@@ -39,7 +49,7 @@ use napi_derive::napi;
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::convert::{SYNC_COPY_LIMIT, to_uint8array};
 use crate::error::coded_error;
-use crate::task::{NextBytes, OneShot};
+use crate::task::{NextBytes, OneShot, Withdrawable, Withdrawal};
 
 /// The description of the symbol, `Symbol.for(INTERNAL_KEY)`, that keys the
 /// binding on the exports.
@@ -67,7 +77,13 @@ pub(crate) fn hide(env: &Env, exports: &mut Object) -> napi::Result<()> {
 }
 
 /// The task of the `*Async` functions.
-type NextTask = AsyncTask<Checked<OneShot<NextBytes>>>;
+type NextTask = AsyncTask<Checked<Withdrawable<OneShot<NextBytes>>>>;
+
+/// The [`Withdrawal`] of `handle`, if the arguments have one, which the task
+/// of the call shares.
+fn withdrawal(handle: Option<&External<Withdrawal>>) -> Option<Withdrawal> {
+    handle.map(|handle| Withdrawal::clone(handle))
+}
 
 /// The bytes of a `Uint8Array` in an array argument, copied as napi-rs
 /// converts the element.
@@ -233,8 +249,11 @@ pub fn compress(
 }
 
 /// [`compress`] on the libuv thread pool: `compress()` of the unified API.
+/// `withdrawalHandle`, after `dictionaryHandle`, is the handle from
+/// [`create_withdrawal`] through which [`withdraw`] withdraws the task of a
+/// call that has a signal.
 #[napi(namespace = "next", skip_typescript)]
-#[allow(clippy::too_many_arguments)] // The fields of the options.
+#[allow(clippy::too_many_arguments)] // The fields of the options, and the withdrawal.
 pub fn compress_async(
     data: AsyncArg<&[u8]>,
     format: AsyncArg<String>,
@@ -245,6 +264,7 @@ pub fn compress_async(
     gzip_mtime: AsyncArg<Option<f64>>,
     workers: AsyncArg<Option<f64>>,
     dictionary_handle: AsyncArg<Option<&External<NextDictionary>>>,
+    withdrawal_handle: AsyncArg<Option<&External<Withdrawal>>>,
 ) -> NextTask {
     checked(|| {
         let data = data.get()?.to_vec();
@@ -257,10 +277,11 @@ pub fn compress_async(
         let workers = workers.get()?;
         // On this thread, before close() can drop the handle's reference.
         let prepared = prepared(dictionary_handle.get()?);
+        let withdrawal = withdrawal(withdrawal_handle.get()?);
         // The task checks the options, so that their errors reject the
         // Promise with the coded errors of `NextBytes`, as does that of a
         // closed dictionary.
-        Ok(OneShot::new(move || {
+        let task = OneShot::new(move || {
             let prepared = prepared?;
             unified::compress_fields(
                 &data,
@@ -272,7 +293,8 @@ pub fn compress_async(
                 gzip_mtime,
                 workers,
             )
-        }))
+        });
+        Ok(Withdrawable::new(task, withdrawal))
     })
 }
 
@@ -305,7 +327,7 @@ pub fn decompress(
 }
 
 /// [`decompress`] on the libuv thread pool: `decompress()` of the unified
-/// API.
+/// API, with a `withdrawalHandle` last, as [`compress_async`] takes.
 #[napi(namespace = "next", skip_typescript)]
 pub fn decompress_async(
     data: AsyncArg<&[u8]>,
@@ -313,6 +335,7 @@ pub fn decompress_async(
     max_output_size: AsyncArg<Option<f64>>,
     dictionary: AsyncArg<Option<&[u8]>>,
     dictionary_handle: AsyncArg<Option<&External<NextDictionary>>>,
+    withdrawal_handle: AsyncArg<Option<&External<Withdrawal>>>,
 ) -> NextTask {
     checked(|| {
         let data = data.get()?.to_vec();
@@ -320,7 +343,8 @@ pub fn decompress_async(
         let max_output_size = max_output_size.get()?;
         let dictionary = dictionary.get()?.map(<[u8]>::to_vec);
         let prepared = prepared(dictionary_handle.get()?);
-        Ok(OneShot::new(move || {
+        let withdrawal = withdrawal(withdrawal_handle.get()?);
+        let task = OneShot::new(move || {
             let prepared = prepared?;
             unified::decompress_fields(
                 &data,
@@ -328,7 +352,8 @@ pub fn decompress_async(
                 max_output_size,
                 dictionary_ref(prepared.as_deref(), dictionary.as_deref()),
             )
-        }))
+        });
+        Ok(Withdrawable::new(task, withdrawal))
     })
 }
 
@@ -353,19 +378,38 @@ pub fn train_dictionary(
 }
 
 /// [`train_dictionary`] on the libuv thread pool: `trainDictionary()` of the
-/// unified API.
+/// unified API, with a `withdrawalHandle` last, as [`compress_async`]
+/// takes.
 #[napi(namespace = "next", skip_typescript)]
 pub fn train_dictionary_async(
     samples: AsyncArg<Vec<CopiedBytes>>,
     max_size: AsyncArg<Option<f64>>,
+    withdrawal_handle: AsyncArg<Option<&External<Withdrawal>>>,
 ) -> NextTask {
     checked(|| {
         let samples = sample_bytes(samples.get()?);
         let max_size = max_size.get()?;
-        Ok(OneShot::new(move || {
-            unified::train_dictionary(&samples, max_size)
-        }))
+        let withdrawal = withdrawal(withdrawal_handle.get()?);
+        let task = OneShot::new(move || unified::train_dictionary(&samples, max_size));
+        Ok(Withdrawable::new(task, withdrawal))
     })
+}
+
+/// A handle for the task of one call of an `*Async` function, which takes it
+/// last, and through which [`withdraw`] withdraws the task.
+#[napi(namespace = "next", skip_typescript)]
+pub fn create_withdrawal() -> External<Withdrawal> {
+    External::new(Withdrawal::default())
+}
+
+/// Withdraw the task of the call that took `handle`: whether no thread of
+/// the pool had reached it. A withdrawn task fails with a `Cancelled` error,
+/// without running the codec, when a thread reaches it; the TypeScript layer
+/// settles the call at once instead of waiting for that. A task that a
+/// thread has reached runs to the end.
+#[napi(namespace = "next", skip_typescript)]
+pub fn withdraw(handle: &External<Withdrawal>) -> bool {
+    handle.withdraw()
 }
 
 /// The codes that the errors of the unified API carry,

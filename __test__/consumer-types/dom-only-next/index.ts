@@ -10,6 +10,7 @@
 // unlike a Buffer, which the root entry returns, or a Uint8Array over any
 // ArrayBufferLike (#577).
 import type {
+  AbortOptions,
   Bytes,
   CompressOptions,
   DictionaryOptions,
@@ -39,6 +40,10 @@ const zlib: Bytes = compressSync(input, options);
 const restored: Uint8Array<ArrayBuffer> = await decompress(zlib, { format: 'auto' });
 const format: Format | undefined = detectFormat(zlib);
 
+// The async functions take an AbortSignal of the DOM library.
+const abortOptions: AbortOptions = { signal: new AbortController().signal };
+const abortable: Bytes = await decompress(zlib, { ...abortOptions, format: 'deflate' });
+
 // The declarations of Dictionary type-check without those of
 // `Symbol.dispose`, which the DOM library and ES2023 lack: it then declares
 // no [Symbol.dispose]() method, and close() frees it.
@@ -55,4 +60,4 @@ function isSizeLimit(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === SIZE_LIMIT;
 }
 
-export { blob, dictionaryBytes, digest, format, isSizeLimit, restored, withDictionary };
+export { abortable, blob, dictionaryBytes, digest, format, isSizeLimit, restored, withDictionary };

@@ -311,6 +311,8 @@ const decompressed = await gzipDecompressAsync(compressed);
 
 They report every error through the returned Promise, invalid arguments included: they reject with the error that the synchronous function throws for the same arguments and never throw themselves, so `.catch()` or `await` inside `try` handles all of them.
 
+They take no `AbortSignal`. The async functions of [`@derodero24/comprs/next`](#unified-api-derodero24comprsnext) take one, which withdraws work that no thread of the pool has started yet (see **Aborting** there).
+
 <details>
 <summary><strong>Full async API list</strong></summary>
 
@@ -483,6 +485,7 @@ try {
 | `workers` | compression | The number of threads that compress zstd data besides the calling one: 0, the default, to 256. For zstd only, and for the native addon only (see below) |
 | `maxOutputSize` | decompression | The largest output, in bytes: 0 to `Number.MAX_SAFE_INTEGER`, 256 MiB by default |
 | `maxSize` | dictionary training | The largest dictionary, in bytes: 0 to 16 MiB, 110 KiB by default |
+| `signal` | `compress()`, `decompress()`, `trainDictionary()` | An `AbortSignal` that withdraws the call (see **Aborting** below). The `*Sync` functions take none |
 
 Their inputs, options, results and errors follow these rules:
 
@@ -490,7 +493,7 @@ Their inputs, options, results and errors follow these rules:
 - **Options.** Every option is checked, and an option of the wrong type, a number out of its range or not an integer (`NaN`, `1.5`), and an option that does not fit the format, such as a level for lz4, a dictionary for gzip or workers for brotli, fail with `ERR_COMPRS_INVALID_ARG`. Other properties of the options objects are ignored.
 - **Results.** Every result is a plain `Uint8Array`, not a Node.js `Buffer`, over an `ArrayBuffer`, so the DOM typings accept it as a `BufferSource` or a `BlobPart`, as in `new Blob([result])` or `crypto.subtle.digest('SHA-256', result)`. Whether that `ArrayBuffer` can be transferred with `postMessage()` or `structuredClone()` is not guaranteed: copy a result with `slice()` to transfer it. Compression writes the bytes that the functions of the package root write at the same settings in the same build, such as `zstdCompress(data, level)`, or `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses with `workers`, or with a `Dictionary` above level 8, or with a `Dictionary` an input of more than 512 KiB or of at least 128 KiB and at least 6 times the `byteLength` of the dictionary (see [Prepared dictionaries](#prepared-dictionaries)).
 - **Decompression.** The decoders are strict: data that ends before the end of the compressed stream, empty data included, fails with `ERR_COMPRS_TRUNCATED`, and data after its end with `ERR_COMPRS_CORRUPT_DATA`. zstd and lz4 data may hold several frames, and gzip data several members, which are decompressed one after the other. Without a `format`, data whose format detection does not find, empty data included, fails with `ERR_COMPRS_UNKNOWN_FORMAT`. Brotli data has no magic number, so detection decodes the start of the data, and data that it takes for brotli but that does not decode fails with `ERR_COMPRS_UNKNOWN_FORMAT` as well.
-- **Errors.** Every error has a `code`, from the table below. The async functions report every error, invalid arguments included, by rejecting their Promise, and never throw. An error thrown by the caller's own code, such as a getter of an options object or the iterator of the samples, is passed on unchanged, without a code.
+- **Errors.** Every error has a `code`, from the table below. The async functions report every error, invalid arguments included, by rejecting their Promise, and never throw. An error thrown by the caller's own code, such as a getter of an options object or the iterator of the samples, is passed on unchanged, without a code, and so is the `reason` of an aborted `signal`.
 
 | `code` | When |
 | --- | --- |
@@ -508,11 +511,20 @@ Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. `ERR_COMPRS_STREAM_
 > [!WARNING]
 > **`'deflate'` is zlib.** As in the Compression Streams standard, HTTP's `Content-Encoding: deflate` and `deflateSync()` of `node:zlib`, `'deflate'` is the zlib format (RFC 1950): deflate data after a 2-byte header and before an Adler-32 checksum. The `deflateCompress()` and `deflateDecompress()` functions of the package root, and their streams, use raw deflate (RFC 1951), which is `'deflate-raw'` here. Data that `deflateCompress()` wrote decompresses with `{ format: 'deflate-raw' }` only, and code that moves from `deflateCompress()` to `{ format: 'deflate' }` writes data that `deflateDecompress()` cannot read.
 
+**Aborting.** `compress()`, `decompress()` and `trainDictionary()` take a `signal`, an `AbortSignal` that withdraws the call when it aborts. As with `fetch()`, the call then rejects with the `reason` of the signal, as it is: a `DOMException` named `AbortError` for `controller.abort()`, or whatever value was passed to `controller.abort(reason)`. A signal that is already aborted makes the call reject at once, without starting any work. Withdrawing is best effort. In Node.js, a call whose work no thread of the libuv pool has started yet rejects at once, and the pool skips the work, so that calls whose results are no longer needed do not hold up the other users of the pool, such as `fs` and `dns.lookup()`. Work that has started cannot stop midway: it finishes, and the call rejects once it has, discarding the result. The browser build does the work before the function returns, so there an abort only discards the result. A call that settled before the abort keeps its result. The call listens to the signal until it settles and leaves its `onabort` property alone. The signal may be an `AbortSignal` of any realm, or an object with its `aborted`, `reason`, `addEventListener()` and `removeEventListener()`, which the `AbortSignalLike` type declares, so that the declarations need neither the DOM library nor the types of Node.js; any other value fails with `ERR_COMPRS_INVALID_ARG`.
+
+```typescript
+const controller = new AbortController();
+const pending = compress(data, { format: 'zstd', level: 19, signal: controller.signal });
+controller.abort(); // the result is no longer needed
+await pending; // rejects with controller.signal.reason, a DOMException named AbortError
+```
+
 **Workers.** The `workers` option compresses zstd data on worker threads in the native addon; with 4 workers, it compressed 67 MB of JSON lines nearly 3 times as fast at levels 3 and 9 in the measurements of [#561](https://github.com/derodero24/comprs/issues/561). The output can differ from that without workers. zstd compresses inputs of at most 512 KiB on the calling thread whatever the number, and each call starts and stops its own workers, so they pay off for large inputs only. They cost memory too: zstd buffers up to `workers + 3` jobs of the input, gives each job an output buffer of about the same size, and gives each worker a compression context of its own. With 4 workers at level 3, where a job is 8 MiB, compressing 96 MiB took about 60 MiB more memory than without workers for JSON lines, and about 100 MiB more for random bytes. The workers are threads beyond the libuv pool that `compress()` runs on, whose size `UV_THREADPOOL_SIZE` sets (4 by default): concurrent calls can run up to `UV_THREADPOOL_SIZE * (workers + 1)` threads.
 
 **Browsers.** Browser builds that import `@derodero24/comprs/next` get its WebAssembly build, through the `browser` condition, on the WebAssembly module of the browser entry (see [Browser Usage](#browser-usage)). There, the async functions do not run on another thread: they compress or decompress on the calling thread, which they block, before they return a Promise of the result. Use a Web Worker to keep a page responsive. The browser build has no worker threads either: any `workers` but 0 fails with `ERR_COMPRS_INVALID_ARG`. Its WebAssembly memory cannot hold more than 4 GiB, so a `maxOutputSize` above 4294967295 acts as 4294967295: errors name that limit, and a zstd frame that declares a larger content size fails with `ERR_COMPRS_SIZE_LIMIT`. It writes different lz4 frames from the native build for most inputs of more than a few hundred bytes, which both builds decode; the other formats come out the same in both. A panic, or an allocation that the WebAssembly memory cannot grow for, fails with a `WebAssembly.RuntimeError` without a code.
 
-`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions` and `DictionaryOptions`.
+`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions`, `DictionaryOptions`, and `AbortOptions` and `AbortSignalLike` for the `signal` option of the async functions.
 
 ### Prepared dictionaries
 

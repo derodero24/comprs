@@ -61,7 +61,8 @@ export type Bytes = ReturnType<Uint8Array['slice']>;
  * Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. New codes may
  * be added in minor releases. An error thrown by the caller's own code, such
  * as a getter of an options object or the iterator of the samples, is passed
- * on unchanged, without a code. In the browser build, a panic, or an
+ * on unchanged, without a code, and so is the reason of an aborted
+ * {@link AbortOptions.signal}. In the browser build, a panic, or an
  * allocation that the WebAssembly memory cannot grow for, fails with a
  * `WebAssembly.RuntimeError` instead, without a code.
  */
@@ -210,6 +211,49 @@ export interface TrainDictionaryOptions {
     maxSize?: number | undefined;
 }
 /**
+ * The members of an AbortSignal that the `signal` option reads, which the
+ * AbortSignal of every realm has, and a polyfill may have without the
+ * others. Every AbortSignal of the DOM library and of the types of Node.js
+ * is one; the declarations of this module need neither.
+ */
+export interface AbortSignalLike {
+    /** Whether the signal has aborted. */
+    readonly aborted: boolean;
+    /** What a call rejects with once the signal has aborted. */
+    readonly reason?: unknown;
+    addEventListener(type: 'abort', listener: () => void, options?: {
+        readonly once?: boolean;
+    }): void;
+    removeEventListener(type: 'abort', listener: () => void): void;
+}
+/**
+ * The `signal` option of {@link compress}, {@link decompress} and
+ * {@link trainDictionary}, which their `*Sync` variants do not take.
+ */
+export interface AbortOptions {
+    /**
+     * A signal that withdraws the call when it aborts. The call then rejects
+     * with the `reason` of the signal, as it is, which carries no
+     * {@link ErrorCode}; with a signal that is already aborted, it rejects so
+     * at once, without starting any work.
+     *
+     * Withdrawing is best effort. In Node.js, the call rejects at once if no
+     * thread of the libuv pool has started its work yet, and the pool then
+     * skips the work. Work that has started finishes, and the call rejects
+     * once it has, discarding its result: the codecs cannot stop midway. The
+     * browser build does the work before the function returns, so an abort
+     * only discards the result. A call that settled before the abort keeps
+     * its result.
+     *
+     * The signal may be an AbortSignal of any realm, or an object with its
+     * members `aborted`, `reason`, `addEventListener()` and
+     * `removeEventListener()` ({@link AbortSignalLike}); any other value
+     * fails with `ERR_COMPRS_INVALID_ARG`. The call listens to the signal
+     * until it settles, and never sets its `onabort` property.
+     */
+    signal?: AbortSignalLike | undefined;
+}
+/**
  * Compress `data` in `options.format`.
  *
  * The output holds the same bytes as that of the functions of the root
@@ -231,11 +275,13 @@ export interface TrainDictionaryOptions {
  * build has no such pool: it compresses the data on the calling thread,
  * which it blocks, before compress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the compressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
- * itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. compress() itself never throws.
  */
-export declare function compress(data: Input, options: CompressOptions): Promise<Bytes>;
+export declare function compress(data: Input, options: CompressOptions & AbortOptions): Promise<Bytes>;
 /**
  * Compress `data` in `options.format`, as {@link compress} does, on the
  * calling thread.
@@ -263,11 +309,13 @@ export declare function compressSync(data: Input, options: CompressOptions): Byt
  * browser build decompresses it on the calling thread, which it blocks,
  * before decompress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the decompressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`.
- * decompress() itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. decompress() itself never throws.
  */
-export declare function decompress(data: Input, options?: DecompressOptions): Promise<Bytes>;
+export declare function decompress(data: Input, options?: DecompressOptions & AbortOptions): Promise<Bytes>;
 /**
  * Decompress `data`, in `options.format` or the format that detection finds
  * in it, as {@link decompress} does, on the calling thread.
@@ -294,14 +342,15 @@ export declare function detectFormat(data: Input): Format | undefined;
  * The samples are copied when trainDictionary() is called. In Node.js, the
  * dictionary is trained on a thread of the libuv pool. The browser build
  * trains it on the calling thread, which it blocks, before trainDictionary()
- * returns.
+ * returns. An {@link AbortOptions.signal} withdraws the call.
  *
  * @returns A Promise of the dictionary, which rejects on every error, invalid
- * arguments included, with an {@link ErrorCode} as `code`: training fails
- * with `ERR_COMPRS_OPERATION_FAILED` without samples or from too little
- * data. trainDictionary() itself never throws.
+ * arguments included, with an {@link ErrorCode} as `code`, or with the
+ * reason of the signal once it aborts: training fails with
+ * `ERR_COMPRS_OPERATION_FAILED` without samples or from too little data.
+ * trainDictionary() itself never throws.
  */
-export declare function trainDictionary(samples: Iterable<Input>, options?: TrainDictionaryOptions): Promise<Bytes>;
+export declare function trainDictionary(samples: Iterable<Input>, options?: TrainDictionaryOptions & AbortOptions): Promise<Bytes>;
 /**
  * Train a zstd dictionary from `samples`, as {@link trainDictionary} does, on
  * the calling thread.

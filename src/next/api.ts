@@ -5,6 +5,7 @@
 // nothing of a particular runtime, so that the browser build compiles it
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
+import { isAbortSignal, withSignal } from './abort.js';
 import { backend, type DictionaryHandle } from './backend.js';
 
 /**
@@ -73,7 +74,8 @@ export type Bytes = ReturnType<Uint8Array['slice']>;
  * Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. New codes may
  * be added in minor releases. An error thrown by the caller's own code, such
  * as a getter of an options object or the iterator of the samples, is passed
- * on unchanged, without a code. In the browser build, a panic, or an
+ * on unchanged, without a code, and so is the reason of an aborted
+ * {@link AbortOptions.signal}. In the browser build, a panic, or an
  * allocation that the WebAssembly memory cannot grow for, fails with a
  * `WebAssembly.RuntimeError` instead, without a code.
  */
@@ -235,6 +237,53 @@ export interface TrainDictionaryOptions {
   maxSize?: number | undefined;
 }
 
+/**
+ * The members of an AbortSignal that the `signal` option reads, which the
+ * AbortSignal of every realm has, and a polyfill may have without the
+ * others. Every AbortSignal of the DOM library and of the types of Node.js
+ * is one; the declarations of this module need neither.
+ */
+export interface AbortSignalLike {
+  /** Whether the signal has aborted. */
+  readonly aborted: boolean;
+  /** What a call rejects with once the signal has aborted. */
+  readonly reason?: unknown;
+  addEventListener(
+    type: 'abort',
+    listener: () => void,
+    options?: { readonly once?: boolean },
+  ): void;
+  removeEventListener(type: 'abort', listener: () => void): void;
+}
+
+/**
+ * The `signal` option of {@link compress}, {@link decompress} and
+ * {@link trainDictionary}, which their `*Sync` variants do not take.
+ */
+export interface AbortOptions {
+  /**
+   * A signal that withdraws the call when it aborts. The call then rejects
+   * with the `reason` of the signal, as it is, which carries no
+   * {@link ErrorCode}; with a signal that is already aborted, it rejects so
+   * at once, without starting any work.
+   *
+   * Withdrawing is best effort. In Node.js, the call rejects at once if no
+   * thread of the libuv pool has started its work yet, and the pool then
+   * skips the work. Work that has started finishes, and the call rejects
+   * once it has, discarding its result: the codecs cannot stop midway. The
+   * browser build does the work before the function returns, so an abort
+   * only discards the result. A call that settled before the abort keeps
+   * its result.
+   *
+   * The signal may be an AbortSignal of any realm, or an object with its
+   * members `aborted`, `reason`, `addEventListener()` and
+   * `removeEventListener()` ({@link AbortSignalLike}); any other value
+   * fails with `ERR_COMPRS_INVALID_ARG`. The call listens to the signal
+   * until it settles, and never sets its `onabort` property.
+   */
+  signal?: AbortSignalLike | undefined;
+}
+
 /** The code of the errors that this module throws itself. */
 const INVALID_ARG: ErrorCode = 'ERR_COMPRS_INVALID_ARG';
 
@@ -267,8 +316,16 @@ interface DictionaryArgs {
   dictionaryHandle: DictionaryHandle | undefined;
 }
 
+/**
+ * The `signal` option, checked: `undefined` for the `*Sync` functions,
+ * which do not read it.
+ */
+interface SignalArgs {
+  signal: AbortSignalLike | undefined;
+}
+
 /** The arguments of Backend.compress, checked. */
-interface CompressArgs extends DictionaryArgs {
+interface CompressArgs extends DictionaryArgs, SignalArgs {
   data: Uint8Array;
   format: Format;
   level: number | undefined;
@@ -279,7 +336,7 @@ interface CompressArgs extends DictionaryArgs {
 }
 
 /** The arguments of Backend.decompress, checked. */
-interface DecompressArgs extends DictionaryArgs {
+interface DecompressArgs extends DictionaryArgs, SignalArgs {
   data: Uint8Array;
   format: Format | undefined;
   maxOutputSize: number | undefined;
@@ -293,7 +350,7 @@ interface CreateDictionaryArgs {
 }
 
 /** The arguments of Backend.trainDictionary, checked. */
-interface TrainDictionaryArgs {
+interface TrainDictionaryArgs extends SignalArgs {
   samples: Uint8Array[];
   maxSize: number | undefined;
 }
@@ -335,6 +392,21 @@ function optionalNumber(value: unknown, name: string): number | undefined {
 function optionalString(value: unknown, name: string): string | undefined {
   if (value === undefined || typeof value === 'string') return value;
   throw invalidArg(`${name} must be a string`);
+}
+
+/**
+ * The `signal` option of `options`, which must be an AbortSignal or
+ * `undefined`, if the function takes one: `abortable` tells. The `*Sync`
+ * functions do not read it.
+ */
+function signalOption(
+  options: Unchecked<AbortOptions>,
+  abortable: boolean,
+): AbortSignalLike | undefined {
+  if (!abortable) return undefined;
+  const signal = options.signal;
+  if (signal === undefined || isAbortSignal(signal)) return signal;
+  throw invalidArg('signal must be an AbortSignal');
 }
 
 /** A getter of a built-in prototype, if the runtime has it. */
@@ -552,11 +624,14 @@ function dictionaryArgs(value: unknown): DictionaryArgs {
 }
 
 /**
- * Check the arguments of {@link compressSync}. The inputs are read last,
+ * Check the arguments of {@link compressSync}, or, if `abortable`, of
+ * {@link compress}, which also takes a signal. The inputs are read last,
  * after the getters of the options, which could detach their buffers.
  */
-function compressArgs(data: unknown, options: unknown): CompressArgs {
-  if (!isObject<CompressOptions>(options)) throw invalidArg('options must be an object');
+function compressArgs(data: unknown, options: unknown, abortable: boolean): CompressArgs {
+  if (!isObject<CompressOptions & AbortOptions>(options)) {
+    throw invalidArg('options must be an object');
+  }
   const format = options.format;
   if (!isFormat(format)) throw invalidArg(`format must be one of ${FORMATS.join(', ')}`);
   const level = optionalNumber(options.level, 'level');
@@ -572,6 +647,7 @@ function compressArgs(data: unknown, options: unknown): CompressArgs {
     gzipMtime = optionalNumber(header.mtime, 'gzipHeader.mtime');
   }
   const workers = optionalNumber(options.workers, 'workers');
+  const signal = signalOption(options, abortable);
   return {
     data: toBytes(data, 'data'),
     format,
@@ -581,16 +657,23 @@ function compressArgs(data: unknown, options: unknown): CompressArgs {
     gzipFilename,
     gzipMtime,
     workers,
+    signal,
   };
 }
 
-/** Check the arguments of {@link decompressSync}, as compressArgs does. */
-function decompressArgs(data: unknown, options: unknown): DecompressArgs {
+/**
+ * Check the arguments of {@link decompressSync}, or, if `abortable`, of
+ * {@link decompress}, as compressArgs does.
+ */
+function decompressArgs(data: unknown, options: unknown, abortable: boolean): DecompressArgs {
   let format: Format | undefined;
   let maxOutputSize: number | undefined;
   let dictionary: unknown;
+  let signal: AbortSignalLike | undefined;
   if (options !== undefined) {
-    if (!isObject<DecompressOptions>(options)) throw invalidArg('options must be an object');
+    if (!isObject<DecompressOptions & AbortOptions>(options)) {
+      throw invalidArg('options must be an object');
+    }
     const name = options.format;
     if (name !== undefined && name !== 'auto') {
       if (!isFormat(name)) throw invalidArg(`format must be one of auto, ${FORMATS.join(', ')}`);
@@ -598,12 +681,14 @@ function decompressArgs(data: unknown, options: unknown): DecompressArgs {
     }
     maxOutputSize = optionalNumber(options.maxOutputSize, 'maxOutputSize');
     dictionary = options.dictionary;
+    signal = signalOption(options, abortable);
   }
   return {
     data: toBytes(data, 'data'),
     format,
     maxOutputSize,
     ...dictionaryArgs(dictionary),
+    signal,
   };
 }
 
@@ -619,14 +704,23 @@ function createDictionaryArgs(bytes: unknown, options: unknown): CreateDictionar
 }
 
 /**
- * Check the arguments of {@link trainDictionarySync}. The samples are read
- * after the iterator ends, which could detach the buffers of earlier ones.
+ * Check the arguments of {@link trainDictionarySync}, or, if `abortable`, of
+ * {@link trainDictionary}. The samples are read after the iterator ends,
+ * which could detach the buffers of earlier ones.
  */
-function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionaryArgs {
+function trainDictionaryArgs(
+  samples: unknown,
+  options: unknown,
+  abortable: boolean,
+): TrainDictionaryArgs {
   let maxSize: number | undefined;
+  let signal: AbortSignalLike | undefined;
   if (options !== undefined) {
-    if (!isObject<TrainDictionaryOptions>(options)) throw invalidArg('options must be an object');
+    if (!isObject<TrainDictionaryOptions & AbortOptions>(options)) {
+      throw invalidArg('options must be an object');
+    }
     maxSize = optionalNumber(options.maxSize, 'maxSize');
+    signal = signalOption(options, abortable);
   }
   if (!isIterable(samples)) {
     throw invalidArg(
@@ -636,6 +730,7 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
   return {
     samples: Array.from(samples).map((sample, index) => toBytes(sample, `samples[${index}]`)),
     maxSize,
+    signal,
   };
 }
 
@@ -661,23 +756,28 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
  * build has no such pool: it compresses the data on the calling thread,
  * which it blocks, before compress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the compressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
- * itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. compress() itself never throws.
  */
-export function compress(data: Input, options: CompressOptions): Promise<Bytes> {
+export function compress(data: Input, options: CompressOptions & AbortOptions): Promise<Bytes> {
   try {
-    const args = compressArgs(data, options);
-    return backend().compressAsync(
-      args.data,
-      args.format,
-      args.level,
-      args.dictionary,
-      args.gzipHeader,
-      args.gzipFilename,
-      args.gzipMtime,
-      args.workers,
-      args.dictionaryHandle,
+    const args = compressArgs(data, options, true);
+    return withSignal(args.signal, (withdrawal) =>
+      backend().compressAsync(
+        args.data,
+        args.format,
+        args.level,
+        args.dictionary,
+        args.gzipHeader,
+        args.gzipFilename,
+        args.gzipMtime,
+        args.workers,
+        args.dictionaryHandle,
+        withdrawal,
+      ),
     );
   } catch (error) {
     return Promise.reject(error);
@@ -692,7 +792,7 @@ export function compress(data: Input, options: CompressOptions): Promise<Bytes> 
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 export function compressSync(data: Input, options: CompressOptions): Bytes {
-  const args = compressArgs(data, options);
+  const args = compressArgs(data, options, false);
   return backend().compress(
     args.data,
     args.format,
@@ -725,19 +825,27 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
  * browser build decompresses it on the calling thread, which it blocks,
  * before decompress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the decompressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`.
- * decompress() itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. decompress() itself never throws.
  */
-export function decompress(data: Input, options?: DecompressOptions): Promise<Bytes> {
+export function decompress(
+  data: Input,
+  options?: DecompressOptions & AbortOptions,
+): Promise<Bytes> {
   try {
-    const args = decompressArgs(data, options);
-    return backend().decompressAsync(
-      args.data,
-      args.format,
-      args.maxOutputSize,
-      args.dictionary,
-      args.dictionaryHandle,
+    const args = decompressArgs(data, options, true);
+    return withSignal(args.signal, (withdrawal) =>
+      backend().decompressAsync(
+        args.data,
+        args.format,
+        args.maxOutputSize,
+        args.dictionary,
+        args.dictionaryHandle,
+        withdrawal,
+      ),
     );
   } catch (error) {
     return Promise.reject(error);
@@ -752,7 +860,7 @@ export function decompress(data: Input, options?: DecompressOptions): Promise<By
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 export function decompressSync(data: Input, options?: DecompressOptions): Bytes {
-  const args = decompressArgs(data, options);
+  const args = decompressArgs(data, options, false);
   return backend().decompress(
     args.data,
     args.format,
@@ -783,20 +891,23 @@ export function detectFormat(data: Input): Format | undefined {
  * The samples are copied when trainDictionary() is called. In Node.js, the
  * dictionary is trained on a thread of the libuv pool. The browser build
  * trains it on the calling thread, which it blocks, before trainDictionary()
- * returns.
+ * returns. An {@link AbortOptions.signal} withdraws the call.
  *
  * @returns A Promise of the dictionary, which rejects on every error, invalid
- * arguments included, with an {@link ErrorCode} as `code`: training fails
- * with `ERR_COMPRS_OPERATION_FAILED` without samples or from too little
- * data. trainDictionary() itself never throws.
+ * arguments included, with an {@link ErrorCode} as `code`, or with the
+ * reason of the signal once it aborts: training fails with
+ * `ERR_COMPRS_OPERATION_FAILED` without samples or from too little data.
+ * trainDictionary() itself never throws.
  */
 export function trainDictionary(
   samples: Iterable<Input>,
-  options?: TrainDictionaryOptions,
+  options?: TrainDictionaryOptions & AbortOptions,
 ): Promise<Bytes> {
   try {
-    const args = trainDictionaryArgs(samples, options);
-    return backend().trainDictionaryAsync(args.samples, args.maxSize);
+    const args = trainDictionaryArgs(samples, options, true);
+    return withSignal(args.signal, (withdrawal) =>
+      backend().trainDictionaryAsync(args.samples, args.maxSize, withdrawal),
+    );
   } catch (error) {
     return Promise.reject(error);
   }
@@ -813,7 +924,7 @@ export function trainDictionarySync(
   samples: Iterable<Input>,
   options?: TrainDictionaryOptions,
 ): Bytes {
-  const args = trainDictionaryArgs(samples, options);
+  const args = trainDictionaryArgs(samples, options, false);
   return backend().trainDictionary(args.samples, args.maxSize);
 }
 

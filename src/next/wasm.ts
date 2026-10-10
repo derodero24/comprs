@@ -19,6 +19,10 @@ import { type DictionaryHandle, setBackend } from './backend.js';
  * thread, which it blocks until `fn` returns, before it returns the
  * Promise. Like an async function, it reports every error of `fn` by
  * rejecting that Promise, never by throwing.
+ *
+ * The functions of the Backend interface also take a Withdrawal, after the
+ * arguments of `fn`, which ignores it: it is always `undefined` here, since
+ * the work is done before an abort could withdraw it.
  */
 function asAsync<Args extends unknown[], Result>(
   fn: (...args: Args) => Result,
@@ -105,4 +109,8 @@ setBackend({
   // The glue also frees a NextDictionary that the garbage collector
   // collects, with a FinalizationRegistry of its own.
   closeDictionary: (handle: DictionaryHandle): void => prepared(handle).free(),
+  // The async functions do their work before they return, so there is no
+  // work for an abort to withdraw.
+  createWithdrawal: (): undefined => undefined,
+  withdraw: (): boolean => false,
 });

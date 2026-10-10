@@ -227,6 +227,7 @@ const BROWSER_MODULES = [
   'browser/next/browser.js',
   'browser/next/wasm.js',
   'browser/next/api.js',
+  'browser/next/abort.js',
   'browser/next/backend.js',
 ];
 

@@ -33,10 +33,10 @@ import {
   zstdCompressWithDict,
   zstdTrainDictionary,
 } from '../index.js';
-import type * as BackendModule from '../next/backend.js';
 import type { Backend } from '../next/backend.js';
 import type { Bytes, CompressOptions, Format, Input } from '../next/index.js';
 import * as next from '../next/index.js';
+import { backendModule } from './next-backend.js';
 
 // The unified API, @derodero24/comprs/next (#577), as the native build
 // compiles it from src/next: the functions of api.ts over the hidden binding
@@ -598,28 +598,6 @@ describe('inputs', () => {
   });
 });
 
-/** Whether `value` is next/backend.js, as its declarations describe it. */
-function isBackendModule(value: unknown): value is typeof BackendModule {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof Reflect.get(value, 'backend') === 'function' &&
-    typeof Reflect.get(value, 'setBackend') === 'function'
-  );
-}
-
-/**
- * next/backend.js, whose backend a test wraps, as the modules of next/
- * share it. They load each other with the require() of Node.js, and so does
- * this file, but Vitest would load an import of next/backend.js as a module
- * of its own, without a backend.
- */
-function backendModule(): typeof BackendModule {
-  const loaded: unknown = require('../next/backend.js');
-  if (!isBackendModule(loaded)) throw new Error('next/backend.js exports no backend');
-  return loaded;
-}
-
 describe('bytes in a SharedArrayBuffer', () => {
   /** A SharedArrayBuffer that holds `bytes`. */
   function shared(bytes: Uint8Array): SharedArrayBuffer {
@@ -663,9 +641,9 @@ describe('bytes in a SharedArrayBuffer', () => {
         record(...samples);
         return inner.trainDictionary(samples, maxSize);
       },
-      trainDictionaryAsync: (samples, maxSize) => {
+      trainDictionaryAsync: (samples, maxSize, withdrawal) => {
         record(...samples);
-        return inner.trainDictionaryAsync(samples, maxSize);
+        return inner.trainDictionaryAsync(samples, maxSize, withdrawal);
       },
       createDictionary: (bytes, format, level) => {
         record(bytes);
@@ -673,6 +651,8 @@ describe('bytes in a SharedArrayBuffer', () => {
       },
       dictionaryToBytes: (handle) => inner.dictionaryToBytes(handle),
       closeDictionary: (handle) => inner.closeDictionary(handle),
+      createWithdrawal: () => inner.createWithdrawal(),
+      withdraw: (withdrawal) => inner.withdraw(withdrawal),
     };
   }
 

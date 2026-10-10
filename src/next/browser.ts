@@ -6,6 +6,8 @@
 import './wasm.js';
 
 export type {
+  AbortOptions,
+  AbortSignalLike,
   Bytes,
   CompressOptions,
   DecompressOptions,

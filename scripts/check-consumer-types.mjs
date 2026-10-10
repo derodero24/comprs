@@ -9,7 +9,9 @@
  * the `browser` condition, the DOM library and no Node.js types (#567);
  * dom-only-next has the DOM library and no Node.js types either, but not the
  * condition, and passes the results of `@derodero24/comprs/next` to DOM
- * functions that take a BufferSource or a BlobPart (#577). They type-check
+ * functions that take a BufferSource or a BlobPart (#577); es-only-next has
+ * neither the DOM library nor Node.js types, which the declarations of
+ * `@derodero24/comprs/next` must not need (#559). They type-check
  * their dependencies' declarations (`skipLibCheck: false`), which the
  * repository's own tsconfig.json skips, and they use the package by its
  * name, so that the `exports` conditions pick the declaration files.

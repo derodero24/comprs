@@ -228,6 +228,21 @@ export async function checkPackage(comprs) {
       'ERR_COMPRS_INVALID_ARG',
     );
   });
+  await run('unified API abort signal', async () => {
+    // The native addon withdraws work that no thread has started (#559);
+    // the WebAssembly build discards the result of work that is done.
+    const next = await comprs.importNext();
+    const sample = data.subarray(0, 65536);
+    const reason = new Error('no longer needed');
+    const controller = new AbortController();
+    const pending = next.compress(sample, { format: 'zstd', signal: controller.signal });
+    controller.abort(reason);
+    await assertRejectsWith(pending, reason);
+    await assertRejectsWith(next.decompress(sample, { signal: AbortSignal.abort(reason) }), reason);
+    const { signal } = new AbortController();
+    const output = await next.compress(sample, { format: 'zstd', signal });
+    assertBytes(await next.decompress(output, { signal }), sample);
+  });
   await run('stream round trip', async () => {
     const stream = new Blob([data])
       .stream()
@@ -361,4 +376,21 @@ async function assertRejects(promise, code) {
     return;
   }
   throw new Error(`the Promise did not reject with ${code}`);
+}
+
+/**
+ * Check that `promise` rejects with `reason` itself, as a call whose signal
+ * aborted does.
+ *
+ * @param {Promise<unknown>} promise
+ * @param {unknown} reason
+ */
+async function assertRejectsWith(promise, reason) {
+  try {
+    await promise;
+  } catch (error) {
+    assert(error === reason, `the Promise rejected with ${error}, not with the reason`);
+    return;
+  }
+  throw new Error('the Promise did not reject with the reason of the abort');
 }
