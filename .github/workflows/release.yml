@@ -133,6 +133,17 @@ jobs:
           name: version-patch
           path: ${{ runner.temp }}/version
 
+      # The patch comes from a job that ran the build. git apply would create
+      # the symlinks and submodules that it adds, and changesets/action reads
+      # a package's CHANGELOG.md, through any symlink, into the PR body.
+      - name: Check the version patch
+        if: needs.version-prepare.outputs.pending == 'true'
+        run: |
+          if grep -qE '^(new file mode|new mode) (120000|160000)' "$RUNNER_TEMP/version/version.patch"; then
+            echo "::error::The version patch adds a symlink or a submodule"
+            exit 1
+          fi
+
       # changesets/action runs the version script only when it finds
       # changesets. If the patch is missing when it does, git apply fails and
       # nothing is pushed.
