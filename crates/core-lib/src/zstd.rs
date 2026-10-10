@@ -289,7 +289,7 @@ pub fn decompress_with_dict_with_capacity(
 
 /// Decompress `data` with `dict` (empty for none) into at most `limit` bytes.
 ///
-/// When [`trusted_output_size`] knows the exact output size, the frames are
+/// When [`declared_output_size`] knows the exact output size, the frames are
 /// decoded straight into a buffer of that size. Otherwise the streaming
 /// decoder grows the output as it decodes, so frames without a content size
 /// never reserve `limit` bytes up front.
@@ -301,7 +301,7 @@ fn decompress_with_limit(
 ) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "zstd")?;
 
-    let Some(size) = trusted_output_size(data, limit, context)? else {
+    let Some(size) = declared_output_size(data, limit, context)? else {
         // Start at the input size: incompressible data then fits as is, and
         // compressible data grows the buffer geometrically.
         return with_dctx(dict, |dctx| {
@@ -399,7 +399,7 @@ pub fn decompress_prepared(
     let ddict = dict.zstd_ddict()?;
     crate::require_input(data, "zstd")?;
 
-    let Some(size) = trusted_output_size(data, limit, CONTEXT)? else {
+    let Some(size) = declared_output_size(data, limit, CONTEXT)? else {
         // The streaming decoder takes the dictionary as a reference, which
         // the context then borrows: the context that the thread caches
         // outlives any dictionary, so this one is created for the call.
@@ -515,7 +515,7 @@ fn with_dctx<T>(
 ///
 /// Fails with [`ComprsError::SizeLimit`] if the declared total exceeds
 /// `limit`.
-fn trusted_output_size(
+fn declared_output_size(
     data: &[u8],
     limit: usize,
     context: &'static str,
@@ -615,34 +615,37 @@ mod tests {
     }
 
     #[test]
-    fn trusted_output_size_sums_declared_sizes_of_complete_frames() {
+    fn declared_output_size_sums_declared_sizes_of_complete_frames() {
         let a = compress(&text(1000), None).unwrap();
         let b = compress(&text(3000), None).unwrap();
         let skippable = skippable_frame(b"metadata");
         let input = [&a[..], &skippable[..], &b[..]].concat();
         assert_eq!(
-            trusted_output_size(&input, 4000, "test").unwrap(),
+            declared_output_size(&input, 4000, "test").unwrap(),
             Some(4000)
         );
-        assert_eq!(trusted_output_size(&skippable, 0, "test").unwrap(), Some(0));
+        assert_eq!(
+            declared_output_size(&skippable, 0, "test").unwrap(),
+            Some(0)
+        );
 
         let without_size = compress_without_content_size(b"hello");
         let mixed = [&a[..], &without_size[..]].concat();
         let trailing = [&a[..], &[0]].concat();
         for input in [&without_size[..], &mixed, &a[..a.len() - 1], &trailing] {
             assert_eq!(
-                trusted_output_size(input, usize::MAX, "test").unwrap(),
+                declared_output_size(input, usize::MAX, "test").unwrap(),
                 None
             );
         }
     }
 
     #[test]
-    fn trusted_output_size_rejects_sizes_over_the_limit() {
+    fn declared_output_size_rejects_sizes_over_the_limit() {
         let frame = frame_declaring(5, b"hello");
         assert_eq!(decompress(&frame).unwrap(), b"hello");
         assert!(matches!(
-            trusted_output_size(&frame, 4, "zstd decompress"),
+            declared_output_size(&frame, 4, "zstd decompress"),
             Err(ComprsError::SizeLimit { limit: 4, .. })
         ));
         assert!(matches!(
@@ -652,13 +655,13 @@ mod tests {
     }
 
     #[test]
-    fn trusted_output_size_ignores_sizes_the_frames_cannot_fill() {
+    fn declared_output_size_ignores_sizes_the_frames_cannot_fill() {
         // 22 bytes of input decode to at most 22 * 32 KiB, so the declared
         // 200 MiB must not be allocated before decoding finds the frame
         // corrupt.
         let forged = frame_declaring(200 * 1024 * 1024, b"hello");
         assert_eq!(
-            trusted_output_size(&forged, usize::MAX, "test").unwrap(),
+            declared_output_size(&forged, usize::MAX, "test").unwrap(),
             None
         );
         assert!(matches!(
@@ -673,7 +676,7 @@ mod tests {
         // a buffer of that size rather than by the streaming decoder.
         let frame = frame_declaring(10, b"hello");
         assert_eq!(
-            trusted_output_size(&frame, usize::MAX, "test").unwrap(),
+            declared_output_size(&frame, usize::MAX, "test").unwrap(),
             Some(10)
         );
         for result in [decompress(&frame), decompress_with_capacity(&frame, 10)] {

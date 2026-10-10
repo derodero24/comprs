@@ -323,18 +323,24 @@ const DECOMPRESS_ALL_CHUNK: usize = 64 * 1024;
 /// `max_output_size` plus one byte. A failure to allocate that first
 /// buffer is reported as an error, as in [`crate::decompress_with_limit`].
 ///
-/// Like `brotli::Decompressor`, it ignores data after the end of the stream
-/// and fails with "Invalid Data", prefixed by `context`, on invalid and on
-/// truncated input. Both are [`ComprsError::Corrupt`]: the one-shot
-/// functions keep that message for truncated input, so unlike the
-/// decompression contexts they do not report it as
-/// [`ComprsError::Truncated`]. Exceeding `max_output_size` fails with
-/// [`ComprsError::SizeLimit`].
+/// Invalid input fails with "Invalid Data", prefixed by `context`, and
+/// exceeding `max_output_size` with [`ComprsError::SizeLimit`]. `end` sets
+/// how the end of the input is checked:
+///
+/// - [`End::Lenient`]: like `brotli::Decompressor`, data after the end of
+///   the stream is ignored, and truncated input fails with "Invalid Data" as
+///   well. Both are [`ComprsError::Corrupt`]: the one-shot functions keep
+///   that message for truncated input, so unlike the decompression contexts
+///   they do not report it as [`ComprsError::Truncated`].
+/// - [`End::Strict`]: like the decompression contexts, input that ends
+///   before the end of the stream fails with [`ComprsError::Truncated`], and
+///   data after the end of the stream with [`ComprsError::Corrupt`].
 pub(crate) fn decompress_all(
     input: &[u8],
     dict: Vec<u8>,
     max_output_size: usize,
     context: &'static str,
+    end: End,
 ) -> Result<Vec<u8>, ComprsError> {
     let mut output = LimitedVec::new(max_output_size, context);
     output
@@ -368,10 +374,16 @@ pub(crate) fn decompress_all(
                 Ok(result)
             })
             .map_err(|e| output.error(e, context))?;
-        match result {
-            BrotliResult::NeedsMoreOutput => {}
-            BrotliResult::ResultSuccess => return Ok(crate::finish_output(output.take())),
-            BrotliResult::NeedsMoreInput | BrotliResult::ResultFailure => {
+        match (result, end) {
+            (BrotliResult::NeedsMoreOutput, _) => {}
+            (BrotliResult::ResultSuccess, End::Strict) if input_offset < input.len() => {
+                return Err(data_after_the_stream(context));
+            }
+            (BrotliResult::ResultSuccess, _) => return Ok(crate::finish_output(output.take())),
+            (BrotliResult::NeedsMoreInput, End::Strict) => {
+                return Err(ComprsError::Truncated("brotli"));
+            }
+            (BrotliResult::NeedsMoreInput | BrotliResult::ResultFailure, _) => {
                 return Err(ComprsError::Corrupt {
                     context,
                     source: std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid Data")
@@ -379,6 +391,25 @@ pub(crate) fn decompress_all(
                 });
             }
         }
+    }
+}
+
+/// How [`decompress_all`] checks the end of its input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum End {
+    /// Data after the end of the stream is ignored, and truncated input is
+    /// invalid data, as the one-shot functions have always reported it.
+    Lenient,
+    /// Truncated input and data after the end of the stream are errors of
+    /// their own, as in the decompression contexts.
+    Strict,
+}
+
+/// The error for data after the end of a brotli stream.
+fn data_after_the_stream(context: &'static str) -> ComprsError {
+    ComprsError::Corrupt {
+        context,
+        source: "unexpected data after the end of the stream".into(),
     }
 }
 
@@ -448,10 +479,7 @@ impl StreamDecoder {
                 BrotliResult::ResultSuccess => {
                     self.ended = true;
                     if input_offset < input.len() {
-                        return Err(ComprsError::Corrupt {
-                            context,
-                            source: "unexpected data after the end of the stream".into(),
-                        });
+                        return Err(data_after_the_stream(context));
                     }
                     break;
                 }

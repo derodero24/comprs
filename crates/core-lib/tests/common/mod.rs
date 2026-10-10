@@ -4,7 +4,9 @@
 // Each test binary uses a different subset of the helpers.
 #![allow(dead_code)]
 
-use comprs_core::{ComprsError, MemoryUsage, brotli_stream, gzip_stream, lz4_stream, zstd_stream};
+use comprs_core::{
+    ComprsError, MemoryUsage, brotli_stream, gzip_stream, lz4_stream, unified, zstd_stream,
+};
 
 /// The methods that every stream context has, so that tests can drive any
 /// of them.
@@ -49,6 +51,8 @@ impl_context!(
     zstd_stream::DecompressDictContext,
     lz4_stream::CompressContext,
     lz4_stream::DecompressContext,
+    unified::CompressContext,
+    unified::DecompressContext,
 );
 
 /// A context of any type.

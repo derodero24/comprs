@@ -134,6 +134,7 @@ CI then tests the package as it would be published (see [Package tests](#package
 | `zstd`, `gzip`, `deflate`, `brotli`, `lz4` | Every one-shot function and stream context of the format, including the dictionary variants, on random bytes or on a damaged valid stream, with small output limits and fuzzer-chosen chunk boundaries |
 | `detect` | Format detection, auto-detecting decompression and `gzip::read_header` |
 | `round_trip` | Compression in one call or in chunks, then every way of decompressing the result |
+| `unified_decompress` | Decompression with format detection through the unified layer (`comprs_core::unified`), in one call and in fuzzer-chosen chunks, on random bytes or on a damaged valid stream of any format |
 
 A target fails when the code under test panics, outputs more than its limit, gives results that disagree between APIs or limits, or allocates more heap memory than its output limit accounts for (`crates/core-lib/fuzz/src/heap.rs` counts the allocations). The Fuzz workflow runs each target for 10 minutes every week and for 1 minute on pull requests that change the fuzz crate, starting with the inputs of fixed failures in `crates/core-lib/fuzz/regressions/<target>/`, and uploads failing inputs as artifacts. On pull requests that change `comprs-core` or its dependencies, it checks that the fuzz crate still builds and passes its tests.
 

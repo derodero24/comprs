@@ -72,7 +72,8 @@ pub enum ComprsError {
 /// - `ERR_COMPRS_INVALID_ARG`: an argument is out of range or malformed,
 ///   such as a compression level, an output limit or a gzip header field.
 /// - `ERR_COMPRS_UNKNOWN_FORMAT`: auto-detection could not determine the
-///   compression format of the input, which includes empty input.
+///   compression format of the input, which includes empty input and data
+///   that it took for brotli but that does not decode as brotli.
 /// - `ERR_COMPRS_CORRUPT_DATA`: the input is not data that the decoder
 ///   accepts: it is invalid or corrupted, has unexpected data after the end
 ///   of the stream, or uses a feature that comprs does not decode.
@@ -104,17 +105,22 @@ pub enum ComprsError {
 ///   after the header of a member: flate2 reports the missing trailer as a
 ///   checksum error. Input that ends inside the header is
 ///   `ERR_COMPRS_TRUNCATED`;
-/// - the one-shot brotli functions, including those that take a dictionary,
-///   such as [`crate::brotli::decompress`]: they report a cut stream as
-///   "Invalid Data".
+/// - the one-shot brotli functions other than
+///   [`crate::brotli::decompress_strict`], including those that take a
+///   dictionary, such as [`crate::brotli::decompress`]: they report a cut
+///   stream as "Invalid Data".
 ///
 /// Empty input is `ERR_COMPRS_TRUNCATED` for these decoders as well. The
 /// decompression contexts of zstd, deflate, brotli and lz4, the one-shot
-/// functions of zstd, deflate and lz4, and the strict decoders of gzip, zlib
-/// and raw deflate ([`crate::gzip::decompress_strict`] and
-/// [`crate::gzip_stream::StrictDecompressContext`]) tell a cut stream apart
+/// functions of zstd, deflate and lz4, the strict decoders of gzip, zlib and
+/// raw deflate ([`crate::gzip::decompress_strict`] and
+/// [`crate::gzip_stream::StrictDecompressContext`]) and of brotli
+/// ([`crate::brotli::decompress_strict`]), and the unified layer
+/// ([`crate::unified`]), which decodes with these, tell a cut stream apart
 /// and report it as `ERR_COMPRS_TRUNCATED`, and so do the decoders that
-/// later releases add.
+/// later releases add. Only when the unified layer detects the format does
+/// it report a cut or corrupt stream that it took for brotli as
+/// `ERR_COMPRS_UNKNOWN_FORMAT`, as [`crate::detect::decompress`] does.
 pub const ERROR_CODES: [&str; 8] = [
     "ERR_COMPRS_INVALID_ARG",
     "ERR_COMPRS_UNKNOWN_FORMAT",

@@ -141,9 +141,9 @@ fn read_max_output_size(u: &mut Unstructured, limit: usize) -> Result<Option<f64
 }
 
 /// Check one-shot results under `limit` (`small`) and under [`MAX_LIMIT`]
-/// (`large`) against each other.
-fn check_limits(
-    format: Format,
+/// (`large`) against each other. `format` names the decoder in the messages.
+pub(crate) fn check_limits(
+    format: impl std::fmt::Debug,
     limit: usize,
     small: &std::result::Result<Vec<u8>, ComprsError>,
     large: &std::result::Result<Vec<u8>, ComprsError>,
