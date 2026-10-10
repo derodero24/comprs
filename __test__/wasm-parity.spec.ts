@@ -434,19 +434,35 @@ const CALLS: [string, Call][] = [
   ],
   // Both read the options of the stream contexts by hand, and reject the
   // same values with the same messages. What transform() returns for a whole
-  // frame tells the mode that they select.
-  ...[undefined, null, {}, { incremental: true }, true, 'x', { incremental: 1 }].map(
-    (options): [string, Call] => [
-      `new Lz4DecompressContext(undefined, ${JSON.stringify(options)})`,
-      (api) => {
-        const context: StreamContext = Reflect.construct(api.Lz4DecompressContext, [
-          undefined,
-          options,
-        ]);
-        return [context.transform(fixtures.lz4), context.finish()];
-      },
-    ],
-  ),
+  // frame tells the mode that they select. A function is an object, but
+  // not to typeof: both reject it, even one with an incremental property.
+  ...(
+    [
+      ['undefined', undefined],
+      ['null', null],
+      ['{}', {}],
+      ['{ incremental: true }', { incremental: true }],
+      ['{ incremental: false }', { incremental: false }],
+      ['true', true],
+      ["'x'", 'x'],
+      ['{ incremental: 1 }', { incremental: 1 }],
+      ["{ incremental: 'true' }", { incremental: 'true' }],
+      ['() => ({ incremental: true })', () => ({ incremental: true })],
+      [
+        'a function whose incremental property is true',
+        Object.assign(() => ({ incremental: true }), { incremental: true }),
+      ],
+    ] satisfies [string, unknown][]
+  ).map(([label, options]): [string, Call] => [
+    `new Lz4DecompressContext(undefined, ${label})`,
+    (api) => {
+      const context: StreamContext = Reflect.construct(api.Lz4DecompressContext, [
+        undefined,
+        options,
+      ]);
+      return [context.transform(fixtures.lz4), context.finish()];
+    },
+  ]),
 ];
 
 // Values that are not byte arrays, which the native addon rejects wherever it
