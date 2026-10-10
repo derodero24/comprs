@@ -15,6 +15,11 @@ libfuzzer-sys = "0.4"
 # and Cargo.lock keeps the versions of the workspace's Cargo.lock, so the
 # fuzzers build the code that comprs ships.
 comprs-core = { path = "..", features = ["zstdmt"] }
+# The LZ4 targets also decode frames that lz4_flex's frame encoder writes with
+# fuzzer-chosen settings, such as linked blocks, which comprs-core's encoder
+# does not write. The workspace's version and features, so that comprs-core's
+# lz4_flex stays the one that comprs ships.
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 
 [dev-dependencies]
 # The tests of the panic hook run comprs-core's brotli encoder outside

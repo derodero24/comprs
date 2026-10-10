@@ -4,7 +4,7 @@ use comprs_core::{ComprsError, gzip, zstd};
 use libfuzzer_sys::arbitrary::{Error, Result, Unstructured};
 
 use crate::format::Format;
-use crate::plan::{self, ChunkPlan, Damage, MAX_LIMIT};
+use crate::plan::{self, ChunkPlan, Damage, Lz4Frame, MAX_LIMIT};
 use crate::{check_heap, heap};
 
 /// Largest data that [`fuzz_decompress`] compresses: twice the largest output
@@ -17,7 +17,9 @@ const MAX_COMPRESSED_INPUT: usize = 2 * MAX_LIMIT;
 /// The data is either the rest of the input as is, or the rest of the input
 /// repeated, compressed with `format` and then damaged. Compressed data
 /// reaches deeper into the decoder than random bytes, and repeated data
-/// makes decompression bombs. Checks that:
+/// makes decompression bombs. LZ4 data may also be a frame that lz4_flex
+/// writes with fuzzer-chosen settings ([`Lz4Frame`]), such as linked blocks
+/// of up to 4 MiB. Checks that:
 ///
 /// - nothing panics, and no call outputs more than its limit. The exception
 ///   is the panics of brotli 9.0.0's dictionary encoder, which comprs-core
@@ -47,6 +49,7 @@ pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
             plan::level(&mut u, format)?,
             plan::repeat_count(&mut u)?,
             Damage::arbitrary(&mut u)?,
+            Lz4Frame::arbitrary(&mut u, format)?,
         ))
     } else {
         None
@@ -55,7 +58,12 @@ pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
 
     let data = match compress {
         None => rest.to_vec(),
-        Some((level, repeat, damage)) => {
+        Some((_, repeat, damage, Some(frame))) => {
+            let mut data = frame.compress(&plan::repeat(rest, repeat, MAX_COMPRESSED_INPUT));
+            damage.apply(&mut data);
+            data
+        }
+        Some((level, repeat, damage, None)) => {
             let original = plan::repeat(rest, repeat, MAX_COMPRESSED_INPUT);
             let level = plan::affordable_level(format, level, original.len(), false);
             let mut data = match format.compress(&original, dict, level) {
