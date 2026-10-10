@@ -1002,8 +1002,8 @@ export declare function zstdDecompressWithCapacity(data: Buffer | Uint8Array, ca
  * a large `capacity` reserves no memory up front. `capacity` also bounds the
  * window that a frame makes the decoder allocate before it writes any
  * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
- * most zstd's default of 128 MiB, so a frame that declares a larger window
- * throws an error instead.
+ * most zstd's default of 128 MiB, so for a frame that declares a larger
+ * window the promise rejects with an error instead.
  */
 export declare function zstdDecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 
@@ -1047,8 +1047,8 @@ export declare function zstdDecompressWithDictWithCapacity(data: Buffer | Uint8A
  * a large `capacity` reserves no memory up front. `capacity` also bounds the
  * window that a frame makes the decoder allocate before it writes any
  * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
- * most zstd's default of 128 MiB, so a frame that declares a larger window
- * throws an error instead.
+ * most zstd's default of 128 MiB, so for a frame that declares a larger
+ * window the promise rejects with an error instead.
  * The same dictionary used for compression must be provided.
  */
 export declare function zstdDecompressWithDictWithCapacityAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Promise<Buffer>

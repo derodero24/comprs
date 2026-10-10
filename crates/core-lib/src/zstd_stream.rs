@@ -29,6 +29,11 @@ const MEMORY_ALLOCATION: zstd_safe::ErrorCode =
 const WINDOW_TOO_LARGE: zstd_safe::ErrorCode =
     0usize.wrapping_sub(ZSTD_ErrorCode::ZSTD_error_frameParameter_windowTooLarge as usize);
 
+/// The context of the [`ComprsError::SizeLimit`] for a frame whose window
+/// exceeds the bound that the output limit lowered: "zstd frame window
+/// exceeded maximum size of `<limit>` bytes".
+const WINDOW_LIMIT_CONTEXT: &str = "zstd frame window";
+
 /// The error for a code that a zstd decoder returned:
 /// [`ComprsError::Operation`] for `ZSTD_error_memory_allocation`, which
 /// zstd returns when its malloc fails, as for any other failed allocation,
@@ -203,14 +208,35 @@ impl DecompressContext {
     /// Create a context whose output may not exceed `max_output_size`
     /// bytes, [`crate::MAX_DECOMPRESSED_SIZE`] by default.
     ///
-    /// The limit also bounds the window of each frame, which the decoder
-    /// allocates as soon as it has read the frame header: to the limit
-    /// rounded up to a power of two, but at least 8 MiB, which the frames
-    /// that comprs compresses at levels up to 19 fit in, and at most zstd's
-    /// default of 128 MiB. A frame that declares a larger window fails with
-    /// [`ComprsError::SizeLimit`] before the decoder allocates it. Under a
-    /// limit of more than 64 MiB, which keeps zstd's default bound, it fails
-    /// with [`ComprsError::Corrupt`] instead, since no limit decodes it.
+    /// As soon as it has read a frame header, before it writes any output,
+    /// the decoder allocates a buffer for the window that the header
+    /// declares, or for the content size if that is smaller. The window of
+    /// a single-segment frame is its content size, so the header of such a
+    /// frame can make the decoder allocate up to 128 MiB, as the header of a
+    /// frame without a content size can.
+    ///
+    /// The limit therefore also bounds the window: to the limit rounded up
+    /// to a power of two, but at least 8 MiB, which the frames that comprs
+    /// compresses at levels up to 19 fit in, and at most zstd's default of
+    /// 128 MiB. A frame whose window exceeds the bound fails before the
+    /// decoder allocates it:
+    ///
+    /// - under a limit of 64 MiB or less, which lowers the bound, with
+    ///   [`ComprsError::SizeLimit`] and the context "zstd frame window",
+    ///   whatever the window: a larger limit decodes a frame whose window is
+    ///   at most 128 MiB, while one whose window is larger fails under any
+    ///   limit;
+    /// - under a larger limit, which keeps zstd's bound, only a window over
+    ///   128 MiB exceeds it, and the frame fails with
+    ///   [`ComprsError::Corrupt`]: "Frame requires too much memory for
+    ///   decoding".
+    ///
+    /// The context checks the window of a frame that declares its content
+    /// size too, but zstd skips the check when a call holds the whole frame
+    /// and has room for its content, and decodes the frame in one pass.
+    /// zstd itself never writes a frame whose window exceeds its content
+    /// size; if such a frame's window also exceeds the bound, whether it
+    /// decodes or fails therefore depends on how the input is chunked.
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         let decoder = decoder(&[], max_size).map_err(|code| ComprsError::Creation {
@@ -512,7 +538,8 @@ impl StreamEncoder {
 /// `context`, which also prefixes decoder errors. `decoder` must have the
 /// window bound of `max_output_size` (see [`limit_window`]): a frame whose
 /// window exceeds a bound that the limit lowered fails with
-/// [`ComprsError::SizeLimit`] as well.
+/// [`ComprsError::SizeLimit`] as well, with the context
+/// [`WINDOW_LIMIT_CONTEXT`].
 pub(crate) fn decompress_all(
     decoder: &mut DCtx<'_>,
     input: &[u8],
@@ -537,7 +564,8 @@ struct StreamDecoder<D = DCtx<'static>> {
     output_buf: Vec<u8>,
     total_output: usize,
     max_output_size: usize,
-    /// Context reported in [`ComprsError::SizeLimit`].
+    /// Context reported in [`ComprsError::SizeLimit`] for output over the
+    /// limit.
     limit_context: &'static str,
     /// Whether the input so far ends with a complete frame, i.e. the last
     /// decoder call that made progress returned 0.
@@ -603,13 +631,19 @@ impl<'a, D: BorrowMut<DCtx<'a>>> StreamDecoder<D> {
             let hint = decoder
                 .decompress_stream(&mut out_buf, &mut in_buf)
                 .map_err(|code| {
-                    // A frame whose window exceeds a bound that the limit
-                    // lowered is valid data, which a larger limit decodes.
+                    // Under a bound that the limit lowered, a frame whose
+                    // window exceeds it fails as exceeding the limit: if
+                    // its window is at most zstd's default bound of 128 MiB,
+                    // a larger limit decodes it. The code does not give the
+                    // window, so a window over 128 MiB, which no limit
+                    // decodes, fails the same way. Under a limit that keeps
+                    // zstd's bound, only such windows exceed it, and they
+                    // fail as corrupt data.
                     if code == WINDOW_TOO_LARGE
                         && window_log_max(self.max_output_size) < MAX_WINDOW_LOG
                     {
                         ComprsError::SizeLimit {
-                            context: self.limit_context,
+                            context: WINDOW_LIMIT_CONTEXT,
                             limit: self.max_output_size,
                         }
                     } else {
@@ -1304,6 +1338,13 @@ mod tests {
         ]
     }
 
+    /// The header of a single-segment frame that declares a content size of
+    /// 128 MiB, which is also its window. A streaming decoder sizes its
+    /// buffer as the smaller of the content size and the window plus two
+    /// blocks, so this header reserves 128 MiB as that of [`LARGE_WINDOW`]
+    /// does.
+    const LARGE_CONTENT_SIZE_HEADER: [u8; 9] = [0x28, 0xB5, 0x2F, 0xFD, 0xA0, 0, 0, 0, 0x08];
+
     #[test]
     fn decompress_contexts_bound_the_window_by_the_limit() {
         const CONTEXT: &str = "zstd stream decompress";
@@ -1316,26 +1357,39 @@ mod tests {
             assert_eq!(ctx.decompress(&LARGE_WINDOW[6..], CONTEXT).unwrap(), b"A");
             assert_eq!(ctx.finish().unwrap(), b"", "{name}");
         }
-        for (name, mut ctx) in decompress_contexts(Some(1024.0)) {
-            let err = ctx.decompress(header, CONTEXT).unwrap_err();
-            assert!(
-                matches!(err, ComprsError::SizeLimit { limit: 1024, .. }),
-                "{name}: {err:?}"
-            );
-            assert_eq!(
-                err.to_string(),
-                "zstd stream decompress exceeded maximum size of 1024 bytes"
-            );
-            assert!(
-                ctx.memory_usage() < MIB,
-                "{name}: {} bytes",
-                ctx.memory_usage()
-            );
+        for (name, mut ctx) in decompress_contexts(None) {
+            let header = &LARGE_CONTENT_SIZE_HEADER;
+            assert!(ctx.decompress(header, CONTEXT).unwrap().is_empty());
+            assert!(ctx.memory_usage() > 128 * MIB, "{name}");
+        }
+        for header in [header, &LARGE_CONTENT_SIZE_HEADER] {
+            for (name, mut ctx) in decompress_contexts(Some(1024.0)) {
+                let err = ctx.decompress(header, CONTEXT).unwrap_err();
+                assert!(
+                    matches!(err, ComprsError::SizeLimit { limit: 1024, .. }),
+                    "{name}: {err:?}"
+                );
+                assert_eq!(
+                    err.to_string(),
+                    "zstd frame window exceeded maximum size of 1024 bytes"
+                );
+                assert!(
+                    ctx.memory_usage() < MIB,
+                    "{name}: {} bytes",
+                    ctx.memory_usage()
+                );
+            }
         }
         for (name, mut ctx) in decompress_contexts(Some(1024.0)) {
             let err = ctx.decompress(&LARGE_WINDOW, CONTEXT).unwrap_err();
             assert!(
-                matches!(err, ComprsError::SizeLimit { limit: 1024, .. }),
+                matches!(
+                    err,
+                    ComprsError::SizeLimit {
+                        context: "zstd frame window",
+                        limit: 1024
+                    }
+                ),
                 "{name}: {err:?}"
             );
         }
@@ -1377,7 +1431,16 @@ mod tests {
         for limit in [data.len() + 1, 16 * MIB] {
             for result in decompress(&frame, limit) {
                 let err = result.unwrap_err();
-                assert!(matches!(err, ComprsError::SizeLimit { .. }), "{err:?}");
+                assert!(
+                    matches!(
+                        err,
+                        ComprsError::SizeLimit {
+                            context: "zstd frame window",
+                            ..
+                        }
+                    ),
+                    "{err:?}"
+                );
             }
         }
         for output in decompress(&frame, 16 * MIB + 1) {

@@ -569,6 +569,59 @@ fn max_output_size_bounds_the_output() {
 }
 
 #[test]
+fn max_output_size_bounds_the_zstd_window() {
+    // A zstd frame without a content size whose window descriptor, 0x88,
+    // declares a window of 128 MiB, then a raw block that holds "A".
+    const FRAME: [u8; 10] = [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x88, 0x09, 0x00, 0x00, 0x41];
+    let raw = DictionaryRef::Raw(DICT);
+    let prepared = DictionaryRef::Prepared(&ZSTD_DICT);
+    let ways = [
+        (None, None),
+        (Some(Format::Zstd), None),
+        (Some(Format::Zstd), Some(raw)),
+        (Some(Format::Zstd), Some(prepared)),
+        // A prepared dictionary sets the format.
+        (None, Some(prepared)),
+    ];
+    for (format, dictionary) in ways {
+        let case = format!("{format:?} with {dictionary:?}");
+        let options = |max_output_size| DecompressOptions {
+            format,
+            max_output_size,
+            dictionary,
+        };
+        // The default limit keeps zstd's bound of 128 MiB.
+        assert_eq!(
+            unified::decompress(&FRAME, &options(None)).unwrap(),
+            b"A",
+            "{case}"
+        );
+        for chunk_size in [1, FRAME.len()] {
+            let output = stream_decompress(&FRAME, &options(None), chunk_size).unwrap();
+            assert_eq!(output, b"A", "{case}");
+        }
+        // A limit of 1024 bytes lowers it to 8 MiB.
+        let small = options(Some(1024.0));
+        for result in [
+            unified::decompress(&FRAME, &small),
+            stream_decompress(&FRAME, &small, 1),
+            stream_decompress(&FRAME, &small, FRAME.len()),
+        ] {
+            assert!(
+                matches!(
+                    result,
+                    Err(ComprsError::SizeLimit {
+                        context: "zstd frame window",
+                        limit: 1024
+                    })
+                ),
+                "{case}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn zstd_dictionaries_give_the_output_of_the_per_format_functions() {
     let input = text(20_000);
     for level in [None, Some(1.0), Some(19.0)] {

@@ -46,8 +46,9 @@ pub enum ComprsError {
     #[error("{0}")]
     UnknownFormat(String),
 
-    /// Decompressed output exceeded maximum size, or a zstd frame declares
-    /// a window larger than that size allows (see
+    /// Decompressed output exceeded maximum size, or, under a maximum size
+    /// of 64 MiB or less, a zstd frame declares a window larger than that
+    /// size allows, which the context "zstd frame window" reports (see
     /// [`crate::zstd_stream::DecompressContext::new`]).
     #[error("{context} exceeded maximum size of {limit} bytes")]
     SizeLimit { context: &'static str, limit: usize },
@@ -84,7 +85,8 @@ pub enum ComprsError {
 ///   format. A few decoders report a cut stream as
 ///   `ERR_COMPRS_CORRUPT_DATA` instead; see below.
 /// - `ERR_COMPRS_SIZE_LIMIT`: the output would exceed the output limit, or
-///   a zstd frame declares a window larger than the output limit allows.
+///   a zstd frame declares a window larger than an output limit of 64 MiB
+///   or less allows.
 /// - `ERR_COMPRS_STREAM_FINISHED`: a stream context was used after
 ///   `finish()`.
 /// - `ERR_COMPRS_STREAM_CLOSED`: a stream context was used after `close()`.
