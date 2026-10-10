@@ -828,6 +828,11 @@ const FLUSHED_STREAMS: [
     () => [[], compressAndFlush(new native.ZstdCompressDictContext(dict), message)],
   ],
   [
+    'GzipDecompressContext',
+    (api) => new api.GzipDecompressContext(),
+    () => [[], compressAndFlush(new native.GzipCompressContext(), message)],
+  ],
+  [
     'DeflateDecompressContext',
     (api) => new api.DeflateDecompressContext(),
     () => [[], compressAndFlush(new native.DeflateCompressContext(), message)],

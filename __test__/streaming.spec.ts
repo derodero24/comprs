@@ -11,6 +11,7 @@ import {
   DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
   Lz4CompressContext,
@@ -429,6 +430,7 @@ describe('decompression streams', () => {
   // input or the end of the input (#704).
   it.each<[string, () => TransformStream<Uint8Array, Uint8Array>, () => FlushingContext]>([
     ['createZstdDecompressStream()', createZstdDecompressStream, () => new ZstdCompressContext()],
+    ['createGzipDecompressStream()', createGzipDecompressStream, () => new GzipCompressContext()],
     [
       'createDeflateDecompressStream()',
       createDeflateDecompressStream,
@@ -441,6 +443,7 @@ describe('decompression streams', () => {
     ],
     ['createLz4DecompressStream()', createLz4DecompressStream, () => new Lz4CompressContext()],
     ['createDecompressStream() for zstd', createDecompressStream, () => new ZstdCompressContext()],
+    ['createDecompressStream() for gzip', createDecompressStream, () => new GzipCompressContext()],
     [
       'createDecompressStream() for brotli',
       createDecompressStream,

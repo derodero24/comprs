@@ -17,6 +17,7 @@ import {
   DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
   Lz4CompressContext,
@@ -556,6 +557,11 @@ describe('decompression transforms', () => {
       () => new ZstdCompressContext(),
     ],
     [
+      'createGzipDecompressTransform()',
+      createGzipDecompressTransform,
+      () => new GzipCompressContext(),
+    ],
+    [
       'createDeflateDecompressTransform()',
       createDeflateDecompressTransform,
       () => new DeflateCompressContext(),
@@ -574,6 +580,11 @@ describe('decompression transforms', () => {
       'createDecompressTransform() for zstd',
       createDecompressTransform,
       () => new ZstdCompressContext(),
+    ],
+    [
+      'createDecompressTransform() for gzip',
+      createDecompressTransform,
+      () => new GzipCompressContext(),
     ],
     [
       'createDecompressTransform() for brotli',

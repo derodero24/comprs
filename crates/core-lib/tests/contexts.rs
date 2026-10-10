@@ -421,6 +421,45 @@ fn flush_emits_all_input_so_far() {
     }
 }
 
+/// The `transform` that takes a chunk that ends mid-stream, where the
+/// compressor flushed, returns all the output of the input so far, and
+/// `flush` then has nothing left to return. The brotli decoder holds that
+/// output until it runs out of input, then writes it a 4 KiB buffer at a
+/// time (#704), and flate2's gzip decoder keeps the output of its last
+/// write until the next one.
+#[test]
+fn transform_returns_all_the_output_of_a_flushed_chunk() {
+    let input = text(100_000);
+    for codec in CODECS.iter().filter(|codec| codec.flush_emits_input) {
+        let mut compressor = (codec.compressor)().unwrap();
+        let mut flushed = compressor.transform(&input).unwrap();
+        flushed.extend(compressor.flush().unwrap());
+
+        let mut decompressor = (codec.decompressor)(None).unwrap();
+        let output = decompressor.transform(&flushed).unwrap();
+        assert!(
+            output == input,
+            "{}: {} of {} bytes",
+            codec.name,
+            output.len(),
+            input.len()
+        );
+        assert!(decompressor.flush().unwrap().is_empty(), "{}", codec.name);
+    }
+
+    // The buffered lz4 context decodes on `flush`, whole frames only: one
+    // `flush` returns all of them.
+    let mut decompressor = lz4_stream::DecompressContext::new(None).unwrap();
+    assert!(
+        decompressor
+            .transform(&lz4::compress(&input).unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(decompressor.flush().unwrap() == input);
+    assert!(decompressor.flush().unwrap().is_empty());
+}
+
 /// The gzip, raw deflate and zlib compression contexts, with the format
 /// that each writes.
 const FLATE_COMPRESSORS: [(&str, FlateWrapper, NewCompressor<u32>); 3] = [
