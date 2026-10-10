@@ -3,21 +3,23 @@
 /**
  * Compile the JavaScript modules of the package from their TypeScript sources
  * in src/: the stream helpers (streams.js, node.js and browser/streams.js),
- * the ES module entry (index.mjs), and the declaration files of each. npm
- * publishes the outputs, so they are tracked; CI runs this script and fails
- * if they change.
+ * the ES module entry (index.mjs), the unified API (next/), and the
+ * declaration files of each. npm publishes the outputs, so they are tracked;
+ * CI runs this script and fails if they change. next/ is tracked too, but
+ * npm publishes it only once package.json lists it.
  *
  * Each TypeScript project in PROJECTS is compiled with tsc, which TypeScript
- * 7 provides as a command only. The CommonJS outputs then lose the line that
- * marks them as compiled from ES modules (see ES_MODULE_MARKER).
+ * 7 provides as a command only. The CommonJS outputs, every file that tsc
+ * emits for a module of the project, then lose the line that marks them as
+ * compiled from ES modules (see ES_MODULE_MARKER).
  *
  * Usage:
  *   node scripts/build-js.mjs   (or pnpm run build:js)
  */
 
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { extname, join, posix, resolve } from 'node:path';
+import { extname, join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -37,11 +39,14 @@ const PROJECTS = ['tsconfig.build.json', 'tsconfig.browser.json'];
 const ES_MODULE_MARKER = 'Object.defineProperty(exports, "__esModule", { value: true });';
 
 /**
+ * The prefix of the lines in which `tsc --listEmittedFiles` names the files
+ * that it wrote.
+ */
+const EMITTED_FILE = 'TSFILE: ';
+
+/**
  * @typedef {object} Project
  * @property {string} module The `module` compiler option.
- * @property {string} rootDir
- * @property {string} outDir
- * @property {string[]} files The input files.
  */
 
 /**
@@ -71,43 +76,66 @@ function readProject(config) {
     throw new Error(`${config} is not plain JSON, which this script reads`, { cause: error });
   }
   const options = isRecord(json) ? json['compilerOptions'] : undefined;
-  const files = isRecord(json) ? json['files'] : undefined;
-  /** @param {string} name */
-  const option = (name) => {
-    const value = isRecord(options) ? options[name] : undefined;
-    if (typeof value !== 'string') {
-      throw new Error(`${config} does not set compilerOptions.${name}`);
-    }
-    return value;
-  };
-  if (!Array.isArray(files) || !files.every((file) => typeof file === 'string')) {
-    throw new Error(`${config} does not list its input files`);
+  const module = isRecord(options) ? options['module'] : undefined;
+  if (typeof module !== 'string') {
+    throw new Error(`${config} does not set compilerOptions.module`);
   }
-  return {
-    module: option('module'),
-    rootDir: option('rootDir'),
-    outDir: option('outDir'),
-    files,
-  };
+  return { module };
 }
 
 /**
- * Return the CommonJS modules that a project emits: the .js output of each
- * .ts input if the project compiles with `module` NodeNext, as package.json
- * sets `"type": "commonjs"`. The .mts inputs compile to ES modules.
+ * Compile a project with tsc, which prints its diagnostics, and return the
+ * files that it emitted.
  *
- * @param {Project} project
+ * @param {string} config Path of the tsconfig file, relative to ROOT.
  * @returns {string[]} Paths relative to ROOT.
  */
-function commonJsOutputs(project) {
+function compile(config) {
+  const args = ['node_modules/typescript/bin/tsc', '-p', config, '--listEmittedFiles'];
+  // tsc colors its diagnostics only when it writes to a terminal itself.
+  if (process.stdout.isTTY) args.push('--pretty');
+  const result = spawnSync(process.execPath, args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  if (result.error !== undefined) throw result.error;
+  /** @type {string[]} */
+  const emitted = [];
+  /** @type {string[]} */
+  const diagnostics = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (line.startsWith(EMITTED_FILE)) {
+      emitted.push(relative(ROOT, line.slice(EMITTED_FILE.length)));
+    } else {
+      diagnostics.push(line);
+    }
+  }
+  // Blank lines separate the diagnostics in the --pretty format: keep all
+  // but those at either end.
+  const output = diagnostics.join('\n').trim();
+  if (output !== '') console.log(output);
+  if (result.status !== 0) {
+    throw new Error(`tsc -p ${config} failed`);
+  }
+  return emitted;
+}
+
+/**
+ * Return the CommonJS modules among the files that a project emitted: the
+ * .js files if the project compiles with `module` NodeNext, as package.json
+ * sets `"type": "commonjs"`. The .mts inputs compile to ES modules, .mjs
+ * files.
+ *
+ * @param {Project} project
+ * @param {string[]} emitted Paths relative to ROOT.
+ * @returns {string[]} Paths relative to ROOT.
+ */
+function commonJsOutputs(project, emitted) {
   if (project.module.toLowerCase() !== 'nodenext') {
     return [];
   }
-  return project.files
-    .filter((file) => extname(file) === '.ts' && !file.endsWith('.d.ts'))
-    .map((file) =>
-      posix.join(project.outDir, posix.relative(project.rootDir, file)).replace(/\.ts$/, '.js'),
-    );
+  return emitted.filter((file) => extname(file) === '.js');
 }
 
 /**
@@ -128,11 +156,8 @@ function removeEsModuleMarker(file) {
 
 for (const config of PROJECTS) {
   console.log(`tsc -p ${config}`);
-  execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', config], {
-    cwd: ROOT,
-    stdio: 'inherit',
-  });
-  for (const file of commonJsOutputs(readProject(config))) {
+  const emitted = compile(config);
+  for (const file of commonJsOutputs(readProject(config), emitted)) {
     removeEsModuleMarker(file);
   }
 }

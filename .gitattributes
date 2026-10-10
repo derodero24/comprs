@@ -1,8 +1,9 @@
 # Compiled from the TypeScript sources in src/ by `pnpm run build:js`
-# (scripts/build-js.mjs), and tracked, as npm publishes them. GitHub
-# collapses them in diffs and leaves them out of the language statistics.
-# The last patterns cover the outputs of sources still to be added
-# (stream-schedule and next/), as do the negations in biome.json.
+# (scripts/build-js.mjs), and tracked, as npm publishes them (next/ once
+# package.json lists it). GitHub collapses them in diffs and leaves them
+# out of the language statistics. The stream-schedule and /browser/next/
+# patterns cover the outputs of sources still to be added, as do the
+# negations in biome.json.
 /streams.js linguist-generated
 /streams.d.ts linguist-generated
 /node.js linguist-generated

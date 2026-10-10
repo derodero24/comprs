@@ -24,4 +24,5 @@ flags:
     paths:
       - streams.js
       - node.js
+      - next/
     carryforward: true

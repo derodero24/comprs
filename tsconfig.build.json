@@ -12,5 +12,11 @@
     "rootDirs": ["src", "."]
   },
   "include": [],
-  "files": ["src/streams.ts", "src/node.ts", "src/index.mts"]
+  "files": [
+    "src/streams.ts",
+    "src/node.ts",
+    "src/index.mts",
+    "src/next/index.ts",
+    "src/next/index.mts"
+  ]
 }
