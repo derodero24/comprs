@@ -1,6 +1,15 @@
 ---
-'@derodero24/comprs-middleware': patch
+'@derodero24/comprs-middleware': minor
 ---
+
+Streamed responses of the Express and Fastify adapters now reach the client
+whenever the handler stops writing, as with the Hono middleware, instead of
+only once the encoder's buffer filled or the response ended, so a streamed
+page, a token stream or a response that never ends flows as it is written.
+Writes that come together are still compressed together. The Express
+adapter adds `res.flush()`, as `compression` does, which sends the output
+so far right away; React's `renderToPipeableStream` calls it. Importing the
+adapter adds `flush()` to the type of Express's `Response`.
 
 A streamed response that is aborted or fails now releases the native state
 of its encoder right away in every adapter, instead of when the garbage

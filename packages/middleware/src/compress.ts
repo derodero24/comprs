@@ -82,18 +82,37 @@ export function createEncoder(encoding: Encoding, level?: LevelOptions): Encoder
   }
 }
 
+/** A Node.js Transform that compresses a response body. */
+export interface CompressTransform extends Transform {
+  /**
+   * Send what was written so far right away, in a form the client can
+   * decode, like the `flush()` of the `node:zlib` streams that `compression`
+   * uses. Does nothing when nothing was written since the last flush, or
+   * once the stream has ended.
+   */
+  flush(): void;
+}
+
 /**
- * A Node.js Transform that compresses with an encoder. Destroying the stream,
- * which happens when it ends, fails or is destroyed early, closes the
- * encoder, so that an aborted response releases its native state right away
- * instead of when the garbage collector gets to it.
+ * A Node.js Transform that compresses with an encoder. Like the Hono
+ * adapter, it flushes the encoder whenever its input has no chunk ready, so
+ * that a body written slowly, or never ended, reaches the client as it is
+ * written, while chunks written together are compressed together.
+ *
+ * Destroying the stream, which happens when it ends, fails or is destroyed
+ * early, closes the encoder, so that an aborted response releases its native
+ * state right away instead of when the garbage collector gets to it.
  *
  * Each result is pushed as one chunk: compressed output is no larger than
  * about the input that produced it, so it needs no slicing, unlike the
  * output of decompression.
  */
-class EncoderTransform extends Transform {
+class EncoderTransform extends Transform implements CompressTransform {
   readonly #encoder: Encoder;
+  /** Whether the encoder holds input that was not flushed. */
+  #unflushed = false;
+  /** The pending check for whether the input has paused. */
+  #idleCheck: NodeJS.Immediate | undefined;
 
   constructor(encoder: Encoder) {
     super();
@@ -105,16 +124,49 @@ class EncoderTransform extends Transform {
     if (output.byteLength > 0) this.push(output);
   }
 
+  /**
+   * Check whether the input has paused once the event loop has run the work
+   * that is ready now, so that the writes made in the meantime are flushed
+   * together.
+   */
+  #scheduleIdleCheck(): void {
+    if (this.#unflushed) this.#idleCheck ??= setImmediate(() => this.#checkIdle());
+  }
+
+  /** Flush the encoder unless more input is waiting. */
+  #checkIdle(): void {
+    this.#idleCheck = undefined;
+    // Input that is still waiting schedules another check: a queued chunk
+    // when it is transformed, and a write held back until the output is read
+    // when a read lets it through.
+    if (this.writableLength === 0) this.flush();
+  }
+
+  #cancelIdleCheck(): void {
+    clearImmediate(this.#idleCheck);
+    this.#idleCheck = undefined;
+  }
+
   override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
     try {
       this.#push(this.#encoder.transform(chunk));
+      this.#unflushed = true;
+      this.#scheduleIdleCheck();
       callback();
     } catch (err) {
       callback(toError(err));
     }
   }
 
+  override _read(size: number): void {
+    // A write held back until its output was read completes here, and no
+    // other write may follow it, so check whether the input has paused.
+    super._read(size);
+    this.#scheduleIdleCheck();
+  }
+
   override _flush(callback: TransformCallback): void {
+    this.#cancelIdleCheck();
     try {
       this.#push(this.#encoder.finish());
       callback();
@@ -124,15 +176,30 @@ class EncoderTransform extends Transform {
   }
 
   override _destroy(err: Error | null, callback: (error?: Error | null) => void): void {
+    this.#cancelIdleCheck();
     this.#encoder.close();
     callback(err);
+  }
+
+  flush(): void {
+    // Flushing an encoder without new input would still emit an empty block.
+    if (!this.#unflushed || this.writableEnded || this.destroyed) return;
+    this.#unflushed = false;
+    try {
+      this.#push(this.#encoder.flush());
+    } catch (err) {
+      this.destroy(toError(err));
+    }
   }
 }
 
 /**
  * Create a Node.js Transform stream for the given encoding.
  */
-export function createCompressTransform(encoding: Encoding, level?: LevelOptions): Transform {
+export function createCompressTransform(
+  encoding: Encoding,
+  level?: LevelOptions,
+): CompressTransform {
   return new EncoderTransform(createEncoder(encoding, level));
 }
 

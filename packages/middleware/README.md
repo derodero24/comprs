@@ -170,13 +170,16 @@ A compressed response keeps the behavior of a plain `ServerResponse`:
 - `res.write()` returns `false` while the client reads more slowly than the handler writes, and `'drain'` follows, so `stream.pipe(res)` pauses instead of buffering the body.
 - Writes after `res.end()` fail with `ERR_STREAM_WRITE_AFTER_END`, and callbacks passed to `res.end()` run once the response has finished.
 - A compression error aborts the response, and the compressor is released when the response closes, including when the client disconnects.
+- Whenever the handler stops writing, the client receives what it has written so far, so a response that never ends still flows. Writes that come together are compressed together.
+
+The adapter also adds `res.flush()`, as [`compression`](https://github.com/expressjs/compression) does: it sends the compressed output of what was written so far right away, without waiting for the handler to stop writing. React's `renderToPipeableStream` calls it when the destination has it. It does nothing when the response is not compressed or has ended. Importing the adapter adds `flush()` to the type of Express's `Response`.
 
 ### Fastify
 
 The Fastify plugin compresses every payload type Fastify sends:
 
 - A `string`, `Buffer` or `Uint8Array` is compressed in one call that runs on the libuv thread pool, so the event loop is not held up, and is sent with the `Content-Length` of the compressed body. If compression fails, the payload is sent uncompressed and a warning is logged.
-- A Node.js stream, a Web `ReadableStream`, or the body of a `Response` is compressed while it is sent. Its size is unknown, so the threshold only applies when the reply declares a `Content-Length`. The status and headers of a `Response` are applied to the reply first, as Fastify does, so the built-in checks and the filters see them.
+- A Node.js stream, a Web `ReadableStream`, or the body of a `Response` is compressed while it is sent. Whenever the stream stops producing data, the client receives what it has produced so far, so a stream that never ends still flows. Its size is unknown, so the threshold only applies when the reply declares a `Content-Length`. The status and headers of a `Response` are applied to the reply first, as Fastify does, so the built-in checks and the filters see them.
 
 Set `config: { compress: false }` on a route to leave its replies alone: they are neither compressed nor given `Vary`. The `compress` field is added to Fastify's route config type when the plugin is imported.
 

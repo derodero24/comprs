@@ -6,7 +6,7 @@ import type {
 } from 'node:http';
 import type { Transform } from 'node:stream';
 
-import { createCompressTransform } from './compress.js';
+import { type CompressTransform, createCompressTransform } from './compress.js';
 import { negotiate } from './negotiate.js';
 import { resolveOptions } from './options.js';
 import {
@@ -19,6 +19,20 @@ import {
   weakenEtag,
 } from './shared.js';
 import type { ComprsOptions, Encoding } from './types.js';
+
+declare global {
+  // biome-ignore lint/style/noNamespace: augments the Express Response type, as @types/compression does
+  namespace Express {
+    interface Response {
+      /**
+       * Send the compressed output of what was written so far right away,
+       * as with `compression`. Does nothing when the response is not
+       * compressed or has ended.
+       */
+      flush(): void;
+    }
+  }
+}
 
 type Chunk = string | Uint8Array;
 type WriteCallback = (error: Error | null | undefined) => void;
@@ -178,7 +192,7 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
   let decided = false;
   /** Body size, when `end()` emits the headers and so knows the whole body. */
   let bodyLength: number | undefined;
-  let compressor: Transform | undefined;
+  let compressor: CompressTransform | undefined;
 
   const writeRaw = (
     chunk: Chunk,
@@ -224,7 +238,7 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
   }
 
   /** Start compressing if the response qualifies; called before headers go out. */
-  function startCompression(): Transform | undefined {
+  function startCompression(): CompressTransform | undefined {
     const header = (name: string): string | undefined => headerValue(res.getHeader(name));
     const filter = (): boolean => !settings.filter || settings.filter(req, res);
     if (!isCandidate(header, filter)) return undefined;
@@ -343,6 +357,15 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
     endStream(compressor, args);
     return res;
   };
+
+  // Like `compression`, let the handler send the output so far without
+  // waiting for it to stop writing; React's renderToPipeableStream calls
+  // res.flush() when there is one.
+  Object.assign(res, {
+    flush(): void {
+      if (compressor && !compressor.writableEnded) compressor.flush();
+    },
+  });
 }
 
 /**
@@ -351,7 +374,10 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
  * The decision to compress is made when the response headers are emitted, so
  * handlers may call `res.writeHead()` or `res.flushHeaders()` before writing
  * the body. `res.write()` reports backpressure from the client as usual, so
- * `stream.pipe(res)` pauses while the client is slow.
+ * `stream.pipe(res)` pauses while the client is slow. Whenever the handler
+ * stops writing, the client receives what it has written so far, so a
+ * response that never ends still flows; `res.flush()` sends it right away,
+ * as with `compression`.
  *
  * @throws {TypeError | RangeError} When an option is invalid.
  *

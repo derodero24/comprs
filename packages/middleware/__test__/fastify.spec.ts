@@ -1,5 +1,6 @@
-import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
-import { Readable } from 'node:stream';
+import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from 'node:http';
+import { PassThrough, Readable } from 'node:stream';
+import { constants, gunzipSync } from 'node:zlib';
 import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/comprs';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import Fastify from 'fastify';
@@ -28,6 +29,47 @@ function rawGet(
     });
     req.on('error', reject);
     req.end();
+  });
+}
+
+/** Send a GET request; resolves with the response before its body is read. */
+function open(baseUrl: string, path: string, acceptEncoding: string): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, baseUrl);
+    const req = httpRequest(url, { headers: { 'Accept-Encoding': acceptEncoding } }, resolve);
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Settle like `promise`, or reject if it takes longer than `ms`. */
+async function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`no result within ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Read a gzip response until its decoded body contains `expected`, without
+ * waiting for its end; returns the decoded text.
+ */
+function readUntil(res: IncomingMessage, expected: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+      const data = Buffer.concat(chunks);
+      const text = gunzipSync(data, { finishFlush: constants.Z_SYNC_FLUSH }).toString();
+      if (text.includes(expected)) resolve(text);
+    });
+    res.on('end', () => reject(new Error(`the body ended before ${JSON.stringify(expected)}`)));
+    res.on('error', reject);
   });
 }
 
@@ -112,6 +154,15 @@ beforeAll(async () => {
   app.get('/small-node-stream', async (_request, reply) => {
     reply.type('text/plain').header('Content-Length', 4);
     return Readable.from(['tiny']);
+  });
+
+  app.get('/endless-stream', async (_request, reply) => {
+    reply.type('text/plain');
+    const stream = new PassThrough();
+    let i = 0;
+    const timer = setInterval(() => stream.write(`tick ${i++}\n`), 10);
+    reply.raw.on('close', () => clearInterval(timer));
+    return stream;
   });
 
   app.get('/web-stream', async (_request, reply) => {
@@ -264,6 +315,18 @@ describe('comprs fastify plugin', () => {
       expect(res.headers['content-encoding']).toBe('gzip');
       expect(res.headers['content-length']).toBeUndefined();
       expect(gzipDecompress(res.body).toString()).toBe(TEST_BODY);
+    });
+
+    it('should send each chunk of an endless stream payload as it happens', async () => {
+      const res = await open(baseUrl, '/endless-stream', 'gzip');
+      try {
+        expect(res.headers['content-encoding']).toBe('gzip');
+        // Ticks are written 10 ms apart, so they arrive in separate flushes.
+        expect(await within(readUntil(res, 'tick 2\n'))).toBe('tick 0\ntick 1\ntick 2\n');
+      } finally {
+        // The response never ends, and would keep app.close() waiting.
+        res.destroy();
+      }
     });
 
     it('should apply the threshold to a stream with a declared Content-Length', async () => {

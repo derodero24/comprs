@@ -13,11 +13,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, type Transform, type TransformCallback } from 'node:stream';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { setImmediate as nextTurn, setTimeout as sleep } from 'node:timers/promises';
+import { constants, gunzipSync } from 'node:zlib';
 import { DeflateCompressContext, GzipCompressContext, gzipDecompress } from '@derodero24/comprs';
 import express, { type Request, type Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { CompressTransform } from '../src/compress.js';
 import { comprs } from '../src/express.js';
 import type { ComprsOptions } from '../src/types.js';
 
@@ -34,7 +36,7 @@ vi.mock('../src/compress.js', async (importOriginal) => {
   return {
     createCompressTransform: (
       ...args: Parameters<typeof actual.createCompressTransform>
-    ): Transform => {
+    ): CompressTransform => {
       const stream = actual.createCompressTransform(...args);
       compressors.created.push(stream);
       if (compressors.failAfterFirstChunk) {
@@ -151,6 +153,37 @@ function decode(res: RawResponse): string {
   return res.headers['content-encoding'] === 'gzip'
     ? gzipDecompress(res.body).toString()
     : res.body.toString();
+}
+
+/** Settle like `promise`, or reject if it takes longer than `ms`. */
+async function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`no result within ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Read a gzip response until its decoded body contains `expected`, without
+ * waiting for its end; returns the decoded text.
+ */
+function readUntil(res: IncomingMessage, expected: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+      const data = Buffer.concat(chunks);
+      const text = gunzipSync(data, { finishFlush: constants.Z_SYNC_FLUSH }).toString();
+      if (text.includes(expected)) resolve(text);
+    });
+    res.on('end', () => reject(new Error(`the body ended before ${JSON.stringify(expected)}`)));
+    res.on('error', reject);
+  });
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -464,6 +497,78 @@ describe('express adapter: ServerResponse semantics', () => {
     const res = await get(target);
     expect(res.headers['content-encoding']).toBe('gzip');
     expect(await seen.promise).toContain('finish');
+  });
+});
+
+describe('express adapter: flushing', () => {
+  it('sends each write of an endless response as it happens', async () => {
+    const target = await serve((_req, res) => {
+      res.type('text/plain');
+      let i = 0;
+      const timer = setInterval(() => res.write(`tick ${i++}\n`), 10);
+      res.on('close', () => clearInterval(timer));
+    });
+    const res = await open(target);
+    expect(res.headers['content-encoding']).toBe('gzip');
+    // Ticks are written 10 ms apart, so they arrive in separate flushes.
+    expect(await within(readUntil(res, 'tick 2\n'))).toBe('tick 0\ntick 1\ntick 2\n');
+    res.destroy();
+  });
+
+  it('res.flush() sends what was written so far', async () => {
+    const flushed = deferred<boolean>();
+    const target = await serve(async (_req, res) => {
+      res.type('text/plain');
+      res.flushHeaders();
+      // Let the compressed output start flowing to the response.
+      await nextTurn();
+      const compressor = compressors.created[0];
+      if (!compressor) throw new Error('expected a compressor');
+      res.write('first\n');
+      let output = 0;
+      compressor.on('data', (chunk: Buffer) => {
+        output += chunk.byteLength;
+      });
+      res.flush();
+      // The response stays open.
+      flushed.resolve(output > 0);
+    });
+    const res = await open(target);
+    expect(res.headers['content-encoding']).toBe('gzip');
+    expect(await within(flushed.promise)).toBe(true);
+    expect(await within(readUntil(res, 'first\n'))).toBe('first\n');
+    res.destroy();
+  });
+
+  it('res.flush() does nothing on an uncompressed response', async () => {
+    const target = await serve((_req, res) => {
+      res.type('text/plain');
+      res.write('first\n');
+      res.flush();
+      res.end('second\n');
+    });
+    const res = await get(target, { 'Accept-Encoding': 'identity' });
+    expect(res.headers['content-encoding']).toBeUndefined();
+    expect(res.body.toString()).toBe('first\nsecond\n');
+  });
+
+  it('res.flush() does nothing once the response has ended', async () => {
+    const flushed = deferred<void>();
+    const target = await serve((_req, res) => {
+      res.type('text/plain');
+      res.end(BODY);
+      // While the compressor finishes, and once the response has finished.
+      res.flush();
+      res.on('finish', () => {
+        res.flush();
+        flushed.resolve();
+      });
+    });
+    const res = await get(target);
+    expect(res.headers['content-encoding']).toBe('gzip');
+    expect(res.complete).toBe(true);
+    expect(decode(res)).toBe(BODY);
+    await within(flushed.promise);
   });
 });
 
