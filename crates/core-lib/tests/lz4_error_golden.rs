@@ -344,6 +344,43 @@ fn lz4_decoders_keep_their_errors() {
     );
 }
 
+/// The result of an incremental context fed `input` in chunks of
+/// `chunk_size` bytes, then flushed and finished: the output length, or the
+/// first error of any call.
+fn incremental(input: &[u8], chunk_size: usize) -> String {
+    let mut ctx = lz4_stream::DecompressContext::incremental(None).unwrap();
+    let mut len = 0;
+    for chunk in input.chunks(chunk_size) {
+        match ctx.transform(chunk) {
+            Ok(output) => len += output.len(),
+            Err(error) => return describe(&error),
+        }
+    }
+    assert!(ctx.flush().unwrap().is_empty());
+    match ctx.finish() {
+        Ok(output) => format!("Ok: {} bytes", len + output.len()),
+        Err(error) => describe(&error),
+    }
+}
+
+#[test]
+fn incremental_context_gives_the_results_of_the_buffered_one() {
+    // The same output or error as the buffered context's finish(), however
+    // the input is split, on the call that meets the error.
+    for (name, input) in corpus() {
+        let mut buffered = lz4_stream::DecompressContext::new(None).unwrap();
+        assert!(buffered.transform(&input).unwrap().is_empty());
+        let expected = outcome(buffered.finish());
+        for chunk_size in [1, 7, input.len().max(1)] {
+            assert_eq!(
+                incremental(&input, chunk_size),
+                expected,
+                "{name} in chunks of {chunk_size} bytes"
+            );
+        }
+    }
+}
+
 /// The expected results, one line for each case and decoder.
 const GOLDEN: &str = "\
 empty | decompress | Truncated: lz4 stream is truncated: unexpected end of input

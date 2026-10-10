@@ -4,7 +4,7 @@
 // Node.js types, and its dependencies' declarations are type-checked
 // (skipLibCheck: false). scripts/check-consumer-types.mjs installs the packed
 // package next to it and runs tsc.
-import type { GzipHeader } from '@derodero24/comprs';
+import type { GzipHeader, StreamContextOptions } from '@derodero24/comprs';
 import {
   CompressionFormat,
   detectFormat,
@@ -12,6 +12,7 @@ import {
   gzipCompress,
   gzipCompressAsync,
   gzipReadHeader,
+  Lz4DecompressContext,
   zstdCompress,
 } from '@derodero24/comprs';
 import { createDecompressStream, createGzipCompressStream } from '@derodero24/comprs/streams';
@@ -47,6 +48,14 @@ function label(detected: CompressionFormat): string {
 const context = new GzipCompressContext();
 const chunks: Uint8Array[] = [context.transform(input), context.finish()];
 
+// The options of the stream contexts take `undefined` for a property under
+// exactOptionalPropertyTypes, as the contexts do at run time.
+const lz4Options: StreamContextOptions = { incremental: undefined };
+const lz4Contexts = [
+  new Lz4DecompressContext(undefined, { incremental: true }),
+  new Lz4DecompressContext(1024, lz4Options),
+];
+
 const compressed: Uint8Array = await gzipCompressAsync(input);
 
 const source = new ReadableStream<Uint8Array>({
@@ -59,4 +68,15 @@ const roundTrip: ReadableStream<Uint8Array> = source
   .pipeThrough(createGzipCompressStream())
   .pipeThrough(createDecompressStream());
 
-export { chunks, compressed, filename, format, isGzip, isZstd, label, mtime, roundTrip };
+export {
+  chunks,
+  compressed,
+  filename,
+  format,
+  isGzip,
+  isZstd,
+  label,
+  lz4Contexts,
+  mtime,
+  roundTrip,
+};

@@ -28,8 +28,8 @@ fn bench_lz4(c: &mut Criterion) {
                 )
             })
         });
-        // The decompression context buffers its input and decodes it all in
-        // flush(), which ends the stream.
+        // By default, the decompression context buffers its input and
+        // decodes it all in flush(), which ends the stream here.
         c.bench_function(&format!("lz4 stream decompress {name}"), |b| {
             b.iter(|| {
                 run_stream(
@@ -37,6 +37,18 @@ fn bench_lz4(c: &mut Criterion) {
                     &compressed,
                     lz4_stream::DecompressContext::transform,
                     lz4_stream::DecompressContext::flush,
+                )
+            })
+        });
+        // Incremental, as the stream helpers use it, it decodes each block
+        // in the transform() call that completes it.
+        c.bench_function(&format!("lz4 stream decompress incremental {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    lz4_stream::DecompressContext::incremental(None).unwrap(),
+                    &compressed,
+                    lz4_stream::DecompressContext::transform,
+                    lz4_stream::DecompressContext::finish,
                 )
             })
         });

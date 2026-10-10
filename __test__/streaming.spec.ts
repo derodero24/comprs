@@ -24,6 +24,7 @@ import {
   createBrotliCompressStream,
   createBrotliDecompressDictStream,
   createBrotliDecompressStream,
+  createDecompressStream,
   createDeflateCompressStream,
   createDeflateDecompressStream,
   createGzipCompressStream,
@@ -331,5 +332,48 @@ describe('Web stream output', () => {
     const moved = structuredClone(chunk, { transfer: [buffer] });
     expect(chunk.byteLength).toBe(0);
     expect(Buffer.from(moved.buffer, moved.byteOffset, moved.byteLength).equals(data)).toBe(true);
+  });
+});
+
+describe('LZ4 decompression streams', () => {
+  // About 730 KiB of text records, in three blocks of up to 256 KiB.
+  const lines = Array.from({ length: 40_000 }, (_, i) => `record ${i}: ${(i * 7919) % 10007}\n`);
+  const data = Buffer.from(lines.join(''));
+  const frame = lz4Compress(data);
+
+  // They emit each block once all of it has arrived, without waiting for
+  // the end of the input.
+  it.each([
+    ['createLz4DecompressStream()', () => createLz4DecompressStream()],
+    ['createDecompressStream()', () => createDecompressStream()],
+  ])('%s should emit output before the input ends', async (_label, create) => {
+    const stream = create();
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const half = frame.length >> 1;
+    const written = writer.write(frame.subarray(0, half));
+    const first = await reader.read();
+    await written;
+    if (first.done) throw new Error('the stream ended early');
+    expect(first.value.byteLength).toBeGreaterThan(0);
+
+    const ended = writer.write(frame.subarray(half)).then(() => writer.close());
+    const output = [first.value];
+    for (let result = await reader.read(); !result.done; result = await reader.read()) {
+      output.push(result.value);
+    }
+    await ended;
+    expect(Buffer.concat(output).equals(data)).toBe(true);
+  });
+
+  it('should error on the chunk that holds data after the last frame', async () => {
+    const stream = createLz4DecompressStream();
+    const writer = stream.writable.getWriter();
+    const output = readChunks(stream.readable);
+    await writer.write(frame);
+    await expect(writer.write(Buffer.from('garbage'))).rejects.toThrow(
+      'lz4 stream decompress failed: unexpected data after the end of a frame',
+    );
+    await expect(output).rejects.toThrow('unexpected data after the end of a frame');
   });
 });

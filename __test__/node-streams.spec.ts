@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { finished, pipeline } from 'node:stream/promises';
 import { isArrayBuffer } from 'node:util/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -447,6 +448,33 @@ describe('lz4 node stream round-trip', () => {
     const compressed = await collectTransform(source, createLz4CompressTransform());
     const decompressed = lz4Decompress(compressed);
     expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+});
+
+describe('LZ4 decompression transforms', () => {
+  // About 730 KiB of text records, in three blocks of up to 256 KiB.
+  const lines = Array.from({ length: 40_000 }, (_, i) => `record ${i}: ${(i * 7919) % 10007}\n`);
+  const data = Buffer.from(lines.join(''));
+  const frame = Buffer.from(lz4Compress(data));
+
+  // They push each block once all of it has arrived, without waiting for
+  // the end of the input.
+  it.each([
+    ['createLz4DecompressTransform()', () => createLz4DecompressTransform()],
+    ['createDecompressTransform()', () => createDecompressTransform()],
+  ])('%s should push output before the input ends', async (_label, create) => {
+    const transform = create();
+    const output: Buffer[] = [];
+    transform.on('data', (chunk: Buffer) => output.push(chunk));
+    const half = frame.length >> 1;
+    const pushed = once(transform, 'data');
+    transform.write(frame.subarray(0, half));
+    await pushed;
+    expect(Buffer.concat(output).length).toBeGreaterThan(0);
+
+    transform.end(frame.subarray(half));
+    await finished(transform);
+    expect(Buffer.concat(output).equals(data)).toBe(true);
   });
 });
 

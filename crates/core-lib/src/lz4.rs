@@ -334,6 +334,18 @@ impl Decoder {
         }
     }
 
+    /// The heap memory that the decoder holds: the start of the next unit
+    /// and the history. The scratch space belongs to the thread.
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.pending.capacity() + self.history.capacity()
+    }
+
+    /// The capacity of [`Decoder::pending`].
+    #[cfg(test)]
+    pub(crate) fn pending_capacity(&self) -> usize {
+        self.pending.capacity()
+    }
+
     /// Decode the units of `input`, starting with the one that the last push
     /// ended in, and keep the start of the next one in `pending`.
     fn read(&mut self, mut input: &[u8], sink: &mut Sink) -> Result<(), ComprsError> {

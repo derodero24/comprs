@@ -31,13 +31,16 @@ const MAX_COMPRESSED_INPUT: usize = 2 * MAX_LIMIT;
 /// - zstd decompression with a prepared dictionary ([`Format::prepare`])
 ///   gives the result of decompression with its bytes;
 /// - a stream context, fed in chunks, agrees with one-shot decompression
-///   when both succeed.
+///   when both succeed;
+/// - the LZ4 context in incremental mode, fed in chunks, gives the result of
+///   one-shot decompression: the same output, or the same error.
 pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
     let mut u = Unstructured::new(input);
     let limit = plan::limit(&mut u)?;
     let dict = plan::dict(&mut u, format)?;
     let max_output_size = read_max_output_size(&mut u, limit)?;
     let chunks = ChunkPlan::arbitrary(&mut u)?;
+    let incremental = format == Format::Lz4 && u.arbitrary::<bool>()?;
     let keep_going = u.ratio(1, 8)?;
     let compress = if u.ratio(1, 2)? {
         Some((
@@ -92,12 +95,14 @@ pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
     // Streaming, in fuzzer-chosen chunks.
     let Ok(stream_limit) = comprs_core::validate_max_output_size(max_output_size) else {
         assert!(
-            format.decompressor(dict, max_output_size).is_err(),
+            format
+                .decompressor(dict, max_output_size, incremental)
+                .is_err(),
             "{format:?} context accepted max_output_size {max_output_size:?}"
         );
         return Ok(());
     };
-    let (stream, peak) = heap::measure(|| format.decompressor(dict, max_output_size));
+    let (stream, peak) = heap::measure(|| format.decompressor(dict, max_output_size, incremental));
     check_heap(format, "stream creation", peak, 0, input_len);
     let mut stream = match stream {
         Ok(stream) => stream,
@@ -114,6 +119,9 @@ pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
         check_heap(format, "stream call", peak, stream_limit, input_len)
     });
 
+    if incremental && stream_limit == limit {
+        check_incremental(&streamed, &small);
+    }
     if let (Ok(streamed), Ok(one_shot)) = (&streamed, &small)
         && stream_limit == limit
     {
@@ -198,5 +206,33 @@ fn check_prepared(
         (Err(error), Ok(_)) => {
             panic!("zstd fails with a prepared dictionary but succeeds with its bytes: {error}")
         }
+    }
+}
+
+/// Check the result of incremental LZ4 decompression in chunks (`streamed`)
+/// against that of one-shot decompression under the same limit
+/// (`one_shot`): both decode the same frames, with the same checks in the
+/// same order, so they give the same output, or the same error, whose
+/// message names the stream context instead of the function.
+fn check_incremental(
+    streamed: &std::result::Result<Vec<u8>, ComprsError>,
+    one_shot: &std::result::Result<Vec<u8>, ComprsError>,
+) {
+    match (streamed, one_shot) {
+        (Ok(streamed), Ok(one_shot)) => assert!(
+            streamed == one_shot,
+            "Lz4 incremental output ({} bytes) differs from one-shot output ({} bytes)",
+            streamed.len(),
+            one_shot.len()
+        ),
+        (Err(streamed), Err(one_shot)) => assert_eq!(
+            streamed
+                .to_string()
+                .replace("lz4 stream decompress", "lz4 decompress"),
+            one_shot.to_string(),
+            "Lz4 incremental and one-shot errors differ"
+        ),
+        (Ok(_), Err(error)) => panic!("Lz4 one-shot fails but incremental succeeds: {error}"),
+        (Err(error), Ok(_)) => panic!("Lz4 incremental fails but one-shot succeeds: {error}"),
     }
 }

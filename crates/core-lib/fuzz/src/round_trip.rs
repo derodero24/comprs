@@ -43,7 +43,8 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
         None
     };
     let mut decompress_chunks = ChunkPlan::arbitrary(&mut u)?;
-    if format == Format::Lz4 {
+    let incremental = format == Format::Lz4 && u.arbitrary::<bool>()?;
+    if format == Format::Lz4 && !incremental {
         decompress_chunks = decompress_chunks.without_flushes();
     }
     let repeat = plan::repeat_count(&mut u)?;
@@ -85,7 +86,7 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
         exact.err()
     );
     let streamed = format
-        .decompressor(dict, Some(limit as f64))
+        .decompressor(dict, Some(limit as f64), incremental)
         .and_then(|mut stream| decompress_chunks.run(stream.as_mut(), &compressed, limit, false));
     assert!(
         streamed.as_deref().is_ok_and(|output| output == data),
@@ -100,7 +101,7 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
             data.len()
         );
         let streamed = format
-            .decompressor(dict, Some(limit as f64))
+            .decompressor(dict, Some(limit as f64), incremental)
             .and_then(|mut stream| {
                 decompress_chunks.run(stream.as_mut(), &compressed, limit, false)
             });

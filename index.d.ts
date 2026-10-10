@@ -361,29 +361,47 @@ export declare class Lz4CompressContext {
 /**
  * Streaming LZ4 frame decompression context.
  *
- * Buffers compressed input and decompresses on `flush()`.
- * LZ4 frame decompression requires the full compressed input, so true
- * incremental streaming is not possible with the current lz4_flex API.
  * The input may hold several concatenated frames, including skippable and
- * legacy frames.
+ * legacy frames. The context works in one of two modes:
+ *
+ * - By default, it buffers its input: `transform()` keeps each chunk and
+ *   returns an empty buffer, and `flush()` decodes what has been kept since
+ *   the last `flush()`, which must end between frames. `maxOutputSize`
+ *   limits the output of each `flush()` on its own, not of the whole stream.
+ * - With `{ incremental: true }`, it decodes its input as it arrives:
+ *   `transform()` returns the content of each block once all of the block
+ *   has arrived, and throws as soon as the input is invalid; `flush()`
+ *   returns an empty buffer; `finish()` throws if the input did not end
+ *   between frames. `maxOutputSize` limits the output of the whole stream,
+ *   and the context keeps at most one block of input. The stream helpers
+ *   use this mode.
  */
 export declare class Lz4DecompressContext {
-  constructor(maxOutputSize?: number | undefined | null)
   /**
-   * Buffer a chunk of compressed data.
-   * Returns an empty buffer (decompressed output is produced in `flush()`).
+   * `maxOutputSize` defaults to 256 MB. `options.incremental` selects the
+   * incremental mode; `options` must be an object, `undefined` or `null`.
+   */
+  constructor(maxOutputSize?: number | undefined | null, options?: StreamContextOptions | undefined | null)
+  /**
+   * Take a chunk of compressed data. By default, keep it and return an
+   * empty buffer: the output comes from `flush()`. Incremental, return the
+   * content of the blocks that the chunk completes, and throw if the
+   * input is invalid or the output exceeds `maxOutputSize`.
    */
   transform(chunk: Buffer | Uint8Array): Buffer
   /**
-   * Decompress all buffered data and return the result.
-   * Throws if no compressed data was transformed at all, if the input ends
-   * inside a frame, or if data that is not a frame follows a frame.
+   * By default, decompress all buffered data and return the result, with
+   * at most `maxOutputSize` bytes. Throws if no compressed data was
+   * transformed at all, if the input ends inside a frame, or if data that
+   * is not a frame follows a frame. Incremental, return an empty buffer.
    */
   flush(): Buffer
   /**
-   * Finalize the decompression stream. Decompresses the data buffered
-   * since the last `flush()`, like `flush()`, then releases the buffer.
-   * Throws like `flush()`, and if the stream is already finished.
+   * Finalize the decompression stream, then release the native state.
+   * By default, decompress the data buffered since the last `flush()`,
+   * like `flush()`. Incremental, return an empty buffer, or throw if the
+   * input did not end between frames, including empty input. Throws if
+   * the stream is already finished.
    */
   finish(): Buffer
   /**
@@ -917,6 +935,24 @@ export declare function lz4DecompressWithCapacity(data: Buffer | Uint8Array, cap
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  */
 export declare function lz4DecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
+
+/**
+ * Options of a stream context.
+ *
+ * Only `Lz4DecompressContext` takes them so far.
+ */
+export interface StreamContextOptions {
+  /**
+   * Decode the input as it arrives. With `incremental: true`,
+   * `transform()` returns the output of the input as soon as it is
+   * available (each LZ4 block once all of it has arrived), `flush()`
+   * returns nothing more, and `maxOutputSize` limits the output of the
+   * whole stream. Without it, the context keeps the behaviour that it has
+   * always had. The stream helpers of `@derodero24/comprs/streams` and
+   * `@derodero24/comprs/node` set it.
+   */
+  incremental?: boolean | undefined
+}
 
 /** Returns the library version. */
 export declare function version(): string

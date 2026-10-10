@@ -16,6 +16,7 @@ mod lz4_stream;
 // which napi-rs registers no functions, does not report them as unused. Not
 // re-exported: its functions share the names of the root API's.
 pub mod next;
+mod options;
 mod task;
 mod zstd;
 mod zstd_stream;
@@ -42,6 +43,7 @@ pub use gzip::*;
 pub use gzip_stream::*;
 pub use lz4::*;
 pub use lz4_stream::*;
+pub use options::*;
 pub use zstd::*;
 pub use zstd_stream::*;
 

@@ -133,8 +133,8 @@ impl ChunkPlan {
         Ok(Self { steps })
     }
 
-    /// The same plan without `flush` calls between chunks, for the LZ4
-    /// decompression context: its `flush` decodes the buffered input as
+    /// The same plan without `flush` calls between chunks, for the buffered
+    /// LZ4 decompression context: its `flush` decodes the buffered input as
     /// complete frames, so it ends the input.
     pub fn without_flushes(mut self) -> Self {
         for step in &mut self.steps {

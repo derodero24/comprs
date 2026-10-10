@@ -141,6 +141,9 @@ function halves(data: Uint8Array): [Uint8Array, Uint8Array] {
   return [data.subarray(0, data.length >> 1), data.subarray(data.length >> 1)];
 }
 
+/** The options that make an LZ4 decompression context decode incrementally. */
+const INCREMENTAL = { incremental: true };
+
 interface StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
   flush(): Uint8Array;
@@ -425,6 +428,25 @@ const CALLS: [string, Call][] = [
     (api) => api.lz4Decompress(drain(new api.Lz4CompressContext(), halves(text))),
   ],
   ['Lz4DecompressContext', (api) => drain(new api.Lz4DecompressContext(), halves(fixtures.lz4))],
+  [
+    'Lz4DecompressContext({ incremental: true })',
+    (api) => drain(new api.Lz4DecompressContext(undefined, INCREMENTAL), halves(fixtures.lz4)),
+  ],
+  // Both read the options of the stream contexts by hand, and reject the
+  // same values with the same messages. What transform() returns for a whole
+  // frame tells the mode that they select.
+  ...[undefined, null, {}, { incremental: true }, true, 'x', { incremental: 1 }].map(
+    (options): [string, Call] => [
+      `new Lz4DecompressContext(undefined, ${JSON.stringify(options)})`,
+      (api) => {
+        const context: StreamContext = Reflect.construct(api.Lz4DecompressContext, [
+          undefined,
+          options,
+        ]);
+        return [context.transform(fixtures.lz4), context.finish()];
+      },
+    ],
+  ),
 ];
 
 // Values that are not byte arrays, which the native addon rejects wherever it
@@ -480,6 +502,11 @@ const DECOMPRESSION_CONTEXTS: [string, (api: Api) => StreamContext, Uint8Array][
     fixtures.brotliWithDict,
   ],
   ['Lz4DecompressContext', (api) => new api.Lz4DecompressContext(), fixtures.lz4],
+  [
+    'Lz4DecompressContext({ incremental: true })',
+    (api) => new api.Lz4DecompressContext(undefined, INCREMENTAL),
+    fixtures.lz4,
+  ],
 ];
 
 const CONTEXTS = [...COMPRESSION_CONTEXTS, ...DECOMPRESSION_CONTEXTS].map(
