@@ -213,7 +213,7 @@ const plugin: FastifyPluginAsync<FastifyComprsOptions> = async (fastify, options
  * app.register(comprs, { encodings: ['zstd', 'br', 'gzip'] });
  * ```
  */
-export const comprs = fastifyPlugin(plugin, {
+export const comprs: FastifyPluginAsync<FastifyComprsOptions> = fastifyPlugin(plugin, {
   name: '@derodero24/comprs-middleware',
   fastify: '5.x',
 });

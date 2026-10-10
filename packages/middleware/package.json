@@ -57,7 +57,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "biome ci",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit",
     "test": "vitest run",
     "attw": "attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
     "publint": "publint"

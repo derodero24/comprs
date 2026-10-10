@@ -259,7 +259,7 @@ describe.each(adapters)('$name adapter: HTTP semantics', (adapter) => {
     ])('is added to a compressible response $label', async ({ path, init }) => {
       const get = await adapter.serve(routes);
       const res = await get(path, init);
-      expect(res.headers.vary).toBe('Accept-Encoding');
+      expect(res.headers['vary']).toBe('Accept-Encoding');
     });
 
     it.each([
@@ -270,7 +270,7 @@ describe.each(adapters)('$name adapter: HTTP semantics', (adapter) => {
       const get = await adapter.serve(routes);
       const res = await get(path, { acceptEncoding: 'gzip' });
       expect(res.headers['content-encoding']).toBeUndefined();
-      expect(res.headers.vary).toBeUndefined();
+      expect(res.headers['vary']).toBeUndefined();
     });
   });
 
@@ -318,21 +318,21 @@ describe.each(adapters)('$name adapter: HTTP semantics', (adapter) => {
       const get = await adapter.serve(routes);
       const res = await get('/strong', { acceptEncoding: 'gzip' });
       expect(res.headers['content-encoding']).toBe('gzip');
-      expect(res.headers.etag).toBe('W/"v1"');
+      expect(res.headers['etag']).toBe('W/"v1"');
     });
 
     it('keeps a weak ETag when compressing', async () => {
       const get = await adapter.serve(routes);
       const res = await get('/weak', { acceptEncoding: 'gzip' });
       expect(res.headers['content-encoding']).toBe('gzip');
-      expect(res.headers.etag).toBe('W/"v1"');
+      expect(res.headers['etag']).toBe('W/"v1"');
     });
 
     it('keeps a strong ETag when not compressing', async () => {
       const get = await adapter.serve(routes);
       const res = await get('/strong', { acceptEncoding: 'identity' });
       expect(res.headers['content-encoding']).toBeUndefined();
-      expect(res.headers.etag).toBe('"v1"');
+      expect(res.headers['etag']).toBe('"v1"');
     });
   });
 
