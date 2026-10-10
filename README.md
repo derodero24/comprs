@@ -559,7 +559,7 @@ Client bundles resolve the `browser` condition and get the WebAssembly build, wi
 + const decompressed = gzipDecompress(compressed);
 ```
 
-comprs adds zstd, lz4, brotli, dictionary compression, and Web Streams API — none of which are available in fflate.
+comprs adds what fflate lacks: zstd, brotli and LZ4, dictionaries for zstd and brotli, and the Web Streams API. fflate's deflate dictionaries (its `dictionary` option) have no counterpart in comprs.
 
 ### From node:zlib
 
@@ -670,10 +670,8 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 ### Key takeaways
 
 - **zstd is the fastest** all-round: highest throughput for both compression and decompression across most data sizes
-- **lz4 excels at raw speed**: competitive with zstd for compression
-- **gzip/deflate compression**: comprs (Rust flate2) is significantly faster than pako and fflate on larger data (10KB+), competitive on small payloads
-- **gzip/deflate decompression**: performance varies by data size; comprs leads on patterned data, while fflate can be faster on small random payloads due to lower call overhead
-- **Native vs WASM**: these numbers are from the native (napi-rs) backend; WASM throughput is lower due to the execution overhead but still outperforms pure-JS libraries on large payloads
+- **gzip/deflate decompression**: performance varies by format and data; comprs leads on patterned deflate data, while fflate or `node:zlib` is faster on gzip and on small random payloads
+- **Native addon only**: these numbers are from the native (napi-rs) addon; the WebAssembly build was not measured
 
 ## Notes
 
