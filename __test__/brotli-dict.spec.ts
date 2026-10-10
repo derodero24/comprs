@@ -560,6 +560,26 @@ function incrementalTests(load: () => Promise<DictContextClass>): void {
     }
   });
 
+  it('should hold exactly DICT_REACH bytes, and stream from the next one', async () => {
+    const Context = await load();
+    const input = data.subarray(0, DICT_REACH);
+    const held = new Context(dict, quality, { incremental: true });
+    expect(held.transform(input).length).toBe(0);
+    expect(held.flush().length).toBe(0);
+    expect(Buffer.from(held.finish()).equals(brotliCompressWithDict(input, dict, quality))).toBe(
+      true,
+    );
+
+    const ctx = new Context(dict, quality, { incremental: true });
+    expect(ctx.transform(input).length).toBe(0);
+    const outputs = [ctx.transform(data.subarray(DICT_REACH, DICT_REACH + 1)), ctx.finish()];
+    expect(outputs[0]?.length).toBeGreaterThan(0);
+    // One byte past DICT_REACH, the stream does not use the dictionary.
+    expect(brotliDecompress(Buffer.concat(outputs)).equals(data.subarray(0, DICT_REACH + 1))).toBe(
+      true,
+    );
+  });
+
   it('should keep the input until finish() without the option', async () => {
     const Context = await load();
     const ctx = new Context(dict, 0);
