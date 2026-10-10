@@ -237,6 +237,84 @@ function concat(data: Uint8Array, more: Uint8Array): Uint8Array {
   return joined;
 }
 
+/** Bytes of 0xff before the inputs of {@link INPUT_KINDS}, and after them. */
+const PAD = 6;
+
+/** An ArrayBuffer that holds `bytes` between PAD bytes of 0xff on each side. */
+function padded(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.length + 2 * PAD);
+  new Uint8Array(buffer).fill(0xff).set(bytes, PAD);
+  return buffer;
+}
+
+/** A SharedArrayBuffer that holds `bytes` as {@link padded} does. */
+function paddedShared(bytes: Uint8Array): SharedArrayBuffer {
+  const buffer = new SharedArrayBuffer(bytes.length + 2 * PAD);
+  new Uint8Array(buffer).fill(0xff).set(bytes, PAD);
+  return buffer;
+}
+
+/**
+ * A resizable ArrayBuffer that holds `bytes` after PAD bytes of 0xff, and
+ * can grow to twice its size. Resizable buffers are of ES2024, which the
+ * lib of the tests predates, so it is made by reflection.
+ */
+function resizableAfterPad(bytes: Uint8Array): ArrayBuffer {
+  const byteLength = PAD + bytes.length;
+  const buffer: unknown = Reflect.construct(ArrayBuffer, [
+    byteLength,
+    { maxByteLength: 2 * byteLength },
+  ]);
+  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  new Uint8Array(buffer).fill(0xff).set(bytes, PAD);
+  return buffer;
+}
+
+/** The number of 16-bit elements in `bytes`, whose length must be even. */
+function halfLength(bytes: Uint8Array): number {
+  if (bytes.length % 2 !== 0) throw new Error('expected an even number of bytes');
+  return bytes.length / 2;
+}
+
+/**
+ * Kinds of input, each with the function that makes `bytes` an input of
+ * that kind, from which the functions of both builds must read `bytes`, byte
+ * for byte. The bytes must be of even length, for the Uint16Array.
+ */
+const INPUT_KINDS: readonly [kind: string, as: (bytes: Uint8Array) => Input][] = [
+  ['a Uint8Array at an offset', (bytes) => new Uint8Array(padded(bytes), PAD, bytes.length)],
+  ['a Buffer within a larger one', (bytes) => Buffer.from(padded(bytes), PAD, bytes.length)],
+  ['a DataView', (bytes) => new DataView(padded(bytes), PAD, bytes.length)],
+  ['a Uint16Array', (bytes) => new Uint16Array(padded(bytes), PAD, halfLength(bytes))],
+  ['an ArrayBuffer', (bytes) => padded(bytes).slice(PAD, PAD + bytes.length)],
+  ['a SharedArrayBuffer', (bytes) => paddedShared(bytes).slice(PAD, PAD + bytes.length)],
+  [
+    'a Uint8Array of a SharedArrayBuffer',
+    (bytes) => new Uint8Array(paddedShared(bytes), PAD, bytes.length),
+  ],
+  [
+    'a DataView of a SharedArrayBuffer',
+    (bytes) => new DataView(paddedShared(bytes), PAD, bytes.length),
+  ],
+  [
+    'a Uint8Array that tracks the length of a resizable ArrayBuffer',
+    (bytes) => new Uint8Array(resizableAfterPad(bytes), PAD),
+  ],
+  [
+    'a DataView of a resizable ArrayBuffer',
+    (bytes) => new DataView(resizableAfterPad(bytes), PAD, bytes.length),
+  ],
+];
+
+/**
+ * `data`, zstd frames, and after them a skippable frame that makes their
+ * length even, if it is odd: decoders skip it.
+ */
+function evenZstd(data: Uint8Array): Uint8Array {
+  if (data.length % 2 === 0) return data;
+  return concat(data, Uint8Array.of(0x50, 0x2a, 0x4d, 0x18, 1, 0, 0, 0, 0));
+}
+
 /** The native output of each format, at its default level. */
 const compressed: Record<Format, Uint8Array> = {
   zstd: native.compressSync(text, { format: 'zstd' }),
@@ -260,13 +338,17 @@ const corrupt: Record<Format, Uint8Array> = {
   lz4: withFF(compressed.lz4, compressed.lz4.length - 9),
 };
 
+/** A call, in each of the two forms of the function that it calls. */
+interface Calls {
+  sync(api: Api): unknown;
+  async(api: Api): Promise<unknown>;
+}
+
 /** A call that fails, in each of the two forms of the function it calls. */
-interface ErrorCase {
+interface ErrorCase extends Calls {
   name: string;
   /** The code that the call fails with in both builds. */
   code: ErrorCode;
-  sync(api: Api): unknown;
-  async(api: Api): Promise<unknown>;
 }
 
 /** A compression call with `options` that fails with `code`. */
@@ -554,6 +636,91 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
       expect(actual).toEqual(expected);
       expect(await settle(() => wasm.trainDictionary(samples, { maxSize: 2048 }))).toEqual(
         expected,
+      );
+    });
+  });
+
+  describe.each(INPUT_KINDS)('with an input from %s', (_, as) => {
+    /** The two builds, to call one function in each. */
+    const builds = (): [build: string, api: Api][] => [
+      ['native', native],
+      ['wasm', wasm],
+    ];
+
+    /**
+     * Check that `calls` give `expected`, what the native build gives for
+     * the plain bytes, in both builds, in both forms.
+     */
+    async function expectEverywhere(calls: Calls, expected: Outcome): Promise<void> {
+      expect(expected).toHaveProperty('returned');
+      for (const [build, api] of builds()) {
+        expect(
+          run(() => calls.sync(api)),
+          `${build}, sync`,
+        ).toEqual(expected);
+        expect(await settle(() => calls.async(api)), `${build}, async`).toEqual(expected);
+      }
+    }
+
+    it('compresses the data that it holds', async () => {
+      const options: CompressOptions = { format: 'zstd' };
+      await expectEverywhere(
+        {
+          sync: (api) => api.compressSync(as(text), options),
+          async: (api) => api.compress(as(text), options),
+        },
+        run(() => native.compressSync(text, options)),
+      );
+    });
+
+    it.each([
+      ['in its format', { format: 'zstd' }],
+      ['by detection', undefined],
+    ] as const)('decompresses the data that it holds %s', async (_, options) => {
+      const data = evenZstd(compressed.zstd);
+      await expectEverywhere(
+        {
+          sync: (api) => api.decompressSync(as(data), options),
+          async: (api) => api.decompress(as(data), options),
+        },
+        { returned: text },
+      );
+    });
+
+    it('detects the format of the data that it holds', () => {
+      const data = evenZstd(compressed.zstd);
+      for (const [build, api] of builds()) {
+        expect(api.detectFormat(as(data)), build).toBe('zstd');
+      }
+    });
+
+    it.each(['zstd', 'brotli'] as const)('holds a %s dictionary', async (format) => {
+      const options = (input: Input): CompressOptions => ({ format, level: 5, dictionary: input });
+      await expectEverywhere(
+        {
+          sync: (api) => api.compressSync(text, options(as(dictionary))),
+          async: (api) => api.compress(text, options(as(dictionary))),
+        },
+        run(() => native.compressSync(text, options(dictionary))),
+      );
+      const data = native.compressSync(text, options(dictionary));
+      await expectEverywhere(
+        {
+          sync: (api) => api.decompressSync(data, { format, dictionary: as(dictionary) }),
+          async: (api) => api.decompress(data, { format, dictionary: as(dictionary) }),
+        },
+        { returned: text },
+      );
+    });
+
+    it('holds the samples of a dictionary', async () => {
+      const options: TrainDictionaryOptions = { maxSize: 2048 };
+      await expectEverywhere(
+        {
+          sync: (api) => api.trainDictionarySync(samples.map(as), options),
+          async: (api) => api.trainDictionary(samples.map(as), options),
+        },
+        run(() => native.trainDictionarySync(samples, options)),
       );
     });
   });
