@@ -12,7 +12,7 @@ use comprs_core::unified::{
     self, CompressContext, CompressOptions, DecompressContext, DecompressOptions, Detection,
     DictionaryRef, Format, GzipHeaderOptions,
 };
-use comprs_core::{ComprsError, MemoryUsage, brotli, detect, gzip, lz4, zstd};
+use comprs_core::{ComprsError, MemoryUsage, brotli, detect, gzip, lz4, zstd, zstd_stream};
 use flate2::{Decompress, FlushDecompress};
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary of the words";
@@ -20,6 +20,10 @@ const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary
 /// [`DICT`], prepared for zstd.
 static ZSTD_DICT: LazyLock<Dictionary> =
     LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap());
+
+/// [`DICT`], prepared for zstd at level 19.
+static ZSTD_DICT_19: LazyLock<Dictionary> =
+    LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, Some(19.0)).unwrap());
 
 /// [`DICT`], prepared for brotli.
 static BROTLI_DICT: LazyLock<Dictionary> =
@@ -579,6 +583,47 @@ fn detect_skips_skippable_frames_before_zstd_and_lz4_only() {
         Detection::NeedMore
     );
     assert_eq!(unified::detect_prefix(&skippable, true), Detection::Unknown);
+    assert_eq!(
+        unified::detect_prefix(&skippable[..6], true),
+        Detection::Unknown
+    );
+    assert_eq!(unified::detect(&skippable[..6]), None);
+}
+
+#[test]
+fn auto_decoder_fails_on_skippable_frames_past_64_kib() {
+    let input = text(1000);
+    let user_data = noise(70_000, 10);
+    let data = [
+        &0x184D_2A5F_u32.to_le_bytes()[..],
+        &(user_data.len() as u32).to_le_bytes(),
+        &user_data,
+        &unified::compress(&input, Format::Zstd, &at_level(None)).unwrap(),
+    ]
+    .concat();
+    // Detection in the whole data finds the zstd frame after it.
+    assert_eq!(unified::detect(&data), Some(Format::Zstd));
+    assert!(unified::decompress(&data, &as_format(None)).unwrap() == input);
+    let output = stream_decompress(&data, &as_format(Some(Format::Zstd)), 1000).unwrap();
+    assert!(output == input);
+
+    // The stream holds at most 64 KiB, which end inside the skippable frame.
+    let mut ctx = DecompressContext::new(&as_format(None)).unwrap();
+    let mut chunks = data.chunks(1000);
+    for chunk in chunks.by_ref().take(65) {
+        assert!(ctx.transform(chunk).unwrap().is_empty());
+        assert!(ctx.flush().unwrap().is_empty());
+    }
+    // The chunk that brings the input held to 64 KiB.
+    assert_unknown(ctx.transform(chunks.next().unwrap()));
+    // The later calls fail alike until finish ends the stream.
+    assert_unknown(ctx.transform(chunks.next().unwrap()));
+    assert_unknown(ctx.flush());
+    assert_unknown(ctx.finish());
+    assert!(matches!(
+        ctx.transform(b"more"),
+        Err(ComprsError::StreamFinished(_))
+    ));
 }
 
 #[test]
@@ -663,13 +708,12 @@ fn auto_decoder_flush_detects_with_the_input_held() {
 fn max_output_size_bounds_the_output() {
     let input = text(20_000);
     let n = input.len();
-    let zstd_dict = DictionaryRef::Prepared(&ZSTD_DICT);
-    let brotli_dict = DictionaryRef::Raw(DICT);
     let mut cases: Vec<(Format, Option<DictionaryRef>)> =
         Format::ALL.iter().map(|&format| (format, None)).collect();
     cases.extend([
-        (Format::Zstd, Some(zstd_dict)),
-        (Format::Brotli, Some(brotli_dict)),
+        (Format::Zstd, Some(DictionaryRef::Prepared(&ZSTD_DICT))),
+        (Format::Brotli, Some(DictionaryRef::Raw(DICT))),
+        (Format::Brotli, Some(DictionaryRef::Prepared(&BROTLI_DICT))),
     ]);
     for (format, dictionary) in cases {
         let options = CompressOptions {
@@ -678,7 +722,9 @@ fn max_output_size_bounds_the_output() {
         };
         let compressed = unified::compress(&input, format, &options).unwrap();
         let mut formats = vec![Some(format)];
-        if format != Format::DeflateRaw && dictionary.is_none() {
+        // Detection, or the format of a prepared dictionary; raw bytes need
+        // a format.
+        if format != Format::DeflateRaw && !matches!(dictionary, Some(DictionaryRef::Raw(_))) {
             formats.push(None);
         }
         for format in formats {
@@ -791,6 +837,40 @@ fn zstd_dictionaries_give_the_output_of_the_per_format_functions() {
             check_dictionary_decoding(Format::Zstd, &ZSTD_DICT, &input, &[streamed]);
         }
     }
+}
+
+#[test]
+fn prepared_zstd_dictionaries_compress_at_their_level_by_default() {
+    let input = text(20_000);
+    assert_eq!(ZSTD_DICT_19.level(), Some(19));
+    let at = |level: Option<f64>| CompressOptions {
+        level,
+        dictionary: Some(DictionaryRef::Prepared(&ZSTD_DICT_19)),
+        ..CompressOptions::default()
+    };
+    // No level selects the level of the dictionary, while 0 selects the
+    // default level 3, as with zstd::compress_prepared.
+    let compress = |level| unified::compress(&input, Format::Zstd, &at(level)).unwrap();
+    let default = compress(None);
+    assert!(default == zstd::compress_prepared(&input, &ZSTD_DICT_19, None, 0).unwrap());
+    assert!(default == compress(Some(19.0)));
+    assert!(compress(Some(0.0)) == compress(Some(3.0)));
+    assert!(default != compress(Some(0.0)));
+    check_dictionary_decoding(Format::Zstd, &ZSTD_DICT_19, &input, &[default]);
+
+    // The streams alike, which give the output of
+    // zstd_stream::CompressDictContext::with_prepared.
+    let stream = |level| {
+        let mut ctx = CompressContext::new(Format::Zstd, &at(level)).unwrap();
+        drive(&mut ctx, &input, &[1000]).unwrap()
+    };
+    let default = stream(None);
+    let mut ctx = zstd_stream::CompressDictContext::with_prepared(&ZSTD_DICT_19, None, 0).unwrap();
+    assert!(default == drive(&mut ctx, &input, &[1000]).unwrap());
+    assert!(default == stream(Some(19.0)));
+    assert!(stream(Some(0.0)) == stream(Some(3.0)));
+    assert!(default != stream(Some(0.0)));
+    check_dictionary_decoding(Format::Zstd, &ZSTD_DICT_19, &input, &[default]);
 }
 
 #[test]
@@ -1167,6 +1247,26 @@ fn compress_options_are_checked() {
             "gzipHeader applies to gzip compression only",
         ),
         (
+            Format::Zstd,
+            CompressOptions {
+                dictionary: Some(DictionaryRef::Raw(b"")),
+                // The dictionary is checked before the gzip header.
+                gzip_header: Some(GzipHeaderOptions::default()),
+                ..CompressOptions::default()
+            },
+            "dictionary must not be empty",
+        ),
+        (
+            Format::Zstd,
+            CompressOptions {
+                gzip_header: Some(GzipHeaderOptions::default()),
+                // The gzip header is checked before the workers.
+                workers: Some(257.0),
+                ..CompressOptions::default()
+            },
+            "gzipHeader applies to gzip compression only",
+        ),
+        (
             Format::Gzip,
             CompressOptions {
                 gzip_header: Some(header.clone()),
@@ -1204,6 +1304,26 @@ fn compress_options_are_checked() {
             Format::Zstd,
             CompressOptions {
                 workers: Some(0.5),
+                ..CompressOptions::default()
+            },
+            "zstd workers must be an integer between 0 and 256",
+        ),
+        (
+            Format::Gzip,
+            CompressOptions {
+                // The workers are checked before the level, the format
+                // that they apply to before their number.
+                workers: Some(257.0),
+                level: Some(10.0),
+                ..CompressOptions::default()
+            },
+            "workers applies to zstd compression only",
+        ),
+        (
+            Format::Zstd,
+            CompressOptions {
+                workers: Some(257.0),
+                level: Some(23.0),
                 ..CompressOptions::default()
             },
             "zstd workers must be an integer between 0 and 256",
