@@ -54,6 +54,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: codspeed
+          # Leave ~/.cargo/bin out of the cache. A cached cargo-codspeed,
+          # such as the one cargo-binstall installed before the step below
+          # was pinned, makes cargo install skip the build from crates.io.
+          cache-bin: false
 
       - name: Install cargo-codspeed
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
