@@ -1026,26 +1026,36 @@ describe.each(CONTEXT_CASES)('$name', ({ stream, create, input }) => {
 // The call holds the state that the context shares with it, so the
 // finalizer of a context leaves it to the call, which drops it when it
 // settles. In a process of its own, which can collect garbage at will: zstd
-// at level 19 on 200 KB runs long enough for a collection in the call.
+// at level 19 on 200 KB runs long enough for a collection in the call. When
+// the collection comes is up to V8: on a macOS runner, a call once settled
+// before its context was collected. So the process collects garbage until
+// the call settles, and tries again, up to five calls, until a context is
+// collected while its call is in flight.
 describe('a context collected while a call is in flight', () => {
   it('settles the call', { timeout: 2 * PROCESS_TIMEOUT }, () => {
     const script = [
       "const comprs = require('./index.js');",
       "const data = Buffer.from(Array.from({ length: 40000 }, (_, i) => (i * 2654435761 >>> 13).toString(36)).join(' '));",
-      'let collectedInFlight = false;',
-      'let settled = false;',
-      'const registry = new FinalizationRegistry(() => { collectedInFlight = !settled; });',
+      'const calls = [];',
+      'const registry = new FinalizationRegistry((call) => { call.collectedInFlight = !call.settled; });',
       '(async () => {',
-      '  let ctx = new comprs.ZstdCompressContext(19);',
-      '  registry.register(ctx, 0);',
-      '  const pending = ctx.transformAsync(data).finally(() => { settled = true; });',
-      '  ctx = null;',
-      '  for (let i = 0; i < 20 && !collectedInFlight && !settled; i++) {',
-      '    globalThis.gc();',
-      '    await new Promise(setImmediate);',
+      '  for (let attempt = 0; attempt < 5; attempt++) {',
+      '    const call = { collectedInFlight: false, settled: false, output: 0 };',
+      '    calls.push(call);',
+      '    let ctx = new comprs.ZstdCompressContext(19);',
+      '    registry.register(ctx, call);',
+      '    const pending = ctx.transformAsync(data).finally(() => { call.settled = true; });',
+      '    ctx = null;',
+      '    while (!call.collectedInFlight && !call.settled) {',
+      '      globalThis.gc();',
+      '      await new Promise(setImmediate);',
+      '    }',
+      '    call.output = (await pending).length;',
+      '    if (call.collectedInFlight) break;',
       '  }',
-      '  const output = await pending;',
-      '  process.stdout.write(JSON.stringify({ collectedInFlight, output: output.length }));',
+      '  const settled = calls.every((call) => call.settled && call.output > 0);',
+      '  const { collectedInFlight } = calls[calls.length - 1];',
+      '  process.stdout.write(JSON.stringify({ calls: calls.length, collectedInFlight, settled }));',
       '})();',
     ].join('\n');
     const result: unknown = JSON.parse(
@@ -1055,7 +1065,9 @@ describe('a context collected while a call is in flight', () => {
         timeout: PROCESS_TIMEOUT,
       }),
     );
-    expect(result).toMatchObject({ collectedInFlight: true });
+    // Every call settled with output, and the last one after its context
+    // was collected.
+    expect(result).toMatchObject({ collectedInFlight: true, settled: true });
   });
 });
 
