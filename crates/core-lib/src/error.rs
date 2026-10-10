@@ -104,17 +104,19 @@ pub enum ComprsError {
 ///   after the header of a member: flate2 reports the missing trailer as a
 ///   checksum error. Input that ends inside the header is
 ///   `ERR_COMPRS_TRUNCATED`;
-/// - the one-shot brotli functions, including those that take a dictionary,
-///   such as [`crate::brotli::decompress`]: they report a cut stream as
-///   "Invalid Data".
+/// - the one-shot brotli functions other than
+///   [`crate::brotli::decompress_strict`], including those that take a
+///   dictionary, such as [`crate::brotli::decompress`]: they report a cut
+///   stream as "Invalid Data".
 ///
 /// Empty input is `ERR_COMPRS_TRUNCATED` for these decoders as well. The
 /// decompression contexts of zstd, deflate, brotli and lz4, the one-shot
 /// functions of zstd, deflate and lz4, and the strict decoders of gzip, zlib
 /// and raw deflate ([`crate::gzip::decompress_strict`] and
-/// [`crate::gzip_stream::StrictDecompressContext`]) tell a cut stream apart
-/// and report it as `ERR_COMPRS_TRUNCATED`, and so do the decoders that
-/// later releases add.
+/// [`crate::gzip_stream::StrictDecompressContext`]) and of brotli
+/// ([`crate::brotli::decompress_strict`]) tell a cut stream apart and report
+/// it as `ERR_COMPRS_TRUNCATED`, and so do the decoders that later releases
+/// add.
 pub const ERROR_CODES: [&str; 8] = [
     "ERR_COMPRS_INVALID_ARG",
     "ERR_COMPRS_UNKNOWN_FORMAT",

@@ -17,6 +17,9 @@ static PREPARED: LazyLock<Dictionary> = LazyLock::new(|| {
     Dictionary::new(b"a dictionary of data", DictionaryFormat::Zstd, None).unwrap()
 });
 
+/// A brotli dictionary.
+const BROTLI_DICT: &[u8] = b"a dictionary of the data that comprs compresses";
+
 const INVALID_ARG: &str = "ERR_COMPRS_INVALID_ARG";
 const UNKNOWN_FORMAT: &str = "ERR_COMPRS_UNKNOWN_FORMAT";
 const CORRUPT_DATA: &str = "ERR_COMPRS_CORRUPT_DATA";
@@ -281,6 +284,40 @@ const CODECS: &[Codec] = &[
         // ("Invalid Data") and keep that message, so it is classified as
         // corrupt.
         cut: CORRUPT_DATA,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "brotli strict",
+        compress: |data| brotli::compress(data, None),
+        decoders: &[
+            |data, _| brotli::decompress_strict(data, &[], MAX_DECOMPRESSED_SIZE),
+            |data, limit| brotli::decompress_strict(data, &[], limit),
+        ],
+        compressor: || boxed(brotli_stream::CompressContext::new(None)),
+        decompressor: |limit| boxed(brotli_stream::DecompressContext::new(limit)),
+        corrupt: &[|_| vec![0xFF; 16]],
+        // The "brotli" codec checks the levels of the brotli encoders.
+        invalid_levels: &[],
+        cut: TRUNCATED,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "brotli strict dict",
+        compress: |data| brotli::compress_with_dict(data, BROTLI_DICT, None),
+        decoders: &[
+            |data, _| brotli::decompress_strict(data, BROTLI_DICT, MAX_DECOMPRESSED_SIZE),
+            |data, limit| brotli::decompress_strict(data, BROTLI_DICT, limit),
+        ],
+        compressor: || boxed(brotli_stream::CompressDictContext::new(BROTLI_DICT, None)),
+        decompressor: |limit| {
+            boxed(brotli_stream::DecompressDictContext::new(
+                BROTLI_DICT,
+                limit,
+            ))
+        },
+        corrupt: &[|_| vec![0xFF; 16]],
+        invalid_levels: &[],
+        cut: TRUNCATED,
         cut_stream: TRUNCATED,
     },
     Codec {

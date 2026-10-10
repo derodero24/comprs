@@ -2,6 +2,7 @@
 
 use std::io::Write;
 
+use crate::brotli_stream::End;
 use crate::{ComprsError, IntArg};
 
 /// Default compression quality for brotli.
@@ -76,7 +77,13 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
     reject_large_window(data, "brotli decompress")?;
-    crate::brotli_stream::decompress_all(data, Vec::new(), capacity, "brotli decompress")
+    crate::brotli_stream::decompress_all(
+        data,
+        Vec::new(),
+        capacity,
+        "brotli decompress",
+        End::Lenient,
+    )
 }
 
 /// Compress data with a custom dictionary using the brotli crate's low-level API.
@@ -223,7 +230,40 @@ pub fn decompress_with_dict_with_capacity(
         dict.to_vec(),
         capacity,
         "brotli decompress with dict",
+        End::Lenient,
     )
+}
+
+/// Decompress a brotli stream with the custom dictionary `dict` (empty for
+/// none) into at most `max_output` bytes, and reject input that does not end
+/// at the end of the stream.
+///
+/// The other one-shot decoders of this module, such as
+/// [`decompress_with_capacity`], ignore data after the end of the stream and
+/// report a cut stream as invalid data, as they always have. This one fails,
+/// like the decompression contexts of [`crate::brotli_stream`], with:
+///
+/// - [`ComprsError::Truncated`] for input that ends before the end of the
+///   stream, including empty input;
+/// - [`ComprsError::Corrupt`] for data after the end of the stream, for
+///   invalid data ("Invalid Data") and for a Large Window Brotli stream;
+/// - [`ComprsError::SizeLimit`] for output that would exceed `max_output`.
+///
+/// Its errors have the contexts of the other one-shot decoders: "brotli
+/// decompress", or "brotli decompress with dict" with a dictionary.
+pub fn decompress_strict(
+    data: &[u8],
+    dict: &[u8],
+    max_output: usize,
+) -> Result<Vec<u8>, ComprsError> {
+    let context = if dict.is_empty() {
+        "brotli decompress"
+    } else {
+        "brotli decompress with dict"
+    };
+    crate::require_input(data, "brotli")?;
+    reject_large_window(data, context)?;
+    crate::brotli_stream::decompress_all(data, dict.to_vec(), max_output, context, End::Strict)
 }
 
 /// `data` compressed as a Large Window Brotli stream with a window of
@@ -422,6 +462,101 @@ mod tests {
                         compressed.len()
                     );
                 }
+            }
+        }
+    }
+
+    /// The strict decoder without and with a dictionary, each with the
+    /// context of its errors, the dictionary that it takes and the encoder of
+    /// its input.
+    fn strict_decoders() -> [(&'static str, &'static [u8], Encoder); 2] {
+        [
+            ("brotli decompress", b"", |data| {
+                compress(data, None).unwrap()
+            }),
+            ("brotli decompress with dict", DICT, |data| {
+                compress_with_dict(data, DICT, None).unwrap()
+            }),
+        ]
+    }
+
+    #[test]
+    fn decompress_strict_round_trips() {
+        for original in samples().into_iter().chain([Vec::new()]) {
+            for (context, dict, encode) in strict_decoders() {
+                let compressed = encode(&original);
+                let output = decompress_strict(&compressed, dict, original.len()).unwrap();
+                assert!(output == original, "{context}");
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_strict_reports_truncated_input() {
+        for original in samples().into_iter().chain([Vec::new()]) {
+            for (context, dict, encode) in strict_decoders() {
+                let compressed = encode(&original);
+                let cuts = [0, 1, compressed.len() / 2, compressed.len() - 1];
+                for len in cuts.into_iter().filter(|&len| len < compressed.len()) {
+                    let result = decompress_strict(&compressed[..len], dict, original.len());
+                    assert!(
+                        matches!(result, Err(ComprsError::Truncated("brotli"))),
+                        "{context}, {len} of {} bytes: {:?}",
+                        compressed.len(),
+                        result.map(|output| output.len())
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_strict_rejects_data_after_the_stream() {
+        for original in samples().into_iter().chain([Vec::new()]) {
+            for (context, dict, encode) in strict_decoders() {
+                let compressed = encode(&original);
+                for trailing in [&[0][..], &[0x3b], b"trailing data"] {
+                    let input = [&compressed[..], trailing].concat();
+                    let err = decompress_strict(&input, dict, original.len()).unwrap_err();
+                    assert!(matches!(err, ComprsError::Corrupt { .. }), "{context}");
+                    assert_eq!(
+                        err.to_string(),
+                        format!("{context} failed: unexpected data after the end of the stream")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_strict_rejects_invalid_data() {
+        for (context, dict, _) in strict_decoders() {
+            let err = decompress_strict(&[0xff; 16], dict, 1024).unwrap_err();
+            assert!(matches!(err, ComprsError::Corrupt { .. }), "{context}");
+            assert_eq!(err.to_string(), format!("{context} failed: Invalid Data"));
+
+            let large_window = compress_large_window(b"large window", 22);
+            let err = decompress_strict(&large_window, dict, 1024).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!("{context} failed: large-window brotli streams are not supported")
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_strict_limits_the_output() {
+        for original in samples() {
+            let n = original.len();
+            for (context, dict, encode) in strict_decoders() {
+                let compressed = encode(&original);
+                assert!(decompress_strict(&compressed, dict, n).unwrap() == original);
+                assert_eq!(
+                    decompress_strict(&compressed, dict, n - 1)
+                        .unwrap_err()
+                        .to_string(),
+                    format!("{context} exceeded maximum size of {} bytes", n - 1)
+                );
             }
         }
     }
