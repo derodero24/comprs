@@ -10,7 +10,7 @@ import type { BenchRunOptions } from 'vitest';
 // BENCH_SMOKE=1 runs each benchmark once, without warmup: CI checks that the
 // benchmarks work without spending minutes measuring them.
 export const BENCH_OPTIONS: BenchRunOptions =
-  process.env.BENCH_SMOKE === '1'
+  process.env['BENCH_SMOKE'] === '1'
     ? { time: 0, iterations: 1, warmup: false }
     : { time: 500, iterations: 10, warmupTime: 100, warmupIterations: 5 };
 

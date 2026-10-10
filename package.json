@@ -135,7 +135,7 @@
     "format": "biome format --write",
     "lint": "biome check",
     "lint:fix": "biome check --write",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts",
     "test:types": "node scripts/check-consumer-types.mjs",

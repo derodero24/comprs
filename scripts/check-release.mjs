@@ -211,7 +211,7 @@ function checkManifests(release) {
       problems.push(`npm/${entry.name} does not belong to any target in napi.targets`);
     }
   }
-  const declared = release.packageJson.optionalDependencies;
+  const declared = release.packageJson['optionalDependencies'];
   const optionalDependencies = isRecord(declared) ? Object.entries(declared) : [];
   for (const [name, range] of optionalDependencies) {
     const managed = name.startsWith(`${release.packageName}-`);
@@ -235,12 +235,12 @@ function checkPlatformManifest(release, target) {
     return;
   }
   const manifest = readJson(manifestPath);
-  if (manifest.name !== target.packageName) {
-    problems.push(`${shownPath} is named ${manifest.name}, not ${target.packageName}`);
+  if (manifest['name'] !== target.packageName) {
+    problems.push(`${shownPath} is named ${manifest['name']}, not ${target.packageName}`);
   }
-  if (manifest.version !== release.version) {
+  if (manifest['version'] !== release.version) {
     problems.push(
-      `${shownPath} has version ${manifest.version}, but the root package has ` +
+      `${shownPath} has version ${manifest['version']}, but the root package has ` +
         `${release.version}; run napi version`,
     );
   }
@@ -257,8 +257,8 @@ function checkPlatformPackage(target) {
   const required = [
     'package.json',
     target.artifact,
-    ...stringList(manifest.files),
-    ...[manifest.main, manifest.types, manifest.browser].filter(
+    ...stringList(manifest['files']),
+    ...[manifest['main'], manifest['types'], manifest['browser']].filter(
       (entry) => typeof entry === 'string',
     ),
   ];
@@ -346,9 +346,9 @@ function checkRootPackage(release, workDir) {
 
   checkRootFiles(release, packed);
   const { packageJson } = release;
-  const browserEntries = exportTargets(packageJson.exports, 'browser');
-  if (typeof packageJson.browser === 'string') {
-    browserEntries.push(packageJson.browser);
+  const browserEntries = exportTargets(packageJson['exports'], 'browser');
+  if (typeof packageJson['browser'] === 'string') {
+    browserEntries.push(packageJson['browser']);
   }
   const browserModules = browserEntries
     .map(normalizePath)
@@ -366,7 +366,7 @@ function checkRootPackage(release, workDir) {
  */
 function checkRootFiles(release, packed) {
   const { packageJson } = release;
-  for (const entry of stringList(packageJson.files)) {
+  for (const entry of stringList(packageJson['files'])) {
     const file = normalizePath(entry);
     if (/[*?[\]{}!]/.test(file)) {
       problems.push(
@@ -376,9 +376,14 @@ function checkRootFiles(release, packed) {
       problems.push(`The root package would be published without ${entry}`);
     }
   }
-  const entryPoints = [packageJson.main, packageJson.module, packageJson.browser, packageJson.types]
+  const entryPoints = [
+    packageJson['main'],
+    packageJson['module'],
+    packageJson['browser'],
+    packageJson['types'],
+  ]
     .filter((entry) => typeof entry === 'string')
-    .concat(exportTargets(packageJson.exports));
+    .concat(exportTargets(packageJson['exports']));
   for (const file of new Set(entryPoints.map(normalizePath))) {
     if (!file.includes('*') && !packed.includes(file)) {
       problems.push(`The root package entry point ${file} would not be published`);
@@ -492,7 +497,7 @@ function checkEntrySideEffects(packageDir, entry) {
     manifests.push(nearest);
   }
   for (const { dir, manifest } of manifests) {
-    if (!hasSideEffects(manifest.sideEffects, posix.relative(dir, entry))) {
+    if (!hasSideEffects(manifest['sideEffects'], posix.relative(dir, entry))) {
       problems.push(
         `${posix.join(dir, 'package.json')} marks the browser entry ${entry} as side-effect ` +
           'free, so bundlers may drop the initialisation of the WebAssembly module',
@@ -535,7 +540,7 @@ function isEsModule(packageDir, file) {
   if (file.endsWith('.mjs') || file.endsWith('.cjs')) {
     return file.endsWith('.mjs');
   }
-  return nearestManifest(packageDir, file).manifest.type === 'module';
+  return nearestManifest(packageDir, file).manifest['type'] === 'module';
 }
 
 /**
@@ -600,8 +605,8 @@ function* moduleReferences(node) {
   if (!isRecord(node)) {
     return;
   }
-  const source = stringLiteral(node.source);
-  if (source !== undefined && MODULE_NODE_TYPES.has(String(node.type))) {
+  const source = stringLiteral(node['source']);
+  if (source !== undefined && MODULE_NODE_TYPES.has(String(node['type']))) {
     yield { specifier: source, url: false };
   }
   const url = importMetaUrl(node);
@@ -621,19 +626,19 @@ function* moduleReferences(node) {
  */
 function importMetaUrl(node) {
   const { callee } = node;
-  if (node.type !== 'NewExpression' || !isRecord(callee) || callee.name !== 'URL') {
+  if (node['type'] !== 'NewExpression' || !isRecord(callee) || callee['name'] !== 'URL') {
     return undefined;
   }
   /** @type {unknown[]} */
-  const args = Array.isArray(node.arguments) ? node.arguments : [];
+  const args = Array.isArray(node['arguments']) ? node['arguments'] : [];
   const [path, base] = args;
   const isImportMetaUrl =
     isRecord(base) &&
-    base.type === 'MemberExpression' &&
-    isRecord(base.object) &&
-    base.object.type === 'MetaProperty' &&
-    isRecord(base.property) &&
-    base.property.name === 'url';
+    base['type'] === 'MemberExpression' &&
+    isRecord(base['object']) &&
+    base['object']['type'] === 'MetaProperty' &&
+    isRecord(base['property']) &&
+    base['property']['name'] === 'url';
   return isImportMetaUrl ? stringLiteral(path) : undefined;
 }
 
@@ -642,7 +647,7 @@ function importMetaUrl(node) {
  * @returns {string | undefined}
  */
 function stringLiteral(node) {
-  if (!isRecord(node) || node.type !== 'Literal') {
+  if (!isRecord(node) || node['type'] !== 'Literal') {
     return undefined;
   }
   const { value } = node;

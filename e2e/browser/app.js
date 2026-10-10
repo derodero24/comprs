@@ -58,4 +58,4 @@ try {
 } catch (error) {
   result = error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
-document.documentElement.dataset.result = result;
+document.documentElement.dataset['result'] = result;

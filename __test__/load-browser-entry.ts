@@ -88,11 +88,13 @@ interface WebAssemblyApi {
 }
 
 function isWebAssemblyApi(value: unknown): value is WebAssemblyApi {
-  return isRecord(value) && typeof value.instantiateStreaming === 'function';
+  return isRecord(value) && typeof value['instantiateStreaming'] === 'function';
 }
 
 function isWasmMemory(value: unknown): value is WasmMemory {
-  return isRecord(value) && value.buffer instanceof ArrayBuffer && typeof value.grow === 'function';
+  return (
+    isRecord(value) && value['buffer'] instanceof ArrayBuffer && typeof value['grow'] === 'function'
+  );
 }
 
 /**

@@ -401,7 +401,9 @@ const streamHelpers = [
   'createBrotliDecompressDictStream',
   'createDecompressStream',
 ];
+/** @type {Record<string, unknown>} */
 const webStreamExports = { ...webStreams };
+/** @type {Record<string, unknown>} */
 const nodeStreamExports = { ...nodeStreams };
 for (const name of streamHelpers) {
   assert.strictEqual(typeof webStreamExports[name], 'function', `streams.js should export ${name}`);
