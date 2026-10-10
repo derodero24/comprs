@@ -839,3 +839,5 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 ## License
 
 [MIT](LICENSE)
+
+The npm packages also include `THIRD_PARTY_LICENSES`, with the licenses of the Rust crates and of the zstd C library that the native addon and the WebAssembly build link statically.
