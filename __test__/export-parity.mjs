@@ -22,7 +22,7 @@ const ROOT = new URL('../', import.meta.url);
  *
  * @type {Record<string, number>}
  */
-const MIN_VALUES = { '.': 60, './next': 7 };
+const MIN_VALUES = { '.': 60, './next': 8 };
 
 /**
  * @param {unknown} value
