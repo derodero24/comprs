@@ -52,6 +52,24 @@ const brotliBytes = encoder.encode(
 const messages = Array.from({ length: 8 }, (_, i) => message(i));
 const text = encoder.encode('The unified API prepares dictionaries once. '.repeat(500));
 
+/** `size` bytes of the messages from message(`first`) on, the last cut. */
+function lines(size: number, first: number): Uint8Array {
+  const bytes = new Uint8Array(size);
+  for (let offset = 0, i = first; offset < size; i++) {
+    const line = message(i);
+    bytes.set(line.subarray(0, size - offset), offset);
+    offset += line.length;
+  }
+  return bytes;
+}
+
+/**
+ * zstd dictionaries of 32 KiB and 110 KiB of raw content: bytes without the
+ * header of a trained dictionary, which zstd takes as they are.
+ */
+const raw32 = lines(32 * 1024, 300_000);
+const raw110 = lines(110 * 1024, 400_000);
+
 /** The bytes of a dictionary for `format`. */
 function bytesFor(format: DictionaryOptions['format']): Uint8Array {
   return format === 'zstd' ? trained : brotliBytes;
@@ -255,6 +273,67 @@ describe('compression with a Dictionary', () => {
     const compressed = compressSync(input, { format: 'zstd', dictionary: trained });
     expect(compressed).toEqual(plain(zstdCompressWithDict(input, trained)));
     expect(decompressSync(compressed, { format: 'zstd', dictionary: trained })).toEqual(input);
+  });
+});
+
+describe('the zstd frames of a Dictionary', () => {
+  // zstd compresses an input with the parameters that a Dictionary was
+  // digested for, unless the input has at least 128 KiB and at least 6
+  // times as many bytes as the dictionary, its header included
+  // (ZSTD_USE_CDICT_PARAMS_SRCSIZE_CUTOFF and _DICTSIZE_MULTIPLIER of zstd
+  // 1.5.7): such an input gets parameters for its size. Up to level 8,
+  // smaller inputs of at most 512 KiB get the frames that
+  // zstdCompressWithDict() writes with the bytes. Other inputs can get other
+  // frames, so the tests only decompress those with the bytes. Above level
+  // 8, zstd sizes its window and splits blocks otherwise with a Dictionary,
+  // which changes no frame of the messages or `text`, but can change those
+  // of other inputs below the cutoff.
+  it.each([-5, 1, 3, 19])(
+    'are those of zstdCompressWithDict for the messages at level %i',
+    (level) => {
+      const dictionary = Dictionary.from(trained, { format: 'zstd', level });
+      for (const input of [...messages, text]) {
+        expect(compressSync(input, { format: 'zstd', dictionary })).toEqual(
+          plain(zstdCompressWithDict(input, trained, level)),
+        );
+      }
+      dictionary.close();
+    },
+  );
+
+  /**
+   * Dictionaries, with inputs just below the size from which zstd takes
+   * parameters for the input or from which the window can differ, and
+   * inputs at or above it.
+   */
+  const cutoffs: [name: string, bytes: Uint8Array, below: Uint8Array[], above: Uint8Array[]][] = [
+    // 128 KiB, more than 6 times the 8 KiB of `trained`.
+    ['trained', trained, [lines(131_071, 0)], [lines(131_072, 0)]],
+    // 6 times 32 KiB, 196,608 bytes, more than 128 KiB.
+    ['raw32', raw32, [lines(131_072, 0), lines(196_607, 0)], [lines(196_608, 0)]],
+    // 6 times 110 KiB, 675,840 bytes, more than 512 KiB, where the windows
+    // of the frames can differ below the cutoff too.
+    ['raw110', raw110, [lines(524_288, 0)], [lines(524_289, 0), lines(675_840, 0)]],
+  ];
+
+  it.each([-5, 1, 3])('are those of zstdCompressWithDict below the cutoff at level %i', (level) => {
+    for (const [name, bytes, below, above] of cutoffs) {
+      const dictionary = Dictionary.from(bytes, { format: 'zstd', level });
+      for (const input of below) {
+        const compressed = compressSync(input, { format: 'zstd', dictionary });
+        expect(compressed, `${name}, ${input.length} bytes`).toEqual(
+          plain(zstdCompressWithDict(input, bytes, level)),
+        );
+      }
+      for (const input of above) {
+        const compressed = compressSync(input, { format: 'zstd', dictionary });
+        expect(
+          plain(zstdDecompressWithDict(compressed, bytes)),
+          `${name}, ${input.length} bytes`,
+        ).toEqual(input);
+      }
+      dictionary.close();
+    }
   });
 });
 

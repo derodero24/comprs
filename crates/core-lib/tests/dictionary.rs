@@ -49,7 +49,8 @@ fn stream(ctx: Result<impl Context, ComprsError>, data: &[u8]) -> Vec<u8> {
 /// for the dictionary; and one of over 128 KiB, which zstd compresses with
 /// parameters for its size instead. `ZSTD_compress_usingCDict` keeps the
 /// prepared parameters for an input smaller than 128 KiB or than 6 times
-/// the dictionary's content (zstd 1.5.7, `zstd_compress.c`).
+/// the dictionary, header and entropy tables included (zstd 1.5.7,
+/// `zstd_compress.c`).
 fn inputs() -> [Vec<u8>; 3] {
     [message(7), text(20_000), text(132_000)]
 }

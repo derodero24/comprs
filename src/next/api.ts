@@ -643,7 +643,14 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
  * The output holds the same bytes as that of the functions of the root
  * entry at the same settings, such as `zstdCompress(data, level)`, or
  * `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses
- * with `workers`, or a large input with a {@link Dictionary}.
+ * with `workers`, or with a {@link Dictionary} above level 8, or with a
+ * Dictionary an input of more than 512 KiB or of at least 128 KiB and at
+ * least 6 times the {@link Dictionary.byteLength} of the dictionary. zstd
+ * compresses an input of at least 128 KiB and 6 times the size of the
+ * dictionary with parameters for its size rather than those that the
+ * Dictionary was prepared for, and above level 8 or 512 KiB, it sizes its
+ * window or splits blocks otherwise with a Dictionary than with its bytes.
+ * The bytes of the dictionary decompress the output either way.
  *
  * The data and the bytes of a dictionary are copied when compress() is
  * called, so changing them afterwards does not change the result, and the
