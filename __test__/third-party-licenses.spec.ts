@@ -284,8 +284,10 @@ describe('collectLicenses', () => {
    * otherwise (undefined leaves the file out).
    */
   function zstdSysCrate(sources: Record<string, string | undefined> = {}): CargoPackage {
+    // With LF line endings, as in the crate, also where a checkout gives the
+    // committed copies CRLF.
     const header = (copy: string): string => {
-      const text = readFileSync(join(LICENSES_DIR, copy), 'utf8');
+      const text = readFileSync(join(LICENSES_DIR, copy), 'utf8').replaceAll('\r\n', '\n');
       return text.slice(text.indexOf('/*'));
     };
     const files = Object.entries({
