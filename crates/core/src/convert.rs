@@ -61,39 +61,48 @@ pub(crate) fn sync_result(env: &Env, result: Result<Vec<u8>, ComprsError>) -> na
 /// allocates if `data` holds at most `limit` bytes, which frees `data` right
 /// away, and `data` itself as an external buffer otherwise.
 pub(crate) fn to_uint8array(env: &Env, data: Vec<u8>, limit: usize) -> napi::Result<Uint8Array> {
-    // napi-rs creates an empty array in V8's memory for an empty `Vec`,
-    // which `copy_to_v8` does not take.
-    if data.is_empty() || data.len() > limit {
+    if data.len() > limit {
         return Ok(Uint8Array::from(data));
     }
     copy_to_v8(env, &data)
 }
 
-/// A new `Uint8Array` that holds a copy of `data`, which must not be empty,
-/// in an `ArrayBuffer` of its own that V8 allocates.
+/// A new `Uint8Array` that holds a copy of `data` in an `ArrayBuffer` of its
+/// own that V8 allocates.
 ///
 /// napi-rs 3.14's `Uint8ArraySlice::copy_from` creates such an array without
 /// copying the data into it, which leaves it zero-filled, so this function
 /// calls Node-API itself. (`BufferSlice::copy_from`, which [`to_buffer`]
 /// uses, calls `napi_create_buffer_copy` and does copy.)
 fn copy_to_v8(env: &Env, data: &[u8]) -> napi::Result<Uint8Array> {
+    // Node-API does not promise memory for an empty `ArrayBuffer`, and a
+    // copy to a null pointer is undefined behavior even for no bytes. For
+    // an empty `Vec`, napi-rs creates an empty array in V8's memory without
+    // copying.
+    if data.is_empty() {
+        return Ok(Uint8Array::from(Vec::new()));
+    }
     let env = env.raw();
     let mut memory = ptr::null_mut();
     let mut buffer = ptr::null_mut();
     let mut array = ptr::null_mut();
-    // SAFETY: `env` is the environment of the current call. A successful
-    // napi_create_arraybuffer sets `memory` to the start of the
-    // `data.len()` bytes of the new `buffer`, which no JavaScript code can
-    // reach yet; `data` is not empty, so `memory` is not null. `array` is
-    // then a Uint8Array over all of `buffer`, as
+    // SAFETY: `env` is the environment of the current call, and the
+    // pointers are to locals.
+    check_status!(unsafe {
+        sys::napi_create_arraybuffer(env, data.len(), &mut memory, &mut buffer)
+    })?;
+    if memory.is_null() {
+        return Err(napi::Error::new(
+            napi::Status::GenericFailure,
+            "napi_create_arraybuffer returned no memory",
+        ));
+    }
+    // SAFETY: `memory` is not null and starts the `data.len()` bytes of the
+    // new `buffer`, which no JavaScript code can reach yet and which cannot
+    // overlap `data`. `env` is the environment of the current call, and
+    // `array` is then a Uint8Array over all of `buffer`, as
     // `Uint8Array::from_napi_value` requires.
     unsafe {
-        check_status!(sys::napi_create_arraybuffer(
-            env,
-            data.len(),
-            &mut memory,
-            &mut buffer
-        ))?;
         ptr::copy_nonoverlapping(data.as_ptr(), memory.cast::<u8>(), data.len());
         check_status!(sys::napi_create_typedarray(
             env,
