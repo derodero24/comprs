@@ -50,7 +50,7 @@ function toUint8Array(chunk: unknown): Uint8Array {
  * Largest result of a stream context that the streams enqueue without
  * copying it. It mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs: the
  * contexts return results up to that size in memory that V8 allocates, and
- * larger ones in memory of the addon, which V8 cannot detach.
+ * larger ones in memory of the addon, which Node.js marks as untransferable.
  */
 const VIEW_LIMIT = 2 * 1024 * 1024;
 
@@ -60,9 +60,11 @@ const VIEW_LIMIT = 2 * 1024 * 1024;
  * The streams emit plain Uint8Array chunks, not Buffers, whose slice()
  * differs. A result in memory that V8 allocated, with an ArrayBuffer of its
  * own, is enqueued as a view of that memory, which a reader can transfer to
- * a worker. Any other result is copied: V8 cannot detach the memory of the
- * addon, and on a runtime whose napi_create_buffer_copy() allocates from a
- * pool, transferring a shared ArrayBuffer would detach other chunks too.
+ * a worker. Any other result is copied: Node.js marks the memory of the
+ * addon as untransferable, so a view of it could not be transferred there
+ * (DataCloneError), and on a runtime whose napi_create_buffer_copy()
+ * allocates from a pool, transferring a shared ArrayBuffer would detach
+ * other chunks too.
  */
 function enqueueIfNonEmpty(controller: Controller, result: Uint8Array): void {
   if (result.byteLength === 0) return;

@@ -13,9 +13,10 @@ use crate::error::to_napi_error;
 /// external buffer. Node.js frees that memory only on a later turn of the
 /// event loop, even once V8 has collected the Buffer, so a synchronous loop
 /// gets none of it back and page-faults fresh memory on every call (#560).
-/// V8 cannot detach external memory either, so such a result cannot be
-/// transferred to a worker. A copy into memory that V8 allocates frees the
-/// `Vec` at once, and V8 frees the copy as soon as it collects it.
+/// Node.js also marks external buffers as untransferable, so such a result
+/// cannot be transferred to a worker there (`DataCloneError`). A copy into
+/// memory that V8 allocates frees the `Vec` at once, and V8 frees the copy
+/// as soon as it collects it.
 ///
 /// The copy takes about 0.1 ms per MiB. A synchronous loop saves more than
 /// that in page faults, measured with glibc for results of up to 16 MiB; at
@@ -25,6 +26,10 @@ use crate::error::to_napi_error;
 /// it, though, so for it the copy is mostly extra work: it costs nothing
 /// for results of up to 2 MiB, while calls that return 4 MiB take 30%
 /// longer, 8 MiB 70% and 16 MiB 2.7 times as long.
+///
+/// These figures, and so the limit, come from Node.js 22 on x86-64 Linux
+/// with glibc. Other allocators, such as musl's mallocng and the Windows
+/// heap, serve large blocks from fresh mappings, and were not measured.
 ///
 /// `src/streams.ts` mirrors this value: the Web streams enqueue the results
 /// of the stream contexts up to this size without copying them again.
