@@ -228,7 +228,8 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 /// The stream of a longer input is compressed with neither the custom
 /// dictionary nor brotli's built-in one, as the fallback of
 /// [`crate::brotli::compress_with_dict`] is, and decodes the same with or
-/// without the dictionary: brotli 9.0.0's encoder is not safe with a custom
+/// without the dictionary (an empty dictionary stands for none, and keeps
+/// the built-in one): brotli 9.0.0's encoder is not safe with a custom
 /// dictionary on a long stream. It marks the end of the dictionary in its
 /// ring buffer of 2^([`LG_WINDOW_SIZE`] + 1) bytes, and once the input has
 /// wrapped around the ring buffer, every 8 MiB, it still cuts the matches
@@ -295,8 +296,8 @@ impl CompressDictContext {
     /// chunk and return an empty Vec; otherwise compress it and return the
     /// output that the encoder has emitted.
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let input = match &mut self.state {
-            DictState::Holding { input, .. } => input,
+        let (dict, input) = match &mut self.state {
+            DictState::Holding { dict, input } => (dict, input),
             DictState::Streaming(encoder) => {
                 let output =
                     encoder.stream(BrotliEncoderOperation::BROTLI_OPERATION_PROCESS, chunk);
@@ -313,8 +314,11 @@ impl CompressDictContext {
         }
 
         // The input has grown past what the context holds: compress what it
-        // holds, then the rest of the chunk, without the dictionary.
-        let mut encoder = StreamEncoder::new(&crate::brotli::encoder_params(self.quality, false));
+        // holds, then the rest of the chunk, without the dictionary. An empty
+        // dictionary is none, as for `compress_with_dict`, so the encoder
+        // keeps brotli's built-in dictionary then.
+        let params = crate::brotli::encoder_params(self.quality, dict.is_empty());
+        let mut encoder = StreamEncoder::new(&params);
         let output = encoder
             .stream(BrotliEncoderOperation::BROTLI_OPERATION_FLUSH, input)
             .and_then(|mut output| {
@@ -821,6 +825,10 @@ impl StreamDecoder {
 
 #[cfg(test)]
 mod tests {
+    use brotli::enc::encode::BrotliEncoderOperation::{
+        BROTLI_OPERATION_FINISH as FINISH, BROTLI_OPERATION_FLUSH as FLUSH,
+        BROTLI_OPERATION_PROCESS as PROCESS,
+    };
     use brotli::enc::{Allocator, StandardAlloc};
 
     use super::{
@@ -1391,6 +1399,43 @@ mod tests {
         input.extend(english(DICT_REACH + 64 * KIB - input.len()));
         let (_, output) = compress_incremental(&dict, 5, &input, MIB);
         assert!(decompress_with_dict(&output, &dict).unwrap() == input);
+    }
+
+    /// An empty dictionary stands for none, as for [`compress_with_dict`]:
+    /// past [`DICT_REACH`] bytes, the stream keeps brotli's built-in
+    /// dictionary, which makes English text smaller.
+    #[test]
+    fn incremental_dict_context_keeps_the_built_in_dictionary_for_an_empty_one() {
+        let quality = 5;
+        let mut input = vec![0; DICT_REACH];
+        input.extend(english(64 * KIB));
+        // What the context makes of `input` past the reach, with or without
+        // brotli's built-in dictionary.
+        let stream = |use_dictionary| {
+            let params = crate::brotli::encoder_params(quality, use_dictionary);
+            let mut encoder = super::StreamEncoder::new(&params);
+            let mut output = encoder.stream(FLUSH, &input[..DICT_REACH]).unwrap();
+            output.extend(encoder.stream(PROCESS, &input[DICT_REACH..]).unwrap());
+            output.extend(encoder.stream(FINISH, &[]).unwrap());
+            output
+        };
+        let mut ctx = CompressDictContext::incremental(&[], Some(quality)).unwrap();
+        let mut output = ctx.transform(&input[..DICT_REACH]).unwrap();
+        output.extend(ctx.transform(&input[DICT_REACH..]).unwrap());
+        output.extend(ctx.finish().unwrap());
+        assert!(output == stream(true));
+        let without = stream(false);
+        assert!(
+            output.len() < without.len(),
+            "{} bytes, {} without the built-in dictionary",
+            output.len(),
+            without.len()
+        );
+        assert!(decompress(&output).unwrap() == input);
+        let mut decoder = DecompressDictContext::new(&[], None).unwrap();
+        let mut decoded = decoder.transform(&output).unwrap();
+        decoded.extend(decoder.finish().unwrap());
+        assert!(decoded == input);
     }
 
     /// 8 MiB and 64 KiB of a period of 1000 bytes of noise, with two bytes
