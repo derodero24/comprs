@@ -80,3 +80,10 @@ path = "fuzz_targets/round_trip.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "unified_decompress"
+path = "fuzz_targets/unified_decompress.rs"
+test = false
+doc = false
+bench = false

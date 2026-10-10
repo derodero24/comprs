@@ -2,7 +2,8 @@
 
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::{
-    ComprsError, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
+    ComprsError, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream, unified, zstd,
+    zstd_stream,
 };
 
 /// The magic number 0xEC30A437 that starts a formatted zstd dictionary, in
@@ -244,6 +245,7 @@ impl_stream!(
     brotli_stream::DecompressContext,
     brotli_stream::DecompressDictContext,
     lz4_stream::CompressContext,
+    unified::DecompressContext,
 );
 
 impl Stream for lz4_stream::DecompressContext {
