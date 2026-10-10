@@ -2,6 +2,7 @@
   "type": "module",
   "sideEffects": [
     "./index.js",
-    "./streams.js"
+    "./streams.js",
+    "./wasm.js"
   ]
 }

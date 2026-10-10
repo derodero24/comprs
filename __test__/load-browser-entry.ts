@@ -14,12 +14,12 @@ export const HAS_WASM_BUILD = existsSync(resolve(__dirname, '../browser/comprs-w
 let entryMemory: WasmMemory | undefined;
 
 /**
- * Import a module that loads the browser entry, which fetches the
- * WebAssembly module next to it when it is imported. Node's fetch does not
- * support file: URLs, so serve them from disk, as a web server would, with
- * the type that lets the glue compile the response as it streams in. Record
- * the memory of the instance that the entry creates, which it does not
- * export.
+ * Import a module that loads browser/wasm.js, as the browser entry does,
+ * which fetches the WebAssembly module next to it when it is imported.
+ * Node's fetch does not support file: URLs, so serve them from disk, as a
+ * web server would, with the type that lets the glue compile the response
+ * as it streams in. Record the memory of the instance that it creates,
+ * which it does not export.
  */
 async function withFileFetch<T>(load: () => Promise<T>): Promise<T> {
   vi.stubGlobal(

@@ -93,7 +93,7 @@
       }
     },
     {
-      "includes": ["browser/index.js", "playground/**"],
+      "includes": ["browser/index.js", "browser/wasm.js", "playground/**"],
       "linter": {
         "rules": {
           "complexity": {
