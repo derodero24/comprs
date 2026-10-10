@@ -133,7 +133,7 @@
     "version": "napi version",
     "check": "biome ci --error-on-warnings",
     "format": "biome format --write",
-    "lint": "biome check",
+    "lint": "biome check --error-on-warnings",
     "lint:fix": "biome check --write",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run",

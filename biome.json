@@ -64,7 +64,7 @@
         "noAccumulatingSpread": "error",
         "noBarrelFile": "error",
         "noReExportAll": "error",
-        "noDelete": "warn"
+        "noDelete": "error"
       },
       "style": {
         "noDefaultExport": "error",
@@ -88,6 +88,16 @@
         "rules": {
           "nursery": {
             "useExplicitType": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["browser/index.js", "playground/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "error"
           }
         }
       }
