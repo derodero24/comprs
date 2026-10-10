@@ -102,6 +102,7 @@ jobs:
         if: matrix.settings.use-zig
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=crate depName=cargo-zigbuild versioning=semver
           tool: cargo-zigbuild@0.23.4
           fallback: none
 
@@ -112,6 +113,7 @@ jobs:
       - name: Install Zig
         if: matrix.settings.use-zig
         run: |
+          # renovate: datasource=pypi depName=ziglang
           echo 'ziglang==0.16.0 --hash=sha256:9fcda73f62b851dd72a54b710ad40a209896db14cfb13649e62191243556342b' > "$RUNNER_TEMP/zig-requirements.txt"
           pip3 install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/zig-requirements.txt"
 

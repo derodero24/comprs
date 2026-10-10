@@ -58,11 +58,13 @@ jobs:
       - name: Install cargo-codspeed
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=crate depName=cargo-codspeed versioning=semver
           tool: cargo-codspeed@5.0.2
           # install-action has no manifest for cargo-codspeed. Build it from
           # crates.io with its lockfile rather than fetch a third-party
           # binary through cargo-binstall. Keep it at the version of the
-          # codspeed crates in Cargo.lock.
+          # codspeed crates in Cargo.lock, which Renovate updates together
+          # with it (the rust-dependencies group).
           fallback: cargo-install
 
       - name: Build benchmarks

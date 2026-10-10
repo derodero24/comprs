@@ -14,6 +14,16 @@
     "minimumReleaseAge": null,
     "automerge": false
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tool versions pinned inside workflows (install-action tool inputs, env values, run text), each marked by a `# renovate:` comment on the line above. The github-actions manager reads only `uses:`",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n[^\\n]*?(?:@|==|VERSION: )(?<currentValue>\\d[^\\s'\"]*)"
+      ]
+    }
+  ],
   "packageRules": [
     {
       "description": "Group and automerge non-major npm updates (devDependencies, pnpm overrides, packageManager)",
@@ -40,6 +50,30 @@
     {
       "description": "Automerge non-major Rust crate updates",
       "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "The tools pinned inside the workflows lint the workflows, fuzz the codecs or build what is released, so their updates are grouped and reviewed, never automerged. cargo-codspeed, which builds the benchmarks, follows the codspeed crates instead (next two rules)",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["!cargo-codspeed"],
+      "groupName": "workflow tools",
+      "automerge": false,
+      "prBodyNotes": [
+        "A checksum next to a bumped version must be updated by hand in this PR: actionlint's `SHA256` in .github/workflows/ci.yml (from the release's checksums file) and the ziglang `--hash` in .github/workflows/build.yml (the SHA-256 of the release's x86_64 manylinux wheel on PyPI). CI fails until it is, through `sha256sum --check` and `pip3 install --require-hashes`.",
+        "shellcheck, wasm-pack and cargo-zigbuild install from the manifest of the pinned taiki-e/install-action, with no fallback. If an install step fails with `is not supported (updating install-action might resolve this)`, merge the pending github-actions update first, then rebase this PR."
+      ]
+    },
+    {
+      "description": "cargo-codspeed builds the benchmarks against the codspeed crates in Cargo.lock, so it moves with them in the rust-dependencies group",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["cargo-codspeed"],
+      "groupName": "rust-dependencies"
+    },
+    {
+      "description": "Automerge non-major cargo-codspeed updates, as the Rust crates are: a group automerges only when every update in it does, so without this rule cargo-codspeed would hold back the whole rust-dependencies PR. The codspeed crates already automerge on the same checks, and the CodSpeed job runs on that PR, since Cargo.lock changes",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["cargo-codspeed"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
     },

@@ -266,9 +266,11 @@ jobs:
       - name: Install shellcheck
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=github-releases depName=koalaman/shellcheck extractVersion=^v(?<version>.+)$
           tool: shellcheck@0.11.0
       - name: Install actionlint
         env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
           VERSION: 1.7.12
           SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
@@ -440,6 +442,7 @@ jobs:
       - name: Install wasm-pack
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
+          # renovate: datasource=crate depName=wasm-pack versioning=semver
           tool: wasm-pack@0.15.0
           fallback: none
       - name: Build wasm-bindgen
