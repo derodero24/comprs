@@ -487,11 +487,28 @@ macro_rules! impl_encoder {
 
 impl_encoder!(GzEncoder, DeflateEncoder, ZlibEncoder);
 
+/// Input, in bytes, that [`FlateEncoder`] writes to its encoder at a time.
+///
+/// At levels 5 and 6, zlib-rs compresses with a strategy whose match state
+/// does not carry over from one call to the next, so its output depends on
+/// how the calls split the input: in chunks of 1,000 bytes, repetitive text
+/// compressed 17% larger than in one call, and 57% larger in chunks of 100
+/// bytes (#724). Writing the input in blocks of this size makes the output
+/// of a stream the same however its input is split into chunks, and spares
+/// the cost of a call per small chunk.
+const BLOCK_SIZE: usize = 32 * 1024;
+
 /// Encoder state shared by [`GzipCompressContext`],
 /// [`DeflateCompressContext`] and [`ZlibCompressContext`].
+///
+/// It writes its input to the encoder in blocks of [`BLOCK_SIZE`] bytes:
+/// `transform` holds the input that does not complete a block, and `flush`
+/// and `finish` write it first.
 struct FlateEncoder<E> {
     /// `None` once the stream is finished.
     encoder: Option<E>,
+    /// The input after the last block, less than [`BLOCK_SIZE`] bytes.
+    held: Vec<u8>,
     labels: Labels,
 }
 
@@ -499,63 +516,94 @@ impl<E: Encoder> FlateEncoder<E> {
     fn new(encoder: E, labels: Labels) -> Self {
         Self {
             encoder: Some(encoder),
+            held: Vec::new(),
             labels,
         }
     }
 
-    /// Compress `chunk`, returning the output that the encoder has written
-    /// so far.
-    fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    /// Compress the blocks that `chunk` completes, returning the output that
+    /// the encoder has written so far, and hold the rest of `chunk`.
+    fn transform(&mut self, mut chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
+        let error = |e: io::Error| ComprsError::Operation {
+            context: self.labels.transform,
+            source: e.into(),
+        };
 
-        encoder
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: self.labels.transform,
-                source: e.into(),
-            })?;
+        if !self.held.is_empty() {
+            let wanted = BLOCK_SIZE - self.held.len();
+            let (start, rest) = chunk.split_at(wanted.min(chunk.len()));
+            self.held.extend_from_slice(start);
+            chunk = rest;
+            if self.held.len() < BLOCK_SIZE {
+                return Ok(std::mem::take(encoder.get_mut()));
+            }
+            encoder.write_all(&self.held).map_err(error)?;
+            self.held.clear();
+        }
+
+        let (blocks, rest) = chunk.split_at(chunk.len() - chunk.len() % BLOCK_SIZE);
+        for block in blocks.chunks(BLOCK_SIZE) {
+            encoder.write_all(block).map_err(error)?;
+        }
+        if !rest.is_empty() {
+            // The held input never grows past a block.
+            self.held.reserve_exact(BLOCK_SIZE);
+            self.held.extend_from_slice(rest);
+        }
 
         Ok(std::mem::take(encoder.get_mut()))
     }
 
-    /// Flush the input written so far, returning the output, from which a
-    /// decoder can read all that input but in the rare case that
-    /// [`sync_flush`] describes.
+    /// Flush the input so far, returning the output, from which a decoder
+    /// can read all that input but in the rare case that [`sync_flush`]
+    /// describes.
     fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
-        sync_flush(encoder).map_err(|e| ComprsError::Operation {
-            context: self.labels.flush,
-            source: e.into(),
-        })?;
+        encoder
+            .write_all(&self.held)
+            .and_then(|()| sync_flush(encoder))
+            .map_err(|e| ComprsError::Operation {
+                context: self.labels.flush,
+                source: e.into(),
+            })?;
+        self.held.clear();
 
         Ok(std::mem::take(encoder.get_mut()))
     }
 
     /// End the stream, returning the rest of the output.
     fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let encoder = self
+        let mut encoder = self
             .encoder
             .take()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
+        let held = std::mem::take(&mut self.held);
 
-        encoder.finish().map_err(|e| ComprsError::Operation {
-            context: self.labels.finish,
-            source: e.into(),
-        })
+        encoder
+            .write_all(&held)
+            .and_then(|()| encoder.finish())
+            .map_err(|e| ComprsError::Operation {
+                context: self.labels.finish,
+                source: e.into(),
+            })
     }
 
-    /// The deflate state and flate2's buffer, and the output that has not
-    /// been returned yet.
+    /// The deflate state and flate2's buffer, the input held, and the
+    /// output that has not been returned yet.
     fn memory_usage(&self) -> usize {
         self.encoder.as_ref().map_or(0, |encoder| {
-            DEFLATE_STATE_SIZE + WRITER_BUFFER_SIZE + encoder.get_ref().capacity()
+            DEFLATE_STATE_SIZE
+                + WRITER_BUFFER_SIZE
+                + self.held.capacity()
+                + encoder.get_ref().capacity()
         })
     }
 }
@@ -630,8 +678,8 @@ mod tests {
     use flate2::write::{DeflateEncoder, GzEncoder};
 
     use super::{
-        DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
-        GzipDecompressContext, INFLATE_STATE_SIZE, StrictDecompressContext,
+        BLOCK_SIZE, DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext,
+        GzipCompressContext, GzipDecompressContext, INFLATE_STATE_SIZE, StrictDecompressContext,
     };
     use crate::gzip::{DEFAULT_LEVEL, FlateWrapper};
     use crate::{ComprsError, MemoryUsage};
@@ -836,6 +884,31 @@ mod tests {
         inflate.finish().unwrap();
         assert_eq!(gunzip.memory_usage(), 0);
         assert_eq!(inflate.memory_usage(), inflate.output.capacity());
+    }
+
+    #[test]
+    fn compress_contexts_hold_the_input_that_does_not_complete_a_block() {
+        let data = b"held until a block is complete ".repeat(2000);
+        let mut ctx = DeflateCompressContext::new(None).unwrap();
+        let idle = ctx.memory_usage();
+        // The first chunk is held, and counted, until a block is complete.
+        assert!(ctx.transform(&data[..BLOCK_SIZE - 1]).unwrap().is_empty());
+        assert!(ctx.memory_usage() >= idle + BLOCK_SIZE);
+        let mut compressed = ctx.transform(&data[BLOCK_SIZE - 1..]).unwrap();
+        // flush() and finish() write what is held first.
+        compressed.extend(ctx.flush().unwrap());
+        let mut inflate = DeflateDecompressContext::new(None).unwrap();
+        assert_eq!(inflate.transform(&compressed).unwrap(), data);
+
+        compressed.extend(ctx.transform(b"and the rest").unwrap());
+        compressed.extend(ctx.finish().unwrap());
+        assert_eq!(ctx.memory_usage(), 0);
+        let mut expected = data.clone();
+        expected.extend(b"and the rest");
+        let mut inflate = DeflateDecompressContext::new(None).unwrap();
+        let mut output = inflate.transform(&compressed).unwrap();
+        output.extend(inflate.finish().unwrap());
+        assert_eq!(output, expected);
     }
 
     #[test]
