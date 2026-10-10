@@ -15,6 +15,9 @@ const FUNCTIONS = [
     'detectFormat',
     'trainDictionary',
     'trainDictionaryAsync',
+    'createDictionary',
+    'dictionaryToBytes',
+    'closeDictionary',
 ];
 function isBackend(value) {
     return (typeof value === 'object' &&

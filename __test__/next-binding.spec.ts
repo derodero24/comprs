@@ -21,6 +21,9 @@ const INTERNAL = Symbol.for('@derodero24/comprs/internal');
 const FORMATS = ['zstd', 'gzip', 'deflate', 'deflate-raw', 'brotli', 'lz4'] as const;
 type Format = (typeof FORMATS)[number];
 
+/** A prepared dictionary, as createDictionary() returns it: an `External`. */
+type DictionaryHandle = object;
+
 /** The functions of the hidden binding. */
 interface NextBinding {
   compress(
@@ -32,6 +35,7 @@ interface NextBinding {
     gzipFilename?: string,
     gzipMtime?: number,
     workers?: number,
+    dictionaryHandle?: DictionaryHandle,
   ): Uint8Array;
   compressAsync(
     data: Uint8Array,
@@ -42,22 +46,28 @@ interface NextBinding {
     gzipFilename?: string,
     gzipMtime?: number,
     workers?: number,
+    dictionaryHandle?: DictionaryHandle,
   ): Promise<Uint8Array>;
   decompress(
     data: Uint8Array,
     format?: string,
     maxOutputSize?: number,
     dictionary?: Uint8Array,
+    dictionaryHandle?: DictionaryHandle,
   ): Uint8Array;
   decompressAsync(
     data: Uint8Array,
     format?: string,
     maxOutputSize?: number,
     dictionary?: Uint8Array,
+    dictionaryHandle?: DictionaryHandle,
   ): Promise<Uint8Array>;
   detectFormat(data: Uint8Array): string | null;
   trainDictionary(samples: Uint8Array[], maxSize?: number): Uint8Array;
   trainDictionaryAsync(samples: Uint8Array[], maxSize?: number): Promise<Uint8Array>;
+  createDictionary(bytes: Uint8Array, format: string, level?: number): DictionaryHandle;
+  dictionaryToBytes(handle: DictionaryHandle): Uint8Array;
+  closeDictionary(handle: DictionaryHandle): void;
   errorCodes(): string[];
 }
 
@@ -69,6 +79,9 @@ const FUNCTIONS = [
   'detectFormat',
   'trainDictionary',
   'trainDictionaryAsync',
+  'createDictionary',
+  'dictionaryToBytes',
+  'closeDictionary',
   'errorCodes',
 ] as const satisfies readonly (keyof NextBinding)[];
 
@@ -208,6 +221,104 @@ describe('dictionaries', () => {
     const message = encoder.encode(JSON.stringify({ id: 1000, name: 'item 1000', tags: ['a'] }));
     const compressed = next().compress(message, 'zstd', undefined, trained);
     expect(next().decompress(compressed, 'zstd', undefined, trained)).toEqual(message);
+  });
+});
+
+describe('prepared dictionaries', () => {
+  /** compress() with the handle `handle` of a prepared dictionary. */
+  function compressWith(handle: DictionaryHandle, format: string, level?: number): Uint8Array {
+    return next().compress(
+      text,
+      format,
+      level,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      handle,
+    );
+  }
+
+  it.each(['zstd', 'brotli'] as const)('round-trip with %s', async (format) => {
+    const handle = next().createDictionary(dictionary, format);
+    // An External: an object without properties.
+    expect(typeof handle).toBe('object');
+    expect(Reflect.ownKeys(handle)).toEqual([]);
+    const compressed = compressWith(handle, format);
+    expect(next().decompress(compressed, format, undefined, dictionary)).toEqual(text);
+    expect(next().decompress(compressed, undefined, undefined, undefined, handle)).toEqual(text);
+    expect(await next().decompressAsync(compressed, format, undefined, undefined, handle)).toEqual(
+      text,
+    );
+    const fromAsync = await next().compressAsync(
+      text,
+      format,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      handle,
+    );
+    expect(fromAsync).toEqual(compressed);
+    if (format === 'brotli') {
+      // brotli takes the bytes as they are.
+      expect(compressed).toEqual(next().compress(text, format, undefined, dictionary));
+    }
+    expect(next().dictionaryToBytes(handle)).toEqual(dictionary);
+    next().closeDictionary(handle);
+  });
+
+  it('take the place of the bytes of a dictionary', () => {
+    const handle = next().createDictionary(dictionary, 'zstd', 19);
+    const other = encoder.encode('a dictionary that the data was not compressed with');
+    const compressed = compressWith(handle, 'zstd');
+    expect(compressed).toEqual(compressWith(handle, 'zstd', 19));
+    expect(next().decompress(compressed, 'zstd', undefined, other, handle)).toEqual(text);
+  });
+
+  it.each([
+    ['a format without dictionaries', () => next().createDictionary(dictionary, 'gzip')],
+    ['empty bytes', () => next().createDictionary(new Uint8Array(0), 'zstd')],
+    ['a level for brotli', () => next().createDictionary(dictionary, 'brotli', 5)],
+    ['a zstd level out of range', () => next().createDictionary(dictionary, 'zstd', 23)],
+  ])('are not created for %s', (_, call) => {
+    const error = thrown(call);
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error).toMatchObject({ code: 'ERR_COMPRS_INVALID_ARG' });
+  });
+
+  it('are not created from bytes that zstd cannot digest', () => {
+    // The magic number of a trained dictionary, without the rest.
+    const error = thrown(() =>
+      next().createDictionary(Uint8Array.of(0x37, 0xa4, 0x30, 0xec, 0, 0, 0, 0), 'zstd'),
+    );
+    expect(Object.getPrototypeOf(error)).toBe(Error.prototype);
+    expect(error).toMatchObject({
+      code: 'ERR_COMPRS_OPERATION_FAILED',
+      message: expect.stringMatching(/^zstd dictionary preparation /),
+    });
+  });
+
+  it('fail once closed, but not for the calls that started', async () => {
+    const handle = next().createDictionary(dictionary, 'zstd');
+    const expected = compressWith(handle, 'zstd');
+    const decompressing = next().decompressAsync(expected, 'zstd', undefined, undefined, handle);
+    next().closeDictionary(handle);
+    // Closing again does nothing.
+    next().closeDictionary(handle);
+    expect(await decompressing).toEqual(text);
+    const closed = { code: 'ERR_COMPRS_INVALID_ARG', message: 'this Dictionary is closed' };
+    for (const error of [
+      thrown(() => compressWith(handle, 'zstd')),
+      thrown(() => next().dictionaryToBytes(handle)),
+      await rejection(next().decompressAsync(expected, 'zstd', undefined, undefined, handle)),
+    ]) {
+      expect(error).toBeInstanceOf(TypeError);
+      expect(error).toMatchObject(closed);
+    }
   });
 });
 
@@ -492,6 +603,19 @@ const ERROR_CASES: ErrorCase[] = [
     message: 'pass `format` to decompress with a dictionary',
     sync: (n) => n.decompress(n.compress(text, 'zstd'), undefined, undefined, dictionary),
     async: (n) => n.decompressAsync(n.compress(text, 'zstd'), undefined, undefined, dictionary),
+  },
+  {
+    name: 'a dictionary of another format',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'this Dictionary is for zstd',
+    sync: (n) => {
+      const handle = n.createDictionary(dictionary, 'zstd');
+      return n.decompress(text, 'brotli', undefined, undefined, handle);
+    },
+    async: (n) => {
+      const handle = n.createDictionary(dictionary, 'zstd');
+      return n.decompressAsync(text, 'brotli', undefined, undefined, handle);
+    },
   },
   {
     name: 'a maxOutputSize out of range',

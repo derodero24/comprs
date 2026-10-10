@@ -91,8 +91,11 @@ export interface CompressOptions {
      * The compression level, an integer whose range and default depend on the
      * format:
      *
-     * - zstd: -131072 to 22, 3 by default, which 0 also selects. Negative
-     *   levels trade compression ratio for speed;
+     * - zstd: -131072 to 22, 3 by default, which 0 also selects. With a
+     *   {@link Dictionary}, the default is the level that it was prepared
+     *   for, while 0 still selects 3, which a Dictionary prepared for another
+     *   level digests on its first use, as any other level. Negative levels
+     *   trade compression ratio for speed;
      * - gzip, deflate and deflate-raw: 0 (no compression) to 9, 6 by default;
      * - brotli: 0 to 11 (the quality of brotli), 6 by default.
      *
@@ -100,11 +103,16 @@ export interface CompressOptions {
      */
     level?: number | undefined;
     /**
-     * A dictionary, for zstd and brotli only, which must not be empty.
-     * Decompression needs the same dictionary. A zstd dictionary may be one
-     * that {@link trainDictionary} trained, or any bytes.
+     * A dictionary, for zstd and brotli only: a {@link Dictionary} for the
+     * format, or the bytes of one, which must not be empty. Decompression
+     * needs the same dictionary. A zstd dictionary may be one that
+     * {@link trainDictionary} trained, or any bytes.
+     *
+     * zstd digests the bytes of a dictionary on every call, which costs far
+     * more than compressing a small message with it: a {@link Dictionary}
+     * digests them once.
      */
-    dictionary?: Input | undefined;
+    dictionary?: Dictionary | Input | undefined;
     /**
      * The fields of the gzip header, for gzip only. Without it, or with an
      * empty object, the header has no name and no modification time.
@@ -144,6 +152,9 @@ export interface DecompressOptions {
      * but never deflate-raw, which has no header to recognize. Brotli data has
      * no magic number, so detection guesses it, and data that it takes for
      * brotli but that does not decode fails with `ERR_COMPRS_UNKNOWN_FORMAT`.
+     *
+     * With a {@link Dictionary} as the `dictionary`, `'auto'` stands for the
+     * format of the dictionary instead.
      */
     format?: Format | 'auto' | undefined;
     /**
@@ -166,10 +177,26 @@ export interface DecompressOptions {
     maxOutputSize?: number | undefined;
     /**
      * The dictionary that the data was compressed with, for zstd and brotli
-     * only. It needs a `format`: with `'auto'`, decompression fails with
+     * only: a {@link Dictionary}, or the same bytes, whatever compression
+     * took. Bytes need a `format`: with `'auto'`, decompression fails with
      * `ERR_COMPRS_INVALID_ARG`.
      */
-    dictionary?: Input | undefined;
+    dictionary?: Dictionary | Input | undefined;
+}
+/** The options of {@link Dictionary.from}. Other properties are ignored. */
+export interface DictionaryOptions {
+    /** The format that the dictionary is for: `'zstd'` or `'brotli'`. */
+    format: 'zstd' | 'brotli';
+    /**
+     * The zstd compression level to prepare the dictionary for: an integer
+     * from -131072 to 22, 3 by default, which 0 also selects. Compression
+     * with the dictionary and without a `level` of its own compresses at this
+     * level. Other levels work too: the dictionary prepares each on its first
+     * use, and keeps the last 3 of them.
+     *
+     * Brotli dictionaries take no level: leave it out.
+     */
+    level?: number | undefined;
 }
 /**
  * The options of {@link trainDictionary} and {@link trainDictionarySync}.
@@ -188,13 +215,21 @@ export interface TrainDictionaryOptions {
  * The output holds the same bytes as that of the functions of the root
  * entry at the same settings, such as `zstdCompress(data, level)`, or
  * `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses
- * with `workers`.
+ * with `workers`, or with a {@link Dictionary} above level 8, or with a
+ * Dictionary an input of more than 512 KiB or of at least 128 KiB and at
+ * least 6 times the {@link Dictionary.byteLength} of the dictionary. zstd
+ * compresses an input of at least 128 KiB and 6 times the size of the
+ * dictionary with parameters for its size rather than those that the
+ * Dictionary was prepared for, and above level 8 or 512 KiB, it sizes its
+ * window or splits blocks otherwise with a Dictionary than with its bytes.
+ * The bytes of the dictionary decompress the output either way.
  *
- * The data and the dictionary are copied when compress() is called, so
- * changing them afterwards does not change the result. In Node.js, the data
- * is compressed on a thread of the libuv pool. The browser build has no
- * such pool: it compresses the data on the calling thread, which it blocks,
- * before compress() returns.
+ * The data and the bytes of a dictionary are copied when compress() is
+ * called, so changing them afterwards does not change the result, and the
+ * call keeps using a {@link Dictionary} that is closed afterwards. In
+ * Node.js, the data is compressed on a thread of the libuv pool. The browser
+ * build has no such pool: it compresses the data on the calling thread,
+ * which it blocks, before compress() returns.
  *
  * @returns A Promise of the compressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
@@ -221,11 +256,12 @@ export declare function compressSync(data: Input, options: CompressOptions): Byt
  * find, empty data included, fails with `ERR_COMPRS_UNKNOWN_FORMAT`, as
  * {@link DecompressOptions.format} describes.
  *
- * The data and the dictionary are copied when decompress() is called, so
- * changing them afterwards does not change the result. In Node.js, the data
- * is decompressed on a thread of the libuv pool. The browser build
- * decompresses it on the calling thread, which it blocks, before
- * decompress() returns.
+ * The data and the bytes of a dictionary are copied when decompress() is
+ * called, so changing them afterwards does not change the result, and the
+ * call keeps using a {@link Dictionary} that is closed afterwards. In
+ * Node.js, the data is decompressed on a thread of the libuv pool. The
+ * browser build decompresses it on the calling thread, which it blocks,
+ * before decompress() returns.
  *
  * @returns A Promise of the decompressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`.
@@ -274,3 +310,85 @@ export declare function trainDictionary(samples: Iterable<Input>, options?: Trai
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 export declare function trainDictionarySync(samples: Iterable<Input>, options?: TrainDictionaryOptions): Bytes;
+/** `Symbol.dispose`, if the TypeScript library declares it. */
+type DisposeSymbol = SymbolConstructor extends {
+    readonly dispose: infer Key extends symbol;
+} ? Key : never;
+/**
+ * The `[Symbol.dispose]()` method of {@link Dictionary}, which this module
+ * defines where the runtime has `Symbol.dispose`. It is declared only where
+ * the TypeScript library has it too, so that these declarations also
+ * type-check without it, as with the DOM library alone.
+ */
+type Disposal = {
+    [Key in DisposeSymbol]: () => void;
+};
+export interface Dictionary extends Disposal {
+}
+/**
+ * A zstd or brotli dictionary, prepared once for every call that compresses
+ * or decompresses with it, as the `dictionary` option of {@link compress},
+ * {@link decompress} and their `*Sync` variants.
+ *
+ * zstd digests the bytes of a dictionary before it compresses or
+ * decompresses the first frame with them, which costs far more than a small
+ * message: a call with the bytes of a dictionary digests them every time, a
+ * Dictionary once. A zstd Dictionary is digested when it is created, for its
+ * compression level and for decompression. A brotli Dictionary holds the
+ * bytes, which brotli takes as they are and indexes on every call, so it
+ * saves little time yet.
+ *
+ * A Dictionary holds memory outside the JavaScript heap. For zstd, that is
+ * a copy of the bytes, a digest for decompression of about their size, and
+ * a digest for each compression level that it keeps, which grows with the
+ * level: 0.8 MB in all at level 3 for a dictionary of 110 KiB, and 2 MB at
+ * level 19. The garbage collector frees it with the Dictionary;
+ * {@link Dictionary.close} frees it earlier. `[Symbol.dispose]()` is
+ * `close()`, for `using` declarations.
+ *
+ * A Dictionary is for its {@link Dictionary.format} alone: with any other
+ * format, the functions fail with `ERR_COMPRS_INVALID_ARG`, such as "this
+ * Dictionary is for zstd". Data compressed with a Dictionary decompresses
+ * with its bytes too, and the other way round.
+ */
+export declare class Dictionary {
+    #private;
+    /** The format that the dictionary is for. */
+    readonly format: 'zstd' | 'brotli';
+    /** The size of the dictionary, in bytes. */
+    readonly byteLength: number;
+    private constructor();
+    /**
+     * Prepare a dictionary for `options.format` from `bytes`, which may be any
+     * bytes but must not be empty, such as a zstd dictionary that
+     * {@link trainDictionary} trained. A zstd dictionary is digested for
+     * compression at `options.level` and for decompression.
+     *
+     * The bytes are copied, so changing them afterwards does not change the
+     * dictionary.
+     *
+     * @returns The dictionary.
+     * @throws An error with an {@link ErrorCode} as `code`:
+     * `ERR_COMPRS_INVALID_ARG` for invalid arguments, a level for a brotli
+     * dictionary included, and `ERR_COMPRS_OPERATION_FAILED` for bytes that
+     * zstd cannot digest, such as a trained dictionary cut short.
+     */
+    static from(bytes: Input, options: DictionaryOptions): Dictionary;
+    /**
+     * A copy of the bytes of the dictionary, which decompress what the
+     * dictionary compressed, and compress what it decompresses.
+     *
+     * @throws A TypeError with the code `ERR_COMPRS_INVALID_ARG` once the
+     * dictionary is closed.
+     */
+    toBytes(): Bytes;
+    /**
+     * Free the memory of the dictionary now, rather than when the garbage
+     * collector collects it. Calls that already started with the dictionary
+     * finish with it. Later calls with it, and {@link Dictionary.toBytes},
+     * fail with `ERR_COMPRS_INVALID_ARG` ("this Dictionary is closed");
+     * closing it again does nothing.
+     */
+    close(): void;
+}
+export {};

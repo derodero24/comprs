@@ -332,10 +332,25 @@ fn decompress_with_limit(
 /// Unlike [`compress_with_dict`], the call does not digest the dictionary:
 /// it uses the compression dictionary that `dict` keeps for `level`. The
 /// output decodes with [`decompress_prepared`], and with
-/// [`decompress_with_dict`] and the bytes of `dict`, but can differ from
-/// that of [`compress_with_dict`] at the same level: zstd compresses small
-/// inputs with the parameters that the prepared dictionary was digested
-/// for.
+/// [`decompress_with_dict`] and the bytes of `dict`.
+///
+/// zstd compresses `data` with the parameters that the compression
+/// dictionary was digested for, unless `data` has at least 128 KiB and at
+/// least 6 times as many bytes as `dict`
+/// (`ZSTD_USE_CDICT_PARAMS_SRCSIZE_CUTOFF` and
+/// `ZSTD_USE_CDICT_PARAMS_DICTSIZE_MULTIPLIER` in
+/// `ZSTD_compressBegin_usingCDict_internal`, zstd 1.5.7): it then takes
+/// parameters for the size of `data` and loads the dictionary anew. The
+/// dictionary that [`compress_with_dict`] loads into its context has no
+/// level, which makes zstd keep its parameters whatever the size, so the
+/// output can differ from that of [`compress_with_dict`] at the same level
+/// there. Up to level 8, the last that uses no `btlazy2` or higher strategy
+/// for any size, it is that output for smaller inputs of at most 512 KiB.
+/// Above level 8, and for larger inputs, it can differ too: zstd sizes the
+/// window to hold the dictionary or up to 512 KiB of `data`, rather than
+/// both, which the frame header and the match finder of `btlazy2` depend
+/// on, and enables the block splitter of `btopt` and higher by other
+/// parameters.
 ///
 /// `None` selects the level of `dict` ([`Dictionary::level`]), and
 /// `Some(0)` selects [`DEFAULT_LEVEL`], as [`LEVEL`] documents, whatever

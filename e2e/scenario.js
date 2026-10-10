@@ -46,7 +46,7 @@
  *
  * @typedef {Pick<
  *   typeof import('@derodero24/comprs/next'),
- *   'compress' | 'compressSync' | 'decompress' | 'decompressSync' | 'detectFormat'
+ *   'compress' | 'compressSync' | 'decompress' | 'decompressSync' | 'detectFormat' | 'Dictionary'
  * >} Next
  */
 
@@ -208,6 +208,23 @@ export async function checkPackage(comprs) {
     await assertRejects(next.decompress(text), 'ERR_COMPRS_UNKNOWN_FORMAT');
     await assertRejects(
       next.compress(data, { format: 'gzip', level: 10 }),
+      'ERR_COMPRS_INVALID_ARG',
+    );
+  });
+  await run('unified API prepared dictionary', async () => {
+    // The native addon holds a Dictionary as an External, the WebAssembly
+    // build as an object of its glue (#557).
+    const next = await comprs.importNext();
+    const sample = data.subarray(0, 4096);
+    const dictionary = next.Dictionary.from(data.subarray(4096, 20480), { format: 'zstd' });
+    const output = next.compressSync(sample, { format: 'zstd', dictionary });
+    assertBytes(next.decompressSync(output, { dictionary }), sample);
+    const fromAsync = await next.compress(sample, { format: 'zstd', dictionary });
+    assertBytes(await next.decompress(fromAsync, { format: 'zstd', dictionary }), sample);
+    assertBytes(dictionary.toBytes(), data.subarray(4096, 20480));
+    dictionary.close();
+    assertCode(
+      () => next.compressSync(sample, { format: 'zstd', dictionary }),
       'ERR_COMPRS_INVALID_ARG',
     );
   });

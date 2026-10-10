@@ -187,6 +187,8 @@ const compressed = brotliCompressWithDict(data, dict);
 const decompressed = brotliDecompressWithDict(compressed, dict);
 ```
 
+`zstdCompressWithDict()` and `zstdDecompressWithDict()` digest the dictionary on every call, which costs far more than compressing a small message. For many small messages, a `Dictionary` of the unified API digests it once (see [Prepared dictionaries](#prepared-dictionaries)).
+
 ### Deno / Bun
 
 ```typescript
@@ -470,12 +472,13 @@ try {
 | `detectFormat(data)` | The format of `data`, as `decompress()` detects it, or `undefined` if it finds none |
 | `trainDictionary(samples, options?)` | Train a zstd dictionary from an iterable of samples, on a thread of the libuv pool in Node.js |
 | `trainDictionarySync(samples, options?)` | Train a zstd dictionary on the calling thread |
+| `Dictionary.from(bytes, options)` | Prepare a zstd or brotli dictionary once, for every call that takes it as its `dictionary` (see [Prepared dictionaries](#prepared-dictionaries)) |
 
 | Option | Of | Description |
 | --- | --- | --- |
 | `format` | compression (required), decompression | `'zstd'`, `'gzip'`, `'deflate'` (zlib), `'deflate-raw'`, `'brotli'` or `'lz4'`, by the names of the Compression Streams standard where it has one. Decompression also takes `'auto'`, the default, which detects every format but `'deflate-raw'` |
-| `level` | compression | zstd: -131072 to 22, 3 by default, which 0 also selects. gzip, deflate and deflate-raw: 0 to 9, 6 by default. brotli: 0 to 11, 6 by default. lz4 takes none |
-| `dictionary` | compression, decompression | The bytes of a dictionary, which must not be empty, for zstd and brotli, such as one that `trainDictionary()` trained. Decompression needs the same dictionary, and a `format` |
+| `level` | compression | zstd: -131072 to 22, 3 by default, which 0 also selects. With a `Dictionary`, the default is the level that it was prepared for, while 0 still selects 3, which a `Dictionary` prepared for another level digests on its first use, as any other level. gzip, deflate and deflate-raw: 0 to 9, 6 by default. brotli: 0 to 11, 6 by default. lz4 takes none |
+| `dictionary` | compression, decompression | A `Dictionary`, or the bytes of a dictionary, which must not be empty, for zstd and brotli, such as one that `trainDictionary()` trained. Decompression needs the same dictionary, and with its bytes, a `format` |
 | `gzipHeader` | compression | `{ filename?, mtime? }`: the name and the modification time, in seconds since the Unix epoch, that the gzip header holds. For gzip only |
 | `workers` | compression | The number of threads that compress zstd data besides the calling one: 0, the default, to 256. For zstd only, and for the native addon only (see below) |
 | `maxOutputSize` | decompression | The largest output, in bytes: 0 to `Number.MAX_SAFE_INTEGER`, 256 MiB by default |
@@ -483,9 +486,9 @@ try {
 
 Their inputs, options, results and errors follow these rules:
 
-- **Inputs.** The data, the dictionary and each sample may be any `ArrayBuffer`, `SharedArrayBuffer` or `ArrayBufferView`, such as a `Buffer`, a `DataView` or a `Uint16Array`, read byte for byte. Bytes in a `SharedArrayBuffer` are copied before they are read, so that another thread writing them cannot change them midway. The async functions copy their inputs before they return, so changing them afterwards does not change the result.
+- **Inputs.** The data, the bytes of a dictionary and each sample may be any `ArrayBuffer`, `SharedArrayBuffer` or `ArrayBufferView`, such as a `Buffer`, a `DataView` or a `Uint16Array`, read byte for byte. Bytes in a `SharedArrayBuffer` are copied before they are read, so that another thread writing them cannot change them midway. The async functions copy their inputs before they return, so changing them afterwards does not change the result, and keep using a `Dictionary` that is closed afterwards.
 - **Options.** Every option is checked, and an option of the wrong type, a number out of its range or not an integer (`NaN`, `1.5`), and an option that does not fit the format, such as a level for lz4, a dictionary for gzip or workers for brotli, fail with `ERR_COMPRS_INVALID_ARG`. Other properties of the options objects are ignored.
-- **Results.** Every result is a plain `Uint8Array`, not a Node.js `Buffer`, over an `ArrayBuffer`, so the DOM typings accept it as a `BufferSource` or a `BlobPart`, as in `new Blob([result])` or `crypto.subtle.digest('SHA-256', result)`. Whether that `ArrayBuffer` can be transferred with `postMessage()` or `structuredClone()` is not guaranteed: copy a result with `slice()` to transfer it. Compression writes the bytes that the functions of the package root write at the same settings in the same build, such as `zstdCompress(data, level)`, or `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses with `workers`.
+- **Results.** Every result is a plain `Uint8Array`, not a Node.js `Buffer`, over an `ArrayBuffer`, so the DOM typings accept it as a `BufferSource` or a `BlobPart`, as in `new Blob([result])` or `crypto.subtle.digest('SHA-256', result)`. Whether that `ArrayBuffer` can be transferred with `postMessage()` or `structuredClone()` is not guaranteed: copy a result with `slice()` to transfer it. Compression writes the bytes that the functions of the package root write at the same settings in the same build, such as `zstdCompress(data, level)`, or `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses with `workers`, or with a `Dictionary` above level 8, or with a `Dictionary` an input of more than 512 KiB or of at least 128 KiB and at least 6 times the `byteLength` of the dictionary (see [Prepared dictionaries](#prepared-dictionaries)).
 - **Decompression.** The decoders are strict: data that ends before the end of the compressed stream, empty data included, fails with `ERR_COMPRS_TRUNCATED`, and data after its end with `ERR_COMPRS_CORRUPT_DATA`. zstd and lz4 data may hold several frames, and gzip data several members, which are decompressed one after the other. Without a `format`, data whose format detection does not find, empty data included, fails with `ERR_COMPRS_UNKNOWN_FORMAT`. Brotli data has no magic number, so detection decodes the start of the data, and data that it takes for brotli but that does not decode fails with `ERR_COMPRS_UNKNOWN_FORMAT` as well.
 - **Errors.** Every error has a `code`, from the table below. The async functions report every error, invalid arguments included, by rejecting their Promise, and never throw. An error thrown by the caller's own code, such as a getter of an options object or the iterator of the samples, is passed on unchanged, without a code.
 
@@ -509,7 +512,38 @@ Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. `ERR_COMPRS_STREAM_
 
 **Browsers.** Browser builds that import `@derodero24/comprs/next` get its WebAssembly build, through the `browser` condition, on the WebAssembly module of the browser entry (see [Browser Usage](#browser-usage)). There, the async functions do not run on another thread: they compress or decompress on the calling thread, which they block, before they return a Promise of the result. Use a Web Worker to keep a page responsive. The browser build has no worker threads either: any `workers` but 0 fails with `ERR_COMPRS_INVALID_ARG`. Its WebAssembly memory cannot hold more than 4 GiB, so a `maxOutputSize` above 4294967295 acts as 4294967295: errors name that limit, and a zstd frame that declares a larger content size fails with `ERR_COMPRS_SIZE_LIMIT`. It writes different lz4 frames from the native build for most inputs of more than a few hundred bytes, which both builds decode; the other formats come out the same in both. A panic, or an allocation that the WebAssembly memory cannot grow for, fails with a `WebAssembly.RuntimeError` without a code.
 
-`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions` and `TrainDictionaryOptions`.
+`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions` and `DictionaryOptions`.
+
+### Prepared dictionaries
+
+Dictionaries pay off for small messages, such as RPC payloads, cache entries and log lines, but zstd digests the bytes of a dictionary before it compresses or decompresses anything with them, which costs far more than a small message: a call that takes the bytes, such as `zstdCompressWithDict()` of the package root, digests them every time ([#557](https://github.com/derodero24/comprs/issues/557)). A `Dictionary` digests them once, for every call that takes it as its `dictionary`:
+
+```typescript
+import { compressSync, Dictionary, decompressSync, trainDictionarySync } from '@derodero24/comprs/next';
+
+const dictionary = Dictionary.from(trainDictionarySync(samples), { format: 'zstd', level: 3 });
+
+const compressed = compressSync(message, { format: 'zstd', dictionary });
+decompressSync(compressed, { dictionary }); // in the format of the dictionary
+
+dictionary.close(); // or declare it with `using`, which closes it at the end of the block
+```
+
+| Member | Description |
+| --- | --- |
+| `Dictionary.from(bytes, { format, level? })` | Prepare a dictionary for `'zstd'` or `'brotli'` from a copy of `bytes`, which must not be empty. A zstd dictionary is digested for compression at `level`, 3 by default, which 0 also selects, and for decompression. A brotli dictionary takes no level |
+| `format` | `'zstd'` or `'brotli'` |
+| `byteLength` | The size of the dictionary, in bytes |
+| `toBytes()` | A copy of the bytes of the dictionary |
+| `close()` | Free the memory of the dictionary now, rather than when the garbage collector collects it. `[Symbol.dispose]()` is the same method, for `using` declarations, where the runtime has `Symbol.dispose` |
+
+- **Speed.** With the workload of [#557](https://github.com/derodero24/comprs/issues/557), 2,000 JSON messages of about 110 bytes and a trained dictionary of 110 KiB, compressing the messages one by one took 599 ms with `zstdCompressWithDict()` and 5.1 ms with a `Dictionary`, and decompressing them 78 ms with `zstdDecompressWithDict()` and 4.2 ms with a `Dictionary` (Node.js 22, Linux x64). Creating the `Dictionary` took 0.3 ms at level 3 and 12 ms at level 19.
+- **Formats.** A `Dictionary` is for its `format` alone: with another format, the functions fail with `ERR_COMPRS_INVALID_ARG` ("this Dictionary is for zstd"). Decompression with a `Dictionary` and without a `format`, or with `'auto'`, decompresses in the format of the dictionary; with the bytes of a dictionary, it still needs a `format`. Data compressed with a `Dictionary` decompresses with its bytes, such as with `zstdDecompressWithDict()` of the package root, and the other way round.
+- **Frames.** zstd compresses an input with the parameters that a `Dictionary` was prepared for, unless the input has at least 128 KiB and at least 6 times the `byteLength` of the dictionary: such an input gets parameters for its size, and its frames can differ from those of the bytes of the dictionary. Up to level 8, smaller inputs of at most 512 KiB get the frames that the bytes of the dictionary give at the same level, as from `zstdCompressWithDict()`. Above level 8, and for inputs of more than 512 KiB, zstd can write other frames with a `Dictionary` than with its bytes, as it sizes its window or splits blocks otherwise.
+- **Levels.** Compression without a `level` compresses at the level of the `Dictionary`. `level: 0` selects 3, as without a dictionary, not the level of the `Dictionary`. Any other level than that of the `Dictionary`, such as 3 for `level: 0`, works too: the dictionary digests it on its first use, which costs as much as creating a dictionary at that level, and keeps the last 3 of them.
+- **Memory.** A zstd `Dictionary` holds memory outside the JavaScript heap: a copy of the bytes, a digest for decompression of about their size, and a digest for each compression level that it keeps, which grows with the level. A dictionary of 110 KiB holds 0.8 MB in all at level 3, and 2 MB at level 19. The native addon reports that memory to V8 when it creates the dictionary, so that the garbage collector weighs it, but not the memory of the levels that it digests later. `close()` frees the memory once the calls that already started with the dictionary have finished; any later call with it fails with `ERR_COMPRS_INVALID_ARG` ("this Dictionary is closed").
+- **Brotli.** A brotli `Dictionary` only holds the bytes, which brotli takes as they are, so it saves little time yet: brotli still indexes the dictionary on every call.
+- **Browsers.** The browser build has the same class. A `Dictionary` of one build is no dictionary of the other, whose functions fail with `ERR_COMPRS_INVALID_ARG` for it ("dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView"): pass it to the functions of the entry that created it.
 
 ## Supported Algorithms
 
