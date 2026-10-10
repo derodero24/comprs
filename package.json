@@ -144,7 +144,7 @@
     "bench:ci": "vitest bench --mode ci",
     "attw": "attw --pack .",
     "publint": "publint",
-    "verify": "pnpm run check && cargo clippy --workspace --all-targets -- -D warnings && cargo test && pnpm run build && pnpm run build:js && pnpm run typecheck && pnpm test",
+    "verify": "pnpm run check && cargo clippy --workspace --all-targets -- -D warnings && cargo test && cargo test -p comprs-core && pnpm run build && pnpm run build:js && pnpm run typecheck && pnpm --filter @derodero24/comprs-middleware typecheck && pnpm run test:types && pnpm test && pnpm --filter @derodero24/comprs-middleware test",
     "clean": "rm -rf target coverage *.node browser/comprs-wasm*",
     "prepare": "lefthook install"
   },

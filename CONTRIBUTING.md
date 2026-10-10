@@ -90,7 +90,7 @@ All changes must start from a GitHub Issue.
 
 ## Verification
 
-Before pushing, run all of the following:
+Before pushing, run the following, or `pnpm run verify`, which runs all of them and builds before the checks that use the build:
 
 ```bash
 pnpm run check        # Biome lint and formatting; warnings fail it too
@@ -98,9 +98,12 @@ pnpm run typecheck    # TypeScript
 pnpm run test:types   # Packed package, type-checked by strict consumer projects
 pnpm test             # Vitest tests
 cargo test            # Rust tests
+cargo test -p comprs-core   # comprs-core alone, without zstdmt, as the WebAssembly build compiles it
 cargo clippy --workspace --all-targets -- -D warnings   # Rust lint; warnings fail it too
 pnpm run build        # napi-rs build
 pnpm run build:js     # Modules and declarations compiled from src/
+pnpm --filter @derodero24/comprs-middleware typecheck   # When packages/middleware changes
+pnpm --filter @derodero24/comprs-middleware test        # When packages/middleware changes
 ```
 
 `pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the two projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js` and `playground/`, which no tsconfig checks.
@@ -285,10 +288,11 @@ Without the WebAssembly build, the dev server and the build fail. To work on the
 
 ## Pull request checklist
 
-- [ ] Tests pass (`pnpm test` and `cargo test`)
+- [ ] Tests pass (`pnpm test`, `cargo test` and `cargo test -p comprs-core`)
 - [ ] Lint passes (`pnpm run check` and `cargo clippy --workspace --all-targets -- -D warnings`)
-- [ ] TypeScript types checked (`pnpm run typecheck`)
-- [ ] Build succeeds (`pnpm run build`)
+- [ ] TypeScript types checked (`pnpm run typecheck` and `pnpm run test:types`)
+- [ ] Build succeeds and generated files are committed (`pnpm run build` and `pnpm run build:js`)
+- [ ] Middleware checks pass, if `packages/middleware` changes (`pnpm --filter @derodero24/comprs-middleware typecheck` and `pnpm --filter @derodero24/comprs-middleware test`)
 - [ ] Changeset added, if a published package changes for its users (see [Changesets](#changesets))
 - [ ] PR title follows Conventional Commits
 - [ ] Issue linked (`Closes #<number>`)
