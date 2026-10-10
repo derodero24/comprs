@@ -727,14 +727,12 @@ describe('Node transform output chunk transfer', () => {
   });
 
   it('should push a result that fits in one chunk as a chunk that can be transferred', async () => {
-    const data = plain.subarray(0, 32 * 1024);
+    const transform = createZstdDecompressTransform();
+    // Node.js's default highWaterMark is 64 KiB, but 16 KiB on Windows.
+    const data = plain.subarray(0, transform.readableHighWaterMark / 2);
     const seen: Buffer[] = [];
     const moved: Uint8Array[] = [];
-    await pipeline(
-      Readable.from([zstdCompress(data)]),
-      createZstdDecompressTransform(),
-      transferringSink(seen, moved),
-    );
+    await pipeline(Readable.from([zstdCompress(data)]), transform, transferringSink(seen, moved));
     expect(seen.length).toBe(1);
     expect(seen.every((chunk) => chunk.byteLength === 0)).toBe(true);
     expect(Buffer.concat(moved).equals(data)).toBe(true);
