@@ -152,6 +152,11 @@ export interface DecompressOptions {
      * with `ERR_COMPRS_SIZE_LIMIT` too. zstd writes no larger window at
      * levels up to 19, so the frames that {@link compress} writes at those
      * levels decode under any limit that their output fits in.
+     *
+     * In the browser build, limits above 4294967295 (4 GiB - 1) act as
+     * 4294967295, since WebAssembly memory cannot hold more: errors name that
+     * limit, and a zstd frame that declares a larger content size fails with
+     * `ERR_COMPRS_SIZE_LIMIT`.
      */
     maxOutputSize?: number | undefined;
     /**

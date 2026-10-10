@@ -24,11 +24,12 @@ import {
 // against the native build: the functions of src/next/api.ts over the
 // WebAssembly backend (src/next/wasm.ts and crates/wasm/src/next.rs) must
 // give what they give over the native addon (#555): errors of the same
-// code, message and class, and the same bytes in every format but lz4, but
-// for zstd workers, which the browser build does not support. The lz4
-// encoder, lz4_flex, hashes 5 bytes at a time on 64-bit targets and 4 on
-// wasm32, so the builds write different lz4 frames for most inputs of more
-// than a few hundred bytes: each build decodes those of the other instead.
+// code, message and class, and the same bytes in every format but lz4.
+// They differ on purpose for zstd workers, which the browser build does
+// not support, and for a maxOutputSize above 4 GiB - 1, which it caps. The
+// lz4 encoder, lz4_flex, hashes 5 bytes at a time on 64-bit targets and 4
+// on wasm32, so the builds write different lz4 frames for most inputs of
+// more than a few hundred bytes: each build decodes those of the other.
 // The data is text of words that a seeded generator draws, which, unlike a
 // repeated phrase, makes the encoders choose as on real data.
 // package.json does not export ./next yet, so the tests load
@@ -376,6 +377,21 @@ const corrupt: Record<Format, Uint8Array> = {
   lz4: withFF(compressed.lz4, compressed.lz4.length - 9),
 };
 
+/**
+ * A zstd frame that declares `size` bytes of content, in a single segment,
+ * and holds a raw block of one byte: the decoders fail on the declaration
+ * before they read the block.
+ */
+function zstdFrameDeclaring(size: number): Uint8Array {
+  const frame = new Uint8Array(17);
+  // The magic number, then a frame header with an 8-byte content size.
+  frame.set([0x28, 0xb5, 0x2f, 0xfd, 0xe0]);
+  new DataView(frame.buffer).setBigUint64(5, BigInt(size), true);
+  // The last block, raw, of one byte.
+  frame.set([0x09, 0x00, 0x00, 0x41], 13);
+  return frame;
+}
+
 /** A call, in each of the two forms of the function that it calls. */
 interface Calls {
   sync(api: Api): unknown;
@@ -651,6 +667,37 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
 
     it('reads up to maxOutputSize', () => {
       expect(wasm.decompressSync(compressed.zstd, { maxOutputSize: text.length })).toEqual(text);
+    });
+
+    // comprs-core saturates the limit at usize::MAX, which is 4 GiB - 1 on
+    // wasm32, as DecompressOptions.maxOutputSize documents. A frame that
+    // declares 5 GiB exceeds that limit, where the native decoder fails on
+    // its window, which is as large.
+    it('takes a maxOutputSize above 4 GiB - 1 as 4 GiB - 1', async () => {
+      const frame = zstdFrameDeclaring(5 * 2 ** 30);
+      const options: DecompressOptions = { format: 'zstd', maxOutputSize: 2 ** 33 };
+      const capped = thrown(
+        Object.assign(new Error('zstd decompress exceeded maximum size of 4294967295 bytes'), {
+          code: 'ERR_COMPRS_SIZE_LIMIT',
+        }),
+      );
+      expect(run(() => wasm.decompressSync(frame, options))).toEqual(capped);
+      expect(await settle(() => wasm.decompress(frame, options))).toEqual(capped);
+      expect(run(() => native.decompressSync(frame, options))).toMatchObject({
+        threw: { class: 'Error', code: 'ERR_COMPRS_CORRUPT_DATA' },
+      });
+      // Under a limit of 4 GiB - 1, the builds agree.
+      const [expected, actual] = both((api) =>
+        run(() => api.decompressSync(frame, { format: 'zstd', maxOutputSize: 2 ** 32 - 1 })),
+      );
+      expect(expected).toEqual(capped);
+      expect(actual).toEqual(expected);
+      // So they do above it, for output that fits.
+      for (const outcome of both((api) =>
+        run(() => api.decompressSync(compressed.zstd, options)),
+      )) {
+        expect(outcome).toEqual({ returned: text });
+      }
     });
   });
 
