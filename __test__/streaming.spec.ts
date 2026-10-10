@@ -283,14 +283,21 @@ describe('chunk types', () => {
 });
 
 describe('Web stream output', () => {
-  // A reader may transfer an output chunk to a worker: the chunks are copies
-  // of the native output, which itself cannot be detached.
+  // A reader may transfer an output chunk to a worker. The chunks are plain
+  // Uint8Arrays, each with an ArrayBuffer of its own: views of the native
+  // output, which V8 allocates up to 2 MiB, or copies of larger output,
+  // which stays in the memory of the addon. Node.js marks such external
+  // memory as untransferable, so a view of it could not be transferred
+  // there (DataCloneError).
   it.each([
     ['compress', () => createGzipCompressStream(), (d: Uint8Array) => d, gzipDecompress],
     ['decompress', () => createZstdDecompressStream(), zstdCompress, (d: Uint8Array) => d],
   ])('should %s into chunks that can be transferred', async (_, stream, prepare, read) => {
     const data = Buffer.from('Hello, comprs streaming output! '.repeat(1000));
     const chunks = await readChunks(streamOf([prepare(data)]).pipeThrough(stream()));
+    for (const chunk of chunks) {
+      expect(Object.getPrototypeOf(chunk)).toBe(Uint8Array.prototype);
+    }
     const moved = chunks.map((chunk) => {
       const { buffer } = chunk;
       if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
@@ -299,5 +306,30 @@ describe('Web stream output', () => {
 
     expect(chunks.every((chunk) => chunk.byteLength === 0)).toBe(true);
     expect(Buffer.from(read(Buffer.concat(moved))).equals(data)).toBe(true);
+  });
+
+  // The context returns the decompressed data from one transform() call: in
+  // memory that V8 allocates at 2 MiB, which the stream enqueues as a view
+  // (VIEW_LIMIT in src/streams.ts mirrors SYNC_COPY_LIMIT in
+  // crates/core/src/convert.rs), and in the memory of the addon above it,
+  // which the stream copies. The first case fails if SYNC_COPY_LIMIT drops
+  // below 2 MiB and the second if VIEW_LIMIT rises above it, as the stream
+  // would then enqueue a view of external memory.
+  it.each([
+    ['of 2 MiB', 2 * 1024 * 1024],
+    ['larger than 2 MiB', 2 * 1024 * 1024 + 1],
+  ])('should emit output %s in a chunk that can be transferred', async (_, size) => {
+    const data = Buffer.alloc(size, 7);
+    const stream = streamOf([zstdCompress(data)]).pipeThrough(createZstdDecompressStream());
+    const [chunk, ...rest] = await readChunks(stream);
+    if (chunk === undefined) throw new Error('expected a chunk');
+    expect(rest).toEqual([]);
+    expect(chunk.byteLength).toBe(size);
+    expect(Object.getPrototypeOf(chunk)).toBe(Uint8Array.prototype);
+    const { buffer } = chunk;
+    if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+    const moved = structuredClone(chunk, { transfer: [buffer] });
+    expect(chunk.byteLength).toBe(0);
+    expect(Buffer.from(moved.buffer, moved.byteOffset, moved.byteLength).equals(data)).toBe(true);
   });
 });

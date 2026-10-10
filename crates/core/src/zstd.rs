@@ -4,6 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
+use crate::convert::sync_result;
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -14,13 +15,18 @@ use crate::task::{LegacyBuffer, OneShot};
 /// 3. Negative levels (-1 to -131072) enable fast mode, trading compression
 /// ratio for speed. Level 0 is equivalent to the default level (3).
 #[napi]
-pub fn zstd_compress(data: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Buffer> {
+pub fn zstd_compress(
+    env: Env,
+    data: Either<Buffer, Uint8Array>,
+    level: Option<f64>,
+) -> Result<Buffer> {
     let level = comprs_core::zstd::LEVEL
         .check_optional_f64(level)
         .map_err(to_napi_error)?;
-    comprs_core::zstd::compress(crate::as_bytes(&data), level)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::zstd::compress(crate::as_bytes(&data), level),
+    )
 }
 
 /// Asynchronously compress data using Zstandard.
@@ -75,10 +81,8 @@ pub fn zstd_decompress_async(
 /// frames. The maximum decompressed size is 256 MB. Use
 /// `zstdDecompressWithCapacity` for larger data.
 #[napi]
-pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::zstd::decompress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(&env, comprs_core::zstd::decompress(crate::as_bytes(&data)))
 }
 
 /// Decompress Zstandard-compressed data with explicit capacity.
@@ -89,13 +93,15 @@ pub fn zstd_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// a large `capacity` reserves no memory up front.
 #[napi]
 pub fn zstd_decompress_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::zstd::decompress_with_capacity(crate::as_bytes(&data), cap)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::zstd::decompress_with_capacity(crate::as_bytes(&data), cap),
+    )
 }
 
 /// Train a zstd dictionary from sample data.
@@ -107,6 +113,7 @@ pub fn zstd_decompress_with_capacity(
 /// must not exceed 16 MiB (16777216 bytes).
 #[napi]
 pub fn zstd_train_dictionary(
+    env: Env,
     samples: Vec<Either<Buffer, Uint8Array>>,
     max_dict_size: Option<f64>,
 ) -> Result<Buffer> {
@@ -120,9 +127,10 @@ pub fn zstd_train_dictionary(
         .map(|s| crate::as_bytes(s).to_vec())
         .collect();
 
-    comprs_core::zstd::train_dictionary(&sample_vecs, max_size)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::zstd::train_dictionary(&sample_vecs, max_size),
+    )
 }
 
 /// Compress data using Zstandard with a pre-trained dictionary.
@@ -132,6 +140,7 @@ pub fn zstd_train_dictionary(
 /// 3.
 #[napi]
 pub fn zstd_compress_with_dict(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
     level: Option<f64>,
@@ -139,9 +148,14 @@ pub fn zstd_compress_with_dict(
     let level = comprs_core::zstd::LEVEL
         .check_optional_f64(level)
         .map_err(to_napi_error)?;
-    comprs_core::zstd::compress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict), level)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::zstd::compress_with_dict(
+            crate::as_bytes(&data),
+            crate::as_bytes(&dict),
+            level,
+        ),
+    )
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
@@ -149,12 +163,14 @@ pub fn zstd_compress_with_dict(
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn zstd_decompress_with_dict(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
 ) -> Result<Buffer> {
-    comprs_core::zstd::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::zstd::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict)),
+    )
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary,
@@ -167,18 +183,20 @@ pub fn zstd_decompress_with_dict(
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::zstd::decompress_with_dict_with_capacity(
-        crate::as_bytes(&data),
-        crate::as_bytes(&dict),
-        cap,
+    sync_result(
+        &env,
+        comprs_core::zstd::decompress_with_dict_with_capacity(
+            crate::as_bytes(&data),
+            crate::as_bytes(&dict),
+            cap,
+        ),
     )
-    .map(|v| v.into())
-    .map_err(to_napi_error)
 }
 
 /// Asynchronously decompress Zstandard-compressed data with explicit capacity.

@@ -37,6 +37,12 @@ impl Settle for LegacyBuffer {
     type JsValue = Buffer;
 
     fn resolve(_env: &Env, output: Vec<u8>) -> Result<Buffer> {
+        // Unlike a synchronous result (see `crate::convert`), the output
+        // stays in the memory of the addon. A copy into V8's memory would
+        // run here, on the JavaScript thread, with the page faults of the new
+        // memory, which the `*Async` functions exist to keep off it. Awaiting
+        // the Promise also turns the event loop, which frees the memory of
+        // earlier results.
         Ok(Buffer::from(output))
     }
 

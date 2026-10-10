@@ -34,10 +34,34 @@ function toUint8Array(chunk) {
         return new Uint8Array(chunk);
     throw new TypeError('chunk must be an ArrayBuffer or ArrayBufferView');
 }
+/**
+ * Largest result of a stream context that the streams enqueue without
+ * copying it. It mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs: the
+ * contexts return results up to that size in memory that V8 allocates, and
+ * larger ones in memory of the addon, which Node.js marks as untransferable.
+ */
+const VIEW_LIMIT = 2 * 1024 * 1024;
+/**
+ * Enqueue `result`, which a stream context returned, unless it is empty.
+ *
+ * The streams emit plain Uint8Array chunks, not Buffers, whose slice()
+ * differs. A result in memory that V8 allocated, with an ArrayBuffer of its
+ * own, is enqueued as a view of that memory, which a reader can transfer to
+ * a worker. Any other result is copied: Node.js marks the memory of the
+ * addon as untransferable, so a view of it could not be transferred there
+ * (DataCloneError), and on a runtime whose napi_create_buffer_copy()
+ * allocates from a pool, transferring a shared ArrayBuffer would detach
+ * other chunks too.
+ */
 function enqueueIfNonEmpty(controller, result) {
-    if (result.byteLength > 0) {
-        controller.enqueue(new Uint8Array(result));
-    }
+    if (result.byteLength === 0)
+        return;
+    const ownsBuffer = result.byteLength <= VIEW_LIMIT &&
+        result.byteOffset === 0 &&
+        result.buffer.byteLength === result.byteLength;
+    controller.enqueue(ownsBuffer
+        ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength)
+        : new Uint8Array(result));
 }
 /**
  * Create a TransformStream from `transform` and `flush`, which call stream

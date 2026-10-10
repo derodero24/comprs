@@ -11,7 +11,7 @@ use comprs_core::{ComprsError, MemoryUsage};
 use napi::bindgen_prelude::{Buffer, Env, JsObjectValue, Object, Property, Unknown, ValueType};
 use napi_derive::napi;
 
-use crate::error::to_napi_error;
+use crate::convert::sync_result;
 
 /// The stream context classes, which [`init`] makes disposable.
 const CONTEXT_CLASSES: [&str; 14] = [
@@ -169,25 +169,24 @@ impl<T: MemoryUsage> NativeState<T> {
     }
 
     /// [`run`](Self::run) for a method of a stream context class: return the
-    /// output as a `Buffer`, or throw the error.
+    /// output as a `Buffer`, as [`sync_result`] does, or throw the error.
     pub(crate) fn call(
         &mut self,
         env: &Env,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
     ) -> napi::Result<Buffer> {
-        self.run(env, op).map(|v| v.into()).map_err(to_napi_error)
+        sync_result(env, self.run(env, op))
     }
 
     /// [`finish`](Self::finish) for the `finish()` method of a stream context
-    /// class: return the output as a `Buffer`, or throw the error.
+    /// class: return the output as a `Buffer`, as [`sync_result`] does, or
+    /// throw the error.
     pub(crate) fn call_finish(
         &mut self,
         env: &Env,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
     ) -> napi::Result<Buffer> {
-        self.finish(env, op)
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        sync_result(env, self.finish(env, op))
     }
 
     fn state(&mut self) -> Result<&mut T, ComprsError> {

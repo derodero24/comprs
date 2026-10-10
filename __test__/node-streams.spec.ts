@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { describe, expect, it } from 'vitest';
+import { isArrayBuffer } from 'node:util/types';
+import { describe, expect, it, vi } from 'vitest';
 import {
   brotliCompress,
   brotliCompressWithDict,
@@ -42,6 +44,18 @@ import {
 import { BOMB_FORMATS, type BombFormat, makeBomb, peakRssKiB } from './bomb-fixtures.js';
 
 const ROOT = resolve(__dirname, '..');
+
+// How long a Node.js process that a test starts may run. Vitest fails a test
+// that outlasts its own timeout (5 s by default) even while it waits in
+// execFileSync, so such a test gets twice this.
+const PROCESS_TIMEOUT = 30_000;
+
+/**
+ * The exports of node:worker_threads that node.js calls, which a test
+ * replaces. Its ES module namespace cannot be changed.
+ */
+const workerThreads: typeof import('node:worker_threads') =
+  createRequire(__filename)('node:worker_threads');
 
 /** Collect output from source piped through a single transform into a Buffer. */
 async function collectTransform(source: Readable, transform: Transform): Promise<Buffer> {
@@ -624,11 +638,166 @@ describe('Node transform output chunk size', () => {
   );
 });
 
-describe('Node transform errors from another realm', () => {
-  // How long the Node.js process may run. Vitest fails a test that outlasts
-  // its own timeout (5 s by default) even while it waits in execFileSync.
-  const PROCESS_TIMEOUT = 30_000;
+describe('Node transform output chunk transfer', () => {
+  // A stream context returns 1 MiB in memory that V8 owns, from transform()
+  // for zstd and from flush() for LZ4, and the transform pushes it in chunks
+  // of readableHighWaterMark bytes that share its ArrayBuffer. Transferring
+  // one of them would detach the others before the stream emits them.
+  const plain = Buffer.alloc(1024 * 1024, 'transferred chunks of comprs ');
+  const CASES: [string, (data: Buffer) => Buffer, () => Transform][] = [
+    ['transform() (zstd)', zstdCompress, () => createZstdDecompressTransform()],
+    ['flush() (LZ4)', lz4Compress, () => createLz4DecompressTransform()],
+  ];
+  const DETACHED = 'an output chunk was transferred, which detached the other chunks';
 
+  /**
+   * A sink that transfers each chunk, as a reader that posts the chunks to a
+   * worker does, after it adds the chunk to `seen` and before it adds the
+   * transferred copy to `moved`. A transfer that throws fails the sink.
+   */
+  function transferringSink(seen: Buffer[], moved: Uint8Array[]): Writable {
+    return new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        seen.push(chunk);
+        try {
+          const { buffer } = chunk;
+          if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+          moved.push(structuredClone(chunk, { transfer: [buffer] }));
+          callback();
+        } catch (err) {
+          callback(err as Error);
+        }
+      },
+    });
+  }
+
+  it.each(CASES)(
+    'should refuse to transfer one of several chunks of a result from %s',
+    async (_name, compress, createTransform) => {
+      const seen: Buffer[] = [];
+      const moved: Uint8Array[] = [];
+      await expect(
+        pipeline(
+          Readable.from([compress(plain)]),
+          createTransform(),
+          transferringSink(seen, moved),
+        ),
+      ).rejects.toThrow(expect.objectContaining({ name: 'DataCloneError' }));
+      // The first chunk was a view of the whole result, and none was moved.
+      expect(seen[0]?.buffer.byteLength).toBe(plain.byteLength);
+      expect(moved).toEqual([]);
+    },
+  );
+
+  // Where markAsUntransferable() has no effect, a transfer while the
+  // transform pushes a chunk detaches the rest of the result. The stream
+  // must then fail instead of ending without it.
+  it.each(CASES)(
+    'should fail instead of ending short if a runtime lets it transfer a chunk of a result from %s',
+    async (_name, compress, createTransform) => {
+      const mark = vi.spyOn(workerThreads, 'markAsUntransferable').mockImplementation(() => {});
+      try {
+        const seen: Buffer[] = [];
+        const moved: Uint8Array[] = [];
+        await expect(
+          pipeline(
+            Readable.from([compress(plain)]),
+            createTransform(),
+            transferringSink(seen, moved),
+          ),
+        ).rejects.toThrow(DETACHED);
+        expect(mark).toHaveBeenCalledOnce();
+        // The one transfer took the whole result along.
+        expect(moved.map((chunk) => chunk.buffer.byteLength)).toEqual([plain.byteLength]);
+      } finally {
+        mark.mockRestore();
+      }
+    },
+  );
+
+  // Bun 1.3 and Deno before 2.7.6 export a markAsUntransferable() that
+  // throws that it is not implemented. The script makes it throw before it
+  // loads node.js, in a process of its own, as loading node.js a second
+  // time here would spoil its coverage.
+  it('should work where markAsUntransferable() is not implemented', {
+    timeout: 2 * PROCESS_TIMEOUT,
+  }, () => {
+    const script = resolve(__dirname, 'fixtures/unmarked-transfer.cjs');
+    const stdout = execFileSync(process.execPath, [script], {
+      encoding: 'utf8',
+      timeout: PROCESS_TIMEOUT,
+    });
+    const result: unknown = JSON.parse(stdout);
+    expect(result).toEqual({
+      kept: plain.byteLength,
+      transferred: expect.stringContaining(DETACHED),
+    });
+  });
+
+  it('should push a result that fits in one chunk as a chunk that can be transferred', async () => {
+    const transform = createZstdDecompressTransform();
+    // The largest result that the transform pushes as one chunk. Node.js's
+    // default highWaterMark is 64 KiB, but 16 KiB on Windows.
+    const data = plain.subarray(0, transform.readableHighWaterMark);
+    const seen: Buffer[] = [];
+    const moved: Uint8Array[] = [];
+    await pipeline(Readable.from([zstdCompress(data)]), transform, transferringSink(seen, moved));
+    expect(seen.length).toBe(1);
+    expect(seen.every((chunk) => chunk.byteLength === 0)).toBe(true);
+    expect(Buffer.concat(moved).equals(data)).toBe(true);
+  });
+
+  // A result larger than 2 MiB, here by one byte, stays in the memory of
+  // the addon, as an external buffer that Node.js marks as untransferable
+  // itself. The transform must not mark it: on Node.js 24,
+  // markAsUntransferable() also sets a detach key, and Node.js aborts the
+  // process when it detaches the buffer without the key as it frees it at
+  // exit.
+  it('should leave the buffer of a result larger than 2 MiB unmarked', async () => {
+    const mark = vi.spyOn(workerThreads, 'markAsUntransferable');
+    try {
+      const data = Buffer.alloc(2 * 1024 * 1024 + 1, 'transferred chunks of comprs ');
+      const seen: Buffer[] = [];
+      const moved: Uint8Array[] = [];
+      await expect(
+        pipeline(
+          Readable.from([zstdCompress(data)]),
+          createZstdDecompressTransform(),
+          transferringSink(seen, moved),
+        ),
+      ).rejects.toThrow(expect.objectContaining({ name: 'DataCloneError' }));
+      expect(seen[0]?.buffer.byteLength).toBe(data.byteLength);
+      expect(mark).not.toHaveBeenCalled();
+    } finally {
+      mark.mockRestore();
+    }
+  });
+
+  // See the script: it runs the transform in a process, or a Worker, that
+  // exits while it holds a chunk of a result in the memory of the addon.
+  it.each([
+    ['a process', []],
+    ['a Worker', ['worker']],
+  ])(
+    'should let %s that holds a chunk of a result larger than 2 MiB exit',
+    { timeout: 2 * PROCESS_TIMEOUT },
+    (_name, args) => {
+      const script = resolve(__dirname, 'fixtures/external-chunk-exit.cjs');
+      const stdout = execFileSync(process.execPath, [script, ...args], {
+        encoding: 'utf8',
+        timeout: PROCESS_TIMEOUT,
+      });
+      const result: unknown = JSON.parse(stdout);
+      expect(result).toEqual(
+        args.length === 0
+          ? { received: 4 * 1024 * 1024 }
+          : { received: 4 * 1024 * 1024, exitCode: 0 },
+      );
+    },
+  );
+});
+
+describe('Node transform errors from another realm', () => {
   // Jest runs the code of a package in a vm context, but loads native addons
   // and Node.js modules in the main realm, so the errors that the stream
   // contexts throw are not instances of the Error that node.js sees. The test

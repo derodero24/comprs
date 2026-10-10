@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { checkPackage } from '../scenario.js';
@@ -64,6 +64,46 @@ export async function checkNativePackage({ main, streams, node, importMain, reso
   );
   assert.deepEqual(new Uint8Array(Buffer.concat(chunks)), data, 'Node.js stream round trip');
   passed.push('Node.js stream round trip');
+
+  // 1.1 MB, which the stream context returns from one call, in memory that
+  // the engine owns, and the transform pushes in several chunks that share
+  // it, marked as untransferable where the runtime can mark it.
+  const large = new TextEncoder().encode('comprs '.repeat(160_000));
+  const compressed = main.zstdCompress(large);
+  /** @type {Uint8Array[]} */
+  const parts = [];
+  await pipeline(
+    Readable.from([compressed]),
+    node.createZstdDecompressTransform(),
+    new Writable({
+      write(/** @type {Uint8Array} */ chunk, _encoding, callback) {
+        parts.push(chunk);
+        callback();
+      },
+    }),
+  );
+  assert.ok(parts.length > 1, `the transform pushed ${parts.length} chunk`);
+  assert.deepEqual(new Uint8Array(Buffer.concat(parts)), large, 'Node.js stream of a large result');
+  // Transferring one of those chunks would detach the others: the transfer
+  // throws, or the stream fails, but it never ends without them.
+  await assert.rejects(
+    pipeline(
+      Readable.from([compressed]),
+      node.createZstdDecompressTransform(),
+      new Writable({
+        write(/** @type {Uint8Array} */ chunk, _encoding, callback) {
+          try {
+            structuredClone(chunk, { transfer: [/** @type {ArrayBuffer} */ (chunk.buffer)] });
+            callback();
+          } catch (error) {
+            callback(/** @type {Error} */ (error));
+          }
+        },
+      }),
+    ),
+    'transferring a chunk of a large result',
+  );
+  passed.push('Node.js stream of a large result');
 
   // A method of one context class called on an instance of another must
   // throw. Node.js rejects the call itself ("Illegal invocation"); Deno and

@@ -7,6 +7,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
+use crate::convert::sync_result;
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -74,13 +75,15 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
 /// error as data of unknown format, since brotli detection is heuristic.
 #[napi]
 pub fn decompress(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     max_output_size: Option<f64>,
 ) -> Result<Buffer> {
     let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_napi_error)?;
-    comprs_core::detect::decompress_with_capacity(crate::as_bytes(&data), max_size)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::detect::decompress_with_capacity(crate::as_bytes(&data), max_size),
+    )
 }
 
 /// Asynchronously decompress data by auto-detecting the compression format.

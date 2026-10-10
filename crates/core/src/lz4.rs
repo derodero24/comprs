@@ -4,6 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
+use crate::convert::sync_result;
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -12,10 +13,8 @@ use crate::task::{LegacyBuffer, OneShot};
 /// Returns the compressed data as a Buffer. The frame carries a content
 /// checksum, as the `lz4` CLI writes by default.
 #[napi]
-pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::lz4::compress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn lz4_compress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(&env, comprs_core::lz4::compress(crate::as_bytes(&data)))
 }
 
 /// Decompress LZ4 frame-compressed data.
@@ -25,10 +24,8 @@ pub fn lz4_compress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// legacy frames. The maximum decompressed size is 256 MB. Use
 /// `lz4DecompressWithCapacity` for larger data.
 #[napi]
-pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::lz4::decompress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn lz4_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(&env, comprs_core::lz4::decompress(crate::as_bytes(&data)))
 }
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
@@ -37,13 +34,15 @@ pub fn lz4_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
 pub fn lz4_decompress_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::lz4::decompress_with_capacity(crate::as_bytes(&data), cap)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::lz4::decompress_with_capacity(crate::as_bytes(&data), cap),
+    )
 }
 
 // --- Async tasks ---

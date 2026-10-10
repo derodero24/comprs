@@ -1,4 +1,5 @@
 import { Transform, type TransformCallback } from 'node:stream';
+import { markAsUntransferable } from 'node:worker_threads';
 import {
   BrotliCompressContext,
   BrotliCompressDictContext,
@@ -27,6 +28,30 @@ interface StreamContext {
 }
 
 /**
+ * Largest result that the stream contexts return in memory that V8 owns. It
+ * mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs, as VIEW_LIMIT in
+ * src/streams.ts does: larger results stay in the memory of the addon, as
+ * external buffers.
+ */
+const COPY_LIMIT = 2 * 1024 * 1024;
+
+/**
+ * Whether markAsUntransferable() from node:worker_threads works in this
+ * runtime. Node.js implements it; Bun 1.3 and Deno before 2.7.6 export a
+ * function that throws that it is not implemented.
+ */
+const canMarkUntransferable: boolean = probeMarkAsUntransferable();
+
+function probeMarkAsUntransferable(): boolean {
+  try {
+    markAsUntransferable(new ArrayBuffer(0));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Push `buf`, which a stream context returned, in chunks of at most
  * `readableHighWaterMark` bytes. The chunks are views of `buf`, not copies.
  *
@@ -34,16 +59,37 @@ interface StreamContext {
  * chunks that readers receive as small as those of `node:zlib`. The return
  * value of push() is ignored: backpressure still applies between input
  * chunks, as the stream calls transform() again only once readers catch up.
+ *
+ * The chunks of a result that is pushed in several chunks share its
+ * ArrayBuffer, which V8 owns for results of up to COPY_LIMIT, so
+ * transferring one chunk to a worker would detach the others. That
+ * ArrayBuffer is therefore marked as untransferable, so that postMessage()
+ * and structuredClone() throw a DataCloneError instead. A larger result is
+ * an external buffer, which Node.js already marks as untransferable, and is
+ * left alone: on Node.js 24, the mark also sets a detach key, and Node.js
+ * aborts the process when it detaches such a buffer, without the key, as
+ * the process or the Worker that holds it exits. Where the runtime cannot
+ * mark a result, a reader that transfers a chunk while push() emits it, as
+ * push() does in flowing mode, makes the stream fail instead of end without
+ * the rest of the result. A result that is pushed in one chunk stays
+ * transferable.
  */
 function pushSliced(stream: Transform, buf: Uint8Array): void {
-  if (buf.byteLength === 0) return;
+  const length = buf.byteLength;
+  if (length === 0) return;
   const size = stream.readableHighWaterMark || 65536;
-  if (buf.byteLength <= size) {
+  if (length <= size) {
     stream.push(buf);
     return;
   }
-  for (let i = 0; i < buf.byteLength; i += size) {
+  if (canMarkUntransferable && length <= COPY_LIMIT) markAsUntransferable(buf.buffer);
+  for (let i = 0; i < length; i += size) {
     stream.push(buf.subarray(i, i + size));
+    if (buf.byteLength !== length) {
+      throw new Error(
+        'an output chunk was transferred, which detached the other chunks of the same result; copy a chunk with new Uint8Array(chunk) before transferring it',
+      );
+    }
   }
 }
 
@@ -107,7 +153,7 @@ function contextTransform(ctx: StreamContext): Transform {
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
@@ -125,7 +171,7 @@ export function createZstdCompressTransform(level?: number): Transform {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -141,7 +187,7 @@ export function createZstdDecompressTransform(maxOutputSize?: number): Transform
  * Produces spec-compliant gzip output with proper header and CRC32 footer.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -160,7 +206,7 @@ export function createGzipCompressTransform(level?: number): Transform {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -175,7 +221,7 @@ export function createGzipDecompressTransform(maxOutputSize?: number): Transform
  * (no gzip header/footer) compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -193,7 +239,7 @@ export function createDeflateCompressTransform(level?: number): Transform {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -208,7 +254,7 @@ export function createDeflateDecompressTransform(maxOutputSize?: number): Transf
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param quality Compression quality (0-11). Default is 6.
  */
@@ -226,7 +272,7 @@ export function createBrotliCompressTransform(quality?: number): Transform {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -241,7 +287,7 @@ export function createBrotliDecompressTransform(maxOutputSize?: number): Transfo
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
@@ -263,7 +309,7 @@ export function createZstdCompressDictTransform(
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
@@ -281,7 +327,7 @@ export function createZstdDecompressDictTransform(
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Custom dictionary bytes.
  * @param quality Compression quality (0-11). Default is 6.
@@ -303,7 +349,7 @@ export function createBrotliCompressDictTransform(
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
@@ -359,7 +405,7 @@ const MAGIC_LENGTH = 4;
  * and on zstd, gzip or brotli input that ends before the compressed stream does.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -431,7 +477,7 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  */
 export function createLz4CompressTransform(): Transform {
   return contextTransform(new Lz4CompressContext());
@@ -449,7 +495,7 @@ export function createLz4CompressTransform(): Transform {
  * frame.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
