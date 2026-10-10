@@ -1,191 +1,46 @@
-import { randomBytes } from 'node:crypto';
 import {
+  constants,
   brotliCompressSync as nodeBrotliCompress,
   brotliDecompressSync as nodeBrotliDecompress,
 } from 'node:zlib';
-import { test } from 'vitest';
 import { brotliCompress, brotliDecompress } from '../index.js';
-import { BENCH_OPTIONS } from './bench-fixtures.js';
+import {
+  type BenchInput,
+  compareLibraries,
+  JSON_DATA,
+  type Library,
+  MEDIUM,
+} from './bench-fixtures.js';
 
-// --- Patterned data (compressible) ---
-const SMALL = Buffer.from('Hello, comprs! '.repeat(10));
-const MEDIUM = Buffer.alloc(10_000);
-for (let i = 0; i < MEDIUM.length; i++) MEDIUM[i] = i % 256;
-const LARGE = Buffer.alloc(1_000_000);
-for (let i = 0; i < LARGE.length; i++) LARGE[i] = i % 256;
+// comprs always uses a window of 2^22 bytes, node:zlib's default; brotliCompress
+// takes no lgwin. node:zlib's default quality is 11, comprs's is 6, so both
+// are passed explicitly (#563).
+const LGWIN = 22;
 
-// --- Random data (incompressible) ---
-const RANDOM_SMALL = randomBytes(150);
-const RANDOM_MEDIUM = randomBytes(10_000);
-const RANDOM_LARGE = randomBytes(1_000_000);
+const libraries = (quality: number): Library[] => [
+  {
+    name: 'comprs',
+    compress: (data) => brotliCompress(data, quality),
+    decompress: (data) => brotliDecompress(data),
+  },
+  {
+    name: 'node:zlib',
+    compress: (data) =>
+      nodeBrotliCompress(data, {
+        params: {
+          [constants.BROTLI_PARAM_QUALITY]: quality,
+          [constants.BROTLI_PARAM_LGWIN]: LGWIN,
+        },
+      }),
+    decompress: (data) => nodeBrotliDecompress(data),
+  },
+];
 
-// --- Pre-compressed data for decompression benchmarks ---
-const SMALL_COMPRS = brotliCompress(SMALL);
-const SMALL_NODE = nodeBrotliCompress(SMALL);
+// Quality 11 is slow, so it runs on two inputs only.
+const Q11_INPUTS: readonly BenchInput[] = [
+  { label: 'JSON 84KB', data: JSON_DATA },
+  { label: 'patterned 10KB', data: MEDIUM },
+];
 
-const MEDIUM_COMPRS = brotliCompress(MEDIUM);
-const MEDIUM_NODE = nodeBrotliCompress(MEDIUM);
-
-const LARGE_COMPRS = brotliCompress(LARGE);
-const LARGE_NODE = nodeBrotliCompress(LARGE);
-
-const RANDOM_SMALL_COMPRS = brotliCompress(RANDOM_SMALL);
-const RANDOM_SMALL_NODE = nodeBrotliCompress(RANDOM_SMALL);
-
-const RANDOM_MEDIUM_COMPRS = brotliCompress(RANDOM_MEDIUM);
-const RANDOM_MEDIUM_NODE = nodeBrotliCompress(RANDOM_MEDIUM);
-
-const RANDOM_LARGE_COMPRS = brotliCompress(RANDOM_LARGE);
-const RANDOM_LARGE_NODE = nodeBrotliCompress(RANDOM_LARGE);
-
-// =====================================================
-// Compression benchmarks
-// =====================================================
-
-test('brotli compress - 150B patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(SMALL);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(SMALL);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli compress - 10KB patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(MEDIUM);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(MEDIUM);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli compress - 1MB patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(LARGE);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(LARGE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli compress - 150B random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(RANDOM_SMALL);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(RANDOM_SMALL);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli compress - 10KB random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(RANDOM_MEDIUM);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(RANDOM_MEDIUM);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli compress - 1MB random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliCompress(RANDOM_LARGE);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliCompress(RANDOM_LARGE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-// =====================================================
-// Decompression benchmarks
-// =====================================================
-
-test('brotli decompress - 150B patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(SMALL_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(SMALL_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli decompress - 10KB patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(MEDIUM_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(MEDIUM_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli decompress - 1MB patterned', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(LARGE_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(LARGE_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli decompress - 150B random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(RANDOM_SMALL_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(RANDOM_SMALL_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli decompress - 10KB random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(RANDOM_MEDIUM_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(RANDOM_MEDIUM_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-test('brotli decompress - 1MB random', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', () => {
-      brotliDecompress(RANDOM_LARGE_COMPRS);
-    }),
-    bench('node:zlib', () => {
-      nodeBrotliDecompress(RANDOM_LARGE_NODE);
-    }),
-    BENCH_OPTIONS,
-  );
-});
+compareLibraries('brotli', `quality 6, lgwin ${LGWIN}`, libraries(6));
+compareLibraries('brotli', `quality 11, lgwin ${LGWIN}`, libraries(11), { inputs: Q11_INPUTS });
