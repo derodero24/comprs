@@ -49,10 +49,10 @@ on:
   # another PR's branch) and PRs into main are checked too. Their list also
   # names files that only the lint jobs check, so that a change to them is
   # checked before it is merged: every workflow, which Workflow Lint checks,
-  # and the playground and the configuration files that Biome checks. Pushes
-  # to develop leave out these Biome-only files and the workflows that CI
-  # neither calls nor mirrors, so that a merge that changes only those does
-  # not run the full matrix.
+  # and the playground, the chart images and the configuration files that
+  # Biome checks. Pushes to develop leave out these Biome-only files and the
+  # workflows that CI neither calls nor mirrors, so that a merge that changes
+  # only those does not run the full matrix.
   pull_request:
     paths:
       - 'crates/**'
@@ -92,6 +92,7 @@ on:
       - 'renovate.json'
       - '.changeset/config.json'
       - '.devcontainer/**'
+      - '.github/assets/**'
       - '.github/workflows/**'
   # Maintainers can run CI on any branch from the Actions tab, such as the
   # branch of the Version Packages pull request, which changesets/action opens
