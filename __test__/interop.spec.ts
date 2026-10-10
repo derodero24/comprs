@@ -172,8 +172,9 @@ describe.skipIf(!zstdAvailable)('zstd Node.js zlib interop', () => {
 });
 
 describe.skipIf(!lz4CliAvailable)('lz4 CLI interop', () => {
-  // Over 64 KB, so that frames with 64 KB blocks hold several of them.
-  const testData = Buffer.from('Hello, interop testing with lz4 compression! '.repeat(2000));
+  // Over 256 KiB, so that frames hold several blocks: lz4Compress() writes
+  // 256 KiB blocks for it, Lz4CompressContext and `lz4 -B4` 64 KB blocks.
+  const testData = Buffer.from('Hello, interop testing with lz4 compression! '.repeat(8000));
 
   it('comprs lz4 output should be decompressible by the lz4 CLI', () => {
     expect(lz4Cli(['-d', '-c'], lz4Compress(testData))).toEqual(testData);

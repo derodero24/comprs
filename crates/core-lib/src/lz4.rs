@@ -5,7 +5,7 @@ use std::io::Write;
 use std::ops::RangeInclusive;
 
 use lz4_flex::block::{decompress_into, decompress_into_with_dict};
-use lz4_flex::frame::{Error as FrameError, FrameEncoder, FrameInfo};
+use lz4_flex::frame::{BlockSize, Error as FrameError, FrameEncoder, FrameInfo};
 use twox_hash::XxHash32;
 
 use crate::ComprsError;
@@ -49,18 +49,53 @@ const LEGACY_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 /// frame's magic number.
 const LEGACY_MAX_BLOCK_SIZE: u32 = (LEGACY_BLOCK_SIZE + LEGACY_BLOCK_SIZE / 255 + 16) as u32;
 
-/// Create a frame encoder writing to `writer`.
+/// Create a frame encoder writing to `writer`, in independent blocks of up
+/// to `block_size` bytes.
 ///
 /// The frames carry a content checksum, as the `lz4` CLI writes by default,
 /// so decoders detect corrupted data.
-pub(crate) fn frame_encoder<W: Write>(writer: W) -> FrameEncoder<W> {
-    FrameEncoder::with_frame_info(FrameInfo::new().content_checksum(true), writer)
+pub(crate) fn frame_encoder<W: Write>(writer: W, block_size: BlockSize) -> FrameEncoder<W> {
+    FrameEncoder::with_frame_info(
+        FrameInfo::new()
+            .block_size(block_size)
+            .content_checksum(true),
+        writer,
+    )
 }
 
-/// Compress data using LZ4 frame format.
+/// Block maximum size of the frame that [`compress`] writes for `len` bytes:
+/// 64 KiB for up to 64 KiB, 256 KiB for more.
+///
+/// The encoder needs two buffers of the block maximum size, and a decoder
+/// one, so small input gets small blocks. Left to choose, lz4_flex would
+/// pick the same sizes up to 256 KiB, but 4 MiB, the default of the `lz4`
+/// CLI, for more. Against 4 MiB, 256 KiB blocks make 1 MB of text about
+/// 0.3% larger, but need 16 times less memory, which makes compressing 1 MB
+/// of repetitive data about 3 times faster.
+fn compress_block_size(len: usize) -> BlockSize {
+    if len <= 64 * 1024 {
+        BlockSize::Max64KB
+    } else {
+        BlockSize::Max256KB
+    }
+}
+
+/// The most bytes that [`compress`] writes for `len` bytes of input.
+///
+/// The encoder stores a block that does not compress as it is, behind its
+/// 4-byte size, and every block but the last holds at least 64 KiB. The
+/// frame adds 15 bytes: the magic number and the descriptor, the end mark
+/// and the content checksum.
+fn compress_bound(len: usize) -> usize {
+    len + len.div_ceil(64 * 1024) * 4 + 15
+}
+
+/// Compress data using LZ4 frame format, in blocks of up to 256 KiB.
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    let mut output = Vec::with_capacity(data.len());
-    let mut encoder = frame_encoder(&mut output);
+    // Room for the whole frame, so the output is not reallocated, and
+    // copied, before the last block.
+    let mut output = Vec::with_capacity(compress_bound(data.len()));
+    let mut encoder = frame_encoder(&mut output, compress_block_size(data.len()));
     encoder
         .write_all(data)
         .map_err(|e| ComprsError::Operation {
@@ -369,9 +404,10 @@ fn not_a_frame(at_start: bool, context: &'static str) -> ComprsError {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
     use std::time::{Duration, Instant};
 
-    use lz4_flex::frame::{BlockMode, BlockSize};
+    use lz4_flex::frame::{BlockMode, FrameDecoder};
 
     use super::*;
 
@@ -473,6 +509,49 @@ mod tests {
         // FLG: version 01, independent blocks, content checksum.
         assert_eq!(compress(b"test").unwrap()[4], 0x64);
         assert_eq!(decompress(&compress(b"test").unwrap()).unwrap(), b"test");
+    }
+
+    #[test]
+    fn compress_writes_blocks_of_at_most_256_kib() {
+        // BD: blocks of up to 64 KB (0x40) or 256 KB (0x50). Left to choose,
+        // lz4_flex would write 4 MB blocks for more than 256 KiB.
+        for (len, bd) in [
+            (0, 0x40),
+            (64 * 1024, 0x40),
+            (64 * 1024 + 1, 0x50),
+            (1_000_000, 0x50),
+        ] {
+            let compressed = compress(&text(len)).unwrap();
+            assert_eq!(compressed[5], bd, "{len} bytes");
+            assert_eq!(decompress(&compressed).unwrap(), text(len));
+            // A frame decoder other than this module's reads them too, and
+            // checks every block against the block maximum size.
+            let mut decoded = Vec::new();
+            FrameDecoder::new(&compressed[..])
+                .read_to_end(&mut decoded)
+                .unwrap();
+            assert_eq!(decoded, text(len), "{len} bytes");
+        }
+    }
+
+    #[test]
+    fn compress_bound_holds_data_that_does_not_compress() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let random: Vec<u8> = (0..300_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 32) as u8
+            })
+            .collect();
+        for len in [0, 1, 64 * 1024, 64 * 1024 + 1, 300_000] {
+            let compressed = compress(&random[..len]).unwrap();
+            // Every block is stored as it is.
+            assert!(compressed.len() > len, "{len} bytes");
+            assert!(compressed.len() <= compress_bound(len), "{len} bytes");
+            assert_eq!(decompress(&compressed).unwrap(), &random[..len]);
+        }
     }
 
     #[test]

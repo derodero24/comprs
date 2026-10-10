@@ -332,10 +332,10 @@ export declare class GzipDecompressContext {
 /**
  * Streaming LZ4 frame compression context.
  *
- * Uses `FrameEncoder` internally to produce incremental compressed output
- * on each `transform()` call. A cursor tracks already-returned bytes, and
- * old bytes are drained periodically to bound memory usage. The frame
- * carries a content checksum, as the `lz4` CLI writes by default.
+ * Compresses into independent blocks of up to 64 KiB and returns the
+ * output of each block once the block is complete; `flush()` completes the
+ * current block early. The frame carries a content checksum, as the `lz4`
+ * CLI writes by default.
  */
 export declare class Lz4CompressContext {
   constructor()
