@@ -887,11 +887,13 @@ impl MemoryUsage for CompressContext {
 ///
 /// Until #565 switches lz4 to an incremental decoder, the lz4 context holds
 /// its input and decodes all of it on `flush` and `finish`, so a `flush`
-/// inside a frame, or before any input, fails with
-/// [`ComprsError::Truncated`]. Nor does the context count its output across
-/// calls: `max_output_size` bounds the output of each `flush` and of
-/// `finish`, not that of the stream. The same holds for an [`AutoDecoder`]
-/// once it detects lz4.
+/// must fall between frames: one inside an LZ4 frame or a block, or before
+/// any input, fails with [`ComprsError::Truncated`], and one between the
+/// blocks of a legacy frame, which has no end mark, ends the frame there,
+/// so that the rest of it then fails with [`ComprsError::Corrupt`]. Nor does
+/// the context count its output across calls: `max_output_size` bounds the
+/// output of each `flush` and of `finish`, not that of the stream. The same
+/// holds for an [`AutoDecoder`] once it detects lz4.
 pub enum DecompressContext {
     Zstd(zstd_stream::DecompressContext),
     ZstdDict(zstd_stream::DecompressDictContext),
@@ -1024,9 +1026,10 @@ const AUTO_STREAM: &str = "auto stream";
 /// - a brotli stream is known once a try sees it decode to more bytes than
 ///   it holds, as [`detect_prefix`] describes, and otherwise after 64 KiB
 ///   of input or on `finish`. So a stream whose data does not compress is
-///   known late, and one that a try first sees whole, such as a stream of
-///   a few bytes, only on `finish`, since data may still follow it, which
-///   would make it no brotli stream;
+///   known late, and one that ends before a try sees it decode to more than
+///   it holds, such as a whole stream that decodes to at most 4 KiB, only
+///   on `finish`, since data may still follow it, which would make it no
+///   brotli stream;
 /// - zstd and LZ4 frames whose magic number, after skippable frames, does
 ///   not fit in the first 64 KiB are not detected at all: [`decompress`]
 ///   finds them, but the stream fails once it holds 64 KiB.
