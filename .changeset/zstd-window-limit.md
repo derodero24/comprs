@@ -24,8 +24,9 @@ one of two ways:
 
 - A limit of 64 MiB or less lowers zstd's bound, and the frame throws
   `zstd frame window exceeded maximum size of <limit> bytes`, the size-limit
-  error. A larger limit decodes the frame if its window is at most 128 MiB;
-  a window over 128 MiB, which no limit decodes, throws the same error.
+  error. Raising the limit decodes the frame if its window is at most
+  128 MiB; a window over 128 MiB throws the same error, although no limit
+  decodes it.
 - A limit of more than 64 MiB, such as the default of 256 MB, keeps zstd's
   bound of 128 MiB, and a frame whose window exceeds it still throws zstd's
   `Frame requires too much memory for decoding`, a corrupt-data error.
