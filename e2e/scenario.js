@@ -11,7 +11,7 @@
 
 /**
  * What the checks use from `@derodero24/comprs` and
- * `@derodero24/comprs/streams`.
+ * `@derodero24/comprs/streams`, and how they load `@derodero24/comprs/next`.
  *
  * @typedef {object} Comprs
  * @property {Codec} zstdCompress
@@ -35,7 +35,22 @@
  *   `@derodero24/comprs` as the fixture does: its ES module namespace, or
  *   what require() returns. It holds the *Async functions, which
  *   browser/app.js imports dynamically.
+ * @property {() => Promise<Next>} importNext Load
+ *   `@derodero24/comprs/next` as the fixture does. browser/app.js imports it
+ *   dynamically too, so that it does not keep the initialisation of the
+ *   WebAssembly module in a bundle that drops that of the root entry.
  */
+
+/**
+ * What the checks use from `@derodero24/comprs/next`, the unified API.
+ *
+ * @typedef {Pick<
+ *   typeof import('@derodero24/comprs/next'),
+ *   'compress' | 'compressSync' | 'decompress' | 'decompressSync' | 'detectFormat'
+ * >} Next
+ */
+
+/** @typedef {import('@derodero24/comprs/next').ErrorCode} ErrorCode */
 
 /**
  * The members of the `CompressionFormat` enum.
@@ -63,6 +78,16 @@ const INPUT_SIZE = 4 * 1024 * 1024;
 
 /** CRC-32 of {@link input}, which crc32() must return in every build. */
 const INPUT_CRC32 = 0xe0931310;
+
+/** The formats of the unified API. */
+const NEXT_FORMATS = /** @type {const} */ ([
+  'zstd',
+  'gzip',
+  'deflate',
+  'deflate-raw',
+  'brotli',
+  'lz4',
+]);
 
 /**
  * Run every check, and throw an Error that names the first one to fail.
@@ -152,6 +177,40 @@ export async function checkPackage(comprs) {
     const tasks = Object.keys(await comprs.importAsync()).filter((name) => name.endsWith('Task'));
     assert(tasks.length === 0, `the entry exports ${tasks.join(', ')}`);
   });
+  await run('unified API round trip', async () => {
+    const next = await comprs.importNext();
+    const sample = data.subarray(0, 65536);
+    for (const format of NEXT_FORMATS) {
+      const output = next.compressSync(sample, { format });
+      assert(
+        Object.getPrototypeOf(output) === Uint8Array.prototype,
+        `compressSync() returned no plain Uint8Array for ${format}`,
+      );
+      assertBytes(next.decompressSync(output, { format }), sample);
+    }
+    const zstd = await next.compress(data, { format: 'zstd' });
+    assert(
+      next.detectFormat(zstd) === 'zstd',
+      `detectFormat() returned ${next.detectFormat(zstd)}`,
+    );
+    assertBytes(await next.decompress(zstd), data);
+  });
+  await run('unified API error codes', async () => {
+    const next = await comprs.importNext();
+    const zlib = next.compressSync(data.subarray(0, 65536), { format: 'deflate' });
+    const cut = zlib.subarray(0, zlib.length >> 1);
+    assertCode(() => next.decompressSync(cut, { format: 'deflate' }), 'ERR_COMPRS_TRUNCATED');
+    assertCode(
+      () => next.compressSync(data, { format: 'zstd', level: 23 }),
+      'ERR_COMPRS_INVALID_ARG',
+    );
+    const text = new TextEncoder().encode('not compressed');
+    await assertRejects(next.decompress(text), 'ERR_COMPRS_UNKNOWN_FORMAT');
+    await assertRejects(
+      next.compress(data, { format: 'gzip', level: 10 }),
+      'ERR_COMPRS_INVALID_ARG',
+    );
+  });
   await run('stream round trip', async () => {
     const stream = new Blob([data])
       .stream()
@@ -239,4 +298,50 @@ function assertThrows(fn) {
     return;
   }
   throw new Error('the call did not throw');
+}
+
+/**
+ * Check an error of the unified API: it carries `code`, and it is a
+ * TypeError for ERR_COMPRS_INVALID_ARG and a plain Error for every other
+ * code.
+ *
+ * @param {unknown} error
+ * @param {ErrorCode} code
+ */
+function assertCoded(error, code) {
+  const expected = code === 'ERR_COMPRS_INVALID_ARG' ? TypeError : Error;
+  assert(
+    error instanceof Error && Object.getPrototypeOf(error) === expected.prototype,
+    `expected a ${expected.name}, got ${error}`,
+  );
+  const actual = Reflect.get(error, 'code');
+  assert(actual === code, `expected the code ${code}, got ${actual}`);
+}
+
+/**
+ * @param {() => unknown} fn
+ * @param {ErrorCode} code
+ */
+function assertCode(fn, code) {
+  try {
+    fn();
+  } catch (error) {
+    assertCoded(error, code);
+    return;
+  }
+  throw new Error(`the call did not throw ${code}`);
+}
+
+/**
+ * @param {Promise<unknown>} promise
+ * @param {ErrorCode} code
+ */
+async function assertRejects(promise, code) {
+  try {
+    await promise;
+  } catch (error) {
+    assertCoded(error, code);
+    return;
+  }
+  throw new Error(`the Promise did not reject with ${code}`);
 }

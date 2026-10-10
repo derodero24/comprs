@@ -61,9 +61,9 @@ export function importBrowserStreams() {
 }
 
 /**
- * Import the browser build of `@derodero24/comprs/next`, which package.json
- * does not export yet: browser/next/browser.js, which loads the WebAssembly
- * module through browser/wasm.js, as the browser entry does.
+ * Import the browser build of `@derodero24/comprs/next`,
+ * browser/next/browser.js, which loads the WebAssembly module through
+ * browser/wasm.js, as the browser entry does.
  */
 export function importBrowserNext() {
   return withFileFetch(() => import('../browser/next/browser.js'));

@@ -3,6 +3,8 @@
   "sideEffects": [
     "./index.js",
     "./streams.js",
-    "./wasm.js"
+    "./wasm.js",
+    "./next/browser.js",
+    "./next/wasm.js"
   ]
 }

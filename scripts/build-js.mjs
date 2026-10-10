@@ -5,9 +5,7 @@
  * in src/: the stream helpers (streams.js, node.js and browser/streams.js),
  * the ES module entry (index.mjs), the unified API (next/ and browser/next/),
  * and the declaration files of each. npm publishes the outputs, so they are
- * tracked; CI runs this script and fails if they change. next/ and
- * browser/next/ are tracked too, but npm publishes them only once
- * package.json lists them.
+ * tracked; CI runs this script and fails if they change.
  *
  * Each TypeScript project in PROJECTS is compiled with tsc, which TypeScript
  * 7 provides as a command only. The CommonJS outputs, every file that tsc

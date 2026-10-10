@@ -21,11 +21,11 @@
  *      instead of needing the Visual C++ Redistributable;
  *   5. the root package, packed into a temporary tarball, includes every file
  *      and entry point its package.json names and no platform binary, and
- *      its browser entry points (those of `.` and `./streams`) work with
- *      bundlers (#564): each one only loads files from the package itself,
- *      as ES modules, down to the wasm-bindgen WebAssembly module, which it
- *      fetches through `new URL('…', import.meta.url)` rather than importing
- *      it, and no `sideEffects` field lets a bundler drop its
+ *      its browser entry points (those of `.`, `./streams` and `./next`)
+ *      work with bundlers (#564): each one only loads files from the package
+ *      itself, as ES modules, down to the wasm-bindgen WebAssembly module,
+ *      which it fetches through `new URL('…', import.meta.url)` rather than
+ *      importing it, and no `sideEffects` field lets a bundler drop its
  *      initialisation: neither the entry point, nor any module that a
  *      module on the way imports for its side effects only, such as
  *      browser/wasm.js, which browser/index.js imports to load the

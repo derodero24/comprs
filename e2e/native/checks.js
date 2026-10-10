@@ -29,6 +29,8 @@ const PACKAGE_DIR = join(import.meta.dirname, '..', 'node_modules', '@derodero24
  * @property {typeof import('@derodero24/comprs/node')} node `@derodero24/comprs/node`
  * @property {() => Promise<Main>} importMain How the fixture imports
  *   `@derodero24/comprs` when it needs it later.
+ * @property {() => Promise<typeof import('@derodero24/comprs/next')>} importNext
+ *   How the fixture imports `@derodero24/comprs/next`.
  * @property {(specifier: string) => string} resolve How the fixture resolves a
  *   specifier: to a path or a file: URL.
  * @property {Record<string, string>} files The file of the package that each
@@ -81,7 +83,15 @@ function codedError(code) {
  *
  * @param {NativePackage} pkg
  */
-export async function checkNativePackage({ main, streams, node, importMain, resolve, files }) {
+export async function checkNativePackage({
+  main,
+  streams,
+  node,
+  importMain,
+  importNext,
+  resolve,
+  files,
+}) {
   const runtime = runtimeName();
   for (const [specifier, file] of Object.entries(files)) {
     const resolved = resolve(specifier);
@@ -89,7 +99,7 @@ export async function checkNativePackage({ main, streams, node, importMain, reso
     assert.equal(path, join(PACKAGE_DIR, file), `${specifier} resolved to ${resolved}`);
   }
 
-  const passed = await checkPackage({ ...main, ...streams, importAsync: importMain });
+  const passed = await checkPackage({ ...main, ...streams, importAsync: importMain, importNext });
 
   const data = new TextEncoder().encode(`Hello from ${runtime}! `.repeat(1000));
   /** @type {Uint8Array[]} */

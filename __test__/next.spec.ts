@@ -40,8 +40,8 @@ import * as next from '../next/index.js';
 
 // The unified API, @derodero24/comprs/next (#577), as the native build
 // compiles it from src/next: the functions of api.ts over the hidden binding
-// of the native addon. package.json does not export it yet, so the tests
-// import the outputs by path.
+// of the native addon. The tests import the outputs by path;
+// export-parity.mjs and esm-bundle.spec.ts load them by the package name.
 
 const require = createRequire(__filename);
 
@@ -833,9 +833,21 @@ function bindingErrorCodes(): unknown {
   return Reflect.apply(errorCodes, binding, []);
 }
 
+/** The codes that the table of the README's section on ./next lists. */
+function documentedErrorCodes(): string[] {
+  const readme = readFileSync(resolve(__dirname, '../README.md'), 'utf8');
+  const section = readme.split(/^## /m).find((part) => part.startsWith('Unified API'));
+  if (section === undefined) throw new Error('the README has no section on the unified API');
+  return [...section.matchAll(/^\| `(ERR_COMPRS_\w+)` \|/gm)].flatMap((match) => match[1] ?? []);
+}
+
 describe('errors', () => {
   it('ErrorCode holds the codes of the backend', () => {
     expect(declaredErrorCodes()).toEqual(bindingErrorCodes());
+  });
+
+  it('are those that the README lists', () => {
+    expect(documentedErrorCodes()).toEqual(bindingErrorCodes());
   });
 
   it('cover every code that the functions can give', () => {

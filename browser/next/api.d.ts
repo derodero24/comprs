@@ -119,7 +119,9 @@ export interface CompressOptions {
      * The output can differ from that without workers. zstd compresses inputs
      * of at most 512 KiB on the calling thread whatever the number, and each
      * call starts and stops its own workers, so they pay off for large inputs
-     * only.
+     * only. They cost memory too: zstd buffers up to `workers + 3` jobs of
+     * the input, 56 MiB for 4 workers at level 3, and gives each worker a
+     * compression context of its own.
      *
      * {@link compress} runs on a thread of the libuv pool, whose size
      * `UV_THREADPOOL_SIZE` sets (4 by default), and each call may run

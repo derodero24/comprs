@@ -22,7 +22,7 @@ const ROOT = new URL('../', import.meta.url);
  *
  * @type {Record<string, number>}
  */
-const MIN_VALUES = { '.': 60 };
+const MIN_VALUES = { '.': 60, './next': 7 };
 
 /**
  * @param {unknown} value
@@ -81,7 +81,7 @@ function declaredValues(files) {
  * An entry point, as one condition of `exports` picks it.
  *
  * @typedef {object} Entry
- * @property {string} subpath The key of `exports`, such as `./streams`.
+ * @property {string} subpath The key of `exports`, such as `./next`.
  * @property {string} specifier The specifier that loads it.
  * @property {'require' | 'import'} condition
  * @property {string} types Its declaration file, relative to the package root.
@@ -137,8 +137,9 @@ const problems = [];
  * @param {string} label
  * @param {string[]} actual
  * @param {string[]} expected
+ * @param {string} [source] Where `expected` comes from, for the report.
  */
-function compare(label, actual, expected) {
+function compare(label, actual, expected, source = 'declared') {
   const actualSet = new Set(actual);
   const expectedSet = new Set(expected);
   const missing = expected.filter((name) => !actualSet.has(name)).sort();
@@ -146,9 +147,9 @@ function compare(label, actual, expected) {
   if (missing.length > 0 || extra.length > 0) {
     problems.push(
       [
-        `${label}: ${actual.length} exports, ${expected.length} declared`,
-        ...missing.map((name) => `  - ${name} (declared, not exported)`),
-        ...extra.map((name) => `  + ${name} (exported, not declared)`),
+        `${label}: ${actual.length} exports, ${expected.length} ${source}`,
+        ...missing.map((name) => `  - ${name} (${source}, not exported)`),
+        ...extra.map((name) => `  + ${name} (exported, not ${source})`),
       ].join('\n'),
     );
   }
@@ -182,6 +183,15 @@ for (const entry of ENTRIES) {
   compare(label, names, declared);
   exported.set(label, names);
 }
+
+// The ES module entry of ./next re-exports the CommonJS entry and nothing
+// else, unlike that of the root, which adds the stream helpers.
+compare(
+  'import(./next)',
+  exported.get('import(./next)') ?? [],
+  exported.get('require(./next)') ?? [],
+  'exported by require()',
+);
 
 if (problems.length > 0) {
   process.stderr.write(`Export parity check failed:\n\n${problems.join('\n\n')}\n`);

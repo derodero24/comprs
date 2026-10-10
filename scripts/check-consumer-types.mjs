@@ -5,11 +5,14 @@
  *
  * Each directory of __test__/consumer-types is a small consumer project: an
  * ES module and a CommonJS one that resolve the package like Node.js does,
- * and two ES modules that resolve it like a bundler does, one of them with
- * the `browser` condition, the DOM library and no Node.js types (#567). They
- * type-check their dependencies' declarations (`skipLibCheck: false`),
- * which the repository's own tsconfig.json skips, and they use the package
- * by its name, so that the `exports` conditions pick the declaration files.
+ * and three ES modules that resolve it like a bundler does. One of these has
+ * the `browser` condition, the DOM library and no Node.js types (#567);
+ * dom-only-next has the DOM library and no Node.js types either, but not the
+ * condition, and passes the results of `@derodero24/comprs/next` to DOM
+ * functions that take a BufferSource or a BlobPart (#577). They type-check
+ * their dependencies' declarations (`skipLibCheck: false`), which the
+ * repository's own tsconfig.json skips, and they use the package by its
+ * name, so that the `exports` conditions pick the declaration files.
  *
  * The script packs the root package into a temporary tarball, as `npm
  * publish` would, extracts it into each project's

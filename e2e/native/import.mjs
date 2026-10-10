@@ -11,10 +11,12 @@ await checkNativePackage({
   streams,
   node,
   importMain: () => import('@derodero24/comprs'),
+  importNext: () => import('@derodero24/comprs/next'),
   resolve: (specifier) => import.meta.resolve(specifier),
   files: {
     '@derodero24/comprs': 'index.mjs',
     '@derodero24/comprs/streams': 'streams.js',
     '@derodero24/comprs/node': 'node.js',
+    '@derodero24/comprs/next': 'next/index.mjs',
   },
 });
