@@ -105,9 +105,15 @@ jobs:
           tool: cargo-zigbuild@0.23.4
           fallback: none
 
+      # The hash pins the x86_64 wheel, the only file these x64 hosts install.
+      # pip skips any other file in the release, such as a later one with a
+      # higher build tag that it would otherwise prefer, and fails the step
+      # if the pinned file is gone.
       - name: Install Zig
         if: matrix.settings.use-zig
-        run: pip3 install ziglang==0.16.0
+        run: |
+          echo 'ziglang==0.16.0 --hash=sha256:9fcda73f62b851dd72a54b710ad40a209896db14cfb13649e62191243556342b' > "$RUNNER_TEMP/zig-requirements.txt"
+          pip3 install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/zig-requirements.txt"
 
       - name: Build native
         run: >-
