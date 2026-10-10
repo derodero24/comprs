@@ -53,7 +53,10 @@ impl ZstdCompressContext {
     }
 }
 
-stream_context_methods!(ZstdCompressContext);
+stream_context_methods!(
+    ZstdCompressContext,
+    comprs_core::zstd_stream::CompressContext
+);
 
 /// Streaming zstd decompression context.
 ///
@@ -107,7 +110,10 @@ impl ZstdDecompressContext {
     }
 }
 
-stream_context_methods!(ZstdDecompressContext);
+stream_context_methods!(
+    ZstdDecompressContext,
+    comprs_core::zstd_stream::DecompressContext
+);
 
 /// Streaming zstd compression context with dictionary.
 ///
@@ -157,7 +163,10 @@ impl ZstdCompressDictContext {
     }
 }
 
-stream_context_methods!(ZstdCompressDictContext);
+stream_context_methods!(
+    ZstdCompressDictContext,
+    comprs_core::zstd_stream::CompressDictContext
+);
 
 /// Streaming zstd decompression context with dictionary.
 ///
@@ -218,4 +227,7 @@ impl ZstdDecompressDictContext {
     }
 }
 
-stream_context_methods!(ZstdDecompressDictContext);
+stream_context_methods!(
+    ZstdDecompressDictContext,
+    comprs_core::zstd_stream::DecompressDictContext
+);

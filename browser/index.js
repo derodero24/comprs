@@ -50,28 +50,62 @@ import {
   zstdTrainDictionary,
 } from './comprs-wasm.js';
 
+const CONTEXTS = [
+  BrotliCompressContext,
+  BrotliCompressDictContext,
+  BrotliDecompressContext,
+  BrotliDecompressDictContext,
+  DeflateCompressContext,
+  DeflateDecompressContext,
+  GzipCompressContext,
+  GzipDecompressContext,
+  Lz4CompressContext,
+  Lz4DecompressContext,
+  ZstdCompressContext,
+  ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
+];
+
 // The glue makes [Symbol.dispose]() an alias of free(). As in the native
 // addon, it closes the context instead, so that later calls throw
 // "<format> stream already closed" rather than a glue error.
 if (Symbol.dispose) {
-  for (const Context of [
-    BrotliCompressContext,
-    BrotliCompressDictContext,
-    BrotliDecompressContext,
-    BrotliDecompressDictContext,
-    DeflateCompressContext,
-    DeflateDecompressContext,
-    GzipCompressContext,
-    GzipDecompressContext,
-    Lz4CompressContext,
-    Lz4DecompressContext,
-    ZstdCompressContext,
-    ZstdCompressDictContext,
-    ZstdDecompressContext,
-    ZstdDecompressDictContext,
-  ]) {
+  for (const Context of CONTEXTS) {
     Context.prototype[Symbol.dispose] = Context.prototype.close;
   }
+}
+
+// The asynchronous methods of the stream contexts, for code that also runs
+// on the native addon, which runs them on the libuv thread pool. Like the
+// *Async functions below, they run the synchronous method on the calling
+// thread before they return, and report every error, such as a finished or
+// closed stream, by rejecting the Promise. They are defined as class methods
+// are: writable, configurable and not enumerable.
+for (const Context of CONTEXTS) {
+  Object.defineProperties(Context.prototype, {
+    transformAsync: {
+      value: function transformAsync(chunk) {
+        return settle(() => this.transform(chunk));
+      },
+      writable: true,
+      configurable: true,
+    },
+    flushAsync: {
+      value: function flushAsync() {
+        return settle(() => this.flush());
+      },
+      writable: true,
+      configurable: true,
+    },
+    finishAsync: {
+      value: function finishAsync() {
+        return settle(() => this.finish());
+      },
+      writable: true,
+      configurable: true,
+    },
+  });
 }
 
 // The functions and stream contexts as wasm-bindgen generates them. The

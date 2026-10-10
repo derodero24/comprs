@@ -61,6 +61,14 @@ pub enum ComprsError {
     #[error("{0} already closed")]
     StreamClosed(&'static str),
 
+    /// A stream context was called while an asynchronous call on it, which
+    /// runs on another thread, had not finished. Holds the stream name.
+    ///
+    /// Only the bindings, which run those calls, raise it. Its code is
+    /// `ERR_COMPRS_OPERATION_FAILED`.
+    #[error("{0} is busy: an asynchronous call has not finished")]
+    StreamBusy(&'static str),
+
     /// Input ended before the end of the compressed stream, including empty
     /// input. Holds the format name.
     ///
@@ -148,9 +156,9 @@ impl ComprsError {
             ComprsError::SizeLimit { .. } => "ERR_COMPRS_SIZE_LIMIT",
             ComprsError::StreamFinished(_) => "ERR_COMPRS_STREAM_FINISHED",
             ComprsError::StreamClosed(_) => "ERR_COMPRS_STREAM_CLOSED",
-            ComprsError::Operation { .. } | ComprsError::Creation { .. } => {
-                "ERR_COMPRS_OPERATION_FAILED"
-            }
+            ComprsError::Operation { .. }
+            | ComprsError::Creation { .. }
+            | ComprsError::StreamBusy(_) => "ERR_COMPRS_OPERATION_FAILED",
         }
     }
 
@@ -181,6 +189,7 @@ impl ComprsError {
             },
             ComprsError::StreamFinished(name) => ComprsError::StreamFinished(name),
             ComprsError::StreamClosed(name) => ComprsError::StreamClosed(name),
+            ComprsError::StreamBusy(name) => ComprsError::StreamBusy(name),
             ComprsError::Truncated(name) => ComprsError::Truncated(name),
         }
     }
@@ -191,9 +200,9 @@ mod tests {
     use super::*;
 
     /// An error of every variant, in the order of [`variant_index`].
-    /// StreamClosed is raised only by the bindings, which close their
-    /// contexts.
-    fn every_variant() -> [ComprsError; 9] {
+    /// StreamClosed and StreamBusy are raised only by the bindings, which
+    /// close their contexts and run their asynchronous calls.
+    fn every_variant() -> [ComprsError; 10] {
         [
             ComprsError::Operation {
                 context: "test",
@@ -216,6 +225,7 @@ mod tests {
             ComprsError::StreamFinished("test stream"),
             ComprsError::StreamClosed("test stream"),
             ComprsError::Truncated("test"),
+            ComprsError::StreamBusy("test stream"),
         ]
     }
 
@@ -236,6 +246,7 @@ mod tests {
             ComprsError::StreamFinished(_) => 6,
             ComprsError::StreamClosed(_) => 7,
             ComprsError::Truncated(_) => 8,
+            ComprsError::StreamBusy(_) => 9,
         }
     }
 
@@ -274,6 +285,18 @@ mod tests {
             assert_eq!(variant_index(&copy), variant_index(&error), "{error:?}");
             assert_eq!(copy.to_string(), error.to_string());
         }
+    }
+
+    // Busy is a misuse of a binding's stream context that the unified API,
+    // which never overlaps calls, cannot reach, so it has no code of its own.
+    #[test]
+    fn stream_busy_is_an_operation_failure() {
+        let busy = ComprsError::StreamBusy("lz4 stream");
+        assert_eq!(busy.code(), "ERR_COMPRS_OPERATION_FAILED");
+        assert_eq!(
+            busy.to_string(),
+            "lz4 stream is busy: an asynchronous call has not finished"
+        );
     }
 
     #[test]

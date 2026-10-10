@@ -52,7 +52,7 @@ impl Lz4CompressContext {
     }
 }
 
-stream_context_methods!(Lz4CompressContext);
+stream_context_methods!(Lz4CompressContext, comprs_core::lz4_stream::CompressContext);
 
 /// Streaming LZ4 frame decompression context.
 ///
@@ -124,4 +124,7 @@ impl Lz4DecompressContext {
     }
 }
 
-stream_context_methods!(Lz4DecompressContext);
+stream_context_methods!(
+    Lz4DecompressContext,
+    comprs_core::lz4_stream::DecompressContext
+);

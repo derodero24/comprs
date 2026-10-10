@@ -29,6 +29,7 @@ import {
   lz4Compress,
   lz4Decompress,
   version,
+  ZstdCompressContext,
   zstdCompress,
   zstdDecompress,
 } from '@derodero24/comprs';
@@ -53,6 +54,7 @@ try {
     CompressionFormat,
     crc32,
     version,
+    ZstdCompressContext,
     createZstdCompressStream,
     createDecompressStream,
     importAsync: () => import('@derodero24/comprs'),

@@ -112,6 +112,49 @@ export declare class BrotliCompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -166,6 +209,49 @@ export declare class BrotliCompressDictContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -197,6 +283,49 @@ export declare class BrotliDecompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -228,6 +357,49 @@ export declare class BrotliDecompressDictContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -258,6 +430,49 @@ export declare class DeflateCompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -289,6 +504,49 @@ export declare class DeflateDecompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -319,6 +577,49 @@ export declare class GzipCompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -350,6 +651,49 @@ export declare class GzipDecompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -379,6 +723,49 @@ export declare class Lz4CompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -435,6 +822,49 @@ export declare class Lz4DecompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -465,6 +895,49 @@ export declare class ZstdCompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -495,6 +968,49 @@ export declare class ZstdCompressDictContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -532,6 +1048,49 @@ export declare class ZstdDecompressContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
@@ -569,6 +1128,49 @@ export declare class ZstdDecompressDictContext {
    * declarations.
    */
   close(): void
+  /**
+   * `transform(chunk)` on the libuv thread pool: returns a Promise of
+   * the output, and reports every error, an invalid argument included,
+   * by rejecting it. The chunk is copied before the method returns, so
+   * the caller may reuse its memory at once. In the browser build, it
+   * runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished", such as "zstd stream is busy: an asynchronous call
+   * has not finished". `close()` while a call is in flight releases
+   * the native state once the call settles, and its Promise still
+   * settles. After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
+  /**
+   * `flush()` on the libuv thread pool: returns a Promise of the
+   * output, and reports every error by rejecting it. In the browser
+   * build, it runs synchronously, on the calling thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  flushAsync(): Promise<Buffer>
+  /**
+   * `finish()` on the libuv thread pool: returns a Promise of the rest
+   * of the output, and reports every error by rejecting it. The native
+   * state is released once the call has run, whether it succeeded or
+   * not. In the browser build, it runs synchronously, on the calling
+   * thread.
+   *
+   * At most one asynchronous call may be in flight per context: until
+   * its Promise settles, another asynchronous call rejects and a
+   * synchronous call throws "<name> is busy: an asynchronous call has
+   * not finished". After `close()`, calls reject with "<name> already
+   * closed".
+   */
+  finishAsync(): Promise<Buffer>
 }
 
 /**
