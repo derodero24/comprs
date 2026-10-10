@@ -1,0 +1,20 @@
+The zlib format (RFC 1950) wraps a deflate stream (RFC 1951) in a two-byte
+header and the Adler-32 checksum of the uncompressed data. The Compression
+Streams standard calls it "deflate", and the raw deflate stream without the
+header and the checksum "deflate-raw". The gzip format (RFC 1952) wraps the
+same deflate stream in a longer header, which may hold a file name, a
+comment and a modification time, and in a trailer that holds the CRC-32 and
+the size of the uncompressed data, modulo 2^32.
+
+Node.js writes this file's zlib stream with the zlib library that it bundles,
+whose encoder chooses its blocks and matches differently from zlib-rs. The
+decoder must accept any valid stream, not only the streams that its own
+encoder writes, so the test decodes a stream that another encoder wrote.
+
+1. A stream that ends before its final block is truncated.
+2. A stream whose checksum does not match its data is corrupt.
+3. Data after the end of the stream is corrupt, except another gzip member.
+4. Output beyond the limit fails before the decoder writes it.
+
+stream chunk frame block window level output stream chunk frame block window
+level output stream chunk frame block window level output stream chunk frame

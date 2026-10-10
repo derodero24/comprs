@@ -109,10 +109,12 @@ pub enum ComprsError {
 ///   "Invalid Data".
 ///
 /// Empty input is `ERR_COMPRS_TRUNCATED` for these decoders as well. The
-/// decompression contexts of zstd, deflate, brotli and lz4, and the one-shot
-/// functions of zstd, deflate and lz4, tell a cut stream apart and report it
-/// as `ERR_COMPRS_TRUNCATED`, and so do the decoders that later releases
-/// add.
+/// decompression contexts of zstd, deflate, brotli and lz4, the one-shot
+/// functions of zstd, deflate and lz4, and the strict decoders of gzip, zlib
+/// and raw deflate ([`crate::gzip::decompress_strict`] and
+/// [`crate::gzip_stream::StrictDecompressContext`]) tell a cut stream apart
+/// and report it as `ERR_COMPRS_TRUNCATED`, and so do the decoders that
+/// later releases add.
 pub const ERROR_CODES: [&str; 8] = [
     "ERR_COMPRS_INVALID_ARG",
     "ERR_COMPRS_UNKNOWN_FORMAT",
@@ -138,6 +140,37 @@ impl ComprsError {
             ComprsError::Operation { .. } | ComprsError::Creation { .. } => {
                 "ERR_COMPRS_OPERATION_FAILED"
             }
+        }
+    }
+
+    /// A copy of the error, with the same variant and message, for a stream
+    /// context that reports its error again on every call after it failed.
+    ///
+    /// The error is not `Clone`, because some variants box their source: the
+    /// copy's source holds only the message of the original's.
+    pub(crate) fn duplicate(&self) -> ComprsError {
+        match self {
+            ComprsError::Operation { context, source } => ComprsError::Operation {
+                context,
+                source: source.to_string().into(),
+            },
+            ComprsError::Corrupt { context, source } => ComprsError::Corrupt {
+                context,
+                source: source.to_string().into(),
+            },
+            ComprsError::Creation { context, source } => ComprsError::Creation {
+                context,
+                source: source.to_string().into(),
+            },
+            ComprsError::InvalidArg(message) => ComprsError::InvalidArg(message.clone()),
+            ComprsError::UnknownFormat(message) => ComprsError::UnknownFormat(message.clone()),
+            ComprsError::SizeLimit { context, limit } => ComprsError::SizeLimit {
+                context,
+                limit: *limit,
+            },
+            ComprsError::StreamFinished(name) => ComprsError::StreamFinished(name),
+            ComprsError::StreamClosed(name) => ComprsError::StreamClosed(name),
+            ComprsError::Truncated(name) => ComprsError::Truncated(name),
         }
     }
 }
@@ -220,6 +253,15 @@ mod tests {
     fn listed_codes_are_distinct() {
         for (i, code) in ERROR_CODES.iter().enumerate() {
             assert!(!ERROR_CODES[i + 1..].contains(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn duplicate_keeps_the_variant_and_the_message() {
+        for error in every_variant() {
+            let copy = error.duplicate();
+            assert_eq!(variant_index(&copy), variant_index(&error), "{error:?}");
+            assert_eq!(copy.to_string(), error.to_string());
         }
     }
 

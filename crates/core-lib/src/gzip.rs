@@ -1,10 +1,10 @@
-//! Gzip and raw deflate compression and decompression.
+//! gzip, zlib and raw deflate compression and decompression.
 
 use std::io::{self, Write};
 
 use flate2::read::{GzDecoder, MultiGzDecoder};
-use flate2::write::{DeflateEncoder, GzEncoder};
-use flate2::{Compression, Decompress, FlushDecompress, GzBuilder, Status};
+use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
+use flate2::{Compression, Decompress, DecompressError, FlushDecompress, GzBuilder, Status};
 
 use crate::limited::LimitedVec;
 use crate::{ComprsError, IntArg};
@@ -19,7 +19,10 @@ pub const LEVEL: IntArg<u32> = IntArg {
     max: 9,
 };
 
-/// Raw deflate compression levels, the same as [`LEVEL`].
+/// Raw deflate and zlib compression levels, the same as [`LEVEL`]. Both
+/// formats go by `deflate`: raw deflate in the functions named after it,
+/// such as [`deflate_compress`], and zlib in the Compression Streams
+/// standard, as [`FlateWrapper::format_name`] calls it.
 pub const DEFLATE_LEVEL: IntArg<u32> = IntArg {
     name: "deflate compression level",
     ..LEVEL
@@ -83,15 +86,7 @@ pub fn compress_with_header(
     level: Option<u32>,
 ) -> Result<Vec<u8>, ComprsError> {
     let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-
-    let mut builder = GzBuilder::new();
-    if let Some(ref filename) = header.filename {
-        validate_filename(filename)?;
-        builder = builder.filename(filename.as_bytes());
-    }
-    if let Some(mtime) = header.mtime {
-        builder = builder.mtime(mtime);
-    }
+    let builder = header_builder(header)?;
 
     let mut encoder = builder.write(Vec::with_capacity(data.len()), Compression::new(level));
     encoder
@@ -107,6 +102,19 @@ pub fn compress_with_header(
             context: "gzip compress with header",
             source: e.into(),
         })
+}
+
+/// A gzip encoder builder that writes the header fields of `header`.
+pub(crate) fn header_builder(header: &GzipHeaderOptions) -> Result<GzBuilder, ComprsError> {
+    let mut builder = GzBuilder::new();
+    if let Some(ref filename) = header.filename {
+        validate_filename(filename)?;
+        builder = builder.filename(filename.as_bytes());
+    }
+    if let Some(mtime) = header.mtime {
+        builder = builder.mtime(mtime);
+    }
+    Ok(builder)
 }
 
 /// Check that `filename` can be stored in a gzip header and read back.
@@ -239,7 +247,7 @@ fn deflate_decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8
     // No up-front allocation from a size estimate: zlib-rs prepares all the
     // spare capacity it is offered, so the output grows as it fills instead.
     let mut output = LimitedVec::new(max_size, "deflate decompress");
-    let mut inflater = Inflater::new();
+    let mut inflater = Inflater::new(FlateWrapper::Raw);
     // Data after the end of the deflate stream is ignored.
     inflater
         .inflate(input, &mut output)
@@ -250,36 +258,250 @@ fn deflate_decompress_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8
     Ok(crate::finish_output(output.take()))
 }
 
+/// Compress data in the zlib format (RFC 1950): deflate data after a 2-byte
+/// header, followed by the Adler-32 checksum of the data. The Compression
+/// Streams standard calls this format `deflate`; [`deflate_compress`] writes
+/// raw deflate.
+///
+/// The level is validated with [`DEFLATE_LEVEL`].
+pub fn zlib_compress(data: &[u8], level: Option<u32>) -> Result<Vec<u8>, ComprsError> {
+    let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
+
+    let mut encoder = ZlibEncoder::new(Vec::with_capacity(data.len()), Compression::new(level));
+    encoder
+        .write_all(data)
+        .map_err(|e| ComprsError::Operation {
+            context: "deflate compress",
+            source: e.into(),
+        })?;
+    encoder
+        .finish()
+        .map(crate::finish_output)
+        .map_err(|e| ComprsError::Operation {
+            context: "deflate compress",
+            source: e.into(),
+        })
+}
+
+/// The framing around a deflate stream (RFC 1951).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlateWrapper {
+    /// Raw deflate, without a header or a checksum.
+    Raw,
+    /// zlib (RFC 1950): a 2-byte header, and the Adler-32 checksum of the
+    /// data.
+    Zlib,
+    /// gzip (RFC 1952): a header, and the CRC-32 and the size of the data.
+    Gzip,
+}
+
+impl FlateWrapper {
+    /// The name of the format in the Compression Streams standard:
+    /// `deflate-raw`, `deflate` for zlib, or `gzip`. The errors of
+    /// [`decompress_strict`] and of
+    /// [`crate::gzip_stream::StrictDecompressContext`] use it.
+    pub fn format_name(self) -> &'static str {
+        match self {
+            FlateWrapper::Raw => "deflate-raw",
+            FlateWrapper::Zlib => "deflate",
+            FlateWrapper::Gzip => "gzip",
+        }
+    }
+
+    /// The error context of [`decompress_strict`].
+    fn decompress_context(self) -> &'static str {
+        match self {
+            FlateWrapper::Raw => "deflate-raw decompress",
+            FlateWrapper::Zlib => "deflate decompress",
+            FlateWrapper::Gzip => "gzip decompress",
+        }
+    }
+}
+
+/// Decompress raw deflate, zlib or gzip data, into at most `max_output`
+/// bytes, and reject input that does not end at the end of the stream.
+///
+/// Unlike the other decoders of this module, which ignore data after the
+/// end of a raw deflate stream or cannot tell a cut gzip member from
+/// corrupt data, it fails with:
+///
+/// - [`ComprsError::Truncated`], with [`FlateWrapper::format_name`], for
+///   input that ends before the end of the stream, including empty input;
+/// - [`ComprsError::Corrupt`] for data after the end of the stream, for
+///   invalid data, and for a zlib or gzip checksum or a gzip size that does
+///   not match the data. zlib and gzip errors give zlib's reason, such as
+///   `incorrect data check` for a checksum;
+/// - [`ComprsError::SizeLimit`] for output that would exceed `max_output`.
+///
+/// gzip data may hold several members, as RFC 1952 allows: after the end of
+/// a member, input that starts with the gzip magic bytes `1f 8b` starts
+/// another member, which is decoded with a fresh decoder. Its output
+/// follows the output of the members before it.
+pub fn decompress_strict(
+    data: &[u8],
+    wrapper: FlateWrapper,
+    max_output: usize,
+) -> Result<Vec<u8>, ComprsError> {
+    let context = wrapper.decompress_context();
+    // No up-front allocation, as in deflate_decompress_with_limit.
+    let mut output = LimitedVec::new(max_output, context);
+    let mut decoder = StrictDecoder::new(wrapper);
+    decoder.inflate(data, &mut output, context)?;
+    decoder.finish()?;
+    Ok(crate::finish_output(output.take()))
+}
+
+/// The two bytes that start a gzip member, ID1 and ID2 in RFC 1952.
+const GZIP_ID1: u8 = 0x1f;
+const GZIP_ID2: u8 = 0x8b;
+
+/// The decoder of [`decompress_strict`] and
+/// [`crate::gzip_stream::StrictDecompressContext`], which takes its input
+/// in any number of pieces.
+pub(crate) struct StrictDecoder {
+    wrapper: FlateWrapper,
+    state: StrictState,
+}
+
+enum StrictState {
+    /// Inside the stream, or inside a gzip member.
+    Inflating(Inflater),
+    /// After the end of the stream, or of a gzip member.
+    Ended,
+    /// After the end of a gzip member and the first byte of another,
+    /// [`GZIP_ID1`], which [`GZIP_ID2`] must follow.
+    MemberStart,
+}
+
+impl StrictDecoder {
+    pub(crate) fn new(wrapper: FlateWrapper) -> Self {
+        Self {
+            wrapper,
+            state: StrictState::Inflating(Inflater::new(wrapper)),
+        }
+    }
+
+    /// Whether the decoder holds an inflate stream: the stream or a gzip
+    /// member has started and not ended.
+    pub(crate) fn is_inflating(&self) -> bool {
+        matches!(self.state, StrictState::Inflating(_))
+    }
+
+    /// Decode the next piece of the input into `sink`. An empty `input`
+    /// only drains the decoder.
+    ///
+    /// Invalid data and data after the end of the stream fail with
+    /// [`ComprsError::Corrupt`] with `context`.
+    pub(crate) fn inflate(
+        &mut self,
+        mut input: &[u8],
+        sink: &mut LimitedVec,
+        context: &'static str,
+    ) -> Result<(), ComprsError> {
+        loop {
+            match &mut self.state {
+                StrictState::Inflating(inflater) => {
+                    let consumed = inflater
+                        .inflate(input, sink)
+                        .map_err(|e| sink.error(e, context))?;
+                    input = &input[consumed..];
+                    if !inflater.stream_end() {
+                        return Ok(());
+                    }
+                    self.state = StrictState::Ended;
+                }
+                // Between gzip members, or after the end of the stream.
+                _ if input.is_empty() => return Ok(()),
+                StrictState::Ended if self.wrapper == FlateWrapper::Gzip => match input {
+                    // Another member, which the new decoder reads from its
+                    // first byte.
+                    [GZIP_ID1, GZIP_ID2, ..] => {
+                        self.state = StrictState::Inflating(Inflater::new(FlateWrapper::Gzip));
+                    }
+                    [GZIP_ID1] => {
+                        self.state = StrictState::MemberStart;
+                        return Ok(());
+                    }
+                    _ => return Err(data_after_the_stream(context)),
+                },
+                StrictState::Ended => return Err(data_after_the_stream(context)),
+                StrictState::MemberStart => {
+                    if input[0] != GZIP_ID2 {
+                        return Err(data_after_the_stream(context));
+                    }
+                    let mut inflater = Inflater::new(FlateWrapper::Gzip);
+                    // The byte of the member that the previous input ended
+                    // with, which produces no output.
+                    inflater
+                        .inflate(&[GZIP_ID1], sink)
+                        .map_err(|e| sink.error(e, context))?;
+                    self.state = StrictState::Inflating(inflater);
+                }
+            }
+        }
+    }
+
+    /// Check that the input ended at the end of the stream, or of a gzip
+    /// member: anything else fails with [`ComprsError::Truncated`].
+    pub(crate) fn finish(&self) -> Result<(), ComprsError> {
+        match self.state {
+            StrictState::Ended => Ok(()),
+            StrictState::Inflating(_) | StrictState::MemberStart => {
+                Err(ComprsError::Truncated(self.wrapper.format_name()))
+            }
+        }
+    }
+}
+
+/// The error of [`StrictDecoder`] for data after the end of the stream.
+fn data_after_the_stream(context: &'static str) -> ComprsError {
+    ComprsError::Corrupt {
+        context,
+        source: "unexpected data after the end of the compressed stream".into(),
+    }
+}
+
 /// Upper bound for the first output window an inflate call gets, the buffer
 /// size that flate2's own decoders use. Larger outputs grow it by doubling.
 const INFLATE_BUF_SIZE: usize = 32 * 1024;
 
-/// Raw deflate decoder that writes into a [`LimitedVec`] and tracks whether
-/// the deflate stream has ended.
+/// Deflate decoder that writes into a [`LimitedVec`] and tracks whether the
+/// stream has ended. It reads the header and checks the checksums of the
+/// stream's [`FlateWrapper`] (flate2's zlib-rs backend decodes gzip itself),
+/// and decodes a single stream: a gzip member ends the stream.
 ///
 /// flate2's `read` and `write` decoders treat input that stops before the
 /// final block as a clean end of stream, so truncated input would decode
 /// without an error.
 pub(crate) struct Inflater {
     state: Decompress,
+    wrapper: FlateWrapper,
     stream_end: bool,
 }
 
 impl Inflater {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(wrapper: FlateWrapper) -> Self {
+        let state = match wrapper {
+            FlateWrapper::Raw => Decompress::new(false),
+            FlateWrapper::Zlib => Decompress::new(true),
+            // The largest window, as for the other wrappers.
+            FlateWrapper::Gzip => Decompress::new_gzip(15),
+        };
         Self {
-            state: Decompress::new(false),
+            state,
+            wrapper,
             stream_end: false,
         }
     }
 
-    /// Whether the end of the deflate stream (its final block) was decoded.
+    /// Whether the end of the stream was decoded: the final deflate block,
+    /// and the checksums that follow it.
     pub(crate) fn stream_end(&self) -> bool {
         self.stream_end
     }
 
-    /// Inflate `input` into `sink` until the input is used up or the deflate
-    /// stream ends. An empty `input` only drains the decoder.
+    /// Inflate `input` into `sink` until the input is used up or the stream
+    /// ends. An empty `input` only drains the decoder.
     ///
     /// Returns the number of input bytes consumed, which is less than
     /// `input.len()` only when the stream ended before the end of `input`.
@@ -288,6 +510,7 @@ impl Inflater {
         // Size the first window by the input: zlib-rs prepares all the spare
         // capacity it is offered, and small outputs should stay small.
         let window = input_len.saturating_mul(4).clamp(64, INFLATE_BUF_SIZE);
+        let wrapper = self.wrapper;
         while !self.stream_end {
             let total_in = self.state.total_in();
             let total_out = self.state.total_out();
@@ -295,7 +518,7 @@ impl Inflater {
                 let status = self
                     .state
                     .decompress_vec(input, buf, FlushDecompress::None)
-                    .map_err(|_| corrupt_deflate_stream())?;
+                    .map_err(|e| invalid_stream(wrapper, &e))?;
                 Ok((status, buf.len() == buf.capacity()))
             })?;
             let consumed = (self.state.total_in() - total_in) as usize;
@@ -317,6 +540,26 @@ impl Inflater {
             }
         }
         Ok(input_len - input.len())
+    }
+}
+
+/// The error for the stream that `error` rejects.
+///
+/// Raw deflate gets flate2's message for every error, which the deflate
+/// functions have always reported. zlib and gzip get zlib's message, which
+/// tells a corrupt header, deflate data or checksum apart.
+fn invalid_stream(wrapper: FlateWrapper, error: &DecompressError) -> io::Error {
+    if error.needs_dictionary().is_some() {
+        return io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "zlib preset dictionaries are not supported",
+        );
+    }
+    match (wrapper, error.message()) {
+        (FlateWrapper::Zlib | FlateWrapper::Gzip, Some(message)) => {
+            io::Error::new(io::ErrorKind::InvalidInput, message.to_owned())
+        }
+        _ => corrupt_deflate_stream(),
     }
 }
 

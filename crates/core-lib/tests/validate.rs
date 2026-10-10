@@ -4,6 +4,7 @@
 mod common;
 
 use common::{BoxedContext, boxed, drive};
+use comprs_core::gzip::FlateWrapper;
 use comprs_core::{
     ComprsError, IntArg, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, crc, gzip, gzip_stream, lz4,
     lz4_stream, validate_capacity, validate_max_output_size, zstd, zstd_stream,
@@ -80,7 +81,7 @@ type Encode = fn(&[u8]) -> Result<Vec<u8>, ComprsError>;
 const DICT: &[u8] = b"dictionary";
 
 /// Every decompression context, with an encoder of its input.
-const DECOMPRESSORS: [(&str, NewDecompressor, Encode); 7] = [
+const DECOMPRESSORS: [(&str, NewDecompressor, Encode); 10] = [
     (
         "gzip",
         |limit| boxed(gzip_stream::GzipDecompressContext::new(limit)),
@@ -89,6 +90,36 @@ const DECOMPRESSORS: [(&str, NewDecompressor, Encode); 7] = [
     (
         "deflate",
         |limit| boxed(gzip_stream::DeflateDecompressContext::new(limit)),
+        |data| gzip::deflate_compress(data, None),
+    ),
+    (
+        "gzip strict",
+        |limit| {
+            boxed(gzip_stream::StrictDecompressContext::new(
+                FlateWrapper::Gzip,
+                limit,
+            ))
+        },
+        |data| gzip::compress(data, None),
+    ),
+    (
+        "zlib",
+        |limit| {
+            boxed(gzip_stream::StrictDecompressContext::new(
+                FlateWrapper::Zlib,
+                limit,
+            ))
+        },
+        |data| gzip::zlib_compress(data, None),
+    ),
+    (
+        "deflate-raw strict",
+        |limit| {
+            boxed(gzip_stream::StrictDecompressContext::new(
+                FlateWrapper::Raw,
+                limit,
+            ))
+        },
         |data| gzip::deflate_compress(data, None),
     ),
     (

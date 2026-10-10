@@ -15,3 +15,8 @@
 /stream-schedule.d.ts linguist-generated
 /next/** linguist-generated
 /browser/next/** linguist-generated
+
+# Fixtures whose exact bytes the Rust tests read: never converted to CRLF
+# line endings on checkout, which would change the data they decode.
+/crates/core-lib/tests/fixtures/*.bin binary
+/crates/core-lib/tests/fixtures/*.txt -text
