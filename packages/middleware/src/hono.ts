@@ -1,4 +1,4 @@
-import type { Context, MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler, Next } from 'hono';
 
 import { compressBufferAsync, createEncoder, type Encoder } from './compress.js';
 import { negotiate } from './negotiate.js';
@@ -130,7 +130,7 @@ function compressStream(
   };
 
   return new ReadableStream<Uint8Array>({
-    async pull(controller) {
+    async pull(controller: Controller): Promise<void> {
       try {
         let sent = false;
         while (!sent) sent = await step(controller);
@@ -141,7 +141,7 @@ function compressStream(
         throw err;
       }
     },
-    cancel(reason) {
+    cancel(reason: unknown): Promise<void> {
       cancelled = true;
       return reader.cancel(reason);
     },
@@ -268,7 +268,7 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
   const settings = resolveOptions(options);
   const { filter } = options;
 
-  return async (c, next) => {
+  return async (c: Context, next: Next): Promise<void> => {
     await next();
     const encoding = selectEncoding(c, settings, filter);
     const { body } = c.res;

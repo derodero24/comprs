@@ -188,10 +188,13 @@ function setAlgo(algo) {
 
   downloadExtEl.textContent = cfg.ext;
 
-  compress();
+  void compress();
 }
 
 // --- Compress ---
+// Callers start compress() without waiting for it, with `void`: it never
+// rejects, as the worker answers a failed run with its error, and the
+// latest call alone shows its result.
 async function compress() {
   const seq = ++compressSeq;
   clearTimeout(busyTimer);
@@ -341,7 +344,7 @@ function onInputChange() {
   currentInput = new TextEncoder().encode(text);
   currentFileName = 'input';
   inputSizeEl.textContent = formatBytes(currentInput.length);
-  compress();
+  void compress();
 }
 
 // --- Sample data ---
@@ -398,7 +401,7 @@ fileInput.addEventListener('change', (e) => {
     }
 
     inputSizeEl.textContent = formatBytes(currentInput.length);
-    compress();
+    void compress();
   };
   reader.readAsArrayBuffer(file);
 });
@@ -412,7 +415,7 @@ for (const btn of algoBtns) {
 levelSlider.addEventListener('input', () => {
   currentLevel = Number(levelSlider.value);
   levelDisplay.textContent = currentLevel;
-  compress();
+  void compress();
 });
 
 // --- Download ---

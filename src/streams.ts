@@ -18,8 +18,6 @@ import {
   ZstdDecompressDictContext,
 } from './index.js';
 
-const { isAnyArrayBuffer } = types;
-
 /** The methods of the stream contexts that the streams call. */
 interface StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
@@ -44,7 +42,7 @@ function toUint8Array(chunk: unknown): Uint8Array {
   }
   // Unlike instanceof, this also recognizes an ArrayBuffer or a
   // SharedArrayBuffer from another realm, such as a vm context.
-  if (isAnyArrayBuffer(chunk)) return new Uint8Array(chunk);
+  if (types.isAnyArrayBuffer(chunk)) return new Uint8Array(chunk);
   throw new TypeError('chunk must be an ArrayBuffer or ArrayBufferView');
 }
 
@@ -68,7 +66,7 @@ function closingStream(
   close: () => void,
 ): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array> {
   return new TransformStream({
-    transform(chunk, controller) {
+    transform(chunk: ArrayBufferLike | ArrayBufferView, controller: Controller): void {
       try {
         transform(toUint8Array(chunk), controller);
       } catch (err) {
@@ -76,14 +74,14 @@ function closingStream(
         throw err;
       }
     },
-    flush(controller) {
+    flush(controller: Controller): void {
       try {
         flush(controller);
       } finally {
         close();
       }
     },
-    cancel() {
+    cancel(): void {
       close();
     },
   });

@@ -1,4 +1,4 @@
-import { Transform } from 'node:stream';
+import { Transform, type TransformCallback } from 'node:stream';
 import {
   BrotliCompressContext,
   BrotliCompressDictContext,
@@ -61,7 +61,7 @@ function closingTransform(
 ): Transform {
   return new Transform({
     // Without objectMode, every chunk written is a Buffer.
-    transform(chunk: Buffer, _encoding, callback) {
+    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
       try {
         transform(this, chunk);
         callback();
@@ -73,7 +73,7 @@ function closingTransform(
         callback(err as Error);
       }
     },
-    flush(callback) {
+    flush(callback: TransformCallback): void {
       try {
         flush(this);
         callback();
@@ -81,7 +81,7 @@ function closingTransform(
         callback(err as Error);
       }
     },
-    destroy(err, callback) {
+    destroy(err: Error | null, callback: (error?: Error | null) => void): void {
       close();
       callback(err);
     },

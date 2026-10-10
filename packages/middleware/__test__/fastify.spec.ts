@@ -1,7 +1,7 @@
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { Readable } from 'node:stream';
 import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/comprs';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import Fastify from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -145,12 +145,13 @@ beforeAll(async () => {
     return TEST_BODY;
   });
 
-  app.register(async (child) => {
+  const childRoutes: FastifyPluginAsync = async (child) => {
     child.get('/child', async (_request, reply) => {
       reply.type('text/plain');
       return TEST_BODY;
     });
-  });
+  };
+  await app.register(childRoutes);
 
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addr = app.addresses()[0];

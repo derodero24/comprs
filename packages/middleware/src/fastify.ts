@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
 
 import { compressBufferAsync, createCompressTransform } from './compress.js';
@@ -165,11 +165,14 @@ async function compressBuffered(
   return compressed;
 }
 
-const plugin: FastifyPluginAsync<FastifyComprsOptions> = async (fastify, options) => {
+const plugin: FastifyPluginAsync<FastifyComprsOptions> = async (
+  fastify: FastifyInstance,
+  options: FastifyComprsOptions,
+) => {
   const settings = resolveOptions(options);
   checkCallback('shouldCompress', options.shouldCompress);
   const { filter, shouldCompress } = options;
-  const passesFilters: Filter = (request, reply) =>
+  const passesFilters: Filter = (request: FastifyRequest, reply: FastifyReply) =>
     (!filter || filter(request.raw, reply.raw)) &&
     (!shouldCompress || shouldCompress(request, reply));
 

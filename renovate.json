@@ -66,6 +66,13 @@
       "matchManagers": ["npm"],
       "matchDepNames": ["typescript"],
       "groupName": "typescript"
+    },
+    {
+      "description": "biome.json enables nursery rules, which a Biome release can rename or change, and pnpm run check fails on warnings. Keep Biome at an exact version, so that a new release arrives only in a pull request that runs the check with it, and update it in a pull request of its own, so that a release that needs pnpm exec biome migrate --write or new fixes holds up no other update",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["@biomejs/biome"],
+      "groupName": "biome",
+      "rangeStrategy": "pin"
     }
   ]
 }

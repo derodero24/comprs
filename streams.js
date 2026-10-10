@@ -16,7 +16,6 @@ exports.createLz4DecompressStream = createLz4DecompressStream;
 exports.createDecompressStream = createDecompressStream;
 const node_util_1 = require("node:util");
 const index_js_1 = require("./index.js");
-const { isAnyArrayBuffer } = node_util_1.types;
 /**
  * View `chunk`, a chunk written to a stream, as bytes. The streams accept
  * what `CompressionStream` accepts, any ArrayBuffer or ArrayBufferView, as
@@ -31,7 +30,7 @@ function toUint8Array(chunk) {
     }
     // Unlike instanceof, this also recognizes an ArrayBuffer or a
     // SharedArrayBuffer from another realm, such as a vm context.
-    if (isAnyArrayBuffer(chunk))
+    if (node_util_1.types.isAnyArrayBuffer(chunk))
         return new Uint8Array(chunk);
     throw new TypeError('chunk must be an ArrayBuffer or ArrayBufferView');
 }

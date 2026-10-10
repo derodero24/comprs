@@ -68,15 +68,30 @@
       },
       "style": {
         "noDefaultExport": "error",
+        "noNonNullAssertion": "error",
         "useConst": "error",
         "useExportType": "error",
         "useImportType": "error",
         "useForOf": "error",
         "noNamespace": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       }
     }
   },
   "overrides": [
+    {
+      "includes": ["src/**", "packages/middleware/src/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "useExplicitType": "error"
+          }
+        }
+      }
+    },
     {
       "includes": ["src/index.mts", "browser/index.js"],
       "linter": {
