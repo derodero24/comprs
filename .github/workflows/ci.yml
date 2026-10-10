@@ -50,12 +50,13 @@ on:
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
   # another PR's branch) and PRs into main are checked too. Their list also
-  # names files that only the lint jobs check, so that a change to them is
+  # names files that the push list leaves out, so that a change to them is
   # checked before it is merged: every workflow, which Workflow Lint checks,
-  # and the playground, the chart images and the configuration files that
-  # Biome checks. Pushes to develop leave out these Biome-only files and the
-  # workflows that CI neither calls nor mirrors, so that a merge that changes
-  # only those does not run the full matrix.
+  # the playground, which build-wasm-bindgen builds, and the chart images and
+  # the configuration files that Biome checks. Pushes to develop leave these
+  # out, apart from the workflows that CI calls or mirrors, so that a merge
+  # that changes only those does not run the full matrix; playground.yml
+  # builds the playground on such a push when it deploys it.
   pull_request:
     paths:
       - 'crates/**'
@@ -435,6 +436,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          # Build playground installs the playground's packages into the
+          # same store.
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            playground/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
@@ -478,6 +484,16 @@ jobs:
           name: wasm-size-report
           path: wasm-size-report/
           if-no-files-found: error
+      # The commands with which playground.yml builds the site that it deploys
+      # from develop. They run after the WebAssembly build, because the
+      # file:.. dependency installs the package with the files that exist at
+      # install time and the playground build fails without the binary, and
+      # last, so that a playground failure leaves the size check and its
+      # report as they are.
+      - name: Build playground
+        run: |
+          pnpm --dir playground install --frozen-lockfile
+          pnpm --dir playground run build
 
   test:
     name: Test - Node ${{ matrix.node }} / ${{ matrix.target }}

@@ -286,6 +286,8 @@ pnpm --dir playground run dev         # or build, into playground/dist
 
 Without the WebAssembly build, the dev server and the build fail. To work on the UI without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
 
+CI builds the playground with these commands in its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Playground workflow deploys it from `develop`.
+
 ## Pull request checklist
 
 - [ ] Tests pass (`pnpm test`, `cargo test` and `cargo test -p comprs-core`)
