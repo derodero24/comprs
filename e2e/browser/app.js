@@ -1,8 +1,8 @@
 // The browser application that every bundler fixture builds: it imports
-// @derodero24/comprs and its ./streams subpath by name, which resolve to the
-// WebAssembly build through the `browser` condition of the package exports,
-// and runs the checks of ../scenario.js. The outcome goes to the
-// `data-result` attribute of <html>, where browser.spec.ts reads it:
+// @derodero24/comprs and its ./streams and ./next subpaths by name, which
+// resolve to the WebAssembly build through the `browser` condition of the
+// package exports, and runs the checks of ../scenario.js. The outcome goes
+// to the `data-result` attribute of <html>, where browser.spec.ts reads it:
 // `passed`, or the error that the checks threw.
 //
 // The functions imported here, and the stream contexts behind ./streams,
@@ -11,7 +11,9 @@
 // entry defines itself, are imported later, on their own: until then, only
 // the side effects of the entry keep its initialisation in the bundle, and
 // a bundler that drops it, as "sideEffects": false let bundlers do in
-// 2.0.2, makes the first check fail.
+// 2.0.2, makes the first check fail. The unified API, ./next, which loads
+// the same WebAssembly module, is imported later as well: imported here, it
+// would keep that initialisation in the bundle.
 
 import {
   brotliCompress,
@@ -54,6 +56,7 @@ try {
     createZstdCompressStream,
     createDecompressStream,
     importAsync: () => import('@derodero24/comprs'),
+    importNext: () => import('@derodero24/comprs/next'),
   });
 } catch (error) {
   result = error instanceof Error ? (error.stack ?? error.message) : String(error);

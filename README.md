@@ -27,6 +27,7 @@ Rust-powered universal compression for JavaScript/TypeScript.
 - [Quick Start](#quick-start)
 - [Choosing an Algorithm](#choosing-an-algorithm)
 - [API](#api)
+- [Unified API (`@derodero24/comprs/next`)](#unified-api-derodero24comprsnext)
 - [Supported Algorithms](#supported-algorithms)
 - [Platform Support](#platform-support)
 - [Browser Usage](#browser-usage)
@@ -428,6 +429,81 @@ The chunks that one native call produces, for an input chunk or for the end of t
 
 </details>
 
+## Unified API (`@derodero24/comprs/next`)
+
+`@derodero24/comprs/next` has one function per direction for every format, with an options object instead of a function per variant ([#577](https://github.com/derodero24/comprs/issues/577)). It works in Node.js, Deno and Bun, on the native addon, and in browsers, on the WebAssembly build. It reads and writes zlib data as well as raw deflate, returns plain `Uint8Array` results in every runtime, gives every error a stable `code`, and compresses zstd with worker threads in Node.js. The API of the package root does not change.
+
+```typescript
+import { compress, compressSync, decompress, decompressSync, detectFormat } from '@derodero24/comprs/next';
+
+const data = new TextEncoder().encode('Hello, comprs!');
+
+// The plain names are async, as in node:zlib; the *Sync variants are not.
+const zstd = await compress(data, { format: 'zstd', level: 19 });
+const restored = await decompress(zstd); // detects the format
+detectFormat(zstd); // 'zstd'
+
+const gzip = compressSync(data, { format: 'gzip', gzipHeader: { filename: 'hello.txt' } });
+decompressSync(gzip, { format: 'gzip', maxOutputSize: 1024 * 1024 });
+
+try {
+  await decompress(body, { maxOutputSize: 10 * 1024 * 1024 });
+} catch (error) {
+  // 413 for a body that decompresses to more than 10 MiB, 400 for corrupt data and the like
+  const status = error instanceof Error && 'code' in error && error.code === 'ERR_COMPRS_SIZE_LIMIT' ? 413 : 400;
+}
+```
+
+| Function | Description |
+| --- | --- |
+| `compress(data, options)` | Compress `data` in `options.format`, on a thread of the libuv pool in Node.js |
+| `compressSync(data, options)` | Compress `data` on the calling thread |
+| `decompress(data, options?)` | Decompress `data`, in `options.format` or the format that detection finds, on a thread of the libuv pool in Node.js |
+| `decompressSync(data, options?)` | Decompress `data` on the calling thread |
+| `detectFormat(data)` | The format of `data`, as `decompress()` detects it, or `undefined` if it finds none |
+| `trainDictionary(samples, options?)` | Train a zstd dictionary from an iterable of samples, on a thread of the libuv pool in Node.js |
+| `trainDictionarySync(samples, options?)` | Train a zstd dictionary on the calling thread |
+
+| Option | Of | Description |
+| --- | --- | --- |
+| `format` | compression (required), decompression | `'zstd'`, `'gzip'`, `'deflate'` (zlib), `'deflate-raw'`, `'brotli'` or `'lz4'`, by the names of the Compression Streams standard where it has one. Decompression also takes `'auto'`, the default, which detects every format but `'deflate-raw'` |
+| `level` | compression | zstd: -131072 to 22, 3 by default, which 0 also selects. gzip, deflate and deflate-raw: 0 to 9, 6 by default. brotli: 0 to 11, 6 by default. lz4 takes none |
+| `dictionary` | compression, decompression | The bytes of a dictionary, which must not be empty, for zstd and brotli, such as one that `trainDictionary()` trained. Decompression needs the same dictionary, and a `format` |
+| `gzipHeader` | compression | `{ filename?, mtime? }`: the name and the modification time, in seconds since the Unix epoch, that the gzip header holds. For gzip only |
+| `workers` | compression | The number of threads that compress zstd data besides the calling one: 0, the default, to 256. For zstd only, and for the native addon only (see below) |
+| `maxOutputSize` | decompression | The largest output, in bytes: 0 to `Number.MAX_SAFE_INTEGER`, 256 MiB by default |
+| `maxSize` | dictionary training | The largest dictionary, in bytes: 0 to 16 MiB, 110 KiB by default |
+
+Their inputs, options, results and errors follow these rules:
+
+- **Inputs.** The data, the dictionary and each sample may be any `ArrayBuffer`, `SharedArrayBuffer` or `ArrayBufferView`, such as a `Buffer`, a `DataView` or a `Uint16Array`, read byte for byte. Bytes in a `SharedArrayBuffer` are copied before they are read, so that another thread writing them cannot change them midway. The async functions copy their inputs before they return, so changing them afterwards does not change the result.
+- **Options.** Every option is checked, and an option of the wrong type, a number out of its range or not an integer (`NaN`, `1.5`), and an option that does not fit the format, such as a level for lz4, a dictionary for gzip or workers for brotli, fail with `ERR_COMPRS_INVALID_ARG`. Other properties of the options objects are ignored.
+- **Results.** Every result is a plain `Uint8Array`, not a Node.js `Buffer`, over an `ArrayBuffer`, so the DOM typings accept it as a `BufferSource` or a `BlobPart`, as in `new Blob([result])` or `crypto.subtle.digest('SHA-256', result)`. Whether that `ArrayBuffer` can be transferred with `postMessage()` or `structuredClone()` is not guaranteed: copy a result with `slice()` to transfer it. Compression writes the bytes that the functions of the package root write at the same settings in the same build, such as `zstdCompress(data, level)`, or `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses with `workers`.
+- **Decompression.** The decoders are strict: data that ends before the end of the compressed stream, empty data included, fails with `ERR_COMPRS_TRUNCATED`, and data after its end with `ERR_COMPRS_CORRUPT_DATA`. zstd and lz4 data may hold several frames, and gzip data several members, which are decompressed one after the other. Without a `format`, data whose format detection does not find, empty data included, fails with `ERR_COMPRS_UNKNOWN_FORMAT`. Brotli data has no magic number, so detection decodes the start of the data, and data that it takes for brotli but that does not decode fails with `ERR_COMPRS_UNKNOWN_FORMAT` as well.
+- **Errors.** Every error has a `code`, from the table below. The async functions report every error, invalid arguments included, by rejecting their Promise, and never throw. An error thrown by the caller's own code, such as a getter of an options object or the iterator of the samples, is passed on unchanged, without a code.
+
+| `code` | When |
+| --- | --- |
+| `ERR_COMPRS_INVALID_ARG` | An argument or an option is invalid: of the wrong type, out of range, or not for the format. The error is a `TypeError` |
+| `ERR_COMPRS_UNKNOWN_FORMAT` | Decompression without a `format` could not detect the format of the data, empty data included |
+| `ERR_COMPRS_CORRUPT_DATA` | The data is not valid in its format, or has data after the end of the compressed stream |
+| `ERR_COMPRS_TRUNCATED` | The data ends before the end of the compressed stream, as empty data in a given `format` does |
+| `ERR_COMPRS_SIZE_LIMIT` | The output would exceed `maxOutputSize`, or, under a `maxOutputSize` of 64 MiB or less, a zstd frame declares a window larger than the limit allows (see the **Default decompression limit** note) |
+| `ERR_COMPRS_STREAM_FINISHED` | A stream was used after it finished |
+| `ERR_COMPRS_STREAM_CLOSED` | A stream was used after it was closed |
+| `ERR_COMPRS_OPERATION_FAILED` | Any other failure, such as a failed allocation, or dictionary training that found too little to learn from |
+
+Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. `ERR_COMPRS_STREAM_FINISHED` and `ERR_COMPRS_STREAM_CLOSED` report a misuse of a stream, not a problem with the data; the functions above do not give them. New codes may be added in minor releases, so treat a code that this table does not list as a failure of its own. The errors of the package root keep the codes of comprs 2.x: `InvalidArg` or `GenericFailure` in the native addon, and none in the WebAssembly build.
+
+> [!WARNING]
+> **`'deflate'` is zlib.** As in the Compression Streams standard, HTTP's `Content-Encoding: deflate` and `deflateSync()` of `node:zlib`, `'deflate'` is the zlib format (RFC 1950): deflate data after a 2-byte header and before an Adler-32 checksum. The `deflateCompress()` and `deflateDecompress()` functions of the package root, and their streams, use raw deflate (RFC 1951), which is `'deflate-raw'` here. Data that `deflateCompress()` wrote decompresses with `{ format: 'deflate-raw' }` only, and code that moves from `deflateCompress()` to `{ format: 'deflate' }` writes data that `deflateDecompress()` cannot read.
+
+**Workers.** The `workers` option compresses zstd data on worker threads in the native addon; with 4 workers, it compressed 67 MB of JSON lines nearly 3 times as fast at levels 3 and 9 in the measurements of [#561](https://github.com/derodero24/comprs/issues/561). The output can differ from that without workers. zstd compresses inputs of at most 512 KiB on the calling thread whatever the number, and each call starts and stops its own workers, so they pay off for large inputs only. They cost memory too: zstd buffers up to `workers + 3` jobs of the input, gives each job an output buffer of about the same size, and gives each worker a compression context of its own. With 4 workers at level 3, where a job is 8 MiB, compressing 96 MiB took about 60 MiB more memory than without workers for JSON lines, and about 100 MiB more for random bytes. The workers are threads beyond the libuv pool that `compress()` runs on, whose size `UV_THREADPOOL_SIZE` sets (4 by default): concurrent calls can run up to `UV_THREADPOOL_SIZE * (workers + 1)` threads.
+
+**Browsers.** Browser builds that import `@derodero24/comprs/next` get its WebAssembly build, through the `browser` condition, on the WebAssembly module of the browser entry (see [Browser Usage](#browser-usage)). There, the async functions do not run on another thread: they compress or decompress on the calling thread, which they block, before they return a Promise of the result. Use a Web Worker to keep a page responsive. The browser build has no worker threads either: any `workers` but 0 fails with `ERR_COMPRS_INVALID_ARG`. Its WebAssembly memory cannot hold more than 4 GiB, so a `maxOutputSize` above 4294967295 acts as 4294967295: errors name that limit, and a zstd frame that declares a larger content size fails with `ERR_COMPRS_SIZE_LIMIT`. It writes different lz4 frames from the native build for most inputs of more than a few hundred bytes, which both builds decode; the other formats come out the same in both. A panic, or an allocation that the WebAssembly memory cannot grow for, fails with a `WebAssembly.RuntimeError` without a code.
+
+`@derodero24/comprs/next` follows semantic versioning, as the package root does: minor releases may add functions, options and error codes to it, but do not break it. Its TypeScript declarations also export the types of its arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions` and `TrainDictionaryOptions`.
+
 ## Supported Algorithms
 
 | Algorithm | One-shot | Streaming | Status |
@@ -493,7 +569,7 @@ The entry module fetches and instantiates the WebAssembly binary with top-level 
 | Vite 7 and older | `vite dev` needs `optimizeDeps: { exclude: ['@derodero24/comprs'] }`, as the dependency pre-bundling of these versions breaks the URL of the binary. Before Vite 7, the default build target does not support top-level `await`: set `build.target: 'es2022'` or later. |
 | webpack 5 | Nothing: it enables top-level `await` by default since 5.83 and emits the binary as an asset. |
 | esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle. |
-| No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js", "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js" } }</script>` |
+| No bundler | Serve the package's `browser/` directory, and map the package name to its entry with an import map: `<script type="importmap">{ "imports": { "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js", "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js", "@derodero24/comprs/next": "/node_modules/@derodero24/comprs/browser/next/browser.js" } }</script>` |
 
 To import comprs in a web worker that Vite bundles, also set `worker: { format: 'es' }` and create the worker with `{ type: 'module' }`: Vite's default worker format, `'iife'`, does not support top-level `await`.
 
@@ -509,6 +585,8 @@ if (!response.body) throw new Error('Response has no body');
 const json = await new Response(response.body.pipeThrough(createGzipDecompressStream())).json();
 ```
 
+The [unified API](#unified-api-derodero24comprsnext) of `@derodero24/comprs/next` has a browser build too, on the same WebAssembly module.
+
 The WebAssembly build has the one-shot functions, their `*Async` variants, the streaming contexts (`GzipCompressContext` and the like) and the `CompressionFormat` enum. They take the same arguments as those of the native addon, and return the same values, except that:
 
 - functions return `Uint8Array` rather than `Buffer`;
@@ -518,7 +596,7 @@ The WebAssembly build has the one-shot functions, their `*Async` variants, the s
 
 As in Node.js, the streams work in bounded memory, except brotli dictionary compression, which holds its whole input until it ends. The WebAssembly memory grows to the most that the module has used at once, and does not shrink.
 
-Its declarations, `browser/index.d.ts` and `browser/streams.d.ts`, list what it exports; TypeScript uses them only when it resolves the `browser` condition (`"customConditions": ["browser"]` in `tsconfig.json`), and the Node.js declarations otherwise. The `browser` condition applies to `import` only: `require()` cannot load a module that uses top-level `await`, so `require('@derodero24/comprs')` and `require('@derodero24/comprs/streams')` load the native addon, also in test runners that set the condition, such as Jest with a jsdom environment. Under Jest's ES module support, that environment imports the WebAssembly build, which does not load in Jest: set `testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] }` to get the native addon. The `@derodero24/comprs/node` subpath is for Node.js only: it loads the native addon and `node:stream`, so it does not work in browsers.
+Its declarations, `browser/index.d.ts`, `browser/streams.d.ts` and `browser/next/browser.d.ts`, list what it exports; TypeScript uses them only when it resolves the `browser` condition (`"customConditions": ["browser"]` in `tsconfig.json`), and the Node.js declarations otherwise. The `browser` condition applies to `import` only: `require()` cannot load a module that uses top-level `await`, so `require('@derodero24/comprs')`, `require('@derodero24/comprs/streams')` and `require('@derodero24/comprs/next')` load the native addon, also in test runners that set the condition, such as Jest with a jsdom environment. Under Jest's ES module support, that environment imports the WebAssembly build, which does not load in Jest: set `testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] }` to get the native addon. The `@derodero24/comprs/node` subpath is for Node.js only: it loads the native addon and `node:stream`, so it does not work in browsers.
 
 ### Framework Integration (SSR)
 

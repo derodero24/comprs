@@ -1,9 +1,10 @@
 // An ES module consumer that resolves the package like a bundler does for
 // browsers, with the `browser` condition, which selects the declarations of
-// the WebAssembly build. It has strict settings, the DOM library and no
-// Node.js types, and its dependencies' declarations are type-checked
-// (skipLibCheck: false). scripts/check-consumer-types.mjs installs the packed
-// package next to it and runs tsc.
+// the WebAssembly build, those of @derodero24/comprs/next included. It has
+// strict settings, the DOM library and no Node.js types, and its
+// dependencies' declarations are type-checked (skipLibCheck: false).
+// scripts/check-consumer-types.mjs installs the packed package next to it
+// and runs tsc.
 import type { GzipHeader, StreamContextOptions } from '@derodero24/comprs';
 import {
   CompressionFormat,
@@ -15,6 +16,8 @@ import {
   Lz4DecompressContext,
   zstdCompress,
 } from '@derodero24/comprs';
+import type { DecompressOptions, Format } from '@derodero24/comprs/next';
+import * as next from '@derodero24/comprs/next';
 import { createDecompressStream, createGzipCompressStream } from '@derodero24/comprs/streams';
 
 const input = new TextEncoder().encode('hello');
@@ -58,6 +61,15 @@ const lz4Contexts = [
 
 const compressed: Uint8Array = await gzipCompressAsync(input);
 
+// The unified API returns Uint8Arrays over an ArrayBuffer, which the DOM
+// typings take as a BlobPart or a BufferSource.
+const brotli = await next.compress(input, { format: 'brotli', level: 5 });
+const blob = new Blob([brotli, next.compressSync(input, { format: 'deflate-raw' })]);
+const digest: ArrayBuffer = await crypto.subtle.digest('SHA-256', brotli);
+const decompressOptions: DecompressOptions = { format: 'brotli', maxOutputSize: undefined };
+const restored: Uint8Array<ArrayBuffer> = next.decompressSync(brotli, decompressOptions);
+const detected: Format | undefined = next.detectFormat(compressed);
+
 const source = new ReadableStream<Uint8Array>({
   start(controller) {
     controller.enqueue(input);
@@ -69,8 +81,11 @@ const roundTrip: ReadableStream<Uint8Array> = source
   .pipeThrough(createDecompressStream());
 
 export {
+  blob,
   chunks,
   compressed,
+  detected,
+  digest,
   filename,
   format,
   isGzip,
@@ -78,5 +93,6 @@ export {
   label,
   lz4Contexts,
   mtime,
+  restored,
   roundTrip,
 };

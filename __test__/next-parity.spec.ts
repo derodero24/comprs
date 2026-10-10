@@ -32,9 +32,10 @@ import {
 // more than a few hundred bytes: each build decodes those of the other.
 // The data is text of words that a seeded generator draws, which, unlike a
 // repeated phrase, makes the encoders choose as on real data.
-// package.json does not export ./next yet, so the tests load
-// browser/next/browser.js by path. The declarations of both builds are
-// compared without the WebAssembly build.
+// The tests load browser/next/browser.js by path; browser-entry.spec.ts and
+// esm-bundle.spec.ts load it through the `browser` condition of the package
+// exports. The declarations of both builds are compared without the
+// WebAssembly build.
 
 const require = createRequire(__filename);
 
@@ -557,6 +558,13 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
   function both<T>(call: (api: Api) => T): [native: T, wasm: T] {
     return [call(native), call(wasm)];
   }
+
+  it('exports the values that its declarations declare', () => {
+    const values = exportsOf('browser/next/browser.d.ts').flatMap((name) =>
+      name.startsWith('value ') ? [name.slice('value '.length)] : [],
+    );
+    expect(Object.keys(wasm).sort()).toEqual(values);
+  });
 
   describe('compression', () => {
     it.each(FORMAT_LEVELS)(

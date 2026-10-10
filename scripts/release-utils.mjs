@@ -521,7 +521,8 @@ function sideEffectFreeManifests(packageDir, file) {
 /**
  * Whether a `sideEffects` field marks a file as having side effects, as
  * webpack and Vite read it: a pattern without a `/` matches the file name in
- * any directory.
+ * any directory. `./wasm.js` has one, so it matches only the wasm.js next to
+ * the package.json, not next/wasm.js.
  *
  * @param {unknown} sideEffects
  * @param {string} file Path relative to the directory of the package.json.
@@ -537,7 +538,7 @@ function hasSideEffects(sideEffects, file) {
       return false;
     }
     const glob = normalizePath(pattern);
-    return matchesGlob(file, glob.includes('/') ? glob : `**/${glob}`);
+    return matchesGlob(file, pattern.replaceAll('\\', '/').includes('/') ? glob : `**/${glob}`);
   });
 }
 

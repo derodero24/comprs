@@ -10,13 +10,24 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(__dirname, '..');
 const ENTRY = resolve(ROOT, 'browser/index.js');
 const STREAMS_ENTRY = resolve(ROOT, 'browser/streams.js');
-// The module that loads the WebAssembly module, which the entry imports.
+// The browser entry of @derodero24/comprs/next (#577), and the module that
+// it imports to make the WebAssembly build the backend of its functions.
+const NEXT_ENTRY = resolve(ROOT, 'browser/next/browser.js');
+const NEXT_BACKEND = resolve(ROOT, 'browser/next/wasm.js');
+// The module that loads the WebAssembly module, which the entries import.
 const WASM_MODULE = resolve(ROOT, 'browser/wasm.js');
 const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
 // The JS modules the entry points load, the wasm-bindgen glue among them.
-const BROWSER_MODULES = ['index.js', 'streams.js', 'wasm.js', 'comprs-wasm.js'].map((file) =>
-  resolve(ROOT, 'browser', file),
-);
+const BROWSER_MODULES = [
+  'index.js',
+  'streams.js',
+  'wasm.js',
+  'comprs-wasm.js',
+  'next/browser.js',
+  'next/wasm.js',
+  'next/api.js',
+  'next/backend.js',
+].map((file) => resolve(ROOT, 'browser', file));
 // How long each Node.js process may run. Vitest fails a test that outlasts
 // its own timeout (5 s by default) even while it waits in spawnSync, so the
 // tests get twice this.
@@ -102,14 +113,15 @@ function declaredExports(file: string) {
 describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   // The entry uses top-level await, so it can only be imported. require()
   // keeps resolving to the native addon, as in 2.0.x, for test runners that
-  // set the browser condition for CommonJS, such as Jest with jsdom. So does
-  // the browser module of the streams subpath, which imports the entry. The
-  // node subpath is for Node.js only.
+  // set the browser condition for CommonJS, such as Jest with jsdom. So do
+  // the browser modules of the streams subpath, which imports the entry,
+  // and of the next subpath, which imports the module that loads the
+  // WebAssembly module. The node subpath is for Node.js only.
   it('is what the browser condition resolves imports of the package to, and only imports', () => {
     const result = runWithBrowserCondition(`
       import { createRequire } from 'node:module';
       const require = createRequire(import.meta.url);
-      for (const specifier of ['@derodero24/comprs', '@derodero24/comprs/streams', '@derodero24/comprs/node']) {
+      for (const specifier of ['@derodero24/comprs', '@derodero24/comprs/streams', '@derodero24/comprs/node', '@derodero24/comprs/next']) {
         console.log(import.meta.resolve(specifier));
         console.log(require.resolve(specifier));
       }`);
@@ -121,6 +133,8 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
       resolve(ROOT, 'streams.js'),
       pathToFileURL(resolve(ROOT, 'node.js')).href,
       resolve(ROOT, 'node.js'),
+      pathToFileURL(NEXT_ENTRY).href,
+      resolve(ROOT, 'next/index.js'),
     ]);
   });
 
@@ -136,18 +150,29 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   // side-effect free, a bundler may skip its initialisation and import the
   // re-exported functions straight from the glue; if either marks wasm.js
   // so, a bundler may drop the import of it, which loads the WebAssembly
-  // module.
-  it.each([ENTRY, STREAMS_ENTRY, WASM_MODULE].map((file) => [relative(ROOT, file), file]))(
-    '%s is not side-effect free for any bundler',
-    (_name, file) => {
-      const root: Record<string, unknown> = JSON.parse(
-        readFileSync(resolve(ROOT, 'package.json'), 'utf8'),
-      );
-      expect(hasSideEffects(root['sideEffects'], ROOT, file)).toBe(true);
-      const { dir, manifest } = nearestManifest(file);
-      expect(hasSideEffects(manifest['sideEffects'], dir, file)).toBe(true);
-    },
-  );
+  // module. The entries of ./next import the module that sets the backend
+  // of their functions, browser/next/wasm.js or next/native.js for Node.js,
+  // for that alone: a bundler that dropped the import would leave the
+  // functions without a backend. Bundlers that turn CommonJS modules into ES
+  // modules, such as Rollup, read the field for next/ as well.
+  it.each(
+    [
+      ENTRY,
+      STREAMS_ENTRY,
+      WASM_MODULE,
+      NEXT_ENTRY,
+      NEXT_BACKEND,
+      resolve(ROOT, 'next/index.js'),
+      resolve(ROOT, 'next/native.js'),
+    ].map((file) => [relative(ROOT, file), file]),
+  )('%s is not side-effect free for any bundler', (_name, file) => {
+    const root: Record<string, unknown> = JSON.parse(
+      readFileSync(resolve(ROOT, 'package.json'), 'utf8'),
+    );
+    expect(hasSideEffects(root['sideEffects'], ROOT, file)).toBe(true);
+    const { dir, manifest } = nearestManifest(file);
+    expect(hasSideEffects(manifest['sideEffects'], dir, file)).toBe(true);
+  });
 
   describe.skipIf(!existsSync(WASM_FILE))('with the wasm-bindgen build', () => {
     it('loads the WebAssembly module next to it on import, with no init call', () => {
@@ -195,6 +220,36 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
       expect(result.stderr).toBe('');
       expect(JSON.parse(result.stdout)).toEqual({
         roundTrip: 'hello hello hello hello',
+        fetched: [pathToFileURL(WASM_FILE).href],
+        required: [],
+      });
+    });
+
+    it('loads the WebAssembly module, and not the native addon, for the next subpath', () => {
+      const result = runWithBrowserCondition(
+        `
+        import { createRequire } from 'node:module';
+        import { compress, decompressSync } from '@derodero24/comprs/next';
+        const data = new TextEncoder().encode('hello hello hello hello');
+        const compressed = await compress(data, { format: 'deflate' });
+        let code;
+        try {
+          decompressSync(compressed.subarray(0, compressed.length >> 1), { format: 'deflate' });
+        } catch (error) {
+          code = error.code;
+        }
+        console.log(JSON.stringify({
+          roundTrip: new TextDecoder().decode(decompressSync(compressed)),
+          code,
+          fetched: globalThis.fetchedUrls,
+          required: Object.keys(createRequire(import.meta.url).cache),
+        }));`,
+        serveFiles(),
+      );
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout)).toEqual({
+        roundTrip: 'hello hello hello hello',
+        code: 'ERR_COMPRS_TRUNCATED',
         fetched: [pathToFileURL(WASM_FILE).href],
         required: [],
       });

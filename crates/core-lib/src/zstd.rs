@@ -101,9 +101,11 @@ pub fn compress(data: &[u8], level: Option<i32>) -> Result<Vec<u8>, ComprsError>
 /// any number of workers from 1 up, but can differ from that of
 /// [`compress`].
 ///
-/// Workers cost memory: zstd buffers the input of `workers + 3` jobs, which
-/// makes 56 MiB for 4 workers at level 3, and gives each worker a context
-/// of its own.
+/// Workers cost memory: zstd buffers the input of `workers + 3` jobs, gives
+/// each job an output buffer of about the same size, and gives each worker
+/// a context of its own. With 4 workers at level 3, compressing 96 MiB took
+/// about 60 MiB more memory than without workers for JSON lines, and about
+/// 100 MiB more for random bytes.
 ///
 /// `workers` must be within [`WORKERS`]. Builds without the `zstdmt`
 /// feature accept only 0, and report any other number as
