@@ -1,6 +1,8 @@
+import { runInNewContext } from 'node:vm';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as native from '../index.js';
 import { type BrowserEntry, HAS_WASM_BUILD, importBrowserEntry } from './load-browser-entry.js';
+import { MISLEADING_LENGTHS } from './misleading-length.js';
 
 // Runs one table of calls against the native addon and the wasm-bindgen
 // build, which must give the same result for each (#570): equal bytes and
@@ -35,8 +37,13 @@ type CallWith = (api: Api, value: unknown) => unknown;
 type Outcome = { returned: unknown } | { threw: string; message: string };
 
 function run(call: Call, api: Api): Outcome {
+  return attempt(() => call(api));
+}
+
+/** What `call` returned or threw, as an Outcome. */
+function attempt(call: () => unknown): Outcome {
   try {
-    return { returned: comparable(call(api)) };
+    return { returned: comparable(call()) };
   } catch (error) {
     return thrown(error);
   }
@@ -103,6 +110,27 @@ const fixtures = {
 const largeWindowZstd = Uint8Array.from([0x28, 0xb5, 0x2f, 0xfd, 0, 0x88, 0x09, 0, 0, 0x41]);
 
 /**
+ * A gzip header cut short in its extra field, which says that it holds 16
+ * bytes: gzipReadHeader() rejects it, and would read the bytes after it as
+ * the rest of the field.
+ */
+const gzipHeaderCutInItsExtraField = Uint8Array.from([
+  ...[0x1f, 0x8b, 8, 0x04], // Magic, deflate, FEXTRA
+  ...[0x78, 0x56, 0x34, 0x12, 0, 3], // MTIME, XFL, OS (Unix)
+  ...[16, 0, 0x63, 0x70, 12, 0], // XLEN, then 4 of its bytes: subfield "cp", 12 bytes long
+]);
+
+/**
+ * Raw deflate data whose only block, a stored block, says that it holds 64
+ * bytes and holds 16: the decoders reject it as cut short, and would read
+ * the 48 bytes after it as the rest of the block.
+ */
+const deflateCutInAStoredBlock = Uint8Array.from([
+  ...[0x01, 64, 0, 0xbf, 0xff], // BFINAL, stored, LEN and NLEN
+  ...text.subarray(0, 16),
+]);
+
+/**
  * A gzip member with an extra field, a file name and a comment in its
  * header, which gzipCompressWithHeader() cannot write.
  */
@@ -134,6 +162,86 @@ function corrupt(data: Uint8Array): Uint8Array {
 /** `data` without its last 4 bytes. */
 function truncate(data: Uint8Array): Uint8Array {
   return data.subarray(0, data.length - 4);
+}
+
+/** `view`, with `prototype` as its prototype. */
+function withPrototype(view: ArrayBufferView, prototype: object): unknown {
+  return Object.setPrototypeOf(view, prototype);
+}
+
+/** A Uint8Array and a DataView of an ArrayBuffer of 8 bytes, detached. */
+function detachedViews(): [Uint8Array, DataView] {
+  const buffer = new ArrayBuffer(8);
+  const views: [Uint8Array, DataView] = [new Uint8Array(buffer), new DataView(buffer)];
+  structuredClone(buffer, { transfer: [buffer] });
+  return views;
+}
+
+/**
+ * The view that `view` makes of a resizable ArrayBuffer of the first 16
+ * bytes of text, after the buffer is resized to `byteLength`. Resizable
+ * buffers are of ES2024, which the lib of the tests predates, so the buffer
+ * is made and resized by reflection.
+ */
+function resized(view: (buffer: ArrayBuffer) => ArrayBufferView, byteLength: number) {
+  const buffer: unknown = Reflect.construct(ArrayBuffer, [16, { maxByteLength: 32 }]);
+  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  new Uint8Array(buffer).set(text.subarray(0, 16));
+  const result = view(buffer);
+  Reflect.apply(Reflect.get(buffer, 'resize'), buffer, [byteLength]);
+  return result;
+}
+
+/** The value of `expression` in a new realm, where `bytes` is 100 bytes of text. */
+function inAnotherRealm(expression: string): unknown {
+  return runInNewContext(expression, { bytes: text.subarray(0, 100) });
+}
+
+/**
+ * Views that both builds read from their internal slots (#697), made anew
+ * for each call: views of an ArrayBuffer that changed after they were made,
+ * which read as empty once it is detached or they are out of its bounds,
+ * and views of another realm.
+ */
+const UNUSUAL_VIEWS: [string, () => unknown][] = [
+  ['a Uint8Array of a detached ArrayBuffer', () => detachedViews()[0]],
+  ['a DataView of a detached ArrayBuffer', () => detachedViews()[1]],
+  [
+    'a Uint8Array out of the bounds of a shrunk ArrayBuffer',
+    () => resized((buffer) => new Uint8Array(buffer, 8, 8), 4),
+  ],
+  [
+    'a DataView out of the bounds of a shrunk ArrayBuffer',
+    () => resized((buffer) => new DataView(buffer, 8, 8), 4),
+  ],
+  [
+    'a Uint8Array that tracks the length of a shrunk ArrayBuffer',
+    () => resized((buffer) => new Uint8Array(buffer, 4), 12),
+  ],
+  [
+    'a Uint16Array that tracks the length of an ArrayBuffer of 9 bytes',
+    () => resized((buffer) => new Uint16Array(buffer), 9),
+  ],
+  ['a Uint8Array of another realm', () => inAnotherRealm('Uint8Array.from(bytes)')],
+  [
+    'a DataView of another realm',
+    () => inAnotherRealm('new DataView(Uint8Array.from(bytes).buffer, 3)'),
+  ],
+];
+
+/**
+ * What a gzip compression context makes of `chunk` and then of text,
+ * decompressed, which shows that `chunk` left the context usable.
+ */
+function gzipAfter(api: Api, chunk: unknown): Uint8Array {
+  const context = new api.GzipCompressContext();
+  return api.gzipDecompress(
+    Buffer.concat([
+      Reflect.apply(context.transform, context, [chunk]),
+      context.transform(text),
+      context.finish(),
+    ]),
+  );
 }
 
 /** `data` in two chunks. */
@@ -398,6 +506,22 @@ const CALLS: [string, Call][] = [
   ['an empty Uint8Array', (api) => api.lz4Decompress(api.lz4Compress(new Uint8Array(0)))],
   ['a DataView', (api) => invoke(api.crc32, new DataView(text.buffer, 3, 100))],
   ['an Int8Array', (api) => invoke(api.brotliCompress, new Int8Array(text.buffer, 5, 50), 1)],
+  ['a Uint16Array', (api) => invoke(api.crc32, new Uint16Array(text.buffer, 4, 50))],
+  // Both read a view from its internal slots, whatever its prototype says
+  // (#697).
+  [
+    'a Uint8Array with the prototype of a DataView',
+    (api) => invoke(api.crc32, withPrototype(text.subarray(0, 100), DataView.prototype)),
+  ],
+  [
+    'a DataView with the prototype of a Uint8Array',
+    (api) =>
+      invoke(api.crc32, withPrototype(new DataView(text.buffer, 3, 100), Uint8Array.prototype)),
+  ],
+  ...UNUSUAL_VIEWS.flatMap(([label, view]): [string, Call][] => [
+    [`crc32(${label})`, (api) => invoke(api.crc32, view())],
+    [`GzipCompressContext, ${label}, then text`, (api) => gzipAfter(api, view())],
+  ]),
 
   // Stream contexts
   [
@@ -501,6 +625,7 @@ const NOT_BYTES: [string, unknown][] = [
   ['a number', 42],
   ['an array of numbers', [1, 2, 3]],
   ['a plain object', {}],
+  ['an object that inherits from Uint8Array.prototype', Object.create(Uint8Array.prototype)],
   ['null', null],
   ['undefined', undefined],
 ];
@@ -771,6 +896,161 @@ const BYTES_PARAMETERS: [string, CallWith][] = [
   ],
 ];
 
+/** Makes a byte array of `bytes`. */
+type MakeBytes = (bytes: Uint8Array) => Uint8Array;
+
+/** A call that reads byte arrays that `as` makes. */
+type Read = (api: Api, as: MakeBytes) => unknown;
+
+// Every parameter that takes byte arrays, with arrays of valid input that
+// `as` makes in its place. Compressed output is decompressed, as the builds
+// need not compress to the same bytes.
+//
+// gzipReadHeader() reads no further than the end of the header, and the
+// deflate and brotli decoders no further than the end of the stream, so
+// their results for valid input cannot show bytes read past the end of an
+// array. gzipReadHeader() and the deflate decoders also read input cut
+// short, which they reject but would accept with bytes after it. The brotli
+// decoders reject such input whatever follows it, so crc32() reads the same
+// array. detectFormat() reads a brotli stream, which it detects only if the
+// stream ends where its input does.
+const BYTES_READS: [string, Read][] = [
+  ['zstdCompress(data)', (api, as) => native.zstdDecompress(api.zstdCompress(as(text)))],
+  ['zstdDecompress(data)', (api, as) => api.zstdDecompress(as(fixtures.zstd))],
+  [
+    'zstdDecompressWithCapacity(data)',
+    (api, as) => api.zstdDecompressWithCapacity(as(fixtures.zstd), text.length),
+  ],
+  ['zstdTrainDictionary(samples)', (api, as) => api.zstdTrainDictionary(samples.map(as), 2048)],
+  [
+    'zstdCompressWithDict(data, dict)',
+    (api, as) => native.zstdDecompressWithDict(api.zstdCompressWithDict(as(text), as(dict)), dict),
+  ],
+  [
+    'zstdDecompressWithDict(data, dict)',
+    (api, as) => api.zstdDecompressWithDict(as(fixtures.zstdWithDict), as(dict)),
+  ],
+  [
+    'zstdDecompressWithDictWithCapacity(data, dict)',
+    (api, as) =>
+      api.zstdDecompressWithDictWithCapacity(as(fixtures.zstdWithDict), as(dict), text.length),
+  ],
+  ['gzipCompress(data)', (api, as) => native.gzipDecompress(api.gzipCompress(as(text)))],
+  ['gzipDecompress(data)', (api, as) => api.gzipDecompress(as(fixtures.gzip))],
+  [
+    'gzipDecompressWithCapacity(data)',
+    (api, as) => api.gzipDecompressWithCapacity(as(fixtures.gzip), text.length),
+  ],
+  [
+    'gzipCompressWithHeader(data)',
+    (api, as) =>
+      native.gzipDecompress(api.gzipCompressWithHeader(as(text), { filename: 'notes.txt' })),
+  ],
+  [
+    'gzipReadHeader(data)',
+    (api, as) => [
+      api.gzipReadHeader(as(fixtures.gzipWithEveryHeaderField)),
+      attempt(() => api.gzipReadHeader(as(gzipHeaderCutInItsExtraField))),
+    ],
+  ],
+  ['deflateCompress(data)', (api, as) => native.deflateDecompress(api.deflateCompress(as(text)))],
+  [
+    'deflateDecompress(data)',
+    (api, as) => [
+      api.deflateDecompress(as(fixtures.deflate)),
+      attempt(() => api.deflateDecompress(as(deflateCutInAStoredBlock))),
+    ],
+  ],
+  [
+    'deflateDecompressWithCapacity(data)',
+    (api, as) => [
+      api.deflateDecompressWithCapacity(as(fixtures.deflate), text.length),
+      attempt(() => api.deflateDecompressWithCapacity(as(deflateCutInAStoredBlock), text.length)),
+    ],
+  ],
+  ['brotliCompress(data)', (api, as) => native.brotliDecompress(api.brotliCompress(as(text)))],
+  [
+    'brotliDecompress(data)',
+    (api, as) => {
+      const data = as(fixtures.brotli);
+      return [api.brotliDecompress(data), api.crc32(data)];
+    },
+  ],
+  [
+    'brotliDecompressWithCapacity(data)',
+    (api, as) => {
+      const data = as(fixtures.brotli);
+      return [api.brotliDecompressWithCapacity(data, text.length), api.crc32(data)];
+    },
+  ],
+  [
+    'brotliCompressWithDict(data, dict)',
+    (api, as) =>
+      native.brotliDecompressWithDict(api.brotliCompressWithDict(as(text), as(dict)), dict),
+  ],
+  [
+    'brotliDecompressWithDict(data, dict)',
+    (api, as) => api.brotliDecompressWithDict(as(fixtures.brotliWithDict), as(dict)),
+  ],
+  [
+    'brotliDecompressWithDictWithCapacity(data, dict)',
+    (api, as) =>
+      api.brotliDecompressWithDictWithCapacity(as(fixtures.brotliWithDict), as(dict), text.length),
+  ],
+  ['lz4Compress(data)', (api, as) => native.lz4Decompress(api.lz4Compress(as(text)))],
+  ['lz4Decompress(data)', (api, as) => api.lz4Decompress(as(fixtures.lz4))],
+  [
+    'lz4DecompressWithCapacity(data)',
+    (api, as) => api.lz4DecompressWithCapacity(as(fixtures.lz4), text.length),
+  ],
+  ['detectFormat(data)', (api, as) => api.detectFormat(as(fixtures.brotli))],
+  ['decompress(data)', (api, as) => api.decompress(as(fixtures.brotli))],
+  ['crc32(data)', (api, as) => api.crc32(as(text))],
+  ...COMPRESSION_CONTEXTS.map(([name, create, decompress]): [string, Read] => [
+    `${name}.transform(chunk)`,
+    (api, as) => decompress(drain(create(api), halves(text).map(as))),
+  ]),
+  ...DECOMPRESSION_CONTEXTS.map(([name, create, compressed]): [string, Read] => [
+    `${name}.transform(chunk)`,
+    (api, as) => drain(create(api), halves(compressed).map(as)),
+  ]),
+  [
+    'new ZstdCompressDictContext(dict)',
+    (api, as) =>
+      native.zstdDecompressWithDict(drain(new api.ZstdCompressDictContext(as(dict)), [text]), dict),
+  ],
+  [
+    'new ZstdDecompressDictContext(dict)',
+    (api, as) => drain(new api.ZstdDecompressDictContext(as(dict)), [fixtures.zstdWithDict]),
+  ],
+  [
+    'new BrotliCompressDictContext(dict)',
+    (api, as) =>
+      native.brotliDecompressWithDict(
+        drain(new api.BrotliCompressDictContext(as(dict)), [text]),
+        dict,
+      ),
+  ],
+  [
+    'new BrotliDecompressDictContext(dict)',
+    (api, as) => drain(new api.BrotliDecompressDictContext(as(dict)), [fixtures.brotliWithDict]),
+  ],
+];
+
+/** `arg`, or the samples in it, as byte arrays that `as` makes. */
+function asBytes(arg: unknown, as: MakeBytes): unknown {
+  if (arg instanceof Uint8Array) return as(arg);
+  if (Array.isArray(arg)) {
+    return arg.map((sample: unknown) => (sample instanceof Uint8Array ? as(sample) : sample));
+  }
+  return arg;
+}
+
+/** The byte arrays among `args`, and among the samples in them. */
+function byteArrays(args: unknown[]): Uint8Array[] {
+  return args.flat().filter((arg): arg is Uint8Array => arg instanceof Uint8Array);
+}
+
 // Other arguments of the wrong type. The native messages name Rust types, so
 // only the error classes are compared.
 const NOT_SAMPLES: [string, unknown][] = [...NOT_BYTES, ['a Uint8Array', text]];
@@ -886,6 +1166,35 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
     const expected = thrownBy(nativeApi);
     expect(expected.every(([, errorClass]) => errorClass !== undefined)).toBe(true);
     expect(thrownBy(wasm)).toStrictEqual(expected);
+  });
+
+  // Both read the bytes of a byte array, whatever its `length` property says
+  // (#697). The WebAssembly build sized its copies by `length`, as the glue
+  // of js-sys's `Uint8Array::to_vec` does: it read stale WebAssembly memory
+  // after the bytes, or threw a RangeError that left a stream context
+  // borrowed.
+  describe.each(MISLEADING_LENGTHS)('%s', (_kind, as) => {
+    it.each(BYTES_READS)('%s reads its bytes', (_label, read) => {
+      const call: Call = (api) => read(api, as);
+      const expected = run(call, nativeApi);
+      expect(expected).toHaveProperty('returned');
+      expect(run(call, wasm)).toStrictEqual(expected);
+    });
+
+    // The *Async functions read their bytes as the synchronous ones do.
+    // crc32() of each array shows the bytes read from it where the result
+    // cannot: the decoders of deflateDecompressAsync() and
+    // brotliDecompressAsync(), and of their WithCapacity forms, ignore data
+    // after the end of the stream.
+    it.each(Object.entries(ASYNC_ARGUMENTS))('%s reads its bytes', async (name, args) => {
+      const syncName = name.slice(0, -'Async'.length);
+      const expected = run((api) => callByName(api, syncName, args), wasm);
+      expect(expected).toHaveProperty('returned');
+      const misleading = args.map((arg) => asBytes(arg, as));
+      expect(await settled(callByName(wasm, name, misleading))).toStrictEqual(expected);
+      const crc32s = (values: unknown[]) => byteArrays(values).map((bytes) => wasm.crc32(bytes));
+      expect(crc32s(misleading)).toStrictEqual(crc32s(args));
+    });
   });
 
   it.each(WRONG_TYPES)('%s', (_label, call) => {

@@ -11,6 +11,7 @@ import {
   importBrowserEntry,
   importBrowserStreams,
 } from './load-browser-entry.js';
+import { MISLEADING_LENGTHS } from './misleading-length.js';
 
 // The browser module of `@derodero24/comprs/streams` (#476) against
 // streams.js on the native addon: each helper must turn the same input into
@@ -399,6 +400,18 @@ describe.skipIf(!HAS_WASM_BUILD)('browser streams module', () => {
       const [fromBrowser, fromNative] = await Promise.all(
         [browser, nativeHelpers].map(async (helpers) =>
           Buffer.from(read(await pipe(create(helpers), chunks))),
+        ),
+      );
+      expect(fromBrowser).toEqual(Buffer.from(text));
+      expect(fromBrowser).toEqual(fromNative);
+    });
+
+    // Whatever their `length` property says (#697).
+    it.each(MISLEADING_LENGTHS)('reads the bytes of %s', async (_kind, as) => {
+      const misleading = chunks(input, size).map(as);
+      const [fromBrowser, fromNative] = await Promise.all(
+        [browser, nativeHelpers].map(async (helpers) =>
+          Buffer.from(read(await pipe(create(helpers), misleading))),
         ),
       );
       expect(fromBrowser).toEqual(Buffer.from(text));

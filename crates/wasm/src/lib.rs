@@ -1,8 +1,9 @@
 #![deny(clippy::all)]
 
 use std::alloc::{GlobalAlloc, Layout, handle_alloc_error};
+use std::mem::MaybeUninit;
 
-use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, Function, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 
 use comprs_core::ComprsError;
@@ -124,34 +125,187 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "Uint8Array")]
     pub type Bytes;
 
-    #[wasm_bindgen(method, getter)]
-    fn buffer(this: &Bytes) -> JsValue;
+    /// The getter of a property of `%TypedArray%.prototype` or
+    /// `DataView.prototype`, which reads an internal slot of a view. Those
+    /// of `buffer`, `byteOffset`, `byteLength` and `length` throw for
+    /// anything but a view of their kind.
+    #[wasm_bindgen(extends = Function)]
+    type Getter;
 
-    #[wasm_bindgen(method, getter, js_name = byteOffset)]
-    fn byte_offset(this: &Bytes) -> u32;
+    /// `getter.call(value)`, for the getter of
+    /// `%TypedArray%.prototype[Symbol.toStringTag]`: it returns the name of
+    /// the type of a typed array, which the glue reads as `Some(true)`, and
+    /// `undefined` for any other value, which it reads as `None`, without
+    /// the heap slot that a `JsValue` would take. This needs the release
+    /// glue, which `debug-js-glue = false` in Cargo.toml pins for the
+    /// profile that scripts/build-wasm-bindgen.js builds with: the debug glue
+    /// (`wasm-pack build --dev`) throws for a value that is not a boolean.
+    #[wasm_bindgen(method, js_name = call)]
+    fn call_tag(this: &Getter, value: &Bytes) -> Option<bool>;
 
-    #[wasm_bindgen(method, getter, js_name = byteLength)]
-    fn byte_length(this: &Bytes) -> u32;
+    /// `getter.call(view)`, for a getter that returns a number.
+    #[wasm_bindgen(method, catch, js_name = call)]
+    fn try_call(this: &Getter, view: &Bytes) -> Result<f64, JsValue>;
+
+    /// `getter.call(view)`, for a getter that returns a number and does not
+    /// throw for `view`.
+    #[wasm_bindgen(method, js_name = call)]
+    fn call(this: &Getter, view: &Bytes) -> f64;
+
+    /// `getter.call(view)`, for a getter that does not throw for `view`.
+    #[wasm_bindgen(method, js_name = call)]
+    fn call_value(this: &Getter, view: &Bytes) -> JsValue;
+
+    /// A `Uint8Array` over the bytes of a view.
+    #[wasm_bindgen(extends = Bytes, js_name = Uint8Array)]
+    type ByteView;
+
+    /// `new Uint8Array(buffer, byteOffset, length)`, with numbers that may
+    /// exceed those of `Uint8Array::new_with_byte_offset_and_length`.
+    #[wasm_bindgen(constructor, js_class = "Uint8Array")]
+    fn new(buffer: &JsValue, byte_offset: f64, length: f64) -> ByteView;
+
+    /// `Uint8Array.prototype.set.call(target, source)`: copy the bytes of
+    /// `source`, a typed array of bytes that holds as many as `target`, into
+    /// `target`.
+    #[wasm_bindgen(js_namespace = Uint8Array, js_name = "prototype.set.call")]
+    fn copy_bytes(target: &mut [MaybeUninit<u8>], source: &Bytes);
+
+    /// `Uint8Array.prototype`, whose prototype is `%TypedArray%.prototype`.
+    #[wasm_bindgen(thread_local_v2, js_namespace = Uint8Array, js_name = prototype)]
+    static UINT8_ARRAY_PROTOTYPE: Object;
+
+    /// `DataView.prototype`.
+    #[wasm_bindgen(thread_local_v2, js_namespace = DataView, js_name = prototype)]
+    static DATA_VIEW_PROTOTYPE: Object;
 }
 
 impl Bytes {
     /// Copy the bytes into Wasm memory, or fail, as the native addon does,
     /// if this is not an ArrayBuffer view. `name` names the argument.
+    ///
+    /// Like the native addon, this reads the internal slots of the view,
+    /// through the getters of its kind (#697): its own properties, or those
+    /// of a subclass, can say anything. The glue of js-sys's
+    /// `Uint8Array::to_vec`, for one, sizes its copy by `length`.
+    // One copy of this, rather than one in each function that takes bytes,
+    // keeps the module smaller.
+    #[inline(never)]
     fn to_vec(&self, name: &str) -> Result<Vec<u8>, JsError> {
-        if let Some(array) = self.dyn_ref::<Uint8Array>() {
-            return Ok(array.to_vec());
-        }
-        // A view of another type, or a Uint8Array from another realm.
-        if !ArrayBuffer::is_view(self) {
-            return Err(JsError::new(&format!("{name} must be a Uint8Array")));
-        }
-        let bytes = Uint8Array::new_with_byte_offset_and_length(
-            &self.buffer(),
-            self.byte_offset(),
-            self.byte_length(),
-        );
-        Ok(bytes.to_vec())
+        VIEW_GETTERS.with(|getters| {
+            if getters.tag.call_tag(self).is_some() {
+                // A typed array, of any type and realm. Its getters return 0
+                // when its ArrayBuffer is detached, or has shrunk to end
+                // before the typed array does.
+                let byte_length = getters.typed_array.byte_length.call(self);
+                // A Uint8Array (or Buffer), Int8Array or Uint8ClampedArray,
+                // whose elements are its bytes.
+                if getters.length.call(self) == byte_length {
+                    return Ok(copy(self, byte_length));
+                }
+                return Ok(getters.typed_array.copy(self, byte_length));
+            }
+            if !ArrayBuffer::is_view(self) {
+                return Err(JsError::new(&format!("{name} must be a Uint8Array")));
+            }
+            // A DataView. Its getters throw where those of a typed array
+            // return 0. The native addon reads no bytes then.
+            Ok(match getters.data_view.byte_length.try_call(self) {
+                Ok(byte_length) => getters.data_view.copy(self, byte_length),
+                Err(_) => Vec::new(),
+            })
+        })
     }
+}
+
+/// Copy `source`, a typed array of `byte_length` elements of a byte each, as
+/// the getters of `%TypedArray%.prototype` read it, into Wasm memory.
+fn copy(source: &Bytes, byte_length: f64) -> Vec<u8> {
+    // An empty typed array, or one whose ArrayBuffer is detached, which
+    // Uint8Array.prototype.set() rejects.
+    if byte_length == 0.0 {
+        return Vec::new();
+    }
+    // A length that Wasm memory cannot hold traps here, as an allocation
+    // that cannot be satisfied does (see `AbortOnOom`).
+    let length = byte_length as usize;
+    let mut bytes = Vec::with_capacity(length);
+    copy_bytes(&mut bytes.spare_capacity_mut()[..length], source);
+    // SAFETY: set() has written each of the first `length` bytes of the
+    // allocation: it copies every element of `source`, or throws if they do
+    // not fit, and `source` holds `length` elements of a byte each, as the
+    // getters, which read its internal slots, say. No JavaScript code runs
+    // on this thread between them and set(). Other threads can only grow a
+    // SharedArrayBuffer, and growing Wasm memory for the allocation only
+    // detaches the ArrayBuffer of that memory; set() throws if either
+    // changed `source`.
+    unsafe { bytes.set_len(length) };
+    bytes
+}
+
+/// The getters of the `buffer`, `byteOffset` and `byteLength` properties
+/// that a kind of ArrayBuffer view inherits.
+struct KindGetters {
+    buffer: Getter,
+    byte_offset: Getter,
+    byte_length: Getter,
+}
+
+impl KindGetters {
+    /// The getters of the properties of `prototype`.
+    fn of(prototype: &Object) -> Self {
+        Self {
+            buffer: getter(prototype, &"buffer".into()),
+            byte_offset: getter(prototype, &"byteOffset".into()),
+            byte_length: getter(prototype, &"byteLength".into()),
+        }
+    }
+
+    /// Copy the bytes of `view`, whose `byteLength` getter returned
+    /// `byte_length`, into Wasm memory. The other getters do not throw then.
+    fn copy(&self, view: &Bytes, byte_length: f64) -> Vec<u8> {
+        if byte_length == 0.0 {
+            return Vec::new();
+        }
+        let buffer = self.buffer.call_value(view);
+        let byte_offset = self.byte_offset.call(view);
+        let bytes = ByteView::new(&buffer, byte_offset, byte_length);
+        copy(&bytes, byte_length)
+    }
+}
+
+/// The getter of the property `key` of `prototype`.
+fn getter(prototype: &Object, key: &JsValue) -> Getter {
+    let descriptor = Object::get_own_property_descriptor(prototype, key);
+    Reflect::get(&descriptor, &"get".into())
+        .unwrap_or_default()
+        .unchecked_into()
+}
+
+/// The getters that ArrayBuffer views inherit.
+struct ViewGetters {
+    /// Those of `%TypedArray%.prototype`, which every typed array inherits.
+    typed_array: KindGetters,
+    /// The getter of `%TypedArray%.prototype[Symbol.toStringTag]`.
+    tag: Getter,
+    /// The getter of `%TypedArray%.prototype.length`.
+    length: Getter,
+    /// Those of `DataView.prototype`.
+    data_view: KindGetters,
+}
+
+thread_local! {
+    /// The getters that ArrayBuffer views inherit, read once.
+    static VIEW_GETTERS: ViewGetters = {
+        let typed_array =
+            UINT8_ARRAY_PROTOTYPE.with(|prototype| Object::get_prototype_of(prototype));
+        ViewGetters {
+            tag: getter(&typed_array, &Symbol::to_string_tag()),
+            length: getter(&typed_array, &"length".into()),
+            typed_array: KindGetters::of(&typed_array),
+            data_view: DATA_VIEW_PROTOTYPE.with(KindGetters::of),
+        }
+    };
 }
 
 #[wasm_bindgen(typescript_custom_section)]

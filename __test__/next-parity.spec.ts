@@ -15,6 +15,7 @@ import type {
 } from '../next/index.js';
 import * as native from '../next/index.js';
 import { HAS_WASM_BUILD, importBrowserNext, wasmMemory } from './load-browser-entry.js';
+import { MISLEADING_LENGTHS } from './misleading-length.js';
 
 // The unified API, @derodero24/comprs/next (#577), in the browser build,
 // against the native build: the functions of src/next/api.ts over the
@@ -293,38 +294,16 @@ function halfLength(bytes: Uint8Array): number {
   return bytes.length / 2;
 }
 
-/** How many bytes more than it holds a Uint8Array below claims to hold. */
-const EXTRA = 4096;
-
-/**
- * A Uint8Array of `bytes`, of a subclass whose `length` is `claim` of the
- * number of bytes that it holds.
- */
-function subclassClaiming(bytes: Uint8Array, claim: (byteLength: number) => number): Uint8Array {
-  class Claiming extends Uint8Array {}
-  Object.defineProperty(Claiming.prototype, 'length', {
-    get(this: Uint8Array): number {
-      return claim(this.byteLength);
-    },
-  });
-  return new Claiming(bytes);
-}
-
-/** A Uint8Array of `bytes` with an own `length` of `length`. */
-function ownLength(bytes: Uint8Array, length: number): Uint8Array {
-  return Object.defineProperty(Uint8Array.from(bytes), 'length', { value: length });
-}
-
 /**
  * Kinds of input, each with the function that makes `bytes` an input of
  * that kind, from which the functions of both builds must read `bytes`, byte
  * for byte. The bytes must be of even length, for the Uint16Array.
  *
- * The last kinds are Uint8Arrays whose `length` property disagrees with the
- * bytes that they hold: the wasm-bindgen glue would copy as many bytes as
- * it says, leaving out bytes, or copying stale bytes of WebAssembly memory
- * after them, or throwing a RangeError without a code. api.ts passes the
- * backend a Uint8Array of its own over the bytes.
+ * The last kinds, of misleading-length.ts, are Uint8Arrays whose `length`
+ * property disagrees with the bytes that they hold: the wasm-bindgen glue
+ * would copy as many bytes as it says, leaving out bytes, or copying stale
+ * bytes of WebAssembly memory after them, or throwing a RangeError without
+ * a code. api.ts passes the backend a Uint8Array of its own over the bytes.
  */
 const INPUT_KINDS: readonly [kind: string, as: (bytes: Uint8Array) => Input][] = [
   ['a Uint8Array at an offset', (bytes) => new Uint8Array(padded(bytes), PAD, bytes.length)],
@@ -349,16 +328,7 @@ const INPUT_KINDS: readonly [kind: string, as: (bytes: Uint8Array) => Input][] =
     'a DataView of a resizable ArrayBuffer',
     (bytes) => new DataView(resizableAfterPad(bytes), PAD, bytes.length),
   ],
-  [
-    'a Uint8Array whose subclass claims a longer length',
-    (bytes) => subclassClaiming(bytes, (byteLength) => byteLength + EXTRA),
-  ],
-  [
-    'a Uint8Array whose subclass claims a shorter length',
-    (bytes) => subclassClaiming(bytes, () => 2),
-  ],
-  ['a Uint8Array with an own, longer length', (bytes) => ownLength(bytes, bytes.length + EXTRA)],
-  ['a Uint8Array with an own, shorter length', (bytes) => ownLength(bytes, 2)],
+  ...MISLEADING_LENGTHS,
 ];
 
 /**
