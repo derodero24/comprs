@@ -123,6 +123,12 @@ impl GzipDecompressContext {
             }
             pos += n;
         }
+        // The decoder keeps the output of its last write, up to 32 KiB, until
+        // the next write: flush it, so that a chunk that ends mid-stream
+        // returns all its output.
+        decoder
+            .flush()
+            .map_err(|e| decoder.get_ref().error(e, "gzip stream decompress"))?;
 
         Ok(decoder.get_mut().take())
     }
@@ -624,15 +630,36 @@ mod tests {
     }
 
     #[test]
-    fn gzip_decompress_context_counts_finish_output() {
-        // flate2 holds up to 32 KiB of output, which only finish() returns.
+    fn gzip_decompress_context_counts_the_output_that_flate2_keeps() {
+        // flate2 keeps the output of its last write, up to 32 KiB, which
+        // transform() flushes.
         let compressed = gzip(&[b'a'; 30_000]);
         let mut ctx = GzipDecompressContext::new(Some(1000.0)).unwrap();
-        let result = ctx.transform(&compressed).and_then(|_| ctx.finish());
-        assert!(matches!(
-            result,
-            Err(ComprsError::SizeLimit { limit: 1000, .. })
-        ));
+        let result = ctx.transform(&compressed).map(|output| output.len());
+        assert!(
+            matches!(result, Err(ComprsError::SizeLimit { limit: 1000, .. })),
+            "{result:?}"
+        );
+    }
+
+    /// One `transform` returns all the output of a chunk that ends
+    /// mid-stream, which flate2 keeps the last 32 KiB of until the next
+    /// write, and `flush` finds nothing left.
+    #[test]
+    fn gzip_decompress_context_returns_all_the_output_of_a_flushed_chunk() {
+        let input: Vec<u8> = (0..100_000u32)
+            .map(|i| b"gzip stream "[i as usize % 12])
+            .collect();
+        for len in [1000, 40_000, input.len()] {
+            let mut compressor = GzipCompressContext::new(None).unwrap();
+            let mut flushed = compressor.transform(&input[..len]).unwrap();
+            flushed.extend(compressor.flush().unwrap());
+            let mut ctx = GzipDecompressContext::new(None).unwrap();
+            let output = ctx.transform(&flushed).unwrap();
+            assert_eq!(output.len(), len);
+            assert!(output == input[..len]);
+            assert!(ctx.flush().unwrap().is_empty(), "{len} bytes");
+        }
     }
 
     #[test]

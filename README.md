@@ -381,7 +381,7 @@ These streams accept the chunks that `CompressionStream` accepts, any `ArrayBuff
 
 </details>
 
-The streams and the Node.js Transforms are built on the stream contexts that the package root exports (`ZstdCompressContext`, `GzipDecompressContext` and so on), which take chunks with `transform(chunk)`, return buffered output with `flush()`, and end the stream with `finish()`. `Lz4DecompressContext` and `BrotliCompressDictContext` work in one of two modes:
+The streams and the Node.js Transforms are built on the stream contexts that the package root exports (`ZstdCompressContext`, `GzipDecompressContext` and so on), which take chunks with `transform(chunk)`, return buffered output with `flush()`, and end the stream with `finish()`. When a chunk ends where its compressor flushed, a decompression context returns all of its output from `transform(chunk)`, so a stream that is flushed after each message, such as a compressed event stream, delivers each message as soon as it arrives; `Lz4DecompressContext` without `{ incremental: true }` decodes only whole frames, in `flush()`. `Lz4DecompressContext` and `BrotliCompressDictContext` work in one of two modes:
 
 | Mode | `transform(chunk)` | `flush()` | `finish()` | `maxOutputSize` limits |
 | --- | --- | --- | --- | --- |

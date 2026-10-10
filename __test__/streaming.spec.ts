@@ -3,16 +3,21 @@ import { isArrayBuffer } from 'node:util/types';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import {
+  BrotliCompressContext,
   brotliCompress,
   brotliCompressWithDict,
   brotliDecompress,
   brotliDecompressWithDict,
+  DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
+  Lz4CompressContext,
   lz4Compress,
   lz4Decompress,
+  ZstdCompressContext,
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompress,
@@ -376,4 +381,87 @@ describe('LZ4 decompression streams', () => {
     );
     await expect(output).rejects.toThrow('unexpected data after the end of a frame');
   });
+});
+
+/**
+ * Read from `reader` until `length` bytes have arrived, and return them.
+ * Fails unless they arrive within `ms` milliseconds.
+ */
+async function readBytes(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  length: number,
+  ms = 2000,
+): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${received} of ${length} bytes in ${ms} ms`)), ms);
+  });
+  try {
+    while (received < length) {
+      const result = await Promise.race([reader.read(), timeout]);
+      if (result.done) throw new Error(`the stream ended after ${received} of ${length} bytes`);
+      chunks.push(result.value);
+      received += result.value.byteLength;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** A compression context that flushes. */
+interface FlushingContext {
+  transform(chunk: Uint8Array): Uint8Array;
+  flush(): Uint8Array;
+}
+
+describe('decompression streams', () => {
+  // 100,000 bytes of text: a message that a stream carries in one chunk.
+  const message = Buffer.from(
+    Array.from({ length: 4000 }, (_, i) => `line ${i}: the quick brown fox\n`)
+      .join('')
+      .slice(0, 100_000),
+  );
+
+  // A chunk that ends mid-stream, as a stream that is flushed after each
+  // message carries it: the stream emits all of its output without more
+  // input or the end of the input (#704).
+  it.each<[string, () => TransformStream<Uint8Array, Uint8Array>, () => FlushingContext]>([
+    ['createZstdDecompressStream()', createZstdDecompressStream, () => new ZstdCompressContext()],
+    ['createGzipDecompressStream()', createGzipDecompressStream, () => new GzipCompressContext()],
+    [
+      'createDeflateDecompressStream()',
+      createDeflateDecompressStream,
+      () => new DeflateCompressContext(),
+    ],
+    [
+      'createBrotliDecompressStream()',
+      createBrotliDecompressStream,
+      () => new BrotliCompressContext(5),
+    ],
+    ['createLz4DecompressStream()', createLz4DecompressStream, () => new Lz4CompressContext()],
+    ['createDecompressStream() for zstd', createDecompressStream, () => new ZstdCompressContext()],
+    ['createDecompressStream() for gzip', createDecompressStream, () => new GzipCompressContext()],
+    [
+      'createDecompressStream() for brotli',
+      createDecompressStream,
+      () => new BrotliCompressContext(5),
+    ],
+    ['createDecompressStream() for lz4', createDecompressStream, () => new Lz4CompressContext()],
+  ])(
+    '%s should emit all the output of a chunk that ends mid-stream',
+    async (_label, create, compressor) => {
+      const context = compressor();
+      const chunk = Buffer.concat([context.transform(message), context.flush()]);
+      const stream = create();
+      const writer = stream.writable.getWriter();
+      const reader = stream.readable.getReader();
+      const written = writer.write(chunk);
+      expect((await readBytes(reader, message.length)).equals(message)).toBe(true);
+      await written;
+      await reader.cancel();
+    },
+  );
 });

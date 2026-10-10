@@ -845,6 +845,28 @@ fn auto_decoder_flushes_once_it_knows_the_format() {
     }
 }
 
+/// The brotli decompression context, given the format or detecting it,
+/// returns all the output of a chunk that ends mid-stream from the
+/// `transform` that takes it (#704).
+#[test]
+fn brotli_context_returns_all_the_output_of_a_flushed_chunk() {
+    let input = text(100_000);
+    let mut compressor = brotli_stream::CompressContext::new(Some(5)).unwrap();
+    let mut flushed = compressor.transform(&input).unwrap();
+    flushed.extend(compressor.flush().unwrap());
+    for format in [Some(Format::Brotli), None] {
+        let mut ctx = DecompressContext::new(&as_format(format)).unwrap();
+        let output = ctx.transform(&flushed).unwrap();
+        assert!(
+            output == input,
+            "{format:?}: {} of {} bytes",
+            output.len(),
+            input.len()
+        );
+        assert!(ctx.flush().unwrap().is_empty(), "{format:?}");
+    }
+}
+
 #[test]
 fn auto_decoder_flush_detects_with_the_input_held() {
     // A whole zlib stream, which the tries at 4, 8, 16 and 32 bytes do not

@@ -470,18 +470,9 @@ function thrown(call: () => unknown): unknown {
   throw new Error('did not throw');
 }
 
-/**
- * What the start of a brotli stream, which goes on, decodes to with `dict`.
- * Waiting for input, the decoder returns the output that it holds a buffer
- * at a time.
- */
+/** What the start of a brotli stream, which goes on, decodes to with `dict`. */
 function decodeSoFar(compressed: Uint8Array, dict: Uint8Array): Buffer {
-  const decoder = new BrotliDecompressDictContext(dict);
-  const parts = [decoder.transform(compressed)];
-  for (let part = decoder.flush(); part.length > 0; part = decoder.flush()) {
-    parts.push(part);
-  }
-  return Buffer.concat(parts);
+  return new BrotliDecompressDictContext(dict).transform(compressed);
 }
 
 /** A brotli dictionary compression context of either build. */
