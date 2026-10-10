@@ -12,6 +12,7 @@ use comprs_core::{
     ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
     zstd, zstd_stream,
 };
+use flate2::{Decompress, FlushDecompress};
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
 
@@ -406,6 +407,98 @@ fn flush_emits_all_input_so_far() {
         output.extend(decompressor.transform(&rest).unwrap());
         output.extend(decompressor.finish().unwrap());
         assert!(output == input, "{}", codec.name);
+    }
+}
+
+/// The gzip, raw deflate and zlib compression contexts, with the format
+/// that each writes.
+const FLATE_COMPRESSORS: [(&str, FlateWrapper, NewCompressor<u32>); 3] = [
+    ("gzip", FlateWrapper::Gzip, |level| {
+        boxed(gzip_stream::GzipCompressContext::new(level))
+    }),
+    ("deflate", FlateWrapper::Raw, |level| {
+        boxed(gzip_stream::DeflateCompressContext::new(level))
+    }),
+    ("zlib", FlateWrapper::Zlib, |level| {
+        boxed(gzip_stream::ZlibCompressContext::new(level))
+    }),
+];
+
+/// Inflate `input`, the start of a stream in the format of `wrapper`, as
+/// far as it goes.
+fn inflate_so_far(input: &[u8], wrapper: FlateWrapper) -> Vec<u8> {
+    let mut inflater = match wrapper {
+        FlateWrapper::Raw => Decompress::new(false),
+        FlateWrapper::Zlib => Decompress::new(true),
+        FlateWrapper::Gzip => Decompress::new_gzip(15),
+    };
+    let mut output = Vec::new();
+    loop {
+        let (read, written) = (inflater.total_in(), inflater.total_out());
+        output.reserve(64 * 1024);
+        inflater
+            .decompress_vec(
+                &input[usize::try_from(read).unwrap()..],
+                &mut output,
+                FlushDecompress::Sync,
+            )
+            .unwrap();
+        if (inflater.total_in(), inflater.total_out()) == (read, written) {
+            return output;
+        }
+    }
+}
+
+#[test]
+fn flate_flush_emits_all_input_so_far() {
+    // A transform of poorly compressible input can leave flate2's 32 KiB
+    // output buffer nearly full, and the sync flush of flush() used to stop
+    // where that buffer ran out (#701). Level 0 holds back 32 KiB - 2 bytes
+    // until the flush, which stores them in a block that fills the buffer
+    // and then takes a second sync flush, unless they end as a sync flush
+    // does: the first one then looks complete, and its block holds them all.
+    let mut ends_like_a_flush = noise(32 * 1024 - 2, 6);
+    let len = ends_like_a_flush.len();
+    ends_like_a_flush[len - 4..].copy_from_slice(&[0x00, 0x00, 0xff, 0xff]);
+    let inputs = [
+        noise(16 * 1024, 3),
+        noise(64 * 1024, 4),
+        noise(400 * 1024, 5),
+        text(400 * 1024),
+        noise(32 * 1024 - 2, 6),
+        ends_like_a_flush,
+    ];
+    for (name, wrapper, new) in FLATE_COMPRESSORS {
+        for level in [0, 1, 6, 9] {
+            for input in &inputs {
+                let case = format!("{name} at level {level}, {} bytes", input.len());
+                let mut ctx = new(Some(level)).unwrap();
+                let mut compressed = Vec::new();
+                for round in 1..=2 {
+                    compressed.extend(ctx.transform(input).unwrap());
+                    compressed.extend(ctx.flush().unwrap());
+                    let flushed = inflate_so_far(&compressed, wrapper);
+                    assert_eq!(flushed.len(), round * input.len(), "{case}");
+                    assert!(
+                        flushed
+                            .chunks(input.len())
+                            .all(|chunk| chunk == input.as_slice()),
+                        "{case}"
+                    );
+
+                    // That flush was complete: another one adds nothing but
+                    // an empty stored block, its header padded to a byte and
+                    // its lengths.
+                    let again = ctx.flush().unwrap();
+                    assert_eq!(again, [0x00, 0x00, 0x00, 0xff, 0xff], "{case}");
+                    compressed.extend(again);
+                }
+
+                compressed.extend(ctx.finish().unwrap());
+                let output = strict_one_shot(&compressed, wrapper).unwrap();
+                assert!(output == input.repeat(2), "{case}");
+            }
+        }
     }
 }
 
