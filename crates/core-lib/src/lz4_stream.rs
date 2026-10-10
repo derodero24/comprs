@@ -602,42 +602,102 @@ mod tests {
         Ok(output)
     }
 
+    /// The block maximum size that `block_size` stands for.
+    fn block_max(block_size: BlockSize) -> usize {
+        match block_size {
+            BlockSize::Max64KB => 64 * 1024,
+            BlockSize::Max256KB => 256 * 1024,
+            BlockSize::Max1MB => 1024 * 1024,
+            BlockSize::Max4MB => 4 * 1024 * 1024,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Check that an incremental context fed `data` compressed into one
+    /// frame with `frame_info`, in chunks of each of `chunk_sizes` bytes and
+    /// all at once, decodes what one-shot decompression decodes. `name`
+    /// describes the data.
+    fn check_incremental(name: &str, data: &[u8], frame_info: FrameInfo, chunk_sizes: &[usize]) {
+        let max = block_max(frame_info.block_size);
+        let case = format!(
+            "{name}, {max} B blocks, {:?}, checksums {}",
+            frame_info.block_mode, frame_info.block_checksums
+        );
+        let input = frame(data, frame_info);
+        assert!(crate::lz4::decompress(&input).unwrap() == data, "{case}");
+        for &chunk_size in chunk_sizes.iter().chain([&input.len()]) {
+            match decompress_incrementally(&input, chunk_size, max) {
+                Ok(output) => assert!(
+                    output == data,
+                    "{case}, {chunk_size} B chunks: wrong output"
+                ),
+                Err(error) => panic!("{case}, {chunk_size} B chunks: {error}"),
+            }
+        }
+    }
+
+    /// Frame settings with every optional field, or none.
+    fn frame_info(
+        block_size: BlockSize,
+        block_mode: BlockMode,
+        fields: bool,
+        len: usize,
+    ) -> FrameInfo {
+        FrameInfo::new()
+            .block_size(block_size)
+            .block_mode(block_mode)
+            .block_checksums(fields)
+            .content_checksum(fields)
+            .content_size(fields.then_some(len as u64))
+    }
+
     #[test]
     fn incremental_context_decodes_what_one_shot_decodes() {
-        let sizes = [
-            (BlockSize::Max64KB, 64 * 1024),
-            (BlockSize::Max256KB, 256 * 1024),
-            (BlockSize::Max1MB, 1024 * 1024),
-            (BlockSize::Max4MB, 4 * 1024 * 1024),
-        ];
         for (name, data) in [
             ("random", random(100_000)),
             ("json", json(200_000)),
             ("zeros", zeros(200_000)),
         ] {
-            for (block_size, max) in sizes {
+            for block_size in [
+                BlockSize::Max64KB,
+                BlockSize::Max256KB,
+                BlockSize::Max1MB,
+                BlockSize::Max4MB,
+            ] {
                 for block_mode in [BlockMode::Independent, BlockMode::Linked] {
-                    for checksums in [false, true] {
-                        let frame_info = FrameInfo::new()
-                            .block_size(block_size)
-                            .block_mode(block_mode)
-                            .block_checksums(checksums)
-                            .content_checksum(checksums)
-                            .content_size(checksums.then_some(data.len() as u64));
-                        let input = frame(&data, frame_info);
-                        assert_eq!(crate::lz4::decompress(&input).unwrap(), data);
-                        for chunk_size in [1, 7, 64 * 1024, input.len()] {
-                            let case = format!(
-                                "{name}, {max} B blocks, {block_mode:?}, checksums \
-                                 {checksums}, {chunk_size} B chunks"
-                            );
-                            match decompress_incrementally(&input, chunk_size, max) {
-                                Ok(output) => assert!(output == data, "{case}: wrong output"),
-                                Err(error) => panic!("{case}: {error}"),
-                            }
-                        }
+                    for fields in [false, true] {
+                        let frame_info = frame_info(block_size, block_mode, fields, data.len());
+                        check_incremental(name, &data, frame_info, &[1, 7, 64 * 1024]);
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_context_links_large_blocks_across_chunks() {
+        // Data of more than two blocks of 256 KiB and of 1 MiB, whose linked
+        // blocks refer to the end of the block before, which the context
+        // keeps from an earlier chunk or finds in the output of the same
+        // one. Chunks of 1 byte would make the 2.2 MB slow to decode in a
+        // debug build.
+        for (block_size, data) in [
+            (BlockSize::Max256KB, json(600_000)),
+            (BlockSize::Max1MB, json(2_200_000)),
+        ] {
+            for fields in [false, true] {
+                let frame_info = frame_info(block_size, BlockMode::Linked, fields, data.len());
+                // The blocks do refer to the blocks before them.
+                let mut unlinked = frame(&data, frame_info.clone());
+                unlinked[4] |= 0x20;
+                let descriptor_len = if fields { 10 } else { 2 };
+                unlinked[4 + descriptor_len] =
+                    (XxHash32::oneshot(0, &unlinked[4..4 + descriptor_len]) >> 8) as u8;
+                assert_eq!(
+                    crate::lz4::decompress(&unlinked).unwrap_err().to_string(),
+                    "lz4 decompress failed: DecompressionError(OffsetOutOfBounds)"
+                );
+                check_incremental("json", &data, frame_info, &[7, 64 * 1024]);
             }
         }
     }
