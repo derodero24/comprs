@@ -795,6 +795,65 @@ const CLOSE_USES: [string, Call][] = CONTEXT_INPUTS.flatMap(
   ],
 );
 
+/** 100,000 bytes of text: a message that a stream carries in one chunk. */
+const message = encoder.encode(
+  Array.from({ length: 4000 }, (_, i) => `line ${i}: the quick brown fox\n`)
+    .join('')
+    .slice(0, 100_000),
+);
+
+/** What `context` returns for `data`, then for flush(). */
+function compressAndFlush(context: StreamContext, data: Uint8Array): Uint8Array {
+  return Buffer.concat([context.transform(data), context.flush()]);
+}
+
+/**
+ * A decompression context of each class, and the chunks of a stream that
+ * goes on: the last one holds `message` and ends mid-stream, where the
+ * native compression context flushed.
+ */
+const FLUSHED_STREAMS: [
+  string,
+  (api: Api) => StreamContext,
+  () => [before: Uint8Array[], last: Uint8Array],
+][] = [
+  [
+    'ZstdDecompressContext',
+    (api) => new api.ZstdDecompressContext(),
+    () => [[], compressAndFlush(new native.ZstdCompressContext(), message)],
+  ],
+  [
+    'ZstdDecompressDictContext',
+    (api) => new api.ZstdDecompressDictContext(dict),
+    () => [[], compressAndFlush(new native.ZstdCompressDictContext(dict), message)],
+  ],
+  [
+    'DeflateDecompressContext',
+    (api) => new api.DeflateDecompressContext(),
+    () => [[], compressAndFlush(new native.DeflateCompressContext(), message)],
+  ],
+  [
+    'BrotliDecompressContext',
+    (api) => new api.BrotliDecompressContext(),
+    () => [[], compressAndFlush(new native.BrotliCompressContext(5), message)],
+  ],
+  [
+    'BrotliDecompressDictContext',
+    (api) => new api.BrotliDecompressDictContext(dict),
+    // The incremental context streams once its input passes the first 4 MiB
+    // less 16 bytes.
+    () => {
+      const context = new native.BrotliCompressDictContext(dict, 5, INCREMENTAL);
+      return [[compressAndFlush(context, PAST_THE_DICT_REACH)], compressAndFlush(context, message)];
+    },
+  ],
+  [
+    'Lz4DecompressContext({ incremental: true })',
+    (api) => new api.Lz4DecompressContext(undefined, INCREMENTAL),
+    () => [[], compressAndFlush(new native.Lz4CompressContext(), message)],
+  ],
+];
+
 // Every parameter that takes a byte array, called with `value` in its place.
 const BYTES_PARAMETERS: [string, CallWith][] = [
   ['zstdCompress(data)', (api, value) => invoke(api.zstdCompress, value)],
@@ -1156,6 +1215,26 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
   it.each(CLOSE_USES)('%s', (_label, call) => {
     expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
   });
+
+  // A chunk that ends mid-stream, as a stream that is flushed after each
+  // message carries it, decodes in full in the transform() that takes it,
+  // and flush() finds nothing left (#704).
+  it.each(FLUSHED_STREAMS)(
+    '%s returns all the output of a chunk that ends mid-stream',
+    (_label, create, chunks) => {
+      const [before, last] = chunks();
+      for (const api of [wasm, nativeApi]) {
+        const context = create(api);
+        for (const chunk of before) {
+          context.transform(chunk);
+        }
+        const output = new Uint8Array(context.transform(last));
+        expect(output.byteLength).toBe(message.byteLength);
+        expect(output).toEqual(message);
+        expect(context.flush().byteLength).toBe(0);
+      }
+    },
+  );
 
   it.each(BYTES_PARAMETERS)('%s rejects what is not a byte array', (_label, callWith) => {
     const thrownBy = (api: Api) =>

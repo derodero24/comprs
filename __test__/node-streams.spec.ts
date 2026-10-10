@@ -9,16 +9,20 @@ import { finished, pipeline } from 'node:stream/promises';
 import { isArrayBuffer } from 'node:util/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BrotliCompressContext,
   brotliCompress,
   brotliCompressWithDict,
   brotliDecompress,
   brotliDecompressWithDict,
+  DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
   gzipCompress,
   gzipDecompress,
+  Lz4CompressContext,
   lz4Compress,
   lz4Decompress,
+  ZstdCompressContext,
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompress,
@@ -501,6 +505,96 @@ describe('LZ4 decompression transforms', () => {
         'lz4 stream decompress failed: unexpected data after the end of a frame',
       );
       expect(transform.writableEnded).toBe(false);
+    },
+  );
+});
+
+/**
+ * Collect what `transform` pushes until it has pushed `length` bytes. Fails
+ * unless they arrive within `ms` milliseconds.
+ */
+function pushedBytes(transform: Transform, length: number, ms = 2000): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let received = 0;
+    const timer = setTimeout(
+      () => reject(new Error(`${received} of ${length} bytes in ${ms} ms`)),
+      ms,
+    );
+    transform.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+      received += chunk.length;
+      if (received >= length) {
+        clearTimeout(timer);
+        resolve(Buffer.concat(chunks));
+      }
+    });
+  });
+}
+
+/** A compression context that flushes. */
+interface FlushingContext {
+  transform(chunk: Uint8Array): Uint8Array;
+  flush(): Uint8Array;
+}
+
+describe('decompression transforms', () => {
+  // 100,000 bytes of text: a message that a stream carries in one chunk.
+  const message = Buffer.from(
+    Array.from({ length: 4000 }, (_, i) => `line ${i}: the quick brown fox\n`)
+      .join('')
+      .slice(0, 100_000),
+  );
+
+  // A chunk that ends mid-stream, as a stream that is flushed after each
+  // message carries it: the transform pushes all of its output without
+  // more input or the end of the input (#704).
+  it.each<[string, () => Transform, () => FlushingContext]>([
+    [
+      'createZstdDecompressTransform()',
+      createZstdDecompressTransform,
+      () => new ZstdCompressContext(),
+    ],
+    [
+      'createDeflateDecompressTransform()',
+      createDeflateDecompressTransform,
+      () => new DeflateCompressContext(),
+    ],
+    [
+      'createBrotliDecompressTransform()',
+      createBrotliDecompressTransform,
+      () => new BrotliCompressContext(5),
+    ],
+    [
+      'createLz4DecompressTransform()',
+      createLz4DecompressTransform,
+      () => new Lz4CompressContext(),
+    ],
+    [
+      'createDecompressTransform() for zstd',
+      createDecompressTransform,
+      () => new ZstdCompressContext(),
+    ],
+    [
+      'createDecompressTransform() for brotli',
+      createDecompressTransform,
+      () => new BrotliCompressContext(5),
+    ],
+    [
+      'createDecompressTransform() for lz4',
+      createDecompressTransform,
+      () => new Lz4CompressContext(),
+    ],
+  ])(
+    '%s should push all the output of a chunk that ends mid-stream',
+    async (_label, create, compressor) => {
+      const context = compressor();
+      const chunk = Buffer.concat([context.transform(message), context.flush()]);
+      const transform = create();
+      const pushed = pushedBytes(transform, message.length);
+      transform.write(chunk);
+      expect((await pushed).equals(message)).toBe(true);
+      transform.destroy();
     },
   );
 });

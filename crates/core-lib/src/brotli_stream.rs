@@ -771,7 +771,7 @@ impl StreamDecoder {
         }
     }
 
-    /// Decompress `input`, returning all output that is available so far.
+    /// Decompress `input`, returning all the output of the input so far.
     /// An empty `input` only drains the decoder.
     fn decompress(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
         let state = self
@@ -799,6 +799,15 @@ impl StreamDecoder {
                 .map_err(|e| self.output.error(e, context))?;
             match result {
                 BrotliResult::NeedsMoreOutput => {}
+                // Out of input, the decoder writes the output that it holds
+                // in its ring buffer, as much as fits into the buffer, and
+                // asks for more input even if some is left: call it again
+                // while it fills the buffer, until a call leaves room, which
+                // it does once it has written all of it (#704). Each call
+                // that goes on wrote a full buffer of the output of the
+                // input so far, which is finite, so the loop ends; and the
+                // output limit, checked on each call, stops it sooner.
+                BrotliResult::NeedsMoreInput if available_out == 0 => {}
                 BrotliResult::NeedsMoreInput => break,
                 BrotliResult::ResultSuccess => {
                     self.ended = true;
@@ -1112,6 +1121,67 @@ mod tests {
         let mut output = ctx.transform(&compressed).unwrap();
         output.extend(ctx.flush().unwrap());
         assert_eq!(output, data);
+    }
+
+    /// `len` bytes of [`english`] text, and the start of a stream that goes
+    /// on: the text compressed at quality 5 with `transform` and `flush`,
+    /// not `finish`.
+    fn flushed_text(len: usize) -> (Vec<u8>, Vec<u8>) {
+        let input = english(len);
+        let mut ctx = CompressContext::new(Some(5)).unwrap();
+        let mut compressed = ctx.transform(&input).unwrap();
+        compressed.extend(ctx.flush().unwrap());
+        (input, compressed)
+    }
+
+    /// The decoder holds the output of a chunk that ends mid-stream until
+    /// it runs out of input, then writes it a buffer at a time: one
+    /// `transform` returns all of it, many buffers, and `flush` finds
+    /// nothing left (#704).
+    #[test]
+    fn decompress_context_returns_all_the_output_of_a_flushed_chunk() {
+        let (input, compressed) = flushed_text(100_000);
+        let mut ctx = DecompressContext::new(None).unwrap();
+        let output = ctx.transform(&compressed).unwrap();
+        assert_eq!(output.len(), input.len());
+        assert!(output == input);
+        assert!(ctx.flush().unwrap().is_empty());
+        assert!(!ctx.inner.ended);
+    }
+
+    #[test]
+    fn decompress_dict_context_returns_all_the_output_of_a_flushed_chunk() {
+        let dict = english_dict();
+        let input = english(100_000);
+        // `CompressDictContext` holds input of this size until `finish`, so
+        // drive brotli's encoder with the dictionary directly.
+        let mut encoder = super::StreamEncoder::new(&crate::brotli::encoder_params(5, true));
+        encoder.state.set_custom_dictionary(dict.len(), &dict);
+        let compressed = encoder.stream(FLUSH, &input).unwrap();
+        let mut ctx = DecompressDictContext::new(&dict, None).unwrap();
+        let output = ctx.transform(&compressed).unwrap();
+        assert_eq!(output.len(), input.len());
+        assert!(output == input);
+        assert!(ctx.flush().unwrap().is_empty());
+        assert!(!ctx.inner.ended);
+        // The stream refers to the dictionary.
+        let mut plain = DecompressContext::new(None).unwrap();
+        assert!(plain.transform(&compressed).ok() != Some(input));
+    }
+
+    /// The output limit stops a chunk that ends mid-stream too: the
+    /// `transform` that takes it fails once the output that the decoder
+    /// writes passes the limit, and the output never grows past it.
+    #[test]
+    fn decompress_context_stops_inflating_a_flushed_chunk_at_the_limit() {
+        let (_, compressed) = flushed_text(4 * LIMIT);
+        let mut ctx = DecompressContext::new(Some(LIMIT as f64)).unwrap();
+        let transformed = ctx.transform(&compressed).map(|output| output.len());
+        assert_eq!(
+            transformed.unwrap_err().to_string(),
+            "brotli stream decompress exceeded maximum size of 65536 bytes"
+        );
+        assert!(ctx.inner.output.capacity() <= LIMIT);
     }
 
     /// The dictionary stream compresses on `finish` through the same encoder
@@ -1720,41 +1790,10 @@ mod tests {
     /// Whether `compressed`, the start of a brotli stream that goes on,
     /// decodes with `dict` to exactly `expected`, and then needs more input.
     fn decodes_so_far(compressed: &[u8], dict: &[u8], expected: &[u8]) -> bool {
-        let mut state = super::decoder_state(dict.to_vec(), &CountingAlloc::default());
-        let mut buffer = vec![0; BUFFER_SIZE];
-        let mut available_in = compressed.len();
-        let mut input_offset = 0;
-        let mut total_out = 0;
-        let mut rest = expected;
-        loop {
-            let mut available_out = buffer.len();
-            let mut output_offset = 0;
-            let result = brotli::BrotliDecompressStream(
-                &mut available_in,
-                &mut input_offset,
-                compressed,
-                &mut available_out,
-                &mut output_offset,
-                &mut buffer,
-                &mut total_out,
-                &mut state,
-            );
-            let Some(after) = rest.strip_prefix(&buffer[..output_offset]) else {
-                return false;
-            };
-            rest = after;
-            match result {
-                // Out of input, the decoder writes the output that it
-                // holds, as much as fits: it holds more if that filled the
-                // buffer.
-                brotli::BrotliResult::NeedsMoreOutput => {}
-                brotli::BrotliResult::NeedsMoreInput if available_out == 0 => {}
-                brotli::BrotliResult::NeedsMoreInput => return rest.is_empty(),
-                brotli::BrotliResult::ResultSuccess | brotli::BrotliResult::ResultFailure => {
-                    return false;
-                }
-            }
-        }
+        let mut ctx = DecompressDictContext::new(dict, None).unwrap();
+        ctx.transform(compressed)
+            .is_ok_and(|output| output == expected)
+            && !ctx.inner.ended
     }
 
     /// Once it streams, `flush` returns all the output of the input so far.
