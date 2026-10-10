@@ -225,7 +225,9 @@ export function thirdPartyNotice({ cargoPackage, target, npmPackage }) {
  * crate alone, as `napi build` and wasm-pack do, which build one crate; a
  * walk of the `cargo metadata` resolve graph would unify the features of the
  * whole workspace instead. `--target` needs no installed target, and cargo
- * downloads any crate it does not have yet.
+ * downloads any crate it does not have yet. `--color never` keeps the
+ * ` (*)` markers plain where CARGO_TERM_COLOR asks for color, as it does in
+ * CI.
  *
  * @param {string} cargoPackage
  * @param {string} target
@@ -235,6 +237,8 @@ function linkedCrates(cargoPackage, target) {
   return parseCargoTree(
     capture('cargo', [
       'tree',
+      '--color',
+      'never',
       '--locked',
       '-p',
       cargoPackage,
