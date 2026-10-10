@@ -364,24 +364,33 @@ describe('zstd workers', () => {
 
 describe('inputs', () => {
   /**
-   * `bytes` as each kind of input, in buffers of their own at an offset of 2
-   * bytes, which a Uint16Array allows. A Uint16Array holds whole elements, so
-   * it is left out for an odd number of bytes.
+   * `bytes` as each kind of input. The views see them at an offset of 2
+   * bytes, which a Uint16Array allows, with a length of their own, in
+   * buffers that hold two 0xff bytes on each side of them: a view read from
+   * the start of its buffer, or up to its end, would read those too. A
+   * Uint16Array holds whole elements, so it is left out for an odd number of
+   * bytes.
    */
   function inputs(bytes: Uint8Array): [string, Input][] {
-    const buffer = new ArrayBuffer(bytes.byteLength + 2);
-    new Uint8Array(buffer, 2).set(bytes);
-    const shared = new SharedArrayBuffer(bytes.byteLength + 2);
-    new Uint8Array(shared, 2).set(bytes);
+    const length = bytes.byteLength;
+    const buffer = new ArrayBuffer(length + 4);
+    new Uint8Array(buffer).fill(0xff).set(bytes, 2);
+    const shared = new SharedArrayBuffer(length + 4);
+    new Uint8Array(shared).fill(0xff).set(bytes, 2);
+    const larger = Buffer.alloc(length + 4, 0xff);
+    larger.set(bytes, 2);
     const kinds: [string, Input][] = [
-      ['an ArrayBuffer', buffer.slice(2)],
-      ['a SharedArrayBuffer', shared.slice(2)],
-      ['a view of a SharedArrayBuffer', new Uint8Array(shared, 2)],
-      ['a DataView', new DataView(buffer, 2)],
+      ['an ArrayBuffer', buffer.slice(2, 2 + length)],
+      ['a SharedArrayBuffer', shared.slice(2, 2 + length)],
+      ['a Uint8Array at an offset', new Uint8Array(buffer, 2, length)],
+      ['a view of a SharedArrayBuffer', new Uint8Array(shared, 2, length)],
+      ['a DataView', new DataView(buffer, 2, length)],
+      ['a DataView of a SharedArrayBuffer', new DataView(shared, 2, length)],
       ['a Buffer', Buffer.from(bytes)],
+      ['a Buffer within a larger one', larger.subarray(2, 2 + length)],
     ];
-    if (bytes.byteLength % 2 === 0) {
-      kinds.push(['a Uint16Array at an offset', new Uint16Array(buffer, 2, bytes.byteLength / 2)]);
+    if (length % 2 === 0) {
+      kinds.push(['a Uint16Array at an offset', new Uint16Array(buffer, 2, length / 2)]);
     }
     return kinds;
   }
