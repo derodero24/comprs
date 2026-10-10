@@ -8,6 +8,9 @@ in a legacy frame), instead of the whole input until it ends:
 `createLz4DecompressStream()`, `createLz4DecompressTransform()`, and
 `createDecompressStream()` and `createDecompressTransform()` for LZ4 input.
 They report data after the last frame on the chunk that holds it.
+Each block of a legacy frame (`lz4 -l`) is decoded into a buffer no larger
+than its compressed size allows, rather than one of 8 MiB, so legacy frames
+of small blocks also decode faster with the one-shot functions.
 
 `Lz4DecompressContext` accepts `{ incremental: true }` as a second argument,
 which the streams use: `transform()` then returns each block as it

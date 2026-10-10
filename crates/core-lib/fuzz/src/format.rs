@@ -71,11 +71,11 @@ impl Format {
             // context maps. RFC 7932 caps the window at 16 MiB; the 1 GiB
             // windows of the Large Window Brotli extension exceed the bound.
             Format::Brotli => 18 * MIB,
-            // The decoder decodes each block into a buffer of the block
-            // maximum size, 8 MiB for a legacy frame. In incremental mode,
-            // the context also keeps a block that has not fully arrived, up
-            // to the 8 MiB of a legacy block, and 128 KiB of the content of
-            // linked blocks.
+            // The decoder decodes each block into a buffer of up to the
+            // block maximum size, 8 MiB for a legacy frame. In incremental
+            // mode, the context also keeps a block that has not fully
+            // arrived, up to the 8 MiB of a legacy block, and 128 KiB of the
+            // content of linked blocks.
             Format::Lz4 => 17 * MIB,
         }
     }

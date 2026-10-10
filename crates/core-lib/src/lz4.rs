@@ -50,6 +50,10 @@ const LEGACY_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 /// frame's magic number.
 const LEGACY_MAX_BLOCK_SIZE: u32 = (LEGACY_BLOCK_SIZE + LEGACY_BLOCK_SIZE / 255 + 16) as u32;
 
+/// Most bytes that a byte of a compressed block decodes to: see
+/// [`legacy_block_room`].
+const MAX_BLOCK_EXPANSION: usize = 255;
+
 /// Largest block maximum size of an LZ4 frame: 4 MiB.
 const MAX_BLOCK_SIZE: usize = 4 * 1024 * 1024;
 
@@ -154,8 +158,9 @@ thread_local! {
 fn with_scratch<T>(decode: impl FnOnce(&mut Vec<u8>) -> T) -> T {
     let mut scratch = SCRATCH.try_with(Cell::take).unwrap_or_default();
     let result = decode(&mut scratch);
-    // Put back after an error too, as it holds no state, but not the 8 MiB
-    // scratch of a legacy frame, which is too much to keep around.
+    // Put back after an error too, as it holds no state, but not the up to
+    // 8 MiB scratch of a large legacy block, which is too much to keep
+    // around.
     if scratch.capacity() <= MAX_BLOCK_SIZE {
         // A thread that is exiting has no cache left; the scratch is dropped.
         let _ = SCRATCH.try_with(|cached| cached.set(scratch));
@@ -451,7 +456,7 @@ impl Decoder {
                 Ok(())
             }
             State::LegacyBlock(_) => {
-                self.decode_block(unit, LEGACY_BLOCK_SIZE, Dict::None, sink)?;
+                self.decode_block(unit, legacy_block_room(unit.len()), Dict::None, sink)?;
                 self.state = State::LegacyBlockSize;
                 Ok(())
             }
@@ -685,6 +690,27 @@ impl Decoder {
             source: e.into(),
         }
     }
+}
+
+/// The room that a legacy block of `len` bytes is decoded into:
+/// [`LEGACY_BLOCK_SIZE`], or [`MAX_BLOCK_EXPANSION`] bytes per byte of the
+/// block if that is less.
+///
+/// No block decodes to more. The block decoder checks a run of literals
+/// against the room left once the block holds all of them, and a match once
+/// it has read its offset and length. With that run or match, the output
+/// then holds fewer than 255 bytes per byte read: literals decode to a byte
+/// each, and a match of up to 19 + 255 * k bytes takes a token, a 2-byte
+/// offset and k bytes of its length. So a block runs out of this room only
+/// if it runs out of [`LEGACY_BLOCK_SIZE`] too, and decodes, or fails, the
+/// same way in either.
+///
+/// The thread does not keep a scratch space of more than
+/// [`MAX_BLOCK_SIZE`] (see [`with_scratch`]), so a stream of small legacy
+/// blocks would otherwise zero-fill 8 MiB in every push that completes one.
+fn legacy_block_room(len: usize) -> usize {
+    len.saturating_mul(MAX_BLOCK_EXPANSION)
+        .min(LEGACY_BLOCK_SIZE)
 }
 
 /// The error for a failed allocation.
@@ -933,8 +959,16 @@ mod tests {
         let (len, _) = kept_scratch();
         assert!(len >= MAX_BLOCK_SIZE, "{len} bytes");
 
-        // A legacy frame needs 8 MiB, which the thread does not keep.
+        // A short legacy block needs at most 255 bytes per byte of it, and
+        // leaves the scratch space as it is.
         assert_eq!(decompress(CLI_LEGACY_FRAME).unwrap(), CLI_TEXT);
+        let (len, _) = kept_scratch();
+        assert!(len >= MAX_BLOCK_SIZE, "{len} bytes");
+        // A legacy block long enough to decode to 8 MiB needs 8 MiB, which
+        // the thread does not keep.
+        let content = text(40_000);
+        let legacy = legacy_frame(&literal_block(&content));
+        assert_eq!(decompress(&legacy).unwrap(), content);
         let (_, capacity) = kept_scratch();
         assert!(capacity <= MAX_BLOCK_SIZE, "{capacity} bytes");
 
@@ -1164,23 +1198,171 @@ mod tests {
         }
     }
 
+    /// A compressed block that holds `content`, of at least 15 bytes, as
+    /// literals, as encoders write data that does not compress.
+    fn literal_block(content: &[u8]) -> Vec<u8> {
+        let mut block = vec![0xf0];
+        block.extend(vec![255; (content.len() - 15) / 255]);
+        block.push(((content.len() - 15) % 255) as u8);
+        block.extend(content);
+        block
+    }
+
+    /// A legacy frame of one `block`.
+    fn legacy_frame(block: &[u8]) -> Vec<u8> {
+        [
+            &LEGACY_MAGIC.to_le_bytes(),
+            &(block.len() as u32).to_le_bytes()[..],
+            block,
+        ]
+        .concat()
+    }
+
     #[test]
     fn decompress_reads_legacy_blocks_that_do_not_compress() {
         // A block of 8 MB of literals, as `lz4 -l` writes for data that does
         // not compress, is larger than its content.
         let content = text(LEGACY_BLOCK_SIZE);
-        let mut block = vec![0xf0];
-        block.extend(vec![255; (content.len() - 15) / 255]);
-        block.push(((content.len() - 15) % 255) as u8);
-        block.extend(&content);
+        let block = literal_block(&content);
         assert!(block.len() > LEGACY_BLOCK_SIZE);
-        let input = [
-            &LEGACY_MAGIC.to_le_bytes(),
-            &(block.len() as u32).to_le_bytes()[..],
-            &block,
-        ]
-        .concat();
-        assert_eq!(decompress(&input).unwrap(), content);
+        assert_eq!(decompress(&legacy_frame(&block)).unwrap(), content);
+    }
+
+    /// A compressed block of `len` bytes, at least 6, that decodes to as
+    /// much as it can: a literal, a match of the literal as long as the
+    /// rest of the block allows, and an empty last sequence.
+    fn longest_block(len: usize) -> Vec<u8> {
+        let mut block = vec![0x1f, b'a', 0x01, 0x00];
+        block.extend(vec![255; len - 6]);
+        block.extend([254, 0x00]);
+        block
+    }
+
+    #[test]
+    fn decompress_reads_legacy_blocks_that_fill_their_room() {
+        // Blocks that decode to almost 255 times their size, and one that
+        // decodes to 8 MiB exactly, the most that a legacy block holds.
+        for len in [7, 100, 32_000] {
+            let block = longest_block(len);
+            let decoded = (len - 6) * 255 + 274;
+            assert!(decoded <= legacy_block_room(len), "{len} bytes");
+            assert!(decoded > legacy_block_room(len) - 1300, "{len} bytes");
+            let expected = vec![b'a'; decoded];
+            assert_eq!(decompress(&legacy_frame(&block)).unwrap(), expected);
+        }
+        // A literal and a match of 8 MiB less a byte, which the extra
+        // bytes of its length hold but for the 19 bytes of the token.
+        let rest = LEGACY_BLOCK_SIZE - 1 - 19;
+        let mut block = vec![0x1f, b'a', 0x01, 0x00];
+        block.extend(vec![255; rest / 255]);
+        block.extend([(rest % 255) as u8, 0x00]);
+        assert_eq!(legacy_block_room(block.len()), LEGACY_BLOCK_SIZE);
+        assert_eq!(
+            decompress(&legacy_frame(&block)).unwrap(),
+            vec![b'a'; LEGACY_BLOCK_SIZE]
+        );
+        // A byte more is too much.
+        let last_length = block.len() - 2;
+        block[last_length] += 1;
+        assert_eq!(
+            decompress(&legacy_frame(&block)).unwrap_err().to_string(),
+            "lz4 decompress failed: DecompressionError(OutputTooSmall { expected: 8388609, \
+             actual: 8388608 })"
+        );
+    }
+
+    #[test]
+    fn legacy_blocks_decode_the_same_in_their_room() {
+        // Blocks with long matches, some cut short or with a byte changed,
+        // which fail in every way that the block decoder reports: each one
+        // decodes, or fails, the same in the room that legacy_block_room()
+        // gives it as in LEGACY_BLOCK_SIZE.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % bound as u64) as usize
+        };
+        let mut full = vec![0; LEGACY_BLOCK_SIZE];
+        let mut room = vec![0; LEGACY_BLOCK_SIZE];
+        let mut results = std::collections::BTreeMap::<String, usize>::new();
+        for _ in 0..3000 {
+            let mut block = Vec::new();
+            // A length of 15 or more, as the token and its extra bytes hold it.
+            let extra = |block: &mut Vec<u8>, len: usize| {
+                block.extend(vec![255; (len - 15) / 255]);
+                block.push(((len - 15) % 255) as u8);
+            };
+            let mut decoded = 0;
+            let sequences = 1 + next(5);
+            for sequence in 0..sequences {
+                let literals = [0, 1 + next(14), 15 + next(600)][next(3)];
+                let last = sequence + 1 == sequences;
+                let match_length = [4 + next(15), 19 + next(255 * 40)][next(2)];
+                let token = (literals.min(15) << 4) as u8;
+                block.push(if last {
+                    token
+                } else {
+                    token | (match_length - 4).min(15) as u8
+                });
+                if literals >= 15 {
+                    extra(&mut block, literals);
+                }
+                block.extend((0..literals).map(|_| next(256) as u8));
+                decoded += literals;
+                if last {
+                    break;
+                }
+                // Mostly an offset within what the block has decoded.
+                let offset = match next(8) {
+                    0 => 0,
+                    1 => decoded + 1 + next(4),
+                    _ => 1 + next(decoded.max(1)),
+                };
+                block.extend((offset.min(65_535) as u16).to_le_bytes());
+                if match_length >= 19 {
+                    extra(&mut block, match_length - 4);
+                }
+                decoded += match_length;
+            }
+            match next(3) {
+                0 => block.truncate(next(block.len() + 1)),
+                1 => {
+                    let index = next(block.len());
+                    block[index] = next(256) as u8;
+                }
+                _ => {}
+            }
+
+            let expected = decompress_into(&block, &mut full);
+            let actual = decompress_into(&block, &mut room[..legacy_block_room(block.len())]);
+            match (&expected, &actual) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(expected, actual);
+                    assert!(full[..*expected] == room[..*actual]);
+                }
+                _ => assert_eq!(format!("{expected:?}"), format!("{actual:?}")),
+            }
+            let kind = match expected {
+                Ok(_) => "Ok".to_string(),
+                Err(error) => format!("{error:?}"),
+            };
+            *results.entry(kind).or_default() += 1;
+        }
+        // Every result the block decoder has, but running out of room.
+        let kinds: Vec<_> = results.keys().map(String::as_str).collect();
+        assert_eq!(
+            kinds,
+            [
+                "ExpectedAnotherByte",
+                "LiteralOutOfBounds",
+                "OffsetOutOfBounds",
+                "OffsetZero",
+                "Ok",
+            ],
+            "{results:?}"
+        );
     }
 
     #[test]

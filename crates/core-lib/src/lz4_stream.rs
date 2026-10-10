@@ -699,9 +699,6 @@ mod tests {
         }
         let lz4 = encoder.finish().unwrap();
         let skippable = [&0x184D_2A50_u32.to_le_bytes()[..], &[3, 0, 0, 0, 1, 2, 3]].concat();
-        // Each legacy block takes an 8 MiB decode buffer, which the thread
-        // does not keep: the blocks are small, so that few of the prefixes
-        // end after one.
         let (legacy, legacy_ends) = legacy_frame(&[&json(60), &random(30)]);
         let input = [&lz4[..], &skippable, &legacy].concat();
         // Where the input may end: after the LZ4 frame, after the skippable
@@ -804,6 +801,28 @@ mod tests {
         output.extend(ctx.finish().unwrap());
         assert!(output == data);
         assert_eq!(ctx.memory_usage(), 0);
+    }
+
+    #[test]
+    fn incremental_context_time_does_not_grow_with_the_legacy_block_size() {
+        // 20,000 legacy blocks of one literal each, one per transform():
+        // a context that zero-fills a buffer of the 8 MiB that a legacy
+        // block may decode to for each of them writes 160 GB here.
+        let block = [&2u32.to_le_bytes()[..], &[0x10, b'a']].concat();
+        let mut ctx = DecompressContext::incremental(None).unwrap();
+        assert!(
+            ctx.transform(&crate::lz4::LEGACY_MAGIC.to_le_bytes())
+                .unwrap()
+                .is_empty()
+        );
+        let start = std::time::Instant::now();
+        for _ in 0..20_000 {
+            assert_eq!(ctx.transform(&block).unwrap(), b"a");
+        }
+        // A fraction of the time that writing 160 GB takes on any machine.
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_secs() < 2, "took {elapsed:?}");
+        assert!(ctx.finish().unwrap().is_empty());
     }
 
     #[test]
