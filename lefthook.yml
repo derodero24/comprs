@@ -6,7 +6,7 @@ commit-msg:
 pre-commit:
   commands:
     biome:
-      run: pnpm exec biome check --staged --no-errors-on-unmatched
+      run: pnpm exec biome check --staged --no-errors-on-unmatched --error-on-warnings
     rustfmt:
       run: $HOME/.cargo/bin/cargo fmt -- --check
       glob: "*.rs"

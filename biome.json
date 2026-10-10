@@ -6,8 +6,11 @@
     "useIgnoreFile": true
   },
   "files": {
+    "ignoreUnknown": true,
     "includes": [
       "**",
+      "!index.js",
+      "!index.d.ts",
       "!streams.js",
       "!streams.d.ts",
       "!node.js",
@@ -53,7 +56,7 @@
         "noForEach": "error",
         "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
-          "level": "warn",
+          "level": "error",
           "options": { "maxAllowedComplexity": 15 }
         }
       },
@@ -61,19 +64,44 @@
         "noAccumulatingSpread": "error",
         "noBarrelFile": "error",
         "noReExportAll": "error",
-        "noDelete": "warn"
+        "noDelete": "error"
       },
       "style": {
         "noDefaultExport": "error",
+        "noNonNullAssertion": "error",
         "useConst": "error",
         "useExportType": "error",
         "useImportType": "error",
         "useForOf": "error",
         "noNamespace": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       }
     }
   },
   "overrides": [
+    {
+      "includes": ["src/**", "packages/middleware/src/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "useExplicitType": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["browser/index.js", "playground/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "error"
+          }
+        }
+      }
+    },
     {
       "includes": ["src/index.mts", "browser/index.js"],
       "linter": {

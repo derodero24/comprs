@@ -114,7 +114,7 @@ function freeingStream(
     }
   };
   const streamTransformer: CancelableTransformer = {
-    transform(chunk, controller) {
+    transform(chunk: ArrayBufferLike | ArrayBufferView, controller: Controller): void {
       try {
         transformer.transform(toUint8Array(chunk), controller);
       } catch (error) {
@@ -122,7 +122,7 @@ function freeingStream(
         throw error;
       }
     },
-    flush(controller) {
+    flush(controller: Controller): void {
       try {
         transformer.flush(controller);
       } finally {
@@ -139,10 +139,10 @@ function contextStream(
   context: StreamContext,
 ): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array> {
   return freeingStream(() => context, {
-    transform(chunk, controller) {
+    transform(chunk: Uint8Array, controller: Controller): void {
       enqueueIfNonEmpty(controller, context.transform(chunk));
     },
-    flush(controller) {
+    flush(controller: Controller): void {
       end(context, controller);
     },
   });
@@ -496,7 +496,7 @@ export function createDecompressStream(
   }
 
   return freeingStream(() => ctx, {
-    transform(chunk, controller) {
+    transform(chunk: Uint8Array, controller: Controller): void {
       if (ctx) {
         enqueueIfNonEmpty(controller, ctx.transform(chunk));
         return;
@@ -520,7 +520,7 @@ export function createDecompressStream(
       }
       start(format, data, controller);
     },
-    flush(controller) {
+    flush(controller: Controller): void {
       let context = ctx;
       if (!context) {
         // The input ended before its format was detected. Empty input has no

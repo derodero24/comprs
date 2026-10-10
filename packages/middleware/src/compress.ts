@@ -56,7 +56,7 @@ function createZlibEncoder(level: number | undefined): Encoder {
   };
 
   return {
-    transform(chunk) {
+    transform(chunk: Uint8Array): Uint8Array {
       checksum = adler32(chunk, checksum);
       return frame(context.transform(chunk));
     },
@@ -88,7 +88,7 @@ function createZlibCompressTransform(level: number | undefined): Transform {
   };
 
   return new Transform({
-    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
+    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
       try {
         push(this, encoder.transform(chunk));
         callback();
@@ -96,7 +96,7 @@ function createZlibCompressTransform(level: number | undefined): Transform {
         callback(toError(err));
       }
     },
-    flush(callback: TransformCallback) {
+    flush(callback: TransformCallback): void {
       try {
         push(this, encoder.finish());
         callback();

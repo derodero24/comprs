@@ -56,7 +56,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "biome ci",
+    "check": "biome ci --error-on-warnings",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit",
     "test": "vitest run",
     "attw": "attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
