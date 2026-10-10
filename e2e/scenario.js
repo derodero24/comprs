@@ -47,7 +47,14 @@
  *
  * @typedef {Pick<
  *   typeof import('@derodero24/comprs/next'),
- *   'compress' | 'compressSync' | 'decompress' | 'decompressSync' | 'detectFormat' | 'Dictionary'
+ *   | 'compress'
+ *   | 'compressSync'
+ *   | 'decompress'
+ *   | 'decompressSync'
+ *   | 'detectFormat'
+ *   | 'Dictionary'
+ *   | 'CompressionStream'
+ *   | 'DecompressionStream'
  * >} Next
  */
 
@@ -264,6 +271,21 @@ export async function checkPackage(comprs) {
     const { signal } = new AbortController();
     const output = await next.compress(sample, { format: 'zstd', signal });
     assertBytes(await next.decompress(output, { signal }), sample);
+  });
+  await run('unified API compression streams', async () => {
+    // The ponyfills of CompressionStream and DecompressionStream (#344), in
+    // a format that the platform classes lack, with detection.
+    const next = await comprs.importNext();
+    const stream = new Blob([data])
+      .stream()
+      .pipeThrough(new next.CompressionStream('zstd', { level: 9 }))
+      .pipeThrough(new next.DecompressionStream('auto'));
+    assertBytes(new Uint8Array(await new Response(stream).arrayBuffer()), data);
+    assert(
+      Object.prototype.toString.call(new next.CompressionStream('brotli')) ===
+        '[object CompressionStream]',
+      'CompressionStream has no tag of its own',
+    );
   });
   await run('stream round trip', async () => {
     const stream = new Blob([data])

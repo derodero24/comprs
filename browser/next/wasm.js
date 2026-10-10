@@ -1,4 +1,4 @@
-import { NextDictionary, nextCompress, nextDecompress, nextDetectFormat, nextTrainDictionary, } from '../wasm.js';
+import { NextCompressContext, NextDecompressContext, NextDictionary, nextCompress, nextDecompress, nextDetectFormat, nextTrainDictionary, } from '../wasm.js';
 import { setBackend } from './backend.js';
 // The backend of the browser build: the functions of the WebAssembly module
 // for the unified API, crates/wasm/src/next.rs, which ../wasm.js loads.
@@ -45,6 +45,34 @@ function decompress(data, format, maxOutputSize, dictionary, dictionaryHandle) {
     }
     return prepared(dictionaryHandle).decompress(data, format, maxOutputSize);
 }
+/**
+ * The stream of `context`, which returns its output before each call
+ * returns: the browser build has no thread pool to run the calls on. close()
+ * frees the context, which the glue also frees, with a FinalizationRegistry
+ * of its own, when the garbage collector collects a stream that was never
+ * closed.
+ */
+function stream(context) {
+    return {
+        transform: (chunk) => context.transform(chunk),
+        finish: () => context.finish(),
+        close: () => context.free(),
+    };
+}
+/** Backend.createCompressStream, as compress() calls the glue. */
+function createCompressStream(format, level, dictionary, gzipHeader, gzipFilename, gzipMtime, workers, dictionaryHandle) {
+    if (dictionaryHandle === undefined) {
+        return stream(new NextCompressContext(format, level, dictionary, gzipHeader, gzipFilename, gzipMtime, workers));
+    }
+    return stream(prepared(dictionaryHandle).compressContext(format, level, gzipHeader, gzipFilename, gzipMtime, workers));
+}
+/** Backend.createDecompressStream, as decompress() calls the glue. */
+function createDecompressStream(format, maxOutputSize, dictionary, dictionaryHandle) {
+    if (dictionaryHandle === undefined) {
+        return stream(new NextDecompressContext(format, maxOutputSize, dictionary));
+    }
+    return stream(prepared(dictionaryHandle).decompressContext(format, maxOutputSize));
+}
 setBackend({
     compress,
     compressAsync: asAsync(compress),
@@ -62,4 +90,6 @@ setBackend({
     // work for an abort to withdraw.
     createWithdrawal: () => undefined,
     withdraw: () => false,
+    createCompressStream,
+    createDecompressStream,
 });

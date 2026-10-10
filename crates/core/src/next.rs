@@ -36,9 +36,9 @@
 
 use std::sync::{Arc, PoisonError, RwLock};
 
-use comprs_core::ComprsError;
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::unified::{self, DictionaryRef, Format};
+use comprs_core::{ComprsError, MemoryUsage};
 use napi::bindgen_prelude::{
     AsyncTask, Env, External, FromNapiValue, JsObjectValue, Object, Property, PropertyAttributes,
     Uint8Array,
@@ -47,8 +47,10 @@ use napi::sys;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
+use crate::context::NativeState;
 use crate::convert::{SYNC_COPY_LIMIT, to_uint8array};
 use crate::error::coded_error;
+use crate::stream_task::{NextStreamBytes, Op, StreamCodec, StreamTask};
 use crate::task::{NextBytes, OneShot, Withdrawable, Withdrawal};
 
 /// The description of the symbol, `Symbol.for(INTERNAL_KEY)`, that keys the
@@ -355,6 +357,209 @@ pub fn decompress_async(
         });
         Ok(Withdrawable::new(task, withdrawal))
     })
+}
+
+/// The codec state of a stream of the unified API: a compression or a
+/// decompression stream of comprs-core, each boxed, as their sizes differ
+/// by far: the decompression stream holds the brotli decoder inline.
+pub enum NextCodec {
+    Compress(Box<unified::CompressContext>),
+    Decompress(Box<unified::DecompressContext>),
+}
+
+impl MemoryUsage for NextCodec {
+    fn memory_usage(&self) -> usize {
+        match self {
+            NextCodec::Compress(context) => context.memory_usage(),
+            NextCodec::Decompress(context) => context.memory_usage(),
+        }
+    }
+}
+
+impl StreamCodec for NextCodec {
+    fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+        match self {
+            NextCodec::Compress(context) => context.transform(chunk),
+            NextCodec::Decompress(context) => context.transform(chunk),
+        }
+    }
+
+    fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+        match self {
+            NextCodec::Compress(context) => context.flush(),
+            NextCodec::Decompress(context) => context.flush(),
+        }
+    }
+
+    fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        match self {
+            NextCodec::Compress(context) => context.finish(),
+            NextCodec::Decompress(context) => context.finish(),
+        }
+    }
+}
+
+/// A stream of the unified API, which the `CompressionStream` and
+/// `DecompressionStream` classes of the TypeScript layer hold as the
+/// `External` that [`create_compress_context`] or
+/// [`create_decompress_context`] returns (#344). The `context*` functions
+/// take it.
+///
+/// The state reports its memory to V8 as the state of the stream context
+/// classes does (see [`NativeState`]): after every call, and down to zero
+/// once [`context_finish`] or [`context_close`] drops the state. The
+/// `External` closes the state when the garbage collector collects it, as
+/// the finalizer of those classes does, so an abandoned stream frees its
+/// memory too. A call in flight then drops the state when it settles. The
+/// TypeScript layer makes at most one call at a time, so the "is busy"
+/// error of [`NativeState`] does not reach it.
+pub struct NextContext {
+    state: NativeState<NextCodec>,
+    /// The environment that created the stream, whose account of external
+    /// memory the state reports to. The `External` is dropped on its thread,
+    /// while the environment lives.
+    env: Env,
+}
+
+impl NextContext {
+    /// The `External` of a stream of `codec`, created or failed, whose
+    /// errors name it `name`, such as "compression stream".
+    fn open(
+        env: Env,
+        codec: Result<NextCodec, ComprsError>,
+        name: &'static str,
+    ) -> napi::Result<External<NextContext>> {
+        let codec = codec.map_err(|err| coded_error(&env, &err))?;
+        let state = NativeState::new(&env, codec, name);
+        Ok(External::new(NextContext { state, env }))
+    }
+}
+
+impl Drop for NextContext {
+    fn drop(&mut self) {
+        self.state.close(&self.env);
+    }
+}
+
+/// The type of the task of the asynchronous `context*` functions.
+type NextStreamTask = AsyncTask<Checked<StreamTask<NextCodec, NextStreamBytes>>>;
+
+/// A compression stream in `format`, with the options of [`compress`],
+/// which [`unified::CompressContext::from_fields`] checks in its order: the
+/// state of `new CompressionStream()` of the unified API.
+#[napi(namespace = "next", skip_typescript)]
+#[allow(clippy::too_many_arguments)] // The fields of the options, and `env`.
+pub fn create_compress_context(
+    env: Env,
+    format: String,
+    level: Option<f64>,
+    dictionary: Option<&[u8]>,
+    gzip_header: Option<bool>,
+    gzip_filename: Option<String>,
+    gzip_mtime: Option<f64>,
+    workers: Option<f64>,
+    dictionary_handle: Option<&External<NextDictionary>>,
+) -> napi::Result<External<NextContext>> {
+    // The context copies what it needs of a prepared dictionary, so it
+    // outlives a Dictionary that is closed first.
+    let codec = prepared(dictionary_handle).and_then(|prepared| {
+        unified::CompressContext::from_fields(
+            &format,
+            level,
+            dictionary_ref(prepared.as_deref(), dictionary),
+            gzip_header,
+            gzip_filename,
+            gzip_mtime,
+            workers,
+        )
+    });
+    let codec = codec.map(|context| NextCodec::Compress(Box::new(context)));
+    NextContext::open(env, codec, "compression stream")
+}
+
+/// A decompression stream in `format`, or one that detects the format if
+/// `format` is `null` or `undefined`, with the options of [`decompress`],
+/// which [`unified::DecompressContext::from_fields`] checks in its order:
+/// the state of `new DecompressionStream()` of the unified API.
+#[napi(namespace = "next", skip_typescript)]
+pub fn create_decompress_context(
+    env: Env,
+    format: Option<String>,
+    max_output_size: Option<f64>,
+    dictionary: Option<&[u8]>,
+    dictionary_handle: Option<&External<NextDictionary>>,
+) -> napi::Result<External<NextContext>> {
+    let codec = prepared(dictionary_handle).and_then(|prepared| {
+        unified::DecompressContext::from_fields(
+            format.as_deref(),
+            max_output_size,
+            dictionary_ref(prepared.as_deref(), dictionary),
+        )
+    });
+    let codec = codec.map(|context| NextCodec::Decompress(Box::new(context)));
+    NextContext::open(env, codec, "decompression stream")
+}
+
+/// Pass `chunk` to the stream of `context`, and return the output that is
+/// ready, as [`sync_output`] returns it.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_transform(
+    env: Env,
+    context: &External<NextContext>,
+    chunk: &[u8],
+) -> napi::Result<Uint8Array> {
+    sync_output(
+        &env,
+        context.state.run(&env, |codec| codec.transform(chunk)),
+    )
+}
+
+/// Return the output of the input so far of the stream of `context`.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_flush(env: Env, context: &External<NextContext>) -> napi::Result<Uint8Array> {
+    sync_output(&env, context.state.run(&env, StreamCodec::flush))
+}
+
+/// End the stream of `context`, and return the rest of the output. The
+/// state is dropped, whether the call succeeds or not.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_finish(env: Env, context: &External<NextContext>) -> napi::Result<Uint8Array> {
+    sync_output(&env, context.state.finish(&env, StreamCodec::finish))
+}
+
+/// Drop the state of the stream of `context` now, rather than when the
+/// garbage collector collects the `External`, unless it is finished or
+/// closed already. With a call in flight, the call drops it when it
+/// settles.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_close(env: Env, context: &External<NextContext>) {
+    context.state.close(&env);
+}
+
+/// [`context_transform`] on the libuv thread pool, with a copy of `chunk`
+/// taken when it is called, which settles as [`NextStreamBytes`] does.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_transform_async(
+    context: AsyncArg<&External<NextContext>>,
+    chunk: AsyncArg<&[u8]>,
+) -> NextStreamTask {
+    checked(|| {
+        let context = context.get()?;
+        let chunk = chunk.get()?.to_vec();
+        Ok(StreamTask::new(&context.state, Op::Transform(chunk)))
+    })
+}
+
+/// [`context_flush`] on the libuv thread pool.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_flush_async(context: AsyncArg<&External<NextContext>>) -> NextStreamTask {
+    checked(|| Ok(StreamTask::new(&context.get()?.state, Op::Flush)))
+}
+
+/// [`context_finish`] on the libuv thread pool.
+#[napi(namespace = "next", skip_typescript)]
+pub fn context_finish_async(context: AsyncArg<&External<NextContext>>) -> NextStreamTask {
+    checked(|| Ok(StreamTask::new(&context.get()?.state, Op::Finish)))
 }
 
 /// The name of the format of `data` that [`unified::detect`] finds, or

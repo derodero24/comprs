@@ -28,6 +28,8 @@ try {
 }
 
 export {
+  NextCompressContext,
+  NextDecompressContext,
   NextDictionary,
   nextCompress,
   nextDecompress,

@@ -12,14 +12,18 @@
 import type {
   AbortOptions,
   Bytes,
+  CompressionStreamOptions,
   CompressOptions,
+  DecompressionStreamOptions,
   DictionaryOptions,
   ErrorCode,
   Format,
 } from '@derodero24/comprs/next';
 import {
+  CompressionStream,
   compress,
   compressSync,
+  DecompressionStream,
   Dictionary,
   decompress,
   detectFormat,
@@ -53,6 +57,16 @@ const withDictionary: Bytes = compressSync(input, { format: 'zstd', dictionary }
 const dictionaryBytes: Uint8Array<ArrayBuffer> = dictionary.toBytes();
 dictionary.close();
 
+// The stream classes fit pipeThrough() of a ReadableStream of the DOM
+// library, and their chunks are Bytes.
+const streamOptions: CompressionStreamOptions = { level: 5, dictionary: undefined };
+const decompressionOptions: DecompressionStreamOptions = { maxOutputSize: 1 << 20 };
+const piped: ReadableStream<Bytes> = new Blob([input])
+  .stream()
+  .pipeThrough(new CompressionStream('brotli', streamOptions))
+  .pipeThrough(new DecompressionStream('brotli', decompressionOptions));
+const streamed = new Response(piped).arrayBuffer();
+
 const SIZE_LIMIT: ErrorCode = 'ERR_COMPRS_SIZE_LIMIT';
 
 /** Whether `error` is an error of ./next whose output exceeded the limit. */
@@ -60,4 +74,14 @@ function isSizeLimit(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === SIZE_LIMIT;
 }
 
-export { abortable, blob, dictionaryBytes, digest, format, isSizeLimit, restored, withDictionary };
+export {
+  abortable,
+  blob,
+  dictionaryBytes,
+  digest,
+  format,
+  isSizeLimit,
+  restored,
+  streamed,
+  withDictionary,
+};

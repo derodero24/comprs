@@ -8,7 +8,9 @@ export type {
   AbortOptions,
   AbortSignalLike,
   Bytes,
+  CompressionStreamOptions,
   CompressOptions,
+  DecompressionStreamOptions,
   DecompressOptions,
   DictionaryOptions,
   ErrorCode,
@@ -18,8 +20,10 @@ export type {
   TrainDictionaryOptions,
 } from './api.js';
 export {
+  CompressionStream,
   compress,
   compressSync,
+  DecompressionStream,
   Dictionary,
   decompress,
   decompressSync,

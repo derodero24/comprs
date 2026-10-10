@@ -721,7 +721,7 @@ impl<T> StreamState<T> {
         &mut self,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
     ) -> Result<Vec<u8>, JsError> {
-        op(self.state()?).map_err(to_js_error)
+        self.try_run(op).map_err(to_js_error)
     }
 
     /// Run `op`, which ends the stream, then drop the state, whether `op`
@@ -730,9 +730,27 @@ impl<T> StreamState<T> {
         &mut self,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
     ) -> Result<Vec<u8>, JsError> {
+        self.try_finish(op).map_err(to_js_error)
+    }
+
+    /// [`run`](Self::run), with the error of comprs-core, for the streams of
+    /// the unified API, whose errors carry codes.
+    fn try_run(
+        &mut self,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, ComprsError> {
+        op(self.state()?)
+    }
+
+    /// [`finish`](Self::finish), with the error of comprs-core, as
+    /// [`try_run`](Self::try_run).
+    fn try_finish(
+        &mut self,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, ComprsError> {
         let output = op(self.state()?);
         self.state = State::Finished;
-        output.map_err(to_js_error)
+        output
     }
 
     /// Drop the state, unless the stream is already finished or closed.
@@ -742,11 +760,11 @@ impl<T> StreamState<T> {
         }
     }
 
-    fn state(&mut self) -> Result<&mut T, JsError> {
+    fn state(&mut self) -> Result<&mut T, ComprsError> {
         match &mut self.state {
             State::Open(state) => Ok(state),
-            State::Finished => Err(to_js_error(ComprsError::StreamFinished(self.name))),
-            State::Closed => Err(to_js_error(ComprsError::StreamClosed(self.name))),
+            State::Finished => Err(ComprsError::StreamFinished(self.name)),
+            State::Closed => Err(ComprsError::StreamClosed(self.name)),
         }
     }
 }

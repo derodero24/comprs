@@ -435,6 +435,114 @@ fn fields_check_the_format_first_then_the_options_in_order() {
 }
 
 #[test]
+fn stream_fields_give_the_streams_of_the_options_that_they_hold() {
+    let data = text(50_000);
+    // A compression stream from fields writes what one from the options
+    // writes.
+    let from_fields = |format: &str, level, dictionary, header, filename: Option<&str>| {
+        let mut ctx = CompressContext::from_fields(
+            format,
+            level,
+            dictionary,
+            header,
+            filename.map(String::from),
+            None,
+            None,
+        )
+        .unwrap();
+        drive(&mut ctx, &data, &[1000]).unwrap()
+    };
+    let from_options = |format, options: &CompressOptions| {
+        drive(
+            &mut CompressContext::new(format, options).unwrap(),
+            &data,
+            &[1000],
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        from_fields(
+            "zstd",
+            Some(5.0),
+            Some(DictionaryRef::Raw(DICT)),
+            None,
+            None
+        ),
+        from_options(
+            Format::Zstd,
+            &CompressOptions {
+                level: Some(5.0),
+                dictionary: Some(DictionaryRef::Raw(DICT)),
+                ..CompressOptions::default()
+            }
+        )
+    );
+    assert_eq!(
+        from_fields("gzip", None, None, Some(true), Some("a.txt")),
+        from_options(
+            Format::Gzip,
+            &CompressOptions {
+                gzip_header: Some(GzipHeaderOptions {
+                    filename: Some("a.txt".to_string()),
+                    mtime: None,
+                }),
+                ..CompressOptions::default()
+            }
+        )
+    );
+    // A decompression stream from fields: detection without a format, or
+    // the format of a prepared dictionary.
+    let brotli = from_fields(
+        "brotli",
+        None,
+        Some(DictionaryRef::Prepared(&BROTLI_DICT)),
+        None,
+        None,
+    );
+    let mut ctx =
+        DecompressContext::from_fields(None, None, Some(DictionaryRef::Prepared(&BROTLI_DICT)))
+            .unwrap();
+    assert_eq!(drive(&mut ctx, &brotli, &[100]).unwrap(), data);
+    let gzip = from_fields("gzip", None, None, None, None);
+    let mut ctx = DecompressContext::from_fields(None, Some(1e6), None).unwrap();
+    assert_eq!(drive(&mut ctx, &gzip, &[100]).unwrap(), data);
+    let mut ctx = DecompressContext::from_fields(Some("gzip"), Some(10.0), None).unwrap();
+    assert!(matches!(
+        drive(&mut ctx, &gzip, &[100]),
+        Err(ComprsError::SizeLimit { .. })
+    ));
+}
+
+#[test]
+fn stream_fields_check_the_format_first_then_the_options_in_order() {
+    let format = "format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4";
+    assert_invalid(
+        CompressContext::from_fields(
+            "zip",
+            Some(99.0),
+            Some(DictionaryRef::Raw(b"")),
+            Some(true),
+            None,
+            Some(-1.0),
+            Some(-1.0),
+        ),
+        format,
+    );
+    assert_invalid(
+        DecompressContext::from_fields(Some("zip"), Some(-1.0), None),
+        format,
+    );
+    assert_invalid(
+        CompressContext::from_fields("lz4", Some(1.0), None, None, None, None, None),
+        "lz4 does not take a compression level",
+    );
+    assert_invalid(
+        DecompressContext::from_fields(None, None, Some(DictionaryRef::Raw(DICT))),
+        "pass `format` to decompress with a dictionary",
+    );
+}
+
+#[test]
 fn detect_finds_every_format_but_raw_deflate() {
     for input in [text(20_000), noise(5_000, 4), b"a".to_vec(), Vec::new()] {
         for format in Format::ALL {

@@ -17,6 +17,36 @@ export type DictionaryHandle = object;
 export type Withdrawal = object;
 
 /**
+ * A compression or decompression stream of the backend, which the stream
+ * classes of api.ts drive: they pass it each chunk of input, call finish()
+ * once the input ends, and close() once the stream has finished, failed or
+ * been cancelled. They make one call at a time, and wait for the Promise
+ * that a call returns to settle before the next one; only close() may come
+ * while one is in flight, after a cancel, and the stream then drops what
+ * the call returns. Each call returns the output that is ready, which may
+ * be empty, or a Promise of it, and reports an error by throwing or by
+ * rejecting that Promise, as the functions of the backend do.
+ */
+export interface CodecStream {
+  /**
+   * Take a chunk of input, and return the output that is ready. The stream
+   * copies what it keeps of the chunk before it returns.
+   */
+  transform(chunk: Uint8Array): Bytes | Promise<Bytes>;
+  /**
+   * End the stream, and return the rest of the output. A decompression
+   * stream fails if its input did not hold the whole compressed stream.
+   */
+  finish(): Bytes | Promise<Bytes>;
+  /**
+   * Release the state of the stream now rather than when the garbage
+   * collector collects it. With a call in flight, the state goes once the
+   * call settles.
+   */
+  close(): void;
+}
+
+/**
  * The codecs behind the functions of api.ts: the hidden binding of the
  * native addon (native.ts), or the functions of the WebAssembly build that
  * browser/wasm.js loads (wasm.ts), whose async functions run on the calling
@@ -94,6 +124,32 @@ export interface Backend {
     dictionaryHandle: DictionaryHandle | undefined,
     withdrawal: Withdrawal | undefined,
   ): Promise<Bytes>;
+  /**
+   * A stream that compresses its input in `format`, with the options of
+   * {@link Backend.compress}, which it checks when it is created.
+   */
+  createCompressStream(
+    format: Format,
+    level: number | undefined,
+    dictionary: Uint8Array | undefined,
+    gzipHeader: boolean | undefined,
+    gzipFilename: string | undefined,
+    gzipMtime: number | undefined,
+    workers: number | undefined,
+    dictionaryHandle: DictionaryHandle | undefined,
+  ): CodecStream;
+  /**
+   * A stream that decompresses its input in `format`, or, for `undefined`,
+   * in the format of the prepared dictionary or the format that it detects
+   * in the input, with the options of {@link Backend.decompress}, which it
+   * checks when it is created.
+   */
+  createDecompressStream(
+    format: Format | undefined,
+    maxOutputSize: number | undefined,
+    dictionary: Uint8Array | undefined,
+    dictionaryHandle: DictionaryHandle | undefined,
+  ): CodecStream;
   /** The format of `data`, or `null` if detection does not find one. */
   detectFormat(data: Uint8Array): Format | null;
   /** Train a zstd dictionary of at most `maxSize` bytes from `samples`. */

@@ -19,8 +19,8 @@ use napi::Task;
 use napi::bindgen_prelude::*;
 
 use crate::context::{NativeState, Shared};
-use crate::convert::{ASYNC_STREAM_COPY_LIMIT, to_buffer};
-use crate::error::to_napi_error;
+use crate::convert::{ASYNC_STREAM_COPY_LIMIT, to_buffer, to_uint8array};
+use crate::error::{coded_error, to_napi_error};
 use crate::task::Settle;
 
 /// What a method of a codec state returns.
@@ -116,6 +116,26 @@ impl Settle for StreamBuffer {
 
     fn reject(_env: &Env, err: ComprsError) -> Error {
         to_napi_error(err)
+    }
+}
+
+/// Settles as the asynchronous calls of the streams of the unified API
+/// (`@derodero24/comprs/next`) return: resolves to a plain `Uint8Array` that
+/// holds the output, copied into memory that V8 allocates up to
+/// [`ASYNC_STREAM_COPY_LIMIT`], for the reason that [`StreamBuffer`] gives,
+/// and rejects with the error of [`coded_error`], which carries the code of
+/// the error's category.
+pub struct NextStreamBytes;
+
+impl Settle for NextStreamBytes {
+    type JsValue = Uint8Array;
+
+    fn resolve(env: &Env, output: Vec<u8>) -> Result<Uint8Array> {
+        to_uint8array(env, output, ASYNC_STREAM_COPY_LIMIT)
+    }
+
+    fn reject(env: &Env, err: ComprsError) -> Error {
+        coded_error(env, &err)
     }
 }
 

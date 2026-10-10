@@ -28,8 +28,10 @@ import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 const WASM_FILE = 'browser/comprs-wasm_bg.wasm';
 
 // A few percent over the sizes of the build that introduced the budget
-// (#586): 1,866,742 bytes raw and 792,050 bytes with gzip.
-const BUDGET = { raw: 1_925_000, gzip: 815_000 };
+// (#586): 1,866,742 bytes raw and 792,050 bytes with gzip. Raised for the
+// stream classes of `@derodero24/comprs/next` (#344), which added 16,349
+// bytes raw and 5,807 bytes with gzip.
+const BUDGET = { raw: 1_940_000, gzip: 822_000 };
 
 const { values } = parseArgs({ options: { markdown: { type: 'string' } } });
 
