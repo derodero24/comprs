@@ -1,5 +1,10 @@
 name: CI
 
+# CI runs when a file changes that it builds, tests, checks or installs with
+# (pushes to develop leave out some that only the lint jobs check; see
+# pull_request). That includes .gitignore, whose files Biome skips
+# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
+# its prepare script (lefthook install), and .npmrc, which pnpm reads.
 on:
   push:
     branches: [develop]
@@ -13,6 +18,10 @@ on:
       - 'Cargo.lock'
       - 'tsconfig*.json'
       - 'biome.json'
+      - '.gitignore'
+      - 'commitlint.config.ts'
+      - 'lefthook.yml'
+      - '.npmrc'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
@@ -37,10 +46,13 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
-  # another PR's branch) and PRs into main are checked too. Unlike pushes to
-  # develop, they run it for a change to any workflow, so that Workflow Lint
-  # checks it before it is merged; a merge that changes only a workflow that
-  # CI neither calls nor mirrors then does not run the full matrix on develop.
+  # another PR's branch) and PRs into main are checked too. Their list also
+  # names files that only the lint jobs check, so that a change to them is
+  # checked before it is merged: every workflow, which Workflow Lint checks,
+  # and the playground and the configuration files that Biome checks. Pushes
+  # to develop leave out these Biome-only files and the workflows that CI
+  # neither calls nor mirrors, so that a merge that changes only those does
+  # not run the full matrix.
   pull_request:
     paths:
       - 'crates/**'
@@ -52,6 +64,10 @@ on:
       - 'Cargo.lock'
       - 'tsconfig*.json'
       - 'biome.json'
+      - '.gitignore'
+      - 'commitlint.config.ts'
+      - 'lefthook.yml'
+      - '.npmrc'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
@@ -72,6 +88,10 @@ on:
       - '.cargo/**'
       - 'rust-toolchain*'
       - '.nvmrc'
+      - 'playground/**'
+      - 'renovate.json'
+      - '.changeset/config.json'
+      - '.devcontainer/**'
       - '.github/workflows/**'
 
 # A newer push to a pull request cancels its running CI. Pushes to develop get
