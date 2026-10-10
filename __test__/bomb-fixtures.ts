@@ -11,7 +11,9 @@ export type BombFormat = (typeof BOMB_FORMATS)[number];
 
 function* zeroChunks(mib: number): Generator<Buffer> {
   const chunk = Buffer.alloc(MIB);
-  for (let i = 0; i < mib; i++) yield chunk;
+  for (let i = 0; i < mib; i++) {
+    yield chunk;
+  }
 }
 
 /**

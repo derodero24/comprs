@@ -176,7 +176,9 @@ describe('zstd node stream round-trip', () => {
 
   it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const source = toChunkedReadable(large, 64 * 1024);
     const result = await collectTransform2(
       source,
@@ -843,7 +845,9 @@ describe('Node transform output chunk transfer', () => {
         seen.push(chunk);
         try {
           const { buffer } = chunk;
-          if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+          if (!isArrayBuffer(buffer)) {
+            throw new Error('expected an ArrayBuffer');
+          }
           moved.push(structuredClone(chunk, { transfer: [buffer] }));
           callback();
         } catch (err) {

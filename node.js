@@ -66,15 +66,17 @@ function probeMarkAsUntransferable() {
  */
 function pushSliced(stream, buf) {
     const length = buf.byteLength;
-    if (length === 0)
+    if (length === 0) {
         return;
+    }
     const size = stream.readableHighWaterMark || 65536;
     if (length <= size) {
         stream.push(buf);
         return;
     }
-    if (canMarkUntransferable && length <= COPY_LIMIT)
+    if (canMarkUntransferable && length <= COPY_LIMIT) {
         (0, node_worker_threads_1.markAsUntransferable)(buf.buffer);
+    }
     for (let i = 0; i < length; i += size) {
         stream.push(buf.subarray(i, i + size));
         if (buf.byteLength !== length) {
@@ -88,8 +90,9 @@ function pushSliced(stream, buf) {
  * may settle after destroy(), and its result is dropped.
  */
 function pushOutput(stream, output) {
-    if (!stream.destroyed)
+    if (!stream.destroyed) {
         pushSliced(stream, output);
+    }
 }
 /**
  * Run `step`, then call `callback`: at once, if the step is done, or once
@@ -444,8 +447,9 @@ function createDecompressTransform(maxOutputSize) {
         const copy = Buffer.from(chunk);
         buffered.push(copy);
         bufferedLength += copy.length;
-        if (bufferedLength < detectAt)
+        if (bufferedLength < detectAt) {
             return undefined;
+        }
         const data = Buffer.concat(buffered, bufferedLength);
         const format = (0, index_js_1.detectFormat)(data);
         // More input may still reveal the format, as for the start of a
@@ -457,8 +461,9 @@ function createDecompressTransform(maxOutputSize) {
         }
         return start(stream, format, data)[1];
     }, (stream) => {
-        if (scheduler)
+        if (scheduler) {
             return finishTransform(stream, scheduler);
+        }
         // The input ended before its format was detected. Empty input has
         // no detectable format and throws.
         const data = Buffer.concat(buffered, bufferedLength);

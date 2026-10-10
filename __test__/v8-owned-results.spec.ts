@@ -64,7 +64,9 @@ function expectTransferable(out: Buffer): void {
   expect(out.byteLength).toBeGreaterThan(0);
   const bytes = Uint8Array.from(out);
   const { buffer } = out;
-  if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+  if (!isArrayBuffer(buffer)) {
+    throw new Error('expected an ArrayBuffer');
+  }
   const moved = structuredClone(out, { transfer: [buffer] });
   expect(out.byteLength).toBe(0);
   expect(moved).toEqual(bytes);
@@ -133,7 +135,9 @@ describe('synchronous one-shot functions', () => {
     const out = zstdDecompress(zstdCompress(Buffer.alloc(size, 7)));
     expect(Buffer.isBuffer(out)).toBe(true);
     const { buffer } = out;
-    if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+    if (!isArrayBuffer(buffer)) {
+      throw new Error('expected an ArrayBuffer');
+    }
     expect(() => structuredClone(out, { transfer: [buffer] })).toThrow(
       expect.objectContaining({ name: 'DataCloneError' }),
     );
@@ -152,7 +156,9 @@ describe('stream contexts', () => {
   it('return transform, flush and finish results that can be transferred', () => {
     const ctx = new GzipCompressContext();
     const outputs = [ctx.transform(data), ctx.flush(), ctx.finish()];
-    for (const out of outputs) expectTransferable(out);
+    for (const out of outputs) {
+      expectTransferable(out);
+    }
   });
 
   /** The methods that every stream context class has. */
@@ -190,7 +196,9 @@ describe('stream contexts', () => {
     const outputs = [ctx.transform(input), ctx.flush(), ctx.finish()];
     const produced = outputs.filter((out) => out.byteLength > 0);
     expect(produced.length).toBeGreaterThan(0);
-    for (const out of produced) expectTransferable(out);
+    for (const out of produced) {
+      expectTransferable(out);
+    }
   });
 });
 
@@ -201,9 +209,13 @@ const PROCESS_TIMEOUT = 60_000;
 
 /** Whether this process runs on Linux with the GNU C library. */
 function isGlibcLinux(): boolean {
-  if (process.platform !== 'linux') return false;
+  if (process.platform !== 'linux') {
+    return false;
+  }
   const report = process.report.getReport();
-  if (!('header' in report)) return false;
+  if (!('header' in report)) {
+    return false;
+  }
   const { header } = report;
   return (
     typeof header === 'object' &&
@@ -233,7 +245,9 @@ describe('memory', () => {
         timeout: PROCESS_TIMEOUT,
       });
       const { rssGrowthMiB }: { rssGrowthMiB: unknown } = JSON.parse(stdout);
-      if (typeof rssGrowthMiB !== 'number') throw new Error(`rss-loop.cjs printed ${stdout}`);
+      if (typeof rssGrowthMiB !== 'number') {
+        throw new Error(`rss-loop.cjs printed ${stdout}`);
+      }
       // In GitHub Actions, the annotation becomes a notice, so that CI shows
       // the growth that it measured even when the test passes.
       await annotate(`the resident set grew by ${rssGrowthMiB} MiB`);

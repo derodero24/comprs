@@ -181,8 +181,12 @@ function createCompressStream(
   // BrotliCompressDictContext of the package root does with
   // `{ incremental: true }`.
   let model: ContextModel = {};
-  if (format === 'zstd' && !withDictionary) model = { setupMs: zstdSetupMs(level) };
-  if (format === 'brotli' && withDictionary) model = { holds: BROTLI_DICT_REACH };
+  if (format === 'zstd' && !withDictionary) {
+    model = { setupMs: zstdSetupMs(level) };
+  }
+  if (format === 'brotli' && withDictionary) {
+    model = { holds: BROTLI_DICT_REACH };
+  }
   return scheduled(context, `${codecOf(format)}-compress`, level, model);
 }
 

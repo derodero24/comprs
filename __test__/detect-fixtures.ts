@@ -35,7 +35,9 @@ export function lz4LegacyFrame(content: Buffer): Buffer {
   const lengthBytes = [Math.min(content.length, 15) << 4];
   if (content.length >= 15) {
     let rest = content.length - 15;
-    for (; rest >= 255; rest -= 255) lengthBytes.push(255);
+    for (; rest >= 255; rest -= 255) {
+      lengthBytes.push(255);
+    }
     lengthBytes.push(rest);
   }
   const block = Buffer.concat([Buffer.from(lengthBytes), content]);

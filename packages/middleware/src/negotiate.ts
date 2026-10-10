@@ -13,7 +13,9 @@ function parseWeight(params: readonly string[]): number | undefined {
   for (const param of params) {
     const separator = param.indexOf('=');
     const name = param.slice(0, separator === -1 ? undefined : separator).trim();
-    if (name.toLowerCase() !== 'q') continue;
+    if (name.toLowerCase() !== 'q') {
+      continue;
+    }
     const value = separator === -1 ? '' : param.slice(separator + 1).trim();
     return QVALUE.test(value) ? Number(value) : undefined;
   }
@@ -30,9 +32,13 @@ function parseAcceptEncoding(header: string): Map<string, number> {
   for (const element of header.split(',')) {
     const [coding = '', ...params] = element.split(';');
     const name = coding.trim().toLowerCase();
-    if (name === '') continue;
+    if (name === '') {
+      continue;
+    }
     const weight = parseWeight(params);
-    if (weight === undefined) continue;
+    if (weight === undefined) {
+      continue;
+    }
     weights.set(name, Math.max(weight, weights.get(name) ?? 0));
   }
   return weights;
@@ -56,7 +62,9 @@ export function negotiate(
   acceptEncoding: string | undefined,
   preferred: readonly Encoding[] = DEFAULT_ENCODINGS,
 ): Encoding | null {
-  if (acceptEncoding === undefined) return null;
+  if (acceptEncoding === undefined) {
+    return null;
+  }
   const weights = parseAcceptEncoding(acceptEncoding);
   const wildcard = weights.get('*') ?? 0;
   return preferred.find((encoding) => (weights.get(encoding) ?? wildcard) > 0) ?? null;

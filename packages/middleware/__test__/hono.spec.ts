@@ -98,7 +98,9 @@ async function withoutClose(
 ): Promise<void> {
   const { prototype } = context;
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'close');
-  if (!descriptor) throw new Error('expected close() on the prototype');
+  if (!descriptor) {
+    throw new Error('expected close() on the prototype');
+  }
   Reflect.deleteProperty(prototype, 'close');
   try {
     await test();
@@ -108,7 +110,9 @@ async function withoutClose(
 }
 
 function bodyReader(res: Response): ReadableStreamDefaultReader<Uint8Array> {
-  if (!res.body) throw new Error('expected a response body');
+  if (!res.body) {
+    throw new Error('expected a response body');
+  }
   return res.body.getReader();
 }
 
@@ -158,10 +162,14 @@ async function readUntil(
   const chunks: Uint8Array[] = [];
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) throw new Error(`the body ended before ${JSON.stringify(expected)}`);
+    if (done) {
+      throw new Error(`the body ended before ${JSON.stringify(expected)}`);
+    }
     chunks.push(value);
     const text = decodeReceived(encoding, Buffer.concat(chunks));
-    if (text.includes(expected)) return text;
+    if (text.includes(expected)) {
+      return text;
+    }
   }
 }
 
@@ -245,7 +253,9 @@ describe('comprs hono middleware', () => {
 
       const first = await app.request('/', { headers: { 'Accept-Encoding': 'gzip' } });
       const tag = first.headers.get('etag');
-      if (tag === null) throw new Error('expected an ETag');
+      if (tag === null) {
+        throw new Error('expected an ETag');
+      }
       const res = await app.request('/', {
         headers: { 'Accept-Encoding': 'gzip', 'If-None-Match': tag },
       });
@@ -480,7 +490,9 @@ describe('comprs hono middleware', () => {
                 const chunk = randomBytes(12 * 1024).toString('base64');
                 chunks.push(chunk);
                 controller.enqueue(encoder.encode(chunk));
-                if (chunks.length === 1000) controller.close();
+                if (chunks.length === 1000) {
+                  controller.close();
+                }
               },
             }),
             { headers: TEXT },
@@ -489,7 +501,9 @@ describe('comprs hono middleware', () => {
 
       const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
       const [first] = chunks;
-      if (first === undefined) throw new Error('expected the body to be read');
+      if (first === undefined) {
+        throw new Error('expected the body to be read');
+      }
       const reader = bodyReader(res);
       await within(readUntil(reader, 'gzip', first));
       const pulled = chunks.length;

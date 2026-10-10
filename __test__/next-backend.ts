@@ -21,6 +21,8 @@ function isBackendModule(value: unknown): value is typeof BackendModule {
  */
 export function backendModule(): typeof BackendModule {
   const loaded: unknown = require('../next/backend.js');
-  if (!isBackendModule(loaded)) throw new Error('next/backend.js exports no backend');
+  if (!isBackendModule(loaded)) {
+    throw new Error('next/backend.js exports no backend');
+  }
   return loaded;
 }

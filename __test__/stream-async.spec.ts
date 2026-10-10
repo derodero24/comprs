@@ -265,7 +265,9 @@ describe('ChunkScheduler', () => {
     const chunk = new Uint8Array(4 * KiB);
     await scheduler.transform(chunk);
     ctx.syncMs = 0;
-    for (let i = 0; i < 3; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 3; i++) {
+      await scheduler.transform(chunk);
+    }
     // The moving average: 3, then 2.275 and 1.73 ms for 4 KiB.
     expect(ctx.calls).toStrictEqual(['transform', 'transformAsync', 'transformAsync', 'transform']);
   });
@@ -278,7 +280,9 @@ describe('ChunkScheduler', () => {
     const ctx = new FakeContext(1.5);
     const scheduler = new ChunkScheduler(ctx, 1e-6);
     const chunk = new Uint8Array(KiB);
-    for (let i = 0; i < 3; i++) expect(scheduler.transform(chunk)).toBe(chunk);
+    for (let i = 0; i < 3; i++) {
+      expect(scheduler.transform(chunk)).toBe(chunk);
+    }
     // 4.5 ms in all: the next call waits.
     const result = scheduler.transform(chunk);
     expect(result).toBeInstanceOf(Promise);
@@ -353,7 +357,9 @@ describe('ChunkScheduler of a context that holds the start of its input', () => 
     // 0.75 ms for 64 KiB, and the context holds 192 KiB.
     const scheduler = new ChunkScheduler(ctx, 0.75 / (64 * KiB), { holds: 3 * 64 * KiB });
     const chunk = new Uint8Array(64 * KiB);
-    for (let i = 0; i < 3; i++) expect(scheduler.transform(chunk)).toBe(chunk);
+    for (let i = 0; i < 3; i++) {
+      expect(scheduler.transform(chunk)).toBe(chunk);
+    }
     // This call processes 256 KiB: 3 ms.
     const result = scheduler.transform(chunk);
     expect(result).toBeInstanceOf(Promise);
@@ -373,7 +379,9 @@ describe('ChunkScheduler of a context that holds the start of its input', () => 
     const ctx = new FakeContext();
     const scheduler = new ChunkScheduler(ctx, 0.75 / (64 * KiB), { holds: 3 * 64 * KiB });
     const chunk = new Uint8Array(64 * KiB);
-    for (let i = 0; i < 3; i++) expect(scheduler.transform(chunk)).toBe(chunk);
+    for (let i = 0; i < 3; i++) {
+      expect(scheduler.transform(chunk)).toBe(chunk);
+    }
     expect(scheduler.flush()).toBeInstanceOf(Promise);
   });
 });
@@ -392,7 +400,9 @@ describe('ChunkScheduler of a codec that compresses in blocks', () => {
   it('sends the chunk that completes a block to the thread pool', async () => {
     const ctx = new FakeContext();
     const scheduler = new ChunkScheduler(ctx, msPerByte, { block });
-    for (let i = 0; i < 16; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 16; i++) {
+      await scheduler.transform(chunk);
+    }
     expect(ctx.calls).toStrictEqual([
       ...inline(7),
       'transformAsync',
@@ -404,9 +414,13 @@ describe('ChunkScheduler of a codec that compresses in blocks', () => {
   it('starts the blocks again after flush()', async () => {
     const ctx = new FakeContext();
     const scheduler = new ChunkScheduler(ctx, msPerByte, { block });
-    for (let i = 0; i < 4; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 4; i++) {
+      await scheduler.transform(chunk);
+    }
     await scheduler.flush();
-    for (let i = 0; i < 8; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 8; i++) {
+      await scheduler.transform(chunk);
+    }
     expect(ctx.calls).toStrictEqual([...inline(4), 'flush', ...inline(7), 'transformAsync']);
   });
 
@@ -415,7 +429,9 @@ describe('ChunkScheduler of a codec that compresses in blocks', () => {
     const scheduler = new ChunkScheduler(ctx, msPerByte, { block, holds: 64 * KiB });
     // The fifth call processes the 80 KiB so far, in 1.25 ms, and the
     // first block takes the last 16 KiB of them.
-    for (let i = 0; i < 12; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 12; i++) {
+      await scheduler.transform(chunk);
+    }
     expect(ctx.calls).toStrictEqual([...inline(11), 'transformAsync']);
   });
 });
@@ -428,14 +444,18 @@ describe('ChunkScheduler of a codec that sets itself up in the first call', () =
     ctx.asyncMs = 3;
     const scheduler = new ChunkScheduler(ctx, 1e-6, { setupMs: 3 });
     const chunk = new Uint8Array(16 * KiB);
-    for (let i = 0; i < 3; i++) await scheduler.transform(chunk);
+    for (let i = 0; i < 3; i++) {
+      await scheduler.transform(chunk);
+    }
     expect(ctx.calls).toStrictEqual(['transformAsync', 'transform', 'transform']);
   });
 });
 
 describe('zstdSetupMs()', () => {
   it('sends the first call to the thread pool from level 10 on', () => {
-    for (const level of [undefined, -5, 0, 3, 9]) expect(zstdSetupMs(level)).toBe(0);
+    for (const level of [undefined, -5, 0, 3, 9]) {
+      expect(zstdSetupMs(level)).toBe(0);
+    }
     for (let level = 10; level <= 22; level++) {
       expect(zstdSetupMs(level)).toBeGreaterThanOrEqual(2);
     }
@@ -1172,7 +1192,9 @@ describe.each(FAILING_CASES)(
         // pool settles only once the event loop turns, which microtasks do
         // not let it do, so the call is in flight when the stream is
         // cancelled.
-        for (let i = 0; i < 100 && calls() === 0; i++) await Promise.resolve();
+        for (let i = 0; i < 100 && calls() === 0; i++) {
+          await Promise.resolve();
+        }
         await reader.cancel();
       });
       expect(rejections).toStrictEqual([]);
@@ -1200,7 +1222,7 @@ describe('a Web stream cancelled while flush() is in flight', () => {
       return pending;
     });
     const reading = (async () => {
-      while (!(await reader.read()).done);
+      while (!(await reader.read()).done) {}
     })();
     // 16 KiB at quality 9 goes to the thread pool, and so does the end.
     await writer.write(text(16 * KiB));

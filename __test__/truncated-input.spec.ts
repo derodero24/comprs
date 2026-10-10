@@ -76,7 +76,9 @@ async function pipeWeb(
 ): Promise<Buffer> {
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
-      if (input.length > 0) controller.enqueue(new Uint8Array(input));
+      if (input.length > 0) {
+        controller.enqueue(new Uint8Array(input));
+      }
       controller.close();
     },
   });
@@ -84,7 +86,9 @@ async function pipeWeb(
   const reader = source.pipeThrough(transform).getReader();
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);

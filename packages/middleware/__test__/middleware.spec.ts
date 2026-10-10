@@ -52,7 +52,9 @@ function rawRequest(
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
     const headers: Record<string, string> = {};
-    if (acceptEncoding) headers['Accept-Encoding'] = acceptEncoding;
+    if (acceptEncoding) {
+      headers['Accept-Encoding'] = acceptEncoding;
+    }
     const req = httpRequest(url, { method, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));

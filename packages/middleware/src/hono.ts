@@ -62,12 +62,18 @@ async function readAhead(reader: Reader, threshold: number): Promise<ReadAhead> 
   for (;;) {
     const pending = reader.read();
     const result = await Promise.race([pending, nextTurn()]);
-    if (result === null) return { chunks, done: false, pending };
-    if (result.done) return { chunks, done: true, pending: undefined };
+    if (result === null) {
+      return { chunks, done: false, pending };
+    }
+    if (result.done) {
+      return { chunks, done: true, pending: undefined };
+    }
     chunks.push(result.value);
     // Checked before the chunk counts, so that the end of a body that came
     // in one large chunk is still found.
-    if (size >= limit) return { chunks, done: false, pending: undefined };
+    if (size >= limit) {
+      return { chunks, done: false, pending: undefined };
+    }
     size += result.value.byteLength;
   }
 }
@@ -80,7 +86,9 @@ function concat(chunks: readonly Uint8Array[]): Uint8Array {
 
 /** Enqueue compressed output, if there is any; returns whether there was. */
 function enqueue(controller: Controller, output: Uint8Array): boolean {
-  if (output.byteLength === 0) return false;
+  if (output.byteLength === 0) {
+    return false;
+  }
   controller.enqueue(output);
   return true;
 }
@@ -111,7 +119,9 @@ function compressStream(
    * not lead to a flush, which would send an empty block.
    */
   const transform = (controller: Controller, chunk: Uint8Array): boolean => {
-    if (chunk.byteLength === 0) return false;
+    if (chunk.byteLength === 0) {
+      return false;
+    }
     unflushed = true;
     return enqueue(controller, encoder.transform(chunk));
   };
@@ -121,9 +131,13 @@ function compressStream(
     // Once cancel() has closed the encoder, it must not be used. Every await
     // below is followed by the same check, so this one only guards against
     // a cancel() that comes between two steps.
-    if (cancelled) return true;
+    if (cancelled) {
+      return true;
+    }
     const chunk = queued.pop();
-    if (chunk) return transform(controller, chunk);
+    if (chunk) {
+      return transform(controller, chunk);
+    }
     pending ??= reader.read();
     if (unflushed && (await Promise.race([pending, nextTurn()])) === null) {
       // The body has nothing ready: send what it gave so far.
@@ -132,7 +146,9 @@ function compressStream(
     }
     const result = await pending;
     pending = undefined;
-    if (cancelled) return true;
+    if (cancelled) {
+      return true;
+    }
     if (result.done) {
       enqueue(controller, encoder.finish());
       controller.close();
@@ -145,7 +161,9 @@ function compressStream(
     async pull(controller: Controller): Promise<void> {
       try {
         let sent = false;
-        while (!sent) sent = await step(controller);
+        while (!sent) {
+          sent = await step(controller);
+        }
       } catch (err) {
         // Release the encoder, and stop the body, which nothing reads any
         // more; a body that failed by itself refuses to be cancelled.
@@ -179,12 +197,18 @@ function replaceBody(
   // A body in memory has a known length, which the server sends as
   // Content-Length; the chunked Transfer-Encoding that streamText() and
   // streamSSE() set would contradict it.
-  if (body instanceof Uint8Array) headers.delete('Transfer-Encoding');
-  if (!encoding) return;
+  if (body instanceof Uint8Array) {
+    headers.delete('Transfer-Encoding');
+  }
+  if (!encoding) {
+    return;
+  }
   headers.set('Content-Encoding', encoding);
   headers.delete('Content-Length');
   const etag = headers.get('etag');
-  if (etag) headers.set('ETag', weakenEtag(etag));
+  if (etag) {
+    headers.set('ETag', weakenEtag(etag));
+  }
 }
 
 /**
@@ -198,13 +222,19 @@ function selectEncoding(
   filter: HonoComprsOptions['filter'],
 ): Encoding | null {
   const header = (name: string): string | undefined => c.res.headers.get(name) ?? undefined;
-  if (!isCandidate(header, () => !filter || filter(c))) return null;
+  if (!isCandidate(header, () => !filter || filter(c))) {
+    return null;
+  }
   // Set even when this request gets no encoding, including HEAD requests:
   // other requests may.
   c.header('Vary', appendVary(header('vary')));
 
-  if (c.req.method === 'HEAD' || c.res.body === null) return null;
-  if (!canCompressBody(c.res.status, c.res.headers.has('content-range'))) return null;
+  if (c.req.method === 'HEAD' || c.res.body === null) {
+    return null;
+  }
+  if (!canCompressBody(c.res.status, c.res.headers.has('content-range'))) {
+    return null;
+  }
 
   // Early threshold check via Content-Length to avoid reading the body
   const contentLength = header('content-length');
@@ -286,6 +316,8 @@ export function comprs(options: HonoComprsOptions = {}): MiddlewareHandler {
     await next();
     const encoding = selectEncoding(c, settings, filter);
     const { body } = c.res;
-    if (encoding && body) await compressResponse(c, body, encoding, settings);
+    if (encoding && body) {
+      await compressResponse(c, body, encoding, settings);
+    }
   };
 }

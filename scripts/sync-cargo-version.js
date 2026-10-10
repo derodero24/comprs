@@ -25,7 +25,9 @@ const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf-8'));
 const version = pkg.version;
 
 for (const cargoPath of CARGO_PATHS) {
-  if (!fs.existsSync(cargoPath)) continue;
+  if (!fs.existsSync(cargoPath)) {
+    continue;
+  }
 
   const cargo = fs.readFileSync(cargoPath, 'utf-8');
   const updated = cargo.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`);

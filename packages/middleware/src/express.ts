@@ -66,19 +66,28 @@ function restoreHeader(
   name: string,
   value: OutgoingHttpHeader | undefined,
 ): void {
-  if (res.getHeader(name) === value) return;
-  if (value === undefined) res.removeHeader(name);
-  else res.setHeader(name, value);
+  if (res.getHeader(name) === value) {
+    return;
+  }
+  if (value === undefined) {
+    res.removeHeader(name);
+  } else {
+    res.setHeader(name, value);
+  }
 }
 
 /** Pair up a flat `[name, value, ...]` header array; undefined if malformed. */
 function headerPairs(fields: OutgoingHttpHeader[]): [string, string | string[]][] | undefined {
-  if (fields.length % 2 !== 0) return undefined;
+  if (fields.length % 2 !== 0) {
+    return undefined;
+  }
   const pairs: [string, string | string[]][] = [];
   for (let i = 0; i < fields.length; i += 2) {
     const name = fields[i];
     const value = fields[i + 1];
-    if (typeof name !== 'string' || value === undefined) return undefined;
+    if (typeof name !== 'string' || value === undefined) {
+      return undefined;
+    }
     pairs.push([name, typeof value === 'number' ? String(value) : value]);
   }
   return pairs;
@@ -93,16 +102,26 @@ function headerPairs(fields: OutgoingHttpHeader[]): [string, string | string[]][
 function setHeaderFields(res: ServerResponse, fields: HeaderFields): boolean {
   if (Array.isArray(fields)) {
     const pairs = headerPairs(fields);
-    if (!pairs) return false;
+    if (!pairs) {
+      return false;
+    }
     // Replace earlier values, but keep the duplicates within the array.
-    for (const [name] of pairs) res.removeHeader(name);
-    for (const [name, value] of pairs) res.appendHeader(name, value);
+    for (const [name] of pairs) {
+      res.removeHeader(name);
+    }
+    for (const [name, value] of pairs) {
+      res.appendHeader(name, value);
+    }
     return true;
   }
   const entries = Object.entries(fields);
-  if (entries.some(([, value]) => value === undefined)) return false;
+  if (entries.some(([, value]) => value === undefined)) {
+    return false;
+  }
   for (const [name, value] of entries) {
-    if (value !== undefined) res.setHeader(name, value);
+    if (value !== undefined) {
+      res.setHeader(name, value);
+    }
   }
   return true;
 }
@@ -120,16 +139,22 @@ function keepBodyLength(
   statusCode: number,
   length: number,
 ): void {
-  if (req.method === 'HEAD' || !hasBody(statusCode)) return;
+  if (req.method === 'HEAD' || !hasBody(statusCode)) {
+    return;
+  }
   for (const name of ['content-length', 'transfer-encoding', 'trailer']) {
-    if (res.hasHeader(name)) return;
+    if (res.hasHeader(name)) {
+      return;
+    }
   }
   res.setHeader('Content-Length', length);
 }
 
 /** Size of a body chunk in bytes; 0 when there is none. */
 function byteLength(chunk: Chunk | undefined, encoding: BufferEncoding | undefined): number {
-  if (chunk === undefined) return 0;
+  if (chunk === undefined) {
+    return 0;
+  }
   return typeof chunk === 'string' ? Buffer.byteLength(chunk, encoding) : chunk.byteLength;
 }
 
@@ -151,9 +176,13 @@ function endArgs(
 
 /** End the compressor, writing the final chunk if there is one. */
 function endStream(stream: Transform, { chunk, encoding }: EndArgs): void {
-  if (chunk === undefined) stream.end();
-  else if (encoding === undefined) stream.end(chunk);
-  else stream.end(chunk, encoding);
+  if (chunk === undefined) {
+    stream.end();
+  } else if (encoding === undefined) {
+    stream.end(chunk);
+  } else {
+    stream.end(chunk, encoding);
+  }
 }
 
 /**
@@ -165,7 +194,9 @@ function failWriteAfterEnd(res: ServerResponse, callback: WriteCallback | undefi
   err.code = 'ERR_STREAM_WRITE_AFTER_END';
   process.nextTick(() => {
     callback?.(err);
-    if (!res.destroyed) res.emit('error', err);
+    if (!res.destroyed) {
+      res.emit('error', err);
+    }
   });
   return false;
 }
@@ -202,7 +233,9 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
     encoding === undefined ? write(chunk, callback) : write(chunk, encoding, callback);
 
   const endRaw = ({ chunk, encoding, callback }: EndArgs): ServerResponse => {
-    if (chunk === undefined) return end(callback);
+    if (chunk === undefined) {
+      return end(callback);
+    }
     return encoding === undefined ? end(chunk, callback) : end(chunk, encoding, callback);
   };
 
@@ -212,7 +245,9 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
     const emit = res.emit.bind(res);
     stream.on('data', (chunk: Buffer) => {
       // Hold compressed output back while the socket is full.
-      if (!write(chunk)) stream.pause();
+      if (!write(chunk)) {
+        stream.pause();
+      }
     });
     stream.on('end', () => {
       end();
@@ -229,7 +264,9 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
         // The socket drained: let compressed output flow again. Writers still
         // waiting for the compressor get its own 'drain' later.
         stream.resume();
-        if (stream.writableNeedDrain) return false;
+        if (stream.writableNeedDrain) {
+          return false;
+        }
       }
       return emit(event, ...args);
     };
@@ -241,21 +278,31 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
   function startCompression(): CompressTransform | undefined {
     const header = (name: string): string | undefined => headerValue(res.getHeader(name));
     const filter = (): boolean => !settings.filter || settings.filter(req, res);
-    if (!isCandidate(header, filter)) return undefined;
+    if (!isCandidate(header, filter)) {
+      return undefined;
+    }
     // Set even when this request gets no encoding: other requests may.
     res.setHeader('Vary', appendVary(header('vary')));
-    if (!settings.encoding) return undefined;
-    if (!canCompressBody(res.statusCode, res.hasHeader('content-range'))) return undefined;
+    if (!settings.encoding) {
+      return undefined;
+    }
+    if (!canCompressBody(res.statusCode, res.hasHeader('content-range'))) {
+      return undefined;
+    }
 
     const declared = header('content-length');
     const length = declared === undefined ? bodyLength : Number.parseInt(declared, 10);
-    if (length !== undefined && !meetsThreshold(length, settings.threshold)) return undefined;
+    if (length !== undefined && !meetsThreshold(length, settings.threshold)) {
+      return undefined;
+    }
 
     const stream = createCompressTransform(settings.encoding, settings.level);
     res.setHeader('Content-Encoding', settings.encoding);
     res.removeHeader('Content-Length');
     const etag = header('etag');
-    if (etag) res.setHeader('ETag', weakenEtag(etag));
+    if (etag) {
+      res.setHeader('ETag', weakenEtag(etag));
+    }
     pipeToResponse(stream);
     return stream;
   }
@@ -283,14 +330,18 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
     decided = true;
     res.statusCode = statusCode;
     compressor = startCompression();
-    if (!compressor && bodyLength !== undefined) keepBodyLength(req, res, statusCode, bodyLength);
+    if (!compressor && bodyLength !== undefined) {
+      keepBodyLength(req, res, statusCode, bodyLength);
+    }
 
     try {
       return reason === undefined ? writeHead(statusCode) : writeHead(statusCode, reason);
     } catch (err) {
       // writeHead() rejected its arguments before emitting anything, so the
       // error response that usually follows gets a decision of its own.
-      if (!res.headersSent) undoDecision(snapshot);
+      if (!res.headersSent) {
+        undoDecision(snapshot);
+      }
       throw err;
     }
   }
@@ -326,9 +377,15 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
   ): boolean => {
     const encoding = typeof encodingOrCallback === 'string' ? encodingOrCallback : undefined;
     const done = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
-    if (flushing()) return failWriteAfterEnd(res, done);
-    if (!res.headersSent) res.writeHead(res.statusCode);
-    if (!compressor || compressor.writableEnded) return writeRaw(chunk, encoding, done);
+    if (flushing()) {
+      return failWriteAfterEnd(res, done);
+    }
+    if (!res.headersSent) {
+      res.writeHead(res.statusCode);
+    }
+    if (!compressor || compressor.writableEnded) {
+      return writeRaw(chunk, encoding, done);
+    }
     return encoding === undefined
       ? compressor.write(chunk, done)
       : compressor.write(chunk, encoding, done);
@@ -342,18 +399,25 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
     const args = endArgs(chunkOrCallback, encodingOrCallback, callback);
     if (flushing()) {
       // Repeated end(), handled like ServerResponse handles it once ended.
-      if (args.chunk) failWriteAfterEnd(res, args.callback);
-      else if (args.callback) res.once('finish', args.callback);
+      if (args.chunk) {
+        failWriteAfterEnd(res, args.callback);
+      } else if (args.callback) {
+        res.once('finish', args.callback);
+      }
       return res;
     }
     if (!res.headersSent) {
       bodyLength = byteLength(args.chunk, args.encoding);
       res.writeHead(res.statusCode);
     }
-    if (!compressor || compressor.writableEnded) return endRaw(args);
+    if (!compressor || compressor.writableEnded) {
+      return endRaw(args);
+    }
 
     // Like ServerResponse, call back once the response has been sent.
-    if (args.callback) res.once('finish', args.callback);
+    if (args.callback) {
+      res.once('finish', args.callback);
+    }
     endStream(compressor, args);
     return res;
   };
@@ -363,7 +427,9 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
   // res.flush() when there is one.
   Object.assign(res, {
     flush(): void {
-      if (compressor && !compressor.writableEnded) compressor.flush();
+      if (compressor && !compressor.writableEnded) {
+        compressor.flush();
+      }
     },
   });
 }

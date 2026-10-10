@@ -496,7 +496,9 @@ describe('the *Async functions', () => {
   it('copy the samples when they are called', async () => {
     const copies = samples.map((sample) => Uint8Array.from(sample));
     const training = next().trainDictionaryAsync(copies, 4096);
-    for (const copy of copies) copy.fill(0);
+    for (const copy of copies) {
+      copy.fill(0);
+    }
     expect(await training).toEqual(next().trainDictionary(samples, 4096));
   });
 });
@@ -537,7 +539,9 @@ describe('streams', () => {
     expect(next().decompress(sync, format)).toEqual(text);
     for (const name of [format, undefined]) {
       // Detection never finds raw deflate.
-      if (name === undefined && format === 'deflate-raw') continue;
+      if (name === undefined && format === 'deflate-raw') {
+        continue;
+      }
       const decompressed = await run(
         next().createDecompressContext(name),
         chunked(sync, 100),
@@ -758,7 +762,9 @@ describe('samples', () => {
     ]) {
       const copies = samples.map((sample) => Uint8Array.from(sample));
       const [first, second] = copies;
-      if (first === undefined || second === undefined) throw new Error('expected samples');
+      if (first === undefined || second === undefined) {
+        throw new Error('expected samples');
+      }
       Object.defineProperty(copies, 1, {
         get(): Uint8Array {
           // The transfer detaches the buffer of the first sample and hands

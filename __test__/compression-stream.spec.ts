@@ -152,7 +152,9 @@ function binding(): StreamBinding {
     require('../index.js'),
     Symbol.for('@derodero24/comprs/internal'),
   );
-  if (!isStreamBinding(value)) throw new Error('the native addon has no stream binding');
+  if (!isStreamBinding(value)) {
+    throw new Error('the native addon has no stream binding');
+  }
   return value;
 }
 
@@ -226,7 +228,9 @@ describe('CompressionStream and DecompressionStream', () => {
   it('emit plain Uint8Arrays, and no empty chunks', async () => {
     const stream = streamOf(chunked(input, 4 * KiB)).pipeThrough(new CompressionStream('zstd'));
     const chunks: Uint8Array[] = [];
-    for await (const chunk of stream) chunks.push(chunk);
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
     expect(chunks.length).toBeGreaterThan(0);
     for (const chunk of chunks) {
       expect(Object.getPrototypeOf(chunk)).toBe(Uint8Array.prototype);
@@ -658,7 +662,9 @@ describe('the codec of a stream', () => {
         const stream = new CompressionStream('zstd');
         await started(stream, small);
         registry.register(stream, i);
-        if (i % 10 === 9) await new Promise(setImmediate);
+        if (i % 10 === 9) {
+          await new Promise(setImmediate);
+        }
       }
       expect(collected).toBeGreaterThan(0);
     },

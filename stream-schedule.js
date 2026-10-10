@@ -86,10 +86,12 @@ function blockBytes(op, level) {
             return 128 * 1024;
         case 'brotli-compress': {
             const quality = typeof level === 'number' && !Number.isNaN(level) ? Math.trunc(level) : DEFAULT_QUALITY;
-            if (quality < 2)
+            if (quality < 2) {
                 return 0;
-            if (quality < 4)
+            }
+            if (quality < 4) {
                 return 16 * 1024;
+            }
             return quality < 9 ? 64 * 1024 : 256 * 1024;
         }
         case 'gzip-compress':
@@ -112,8 +114,9 @@ const ZSTD_SETUP_MS = [2.8, 2.4, 37, 29, 34, 34, 17, 25, 27, 48, 89, 176, 412];
  * on one machine (see ZSTD_SETUP_MS).
  */
 function zstdSetupMs(level) {
-    if (typeof level !== 'number' || Number.isNaN(level) || level < 10)
+    if (typeof level !== 'number' || Number.isNaN(level) || level < 10) {
         return 0;
+    }
     return ZSTD_SETUP_MS[Math.min(Math.trunc(level), 22) - 10] ?? 0;
 }
 /**
@@ -155,8 +158,9 @@ const waiting = [];
 let turnScheduled = false;
 /** Make nextTurn() run once the event loop turns, unless it is scheduled. */
 function scheduleTurn() {
-    if (turnScheduled)
+    if (turnScheduled) {
         return;
+    }
     turnScheduled = true;
     (0, node_timers_1.setImmediate)(nextTurn);
 }
@@ -168,8 +172,9 @@ function nextTurn() {
     turnScheduled = false;
     spent = 0;
     waiting.shift()?.();
-    if (waiting.length > 0)
+    if (waiting.length > 0) {
         scheduleTurn();
+    }
 }
 /** Add `elapsed`, the time of a synchronous call in ms, to the budget. */
 function addSpent(elapsed) {
@@ -250,8 +255,9 @@ class ChunkScheduler {
     }
     /** Call transform(chunk) or transformAsync(chunk). */
     transform(chunk) {
-        if (spent >= YIELD_MS)
+        if (spent >= YIELD_MS) {
             return waitForTurn().then(() => this.transform(chunk));
+        }
         this.#unflushed += chunk.byteLength;
         const work = this.#work(chunk.byteLength);
         const setupMs = this.#setupMs;
@@ -272,10 +278,12 @@ class ChunkScheduler {
     }
     /** Call flush() or flushAsync(). */
     flush() {
-        if (spent >= YIELD_MS)
+        if (spent >= YIELD_MS) {
             return waitForTurn().then(() => this.flush());
-        if (this.#endsAsync())
+        }
+        if (this.#endsAsync()) {
             return this.#ctx.flushAsync();
+        }
         const start = performance.now();
         const output = this.#ctx.flush();
         addSpent(performance.now() - start);
@@ -283,10 +291,12 @@ class ChunkScheduler {
     }
     /** Call finish() or finishAsync(). */
     finish() {
-        if (spent >= YIELD_MS)
+        if (spent >= YIELD_MS) {
             return waitForTurn().then(() => this.finish());
-        if (this.#endsAsync())
+        }
+        if (this.#endsAsync()) {
             return this.#ctx.finishAsync();
+        }
         const start = performance.now();
         const output = this.#ctx.finish();
         addSpent(performance.now() - start);
@@ -313,8 +323,9 @@ class ChunkScheduler {
         }
         const before = this.#blocked;
         this.#blocked += bytes;
-        if (this.#block === 0)
+        if (this.#block === 0) {
             return bytes;
+        }
         const completed = Math.floor(this.#blocked / this.#block) - Math.floor(before / this.#block);
         return Math.max(bytes, completed * this.#block);
     }
@@ -324,8 +335,9 @@ class ChunkScheduler {
     }
     /** Add the time of a call that processed `work` bytes to the moving average. */
     #learn(work, elapsed) {
-        if (work < SAMPLE_BYTES)
+        if (work < SAMPLE_BYTES) {
             return;
+        }
         const sample = Math.max(elapsed, 0) / work;
         this.#measured =
             this.#measured === 0 ? sample : this.#measured + SAMPLE_WEIGHT * (sample - this.#measured);

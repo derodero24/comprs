@@ -517,7 +517,9 @@ describe('native memory', () => {
       registry.register(Dictionary.from(raw110, { format: 'zstd' }), i);
       // Let finalizers and FinalizationRegistry callbacks run, as a server
       // would between requests.
-      if (i % 10 === 9) await new Promise(setImmediate);
+      if (i % 10 === 9) {
+        await new Promise(setImmediate);
+      }
     }
     expect(collected).toBeGreaterThan(0);
   });

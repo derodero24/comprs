@@ -37,7 +37,9 @@ afterEach(() => {
 
 /** Write `chunks` to a compressor and collect its output. */
 function compress(stream: Transform, chunks: readonly Uint8Array[]): Promise<Buffer> {
-  for (const chunk of chunks) stream.write(chunk);
+  for (const chunk of chunks) {
+    stream.write(chunk);
+  }
   stream.end();
   return buffer(stream);
 }
@@ -83,7 +85,9 @@ function readUntil(
     const chunks = [...received];
     stream.on('data', (chunk: Buffer) => {
       chunks.push(chunk);
-      if (decodeReceived(encoding, Buffer.concat(chunks)).equals(expected)) resolve();
+      if (decodeReceived(encoding, Buffer.concat(chunks)).equals(expected)) {
+        resolve();
+      }
     });
     stream.on('error', reject);
   });
@@ -100,7 +104,9 @@ async function withoutClose(
 ): Promise<void> {
   const { prototype } = context;
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'close');
-  if (!descriptor) throw new Error('expected close() on the prototype');
+  if (!descriptor) {
+    throw new Error('expected close() on the prototype');
+  }
   Reflect.deleteProperty(prototype, 'close');
   try {
     await test();
@@ -156,7 +162,9 @@ describe('createCompressTransform', () => {
       const flush = vi.spyOn(CONTEXTS[encoding].prototype, 'flush');
       const stream = createCompressTransform(encoding);
       const chunks = Array.from({ length: 10 }, () => randomBytes(100));
-      for (const chunk of chunks) stream.write(chunk);
+      for (const chunk of chunks) {
+        stream.write(chunk);
+      }
       await within(readUntil(stream, encoding, Buffer.concat(chunks)));
       expect(flush).toHaveBeenCalledOnce();
       stream.destroy();
@@ -173,7 +181,9 @@ describe('createCompressTransform', () => {
       await nextTurn();
       expect(stream.writableLength).toBe(input.byteLength);
       const output: unknown = stream.read();
-      if (!Buffer.isBuffer(output)) throw new Error('expected output from the write');
+      if (!Buffer.isBuffer(output)) {
+        throw new Error('expected output from the write');
+      }
       expect(decodeReceived('zstd', output).byteLength).toBe(128 * 1024);
       // Reading let the write complete: the rest is flushed although no
       // other write follows.
@@ -187,7 +197,9 @@ describe('createCompressTransform', () => {
       stream.write(input);
       stream.flush();
       const output: unknown = stream.read();
-      if (!Buffer.isBuffer(output)) throw new Error('expected output from flush()');
+      if (!Buffer.isBuffer(output)) {
+        throw new Error('expected output from flush()');
+      }
       expect(decodeReceived(encoding, output)).toEqual(input);
       // Without new input, flush() sends nothing, not even an empty block.
       stream.flush();
@@ -204,7 +216,9 @@ describe('createCompressTransform', () => {
         stream.write(input);
         await nextTurn();
         const output: unknown = stream.read();
-        if (!Buffer.isBuffer(output)) throw new Error('expected output once input paused');
+        if (!Buffer.isBuffer(output)) {
+          throw new Error('expected output once input paused');
+        }
         expect(decodeReceived(encoding, output)).toEqual(input);
         // Empty writes add no input, so no empty block follows them.
         stream.write(Buffer.alloc(0));

@@ -75,7 +75,9 @@ describe('canCompressBody', () => {
   });
 
   it('should rule out statuses without content and ranges', () => {
-    for (const status of [101, 204, 206, 304]) expect(canCompressBody(status, false)).toBe(false);
+    for (const status of [101, 204, 206, 304]) {
+      expect(canCompressBody(status, false)).toBe(false);
+    }
     expect(canCompressBody(200, true)).toBe(false);
     expect(canCompressBody(416, true)).toBe(false);
   });

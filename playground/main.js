@@ -109,15 +109,25 @@ const fileError = document.getElementById('file-error');
 
 // --- Utilities ---
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes === 0) {
+    return '0 B';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function formatTime(ms) {
-  if (ms < 1) return `${(ms * 1000).toFixed(0)} µs`;
-  if (ms < 1000) return `${ms.toFixed(1)} ms`;
+  if (ms < 1) {
+    return `${(ms * 1000).toFixed(0)} µs`;
+  }
+  if (ms < 1000) {
+    return `${ms.toFixed(1)} ms`;
+  }
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
@@ -144,7 +154,9 @@ function runInWorker(kind, input, runs) {
 
 function sendNextRequest() {
   const kind = REQUEST_KINDS.find((k) => waiting.has(k));
-  if (!workerReady || inFlight || !kind) return;
+  if (!workerReady || inFlight || !kind) {
+    return;
+  }
   const { input, runs, resolve } = waiting.get(kind);
   waiting.delete(kind);
   inFlight = resolve;
@@ -218,7 +230,9 @@ async function compress() {
   }, 100);
   const results = await runInWorker('compress', input, [{ algo: currentAlgo, level }]);
   // Show only the result of the latest call.
-  if (seq !== compressSeq) return;
+  if (seq !== compressSeq) {
+    return;
+  }
   clearTimeout(busyTimer);
 
   const [{ compressed, elapsed, error }] = results;
@@ -268,7 +282,9 @@ async function runCompare() {
   const algos = Object.entries(ALGOS);
   const runs = algos.map(([algo, cfg]) => ({ algo, level: cfg.levelDefault ?? undefined }));
   const outcomes = await runInWorker('compare', input, runs);
-  if (seq !== compareSeq) return;
+  if (seq !== compareSeq) {
+    return;
+  }
 
   const results = algos.map(([key, cfg], i) => {
     const { compressed, elapsed, error } = outcomes[i];
@@ -364,7 +380,9 @@ for (const btn of sampleBtns) {
 // --- File upload ---
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
-  if (!file) return;
+  if (!file) {
+    return;
+  }
   // Clear the selection so that picking the same file again fires `change`; `file` stays readable.
   fileInput.value = '';
 
@@ -420,7 +438,9 @@ levelSlider.addEventListener('input', () => {
 
 // --- Download ---
 downloadBtn.addEventListener('click', () => {
-  if (!currentCompressed) return;
+  if (!currentCompressed) {
+    return;
+  }
   const blob = new Blob([currentCompressed.bytes], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -475,7 +495,9 @@ navigator.serviceWorker
   .then((registrations) => {
     for (const registration of registrations) {
       const sw = registration.active ?? registration.waiting ?? registration.installing;
-      if (sw?.scriptURL === staleWorkerUrl) registration.unregister();
+      if (sw?.scriptURL === staleWorkerUrl) {
+        registration.unregister();
+      }
     }
   })
   // Service workers can be unavailable, as in some private windows.

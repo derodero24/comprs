@@ -33,7 +33,9 @@ async function main() {
   let inputs = Array.from({ length: CALLS }, (_, i) => input(i));
   const calls = inputs.map((data) => zstdCompressAsync(data));
   inputs = null;
-  for (let i = 0; i < 3; i++) global.gc();
+  for (let i = 0; i < 3; i++) {
+    global.gc();
+  }
   const outputs = await Promise.all(calls);
   for (const [i, output] of outputs.entries()) {
     if (!zstdDecompress(output).equals(input(i))) {
