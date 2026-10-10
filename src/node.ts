@@ -1,4 +1,5 @@
 import { Transform, type TransformCallback } from 'node:stream';
+import { markAsUntransferable } from 'node:worker_threads';
 import {
   BrotliCompressContext,
   BrotliCompressDictContext,
@@ -27,6 +28,22 @@ interface StreamContext {
 }
 
 /**
+ * Whether markAsUntransferable() from node:worker_threads works in this
+ * runtime. Node.js implements it; Bun before 1.4 and Deno before 2.7.6
+ * export a function that throws that it is not implemented.
+ */
+const canMarkUntransferable: boolean = probeMarkAsUntransferable();
+
+function probeMarkAsUntransferable(): boolean {
+  try {
+    markAsUntransferable(new ArrayBuffer(0));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Push `buf`, which a stream context returned, in chunks of at most
  * `readableHighWaterMark` bytes. The chunks are views of `buf`, not copies.
  *
@@ -34,16 +51,32 @@ interface StreamContext {
  * chunks that readers receive as small as those of `node:zlib`. The return
  * value of push() is ignored: backpressure still applies between input
  * chunks, as the stream calls transform() again only once readers catch up.
+ *
+ * The chunks of a result that is pushed in several chunks share its
+ * ArrayBuffer, which V8 owns for results of up to 2 MiB, so transferring one
+ * chunk to a worker would detach the others. That ArrayBuffer is therefore
+ * marked as untransferable, so that postMessage() and structuredClone() throw
+ * a DataCloneError instead. Where the runtime cannot mark it, a reader that
+ * transfers a chunk while push() emits it, as push() does in flowing mode,
+ * makes the stream fail instead of end without the rest of the result. A
+ * result that is pushed in one chunk stays transferable.
  */
 function pushSliced(stream: Transform, buf: Uint8Array): void {
-  if (buf.byteLength === 0) return;
+  const length = buf.byteLength;
+  if (length === 0) return;
   const size = stream.readableHighWaterMark || 65536;
-  if (buf.byteLength <= size) {
+  if (length <= size) {
     stream.push(buf);
     return;
   }
-  for (let i = 0; i < buf.byteLength; i += size) {
+  if (canMarkUntransferable) markAsUntransferable(buf.buffer);
+  for (let i = 0; i < length; i += size) {
     stream.push(buf.subarray(i, i + size));
+    if (buf.byteLength !== length) {
+      throw new Error(
+        'an output chunk was transferred, which detached the other chunks of the same result; copy a chunk with new Uint8Array(chunk) before transferring it',
+      );
+    }
   }
 }
 
