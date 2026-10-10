@@ -61,12 +61,12 @@ pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<
 
 /// Compress data using Brotli.
 ///
-/// The encoder recycles its ring buffer, as the streams do (see
+/// The encoder of a small input recycles its ring buffer (see
 /// `brotli_stream::RING_BUFFER`).
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
     let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
     let output = Vec::with_capacity(data.len());
-    let mut compressor = compressor(output, CountingAlloc::for_encoder(), quality);
+    let mut compressor = compressor(output, CountingAlloc::for_input(data.len()), quality);
     compressor
         .write_all(data)
         .map_err(|e| ComprsError::Operation {
@@ -227,10 +227,10 @@ fn encode(
     let mut output = Vec::with_capacity(input.len());
     let mut input_buffer = [0u8; BUFFER_SIZE];
     let mut output_buffer = [0u8; BUFFER_SIZE];
-    // The allocator of the streams, which recycles the ring buffer of the
-    // encoder: with a custom dictionary, the encoder allocates all of it on
-    // every call (see `brotli_stream::RING_BUFFER`).
-    let alloc = CountingAlloc::for_encoder();
+    // With a custom dictionary, the encoder allocates all of its ring
+    // buffer on every call, which the allocator recycles for a small input
+    // (see `brotli_stream::RING_BUFFER`).
+    let alloc = CountingAlloc::for_input(dict.len() + input.len());
     let mut nop =
         |_: &mut brotli::interface::PredictionModeContextMap<brotli::InputReferenceMut>,
          _: &mut [brotli::interface::StaticCommand],
