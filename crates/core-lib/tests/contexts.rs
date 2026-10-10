@@ -585,6 +585,34 @@ fn flate_flush_is_unchanged_where_one_sync_flush_was_complete() {
     }
 }
 
+#[test]
+fn flate_output_does_not_depend_on_the_chunks() {
+    // At levels 5 and 6, zlib-rs's output depends on how its calls split
+    // the input, and small chunks used to compress worse (#724). The
+    // contexts write their input in blocks of 32 KiB, whatever the chunks.
+    let mut input = text(80 * 1024);
+    input.extend(noise(20 * 1024, 7));
+    input.extend(b"The quick brown fox jumps over the lazy dog. ".repeat(1000));
+    let chunkings: [&[usize]; 6] = [&[1], &[100], &[1000], &[32 * 1024], &[50_000], &[7, 40_000]];
+    for (name, wrapper, new) in FLATE_COMPRESSORS {
+        for level in [1, 5, 6, 9] {
+            let case = format!("{name} at level {level}");
+            let compress = |chunk_sizes: &[usize]| {
+                let mut ctx = new(Some(level)).unwrap();
+                drive(&mut *ctx, &input, chunk_sizes).unwrap()
+            };
+            let whole = compress(&[input.len()]);
+            assert!(strict_one_shot(&whole, wrapper).unwrap() == input, "{case}");
+            for chunk_sizes in chunkings {
+                assert!(
+                    compress(chunk_sizes) == whole,
+                    "{case}, chunks of {chunk_sizes:?}"
+                );
+            }
+        }
+    }
+}
+
 /// Check that every method of `ctx`, which is finished, fails with
 /// [`ComprsError::StreamFinished`].
 fn assert_finished(ctx: &mut BoxedContext, case: &str) {

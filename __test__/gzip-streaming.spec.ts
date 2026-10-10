@@ -72,6 +72,19 @@ describe('createGzipCompressStream', () => {
     expect(decompressed.length).toBe(0);
   });
 
+  // At levels 5 and 6, zlib-rs compresses input that comes in small calls
+  // worse; the stream compresses its input in blocks of 32 KiB (#724).
+  it('should give the same output however the input is split into chunks', async () => {
+    const input = Buffer.from('The quick brown fox jumps over the lazy dog. '.repeat(3000));
+    const compress = (chunkSize: number): Promise<Buffer> =>
+      collectStream(toChunkedStream(input, chunkSize).pipeThrough(createGzipCompressStream(6)));
+    const whole = await compress(input.length);
+    for (const chunkSize of [100, 1000, 50_000]) {
+      expect(await compress(chunkSize)).toStrictEqual(whole);
+    }
+    expect(gzipDecompress(whole)).toStrictEqual(input);
+  });
+
   it('should handle random (incompressible) data', async () => {
     const random = randomBytes(10_000);
     const stream = toChunkedStream(random, 512);

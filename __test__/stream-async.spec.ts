@@ -444,7 +444,7 @@ describe('zstdSetupMs()', () => {
 });
 
 describe('blockBytes()', () => {
-  it('gives the blocks of the zstd and brotli encoders', () => {
+  it('gives the blocks of the zstd, brotli and deflate encoders', () => {
     for (const level of [undefined, -5, 1, 3, 19, 22]) {
       expect(blockBytes('zstd-compress', level)).toBe(128 * KiB);
     }
@@ -452,10 +452,12 @@ describe('blockBytes()', () => {
       [0, 1, 2, 3, 4, 8, 9, 11].map((quality) => blockBytes('brotli-compress', quality)),
     ).toStrictEqual([0, 0, 16 * KiB, 16 * KiB, 64 * KiB, 64 * KiB, 256 * KiB, 256 * KiB]);
     expect(blockBytes('brotli-compress', undefined)).toBe(64 * KiB);
+    for (const level of [undefined, 0, 1, 6, 9]) {
+      expect(blockBytes('gzip-compress', level)).toBe(32 * KiB);
+    }
   });
 
   it('gives none for the codecs that compress their input as it comes', () => {
-    expect(blockBytes('gzip-compress', 9)).toBe(0);
     expect(blockBytes('lz4-compress', undefined)).toBe(0);
     expect(blockBytes('zstd-decompress', undefined)).toBe(0);
     expect(blockBytes('brotli-decompress', undefined)).toBe(0);
@@ -466,8 +468,10 @@ describe('blockBytes()', () => {
       blockBytes(op, level) * msPerBytePrior(op, level);
     expect(blockMs('brotli-compress', 9)).toBeGreaterThanOrEqual(2);
     expect(blockMs('zstd-compress', 19)).toBeGreaterThanOrEqual(2);
+    expect(blockMs('gzip-compress', 8)).toBeGreaterThanOrEqual(2);
     expect(blockMs('zstd-compress', 3)).toBeLessThan(2);
     expect(blockMs('brotli-compress', 3)).toBeLessThan(2);
+    expect(blockMs('gzip-compress', 6)).toBeLessThan(2);
   });
 });
 
