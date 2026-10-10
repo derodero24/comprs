@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder, ZlibEncoder};
 
+use crate::blocks::Blocks;
 use crate::gzip::{
     self, DEFAULT_LEVEL, DEFLATE_LEVEL, FlateWrapper, GzipHeaderOptions, Inflater, LEVEL,
     StrictDecoder,
@@ -507,8 +508,8 @@ const BLOCK_SIZE: usize = 32 * 1024;
 struct FlateEncoder<E> {
     /// `None` once the stream is finished.
     encoder: Option<E>,
-    /// The input after the last block, less than [`BLOCK_SIZE`] bytes.
-    held: Vec<u8>,
+    /// The input after the last block.
+    blocks: Blocks,
     labels: Labels,
 }
 
@@ -516,44 +517,25 @@ impl<E: Encoder> FlateEncoder<E> {
     fn new(encoder: E, labels: Labels) -> Self {
         Self {
             encoder: Some(encoder),
-            held: Vec::new(),
+            blocks: Blocks::new(BLOCK_SIZE),
             labels,
         }
     }
 
     /// Compress the blocks that `chunk` completes, returning the output that
     /// the encoder has written so far, and hold the rest of `chunk`.
-    fn transform(&mut self, mut chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+    fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
         let encoder = self
             .encoder
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
-        let error = |e: io::Error| ComprsError::Operation {
-            context: self.labels.transform,
-            source: e.into(),
-        };
 
-        if !self.held.is_empty() {
-            let wanted = BLOCK_SIZE - self.held.len();
-            let (start, rest) = chunk.split_at(wanted.min(chunk.len()));
-            self.held.extend_from_slice(start);
-            chunk = rest;
-            if self.held.len() < BLOCK_SIZE {
-                return Ok(std::mem::take(encoder.get_mut()));
-            }
-            encoder.write_all(&self.held).map_err(error)?;
-            self.held.clear();
-        }
-
-        let (blocks, rest) = chunk.split_at(chunk.len() - chunk.len() % BLOCK_SIZE);
-        for block in blocks.chunks(BLOCK_SIZE) {
-            encoder.write_all(block).map_err(error)?;
-        }
-        if !rest.is_empty() {
-            // The held input never grows past a block.
-            self.held.reserve_exact(BLOCK_SIZE);
-            self.held.extend_from_slice(rest);
-        }
+        self.blocks
+            .write(chunk, |block| encoder.write_all(block))
+            .map_err(|e| ComprsError::Operation {
+                context: self.labels.transform,
+                source: e.into(),
+            })?;
 
         Ok(std::mem::take(encoder.get_mut()))
     }
@@ -567,14 +549,13 @@ impl<E: Encoder> FlateEncoder<E> {
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
-        encoder
-            .write_all(&self.held)
+        self.blocks
+            .drain(|held| encoder.write_all(held))
             .and_then(|()| sync_flush(encoder))
             .map_err(|e| ComprsError::Operation {
                 context: self.labels.flush,
                 source: e.into(),
             })?;
-        self.held.clear();
 
         Ok(std::mem::take(encoder.get_mut()))
     }
@@ -585,7 +566,7 @@ impl<E: Encoder> FlateEncoder<E> {
             .encoder
             .take()
             .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
-        let held = std::mem::take(&mut self.held);
+        let held = self.blocks.take();
 
         encoder
             .write_all(&held)
@@ -602,7 +583,7 @@ impl<E: Encoder> FlateEncoder<E> {
         self.encoder.as_ref().map_or(0, |encoder| {
             DEFLATE_STATE_SIZE
                 + WRITER_BUFFER_SIZE
-                + self.held.capacity()
+                + self.blocks.capacity()
                 + encoder.get_ref().capacity()
         })
     }

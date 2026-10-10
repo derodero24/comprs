@@ -226,6 +226,24 @@ describe('createBrotliCompressStream', () => {
     const decompressed = brotliDecompress(compressed);
     expect(decompressed.length).toBe(0);
   });
+
+  // At qualities 0 and 1, the encoder compresses the input of each call on
+  // its own; the stream passes it 64 KiB at a time (#731).
+  it.each([0, 1])(
+    'should give the same output however the input is split into chunks at quality %i',
+    async (quality) => {
+      const input = Buffer.from('The quick brown fox jumps over the lazy dog. '.repeat(3000));
+      const compress = (chunkSize: number): Promise<Buffer> =>
+        collectStream(
+          toChunkedStream(input, chunkSize).pipeThrough(createBrotliCompressStream(quality)),
+        );
+      const whole = await compress(input.length);
+      for (const chunkSize of [100, 1000, 70_000]) {
+        expect(await compress(chunkSize)).toStrictEqual(whole);
+      }
+      expect(brotliDecompress(whole)).toStrictEqual(input);
+    },
+  );
 });
 
 describe('createBrotliDecompressStream', () => {

@@ -470,7 +470,16 @@ describe('blockBytes()', () => {
     }
     expect(
       [0, 1, 2, 3, 4, 8, 9, 11].map((quality) => blockBytes('brotli-compress', quality)),
-    ).toStrictEqual([0, 0, 16 * KiB, 16 * KiB, 64 * KiB, 64 * KiB, 256 * KiB, 256 * KiB]);
+    ).toStrictEqual([
+      64 * KiB,
+      64 * KiB,
+      16 * KiB,
+      16 * KiB,
+      64 * KiB,
+      64 * KiB,
+      256 * KiB,
+      256 * KiB,
+    ]);
     expect(blockBytes('brotli-compress', undefined)).toBe(64 * KiB);
     for (const level of [undefined, 0, 1, 6, 9]) {
       expect(blockBytes('gzip-compress', level)).toBe(32 * KiB);
@@ -491,6 +500,7 @@ describe('blockBytes()', () => {
     expect(blockMs('gzip-compress', 8)).toBeGreaterThanOrEqual(2);
     expect(blockMs('zstd-compress', 3)).toBeLessThan(2);
     expect(blockMs('brotli-compress', 3)).toBeLessThan(2);
+    expect(blockMs('brotli-compress', 1)).toBeLessThan(2);
     expect(blockMs('gzip-compress', 6)).toBeLessThan(2);
   });
 });
