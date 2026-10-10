@@ -26,7 +26,10 @@
  *      as ES modules, down to the wasm-bindgen WebAssembly module, which it
  *      fetches through `new URL('…', import.meta.url)` rather than importing
  *      it, and no `sideEffects` field lets a bundler drop its
- *      initialisation;
+ *      initialisation: neither the entry point, nor any module that a
+ *      module on the way imports for its side effects only, such as
+ *      browser/wasm.js, which browser/index.js imports to load the
+ *      WebAssembly module (browserEntryProblems() in release-utils.mjs);
  *   6. publint and attw accept that tarball;
  *   7. the root package, every platform package and the middleware package
  *      name the same GitHub repository in `repository`. They are published

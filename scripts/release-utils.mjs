@@ -337,6 +337,14 @@ const MODULE_NODE_TYPES = new Set([
 ]);
 
 /**
+ * A package file that a module loads: through `new URL()` (`url`), or by
+ * an import of the module for its side effects only, such as
+ * `import './wasm.js'` (`sideEffectsOnly`), or otherwise.
+ *
+ * @typedef {{ path: string, url: boolean, sideEffectsOnly: boolean }} Dependency
+ */
+
+/**
  * Follow every module that each browser entry point loads and check that
  * each one is a file of the package. A bare specifier fails: the browser
  * build must not depend on another package (2.0.2's browser.js imported the
@@ -345,7 +353,11 @@ const MODULE_NODE_TYPES = new Set([
  * bundle a .wasm file that is imported as an ES module. Bundlers must parse
  * every module as an ES module, which also keeps the CommonJS loaders of the
  * native addon out, and keep the entry points, which initialise the
- * WebAssembly module, when they tree-shake.
+ * WebAssembly module, when they tree-shake. They must also keep every
+ * module that a module on the way imports for its side effects only, as
+ * browser/index.js imports browser/wasm.js, which initialises the module:
+ * a bundler drops such an import when a `sideEffects` field marks the
+ * module side-effect free.
  *
  * @param {string} packageDir Extracted package.
  * @param {string[]} packed Files in the package.
@@ -361,13 +373,82 @@ export function browserEntryProblems(packageDir, packed, entries, log = console.
     problems.push('package.json declares no browser entry point');
     return problems;
   }
+  const dependenciesOf = browserDependencies(problems, packageDir, packed);
   /**
-   * The package files that each module loads, checked once per module.
+   * The modules that a module imports for their side effects only, each
+   * with the first module found to import it so.
    *
-   * @type {Map<string, string[]>}
+   * @type {Map<string, string>}
    */
+  const importers = new Map();
+  for (const entry of entries) {
+    for (const manifest of sideEffectFreeManifests(packageDir, entry)) {
+      problems.push(
+        `${manifest} marks the browser entry ${entry} as side-effect free, so bundlers may ` +
+          'drop the initialisation of the WebAssembly module',
+      );
+    }
+    const loaded = loadedFiles(entry, dependenciesOf, importers);
+    log(`Browser entry ${entry} loads: ${loaded.join(', ')}`);
+    if (!loaded.some((file) => file.endsWith('.wasm') && packed.includes(file))) {
+      problems.push(
+        `The browser entry ${entry} does not load a WebAssembly module from the package`,
+      );
+    }
+  }
+  // The entry points are checked above, and files outside the package fail
+  // already.
+  const imported = [...importers].filter(
+    ([file]) => !entries.includes(file) && packed.includes(file),
+  );
+  for (const [file, importer] of imported) {
+    for (const manifest of sideEffectFreeManifests(packageDir, file)) {
+      problems.push(
+        `${manifest} marks ${file}, which ${importer} imports for its side effects only, as ` +
+          'side-effect free, so bundlers may drop that import',
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Return the files that a browser entry point loads, directly or through
+ * other modules, and record in `importers` each module that one of them
+ * imports for its side effects only, with that module, unless it has one.
+ *
+ * @param {string} entry
+ * @param {(file: string) => Dependency[]} dependenciesOf
+ * @param {Map<string, string>} importers
+ * @returns {string[]}
+ */
+function loadedFiles(entry, dependenciesOf, importers) {
+  const seen = new Set([entry]);
+  for (const file of seen) {
+    for (const { path, sideEffectsOnly } of dependenciesOf(file)) {
+      seen.add(path);
+      if (sideEffectsOnly && !importers.has(path)) {
+        importers.set(path, file);
+      }
+    }
+  }
+  return [...seen].slice(1);
+}
+
+/**
+ * Return a function that returns the package files that a browser module
+ * loads, which checks each module once, and reports a module outside the
+ * package.
+ *
+ * @param {string[]} problems Where to report problems.
+ * @param {string} packageDir Extracted package.
+ * @param {string[]} packed Files in the package.
+ * @returns {(file: string) => Dependency[]}
+ */
+function browserDependencies(problems, packageDir, packed) {
+  /** @type {Map<string, Dependency[]>} */
   const dependencies = new Map();
-  const dependenciesOf = (/** @type {string} */ file) => {
+  return (file) => {
     let found = dependencies.get(file);
     if (found === undefined) {
       if (packed.includes(file)) {
@@ -380,22 +461,6 @@ export function browserEntryProblems(packageDir, packed, entries, log = console.
     }
     return found;
   };
-  for (const entry of entries) {
-    checkEntrySideEffects(problems, packageDir, entry);
-    const seen = new Set([entry]);
-    for (const file of seen) {
-      for (const dependency of dependenciesOf(file)) {
-        seen.add(dependency);
-      }
-    }
-    log(`Browser entry ${entry} loads: ${[...seen].slice(1).join(', ')}`);
-    if (![...seen].some((file) => file.endsWith('.wasm') && packed.includes(file))) {
-      problems.push(
-        `The browser entry ${entry} does not load a WebAssembly module from the package`,
-      );
-    }
-  }
-  return problems;
 }
 
 /**
@@ -406,7 +471,7 @@ export function browserEntryProblems(packageDir, packed, entries, log = console.
  * @param {string[]} problems Where to report problems.
  * @param {string} packageDir Extracted package.
  * @param {string} file Path relative to `packageDir`.
- * @returns {string[]}
+ * @returns {Dependency[]}
  */
 function checkBrowserModule(problems, packageDir, file) {
   if (!/\.[cm]?js$/.test(file)) {
@@ -426,32 +491,31 @@ function checkBrowserModule(problems, packageDir, file) {
         "WebAssembly ESM integration; load it through new URL('…', import.meta.url)",
     );
   }
-  return dependencies.map(({ path }) => path);
+  return dependencies;
 }
 
 /**
- * Check that no `sideEffects` field lets bundlers drop a browser entry point.
- * Vite reads the field of the package root for the entry point it resolves,
- * webpack that of the package.json nearest to the file.
+ * Return the package.json files whose `sideEffects` field lets bundlers
+ * drop a file of the package, a browser entry point or a module imported
+ * for its side effects only. Vite reads the field of the package root for
+ * the entry point it resolves, webpack that of the package.json nearest to
+ * the file.
  *
- * @param {string[]} problems Where to report problems.
  * @param {string} packageDir Extracted package.
- * @param {string} entry Path relative to `packageDir`.
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {string[]} Their paths, relative to `packageDir`.
  */
-function checkEntrySideEffects(problems, packageDir, entry) {
+function sideEffectFreeManifests(packageDir, file) {
   const manifests = [{ dir: '.', manifest: readJson(join(packageDir, 'package.json')) }];
-  const nearest = nearestManifest(packageDir, entry);
+  const nearest = nearestManifest(packageDir, file);
   if (nearest.dir !== '.') {
     manifests.push(nearest);
   }
-  for (const { dir, manifest } of manifests) {
-    if (!hasSideEffects(manifest['sideEffects'], posix.relative(dir, entry))) {
-      problems.push(
-        `${posix.join(dir, 'package.json')} marks the browser entry ${entry} as side-effect ` +
-          'free, so bundlers may drop the initialisation of the WebAssembly module',
-      );
-    }
-  }
+  return manifests
+    .filter(
+      ({ dir, manifest }) => !hasSideEffects(manifest['sideEffects'], posix.relative(dir, file)),
+    )
+    .map(({ dir }) => posix.join(dir, 'package.json'));
 }
 
 /**
@@ -509,24 +573,24 @@ function nearestManifest(packageDir, file) {
 
 /**
  * Return the package files that a JavaScript file of the package loads, and
- * whether it loads each one through `new URL()`, and report every module it
- * imports from elsewhere.
+ * how it loads each one, and report every module it imports from elsewhere.
  *
  * @param {string[]} problems Where to report problems.
  * @param {string} packageDir
  * @param {string} file Path relative to `packageDir`.
- * @returns {{ path: string, url: boolean }[]}
+ * @returns {Dependency[]}
  */
 function localDependencies(problems, packageDir, file) {
   const ast = parseAst(readFileSync(join(packageDir, file), 'utf8'));
-  /** @type {{ path: string, url: boolean }[]} */
+  /** @type {Dependency[]} */
   const dependencies = [];
-  for (const { specifier, url } of moduleReferences(ast)) {
+  for (const { specifier, url, sideEffectsOnly } of moduleReferences(ast)) {
     const local = url
       ? !/^[a-z][a-z\d+.-]*:|^\//i.test(specifier)
       : specifier.startsWith('./') || specifier.startsWith('../');
     if (local) {
-      dependencies.push({ path: posix.normalize(posix.join(posix.dirname(file), specifier)), url });
+      const path = posix.normalize(posix.join(posix.dirname(file), specifier));
+      dependencies.push({ path, url, sideEffectsOnly });
     } else {
       problems.push(
         `The browser entry module ${file} imports ${specifier}, which is not part of the package`,
@@ -539,10 +603,12 @@ function localDependencies(problems, packageDir, file) {
 /**
  * Yield the modules and assets an ES module loads: static and dynamic
  * imports, re-exports, and `new URL('…', import.meta.url)` references (the
- * way wasm-bindgen's `web` target locates its .wasm file).
+ * way wasm-bindgen's `web` target locates its .wasm file), and whether each
+ * one is an import declaration without specifiers, which imports a module
+ * for its side effects only.
  *
  * @param {unknown} node ESTree node, or an array or value inside one.
- * @returns {Generator<{ specifier: string, url: boolean }>}
+ * @returns {Generator<{ specifier: string, url: boolean, sideEffectsOnly: boolean }>}
  */
 function* moduleReferences(node) {
   if (Array.isArray(node)) {
@@ -556,11 +622,14 @@ function* moduleReferences(node) {
   }
   const source = stringLiteral(node['source']);
   if (source !== undefined && MODULE_NODE_TYPES.has(String(node['type']))) {
-    yield { specifier: source, url: false };
+    const { specifiers } = node;
+    const sideEffectsOnly =
+      node['type'] === 'ImportDeclaration' && Array.isArray(specifiers) && specifiers.length === 0;
+    yield { specifier: source, url: false, sideEffectsOnly };
   }
   const url = importMetaUrl(node);
   if (url !== undefined) {
-    yield { specifier: url, url: true };
+    yield { specifier: url, url: true, sideEffectsOnly: false };
   }
   for (const value of Object.values(node)) {
     yield* moduleReferences(value);
