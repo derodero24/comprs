@@ -3,9 +3,10 @@
 //!
 //! The TypeScript layer of the unified API is the only caller. It reads the
 //! options objects, checks their shapes and types, and passes the values on
-//! as positional arguments, so the conversion errors of napi-rs, which carry
-//! no `code`, never reach its callers. comprs-core checks the ranges and the
-//! combinations of the values.
+//! as positional arguments, so the conversion errors of napi-rs, whose
+//! `code` is a napi-rs status such as `InvalidArg` or `NumberExpected`
+//! rather than an `ERR_COMPRS_*` code, never reach its callers. comprs-core
+//! checks the ranges and the combinations of the values.
 //!
 //! The functions are registered in the `next` namespace without
 //! declarations, and [`hide`] moves the namespace off the exports, to the
