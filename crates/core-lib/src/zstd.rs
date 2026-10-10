@@ -4,6 +4,7 @@ use std::cell::RefCell;
 
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx, ResetDirective};
 
+use crate::dictionary::Dictionary;
 use crate::zstd_stream::{decode_error, zstd_error};
 use crate::{ComprsError, IntArg};
 
@@ -18,6 +19,12 @@ pub const LEVEL: IntArg<i32> = IntArg {
     min: -131072,
     max: 22,
 };
+
+/// The level that zstd compresses at for a checked `level`: level 0 selects
+/// [`DEFAULT_LEVEL`].
+pub(crate) fn effective_level(level: i32) -> i32 {
+    if level == 0 { DEFAULT_LEVEL } else { level }
+}
 
 /// The number of worker threads that compress zstd data: 0 compresses on the
 /// calling thread, and 1 to 256 on that many threads, which zstd starts in
@@ -219,27 +226,42 @@ fn compress_on_workers(
     compress_all(&mut cctx, data, context)
 }
 
-/// Compress `data` into one frame with the parameters of `cctx`. The output
-/// buffer has room for `compress_bound` bytes, which the frame never
-/// exceeds, with workers too.
+/// Compress `data` into one frame with the parameters of `cctx`.
 fn compress_all(
     cctx: &mut CCtx<'_>,
     data: &[u8],
     context: &'static str,
 ) -> Result<Vec<u8>, ComprsError> {
+    compress_bounded(data.len(), context, |output| cctx.compress2(output, data))
+}
+
+/// Run `compress`, which compresses `len` bytes into one frame, with an
+/// output buffer that has room for `compress_bound` bytes, which the frame
+/// never exceeds, with workers too.
+fn compress_bounded(
+    len: usize,
+    context: &'static str,
+    compress: impl FnOnce(&mut Vec<u8>) -> zstd_safe::SafeResult,
+) -> Result<Vec<u8>, ComprsError> {
+    let mut output = output_buffer(zstd_safe::compress_bound(len), context)?;
+    compress(&mut output).map_err(|code| ComprsError::Operation {
+        context,
+        source: zstd_error(code),
+    })?;
+    Ok(crate::finish_output(output))
+}
+
+/// An empty buffer with room for `capacity` bytes, reporting a failed
+/// allocation as an error instead of aborting.
+fn output_buffer(capacity: usize, context: &'static str) -> Result<Vec<u8>, ComprsError> {
     let mut output = Vec::new();
     output
-        .try_reserve_exact(zstd_safe::compress_bound(data.len()))
+        .try_reserve_exact(capacity)
         .map_err(|e| ComprsError::Operation {
             context,
             source: e.into(),
         })?;
-    cctx.compress2(&mut output, data)
-        .map_err(|code| ComprsError::Operation {
-            context,
-            source: zstd_error(code),
-        })?;
-    Ok(crate::finish_output(output))
+    Ok(output)
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
@@ -288,16 +310,113 @@ fn decompress_with_limit(
         .map(crate::finish_output);
     };
 
-    let mut output = Vec::new();
-    output
-        .try_reserve_exact(size)
-        .map_err(|e| ComprsError::Operation {
-            context,
-            source: e.into(),
-        })?;
+    let mut output = output_buffer(size, context)?;
     with_dctx(dict, |dctx| {
         dctx.decompress(&mut output, data)
             .map_err(|code| decode_error(code, context))
+    })?;
+    Ok(crate::finish_output(output))
+}
+
+/// Compress data using Zstandard with a prepared [`Dictionary`] on
+/// `workers` threads.
+///
+/// Unlike [`compress_with_dict`], the call does not digest the dictionary:
+/// it uses the compression dictionary that `dict` keeps for `level`. The
+/// output decodes with [`decompress_prepared`], and with
+/// [`decompress_with_dict`] and the bytes of `dict`, but can differ from
+/// that of [`compress_with_dict`] at the same level: zstd compresses small
+/// inputs with the parameters that the prepared dictionary was digested
+/// for.
+///
+/// `None` selects the level of `dict` ([`Dictionary::level`]), and
+/// `Some(0)` selects [`DEFAULT_LEVEL`], as [`LEVEL`] documents, whatever
+/// the level of `dict`. Any level other than that of `dict` needs a
+/// compression dictionary of its own, which `dict` prepares on first use
+/// and keeps, as [`Dictionary`] describes: it adds to the memory of `dict`,
+/// and can make `dict` drop another level that it kept.
+///
+/// 0 workers compress on the calling thread, with the context that the
+/// thread caches. So does an input of up to 512 KiB with any number of
+/// workers, since zstd would compress it on the calling thread anyway: its
+/// output does not depend on `workers`. With 1 or more workers and a larger
+/// input, `workers` works as in [`compress_with_dict_and_workers`], with a
+/// context for the call that refers to the prepared dictionary.
+///
+/// Fails with [`ComprsError::InvalidArg`] for a brotli dictionary, then for
+/// invalid `workers`, then for an invalid `level`.
+pub fn compress_prepared(
+    data: &[u8],
+    dict: &Dictionary,
+    level: Option<i32>,
+    workers: u32,
+) -> Result<Vec<u8>, ComprsError> {
+    const CONTEXT: &str = "zstd compress with dict";
+    let prepared_level = dict.zstd_level()?;
+    let workers = check_workers(workers)?;
+    let level = match level {
+        Some(level) => effective_level(LEVEL.check(level)?),
+        None => prepared_level,
+    };
+    let cdict = dict.zstd_cdict(level)?;
+
+    // A context for the workers would compress a short input on this thread
+    // anyway, after its creation.
+    if workers == 0 || data.len() <= MAX_SINGLE_THREADED_INPUT {
+        return with_cctx(|cctx| {
+            compress_bounded(data.len(), CONTEXT, |output| {
+                cctx.compress_using_cdict(output, data, &cdict)
+            })
+        });
+    }
+    // A context for the call, as in compress_on_workers. It refers to the
+    // compression dictionary, whose level replaces the context's.
+    let mut cctx = CCtx::create();
+    cctx.set_parameter(CParameter::NbWorkers(workers))
+        .and_then(|_| cctx.ref_cdict(&cdict))
+        .map_err(|code| ComprsError::Operation {
+            context: "zstd compressor init",
+            source: zstd_error(code),
+        })?;
+    compress_all(&mut cctx, data, CONTEXT)
+}
+
+/// Decompress Zstandard-compressed data with a prepared [`Dictionary`] into
+/// at most `limit` bytes.
+///
+/// This is [`decompress_with_dict_with_capacity`] with the decompression
+/// dictionary that `dict` prepared, instead of one digested for the call.
+/// The input may hold several frames, including skippable ones and frames
+/// compressed without a dictionary.
+///
+/// Fails with [`ComprsError::InvalidArg`] for a brotli dictionary.
+pub fn decompress_prepared(
+    data: &[u8],
+    dict: &Dictionary,
+    limit: usize,
+) -> Result<Vec<u8>, ComprsError> {
+    const CONTEXT: &str = "zstd decompress with dict";
+    let ddict = dict.zstd_ddict()?;
+    crate::require_input(data, "zstd")?;
+
+    let Some(size) = trusted_output_size(data, limit, CONTEXT)? else {
+        // The streaming decoder takes the dictionary as a reference, which
+        // the context then borrows: the context that the thread caches
+        // outlives any dictionary, so this one is created for the call.
+        let mut dctx = DCtx::create();
+        dctx.ref_ddict(ddict)
+            .map_err(|code| ComprsError::Operation {
+                context: "zstd decompressor init",
+                source: zstd_error(code),
+            })?;
+        return crate::zstd_stream::decompress_all(&mut dctx, data, limit, data.len(), CONTEXT)
+            .map(crate::finish_output);
+    };
+
+    let mut output = output_buffer(size, CONTEXT)?;
+    with_dctx(&[], |dctx| {
+        dctx.decompress_using_ddict(&mut output, data, ddict)
+            .map_err(|code| decode_error(code, CONTEXT))
     })?;
     Ok(crate::finish_output(output))
 }
@@ -324,6 +443,11 @@ thread_local! {
 /// with default parameters and no dictionary, and is cached again only if
 /// `f` succeeds and the context holds at most [`MAX_CACHED_CONTEXT_SIZE`]
 /// bytes. A nested call gets a new context of its own.
+///
+/// `f` may compress with a prepared dictionary through
+/// `compress_using_cdict`, which applies it to that frame only: zstd sets
+/// up every frame from the context's parameters, which the reset before
+/// each call restores.
 fn with_cctx<T>(
     f: impl FnOnce(&mut CCtx<'static>) -> Result<T, ComprsError>,
 ) -> Result<T, ComprsError> {
@@ -351,7 +475,9 @@ fn with_cctx<T>(
 ///
 /// Without a dictionary, this is the thread's cached context, reused as in
 /// [`with_cctx`]. A dictionary is loaded into a new context, so that the
-/// cached one never holds a dictionary.
+/// cached one never holds a dictionary. `f` may decompress with a prepared
+/// dictionary through `decompress_using_ddict`, which applies it to that
+/// call's frames only.
 fn with_dctx<T>(
     dict: &[u8],
     f: impl FnOnce(&mut DCtx<'static>) -> Result<T, ComprsError>,
@@ -862,6 +988,33 @@ mod tests {
     }
 
     #[test]
+    fn prepared_dictionaries_leave_the_cached_contexts_without_one() {
+        use crate::dictionary::DictionaryFormat;
+
+        let original = text(4096);
+        let dict = Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap();
+        let with_size = compress_prepared(&original, &dict, None, 0).unwrap();
+        assert!(cached_cctx_size().is_some());
+        let without_size = compress_with_dict_without_content_size(&original);
+        for frame in [&with_size, &without_size] {
+            let output = decompress_prepared(frame, &dict, original.len()).unwrap();
+            assert_eq!(output, original);
+        }
+        assert!(cached_dctx_size().is_some());
+
+        // The contexts that the calls used, which the thread still caches,
+        // outlive the dictionary and hold none: the frame of the dictionary
+        // does not decode without it.
+        drop(dict);
+        let frame = compress(&original, None).unwrap();
+        assert!(frame == zstd::bulk::compress(&original, DEFAULT_LEVEL).unwrap());
+        assert!(cached_cctx_size().is_some());
+        assert_eq!(decompress(&frame).unwrap(), original);
+        assert!(cached_dctx_size().is_some());
+        assert!(decompress(&with_size).is_err());
+    }
+
+    #[test]
     fn decompress_rejects_data_after_the_last_frame() {
         let mut input = compress(b"complete", None).unwrap();
         input.extend(b"trailing garbage");
@@ -920,6 +1073,36 @@ mod tests {
         assert!(decompress(&frame).is_err());
         assert!(frame == compress_with_dict_and_workers(&data, dict, Some(1), 4).unwrap());
         assert!(frame != compress_with_dict(&data, dict, Some(1)).unwrap());
+    }
+
+    #[cfg(feature = "zstdmt")]
+    #[test]
+    fn compress_prepared_with_workers_compresses_short_input_with_the_cached_context() {
+        use crate::dictionary::DictionaryFormat;
+
+        let dict = Dictionary::new(DICT, DictionaryFormat::Zstd, Some(1.0)).unwrap();
+        // zstd compresses an input of up to 512 KiB on the calling thread
+        // whatever the number of workers, so a context for the workers
+        // would only cost its creation.
+        let data = json_lines(MAX_SINGLE_THREADED_INPUT);
+        CCTX.take();
+        compress(b"small", Some(1)).unwrap();
+        let small = cached_cctx_size().unwrap();
+        let frame = compress_prepared(&data, &dict, None, 2).unwrap();
+        // The call took the cached context, whose workspace grew for the
+        // input, and gave the output of 0 workers.
+        assert!(cached_cctx_size().unwrap() > small);
+        assert!(frame == compress_prepared(&data, &dict, None, 0).unwrap());
+        assert!(decompress_prepared(&frame, &dict, data.len()).unwrap() == data);
+
+        // One more byte, and the workers compress it on a context for the
+        // call, which leaves the cached one as it was.
+        let data = json_lines(MAX_SINGLE_THREADED_INPUT + 1);
+        CCTX.take();
+        compress(b"small", Some(1)).unwrap();
+        let frame = compress_prepared(&data, &dict, None, 2).unwrap();
+        assert_eq!(cached_cctx_size(), Some(small));
+        assert!(decompress_prepared(&frame, &dict, data.len()).unwrap() == data);
     }
 
     /// Pseudo-random bytes, which zstd stores in raw blocks.

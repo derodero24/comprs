@@ -1,7 +1,8 @@
 use comprs_bench::{
     DICT_SIZE, dict_message, dict_samples, inputs, json_84kb, run_stream, stream_inputs,
 };
-use comprs_core::{zstd, zstd_stream};
+use comprs_core::dictionary::{Dictionary, DictionaryFormat};
+use comprs_core::{MAX_DECOMPRESSED_SIZE, zstd, zstd_stream};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_zstd(c: &mut Criterion) {
@@ -47,6 +48,15 @@ fn bench_zstd(c: &mut Criterion) {
     });
     c.bench_function("zstd decompress with dict json record", |b| {
         b.iter(|| zstd::decompress_with_dict(&compressed, &dict).unwrap())
+    });
+    // The same dictionary, digested once before the measurement instead of
+    // in every call.
+    let prepared = Dictionary::new(&dict, DictionaryFormat::Zstd, None).unwrap();
+    c.bench_function("zstd compress prepared dict json record", |b| {
+        b.iter(|| zstd::compress_prepared(&message, &prepared, None, 0).unwrap())
+    });
+    c.bench_function("zstd decompress prepared dict json record", |b| {
+        b.iter(|| zstd::decompress_prepared(&compressed, &prepared, MAX_DECOMPRESSED_SIZE).unwrap())
     });
 
     // Baseline: the zstd crate alone, given the output size. The difference

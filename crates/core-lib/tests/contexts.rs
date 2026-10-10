@@ -2,7 +2,10 @@
 
 mod common;
 
+use std::sync::LazyLock;
+
 use common::{BoxedContext, boxed, drive, noise, text};
+use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::gzip::{FlateWrapper, GzipHeaderOptions};
 use comprs_core::{
     ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
@@ -10,6 +13,10 @@ use comprs_core::{
 };
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
+
+/// [`DICT`], prepared for zstd.
+static PREPARED: LazyLock<Dictionary> =
+    LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap());
 
 /// Workers for the zstd contexts that take them. Builds without the zstdmt
 /// feature accept only 0.
@@ -168,6 +175,24 @@ const CODECS: &[Codec] = &[
         decompressor: |limit| boxed(zstd_stream::DecompressDictContext::new(DICT, limit)),
         compress: |data| zstd::compress_with_dict_and_workers(data, DICT, None, ZSTD_WORKERS),
         decompress: |data| zstd::decompress_with_dict(data, DICT),
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "zstd prepared dict",
+        compressor: || {
+            boxed(zstd_stream::CompressDictContext::with_prepared(
+                &PREPARED,
+                None,
+                ZSTD_WORKERS,
+            ))
+        },
+        decompressor: |limit| {
+            boxed(zstd_stream::DecompressDictContext::with_prepared(
+                &PREPARED, limit,
+            ))
+        },
+        compress: |data| zstd::compress_prepared(data, &PREPARED, None, ZSTD_WORKERS),
+        decompress: |data| zstd::decompress_prepared(data, &PREPARED, MAX_DECOMPRESSED_SIZE),
         flush_emits_input: true,
     },
     Codec {
@@ -394,12 +419,17 @@ fn compress_contexts_validate_the_level() {
         check_levels(name, new, [0, max], &[max + 1, u32::MAX]);
     }
 
-    let zstd: [(&str, NewCompressor<i32>); 2] = [
+    let zstd: [(&str, NewCompressor<i32>); 3] = [
         ("zstd", |level| {
             boxed(zstd_stream::CompressContext::new(level))
         }),
         ("zstd dict", |level| {
             boxed(zstd_stream::CompressDictContext::new(DICT, level))
+        }),
+        ("zstd prepared dict", |level| {
+            boxed(zstd_stream::CompressDictContext::with_prepared(
+                &PREPARED, level, 0,
+            ))
         }),
     ];
     for (name, new) in zstd {

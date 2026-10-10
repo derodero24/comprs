@@ -2,7 +2,8 @@
 //! it gives the data back.
 
 use comprs_core::detect::{self, Format as Detected};
-use comprs_core::{ComprsError, gzip};
+use comprs_core::dictionary::Dictionary;
+use comprs_core::{ComprsError, gzip, zstd};
 use libfuzzer_sys::arbitrary::{Error, Result, Unstructured};
 
 use crate::format::{Format, unsigned};
@@ -22,6 +23,9 @@ const MAX_DATA_LEN: usize = 256 * 1024;
 /// - one-shot and stream decompression return the data, also when the
 ///   output limit is exactly the data's length, and fail with
 ///   [`ComprsError::SizeLimit`] when it is one byte less;
+/// - a prepared zstd dictionary ([`Format::prepare`]) decompresses the
+///   output, and compresses the data into a frame that its bytes
+///   decompress;
 /// - a gzip header written with the data reads back unchanged.
 pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
     let mut u = Unstructured::new(input);
@@ -107,7 +111,32 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
             data.len()
         );
     }
+
+    if let Some(prepared) = format.prepare(dict) {
+        check_prepared(&prepared, level, &data, &compressed);
+    }
     Ok(())
+}
+
+/// Check that `prepared` decompresses `compressed` to `data`, and compresses
+/// `data` at `level` into a frame that the bytes of `prepared` decompress.
+fn check_prepared(prepared: &Dictionary, level: Option<i32>, data: &[u8], compressed: &[u8]) {
+    let limit = data.len();
+    let decompressed = zstd::decompress_prepared(compressed, prepared, limit);
+    assert!(
+        decompressed.as_deref().is_ok_and(|output| output == data),
+        "zstd decompression with a prepared dictionary failed: {:?}",
+        decompressed.err()
+    );
+    let frame = zstd::compress_prepared(data, prepared, level, 0).unwrap_or_else(|error| {
+        panic!("zstd compression with a prepared dictionary failed: {error}")
+    });
+    let decompressed = zstd::decompress_with_dict_with_capacity(&frame, prepared.raw(), limit);
+    assert!(
+        decompressed.as_deref().is_ok_and(|output| output == data),
+        "zstd decompression of a frame of a prepared dictionary with its bytes failed: {:?}",
+        decompressed.err()
+    );
 }
 
 /// Read gzip header options.

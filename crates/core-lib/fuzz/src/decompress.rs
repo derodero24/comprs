@@ -1,6 +1,6 @@
 //! Decompression of fuzzer-chosen data through every API of a format.
 
-use comprs_core::{ComprsError, gzip};
+use comprs_core::{ComprsError, gzip, zstd};
 use libfuzzer_sys::arbitrary::{Error, Result, Unstructured};
 
 use crate::format::Format;
@@ -28,6 +28,8 @@ const MAX_COMPRESSED_INPUT: usize = 2 * MAX_LIMIT;
 /// - one-shot decompression succeeds under a limit exactly when the full
 ///   output fits in it, with the same output under any larger limit, and
 ///   fails with [`ComprsError::SizeLimit`] otherwise;
+/// - zstd decompression with a prepared dictionary ([`Format::prepare`])
+///   gives the result of decompression with its bytes;
 /// - a stream context, fed in chunks, agrees with one-shot decompression
 ///   when both succeed.
 pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
@@ -70,6 +72,15 @@ pub fn fuzz_decompress(format: Format, input: &[u8]) -> Result<()> {
     let (large, peak) = heap::measure(|| format.decompress(&data, dict, MAX_LIMIT));
     check_heap(format, "one-shot", peak, MAX_LIMIT, input_len);
     check_limits(format, limit, &small, &large);
+
+    if let Some(prepared) = format.prepare(dict) {
+        for (limit, expected) in [(limit, &small), (MAX_LIMIT, &large)] {
+            let (result, peak) =
+                heap::measure(|| zstd::decompress_prepared(&data, &prepared, limit));
+            check_heap(format, "prepared one-shot", peak, limit, input_len);
+            check_prepared(&result, expected);
+        }
+    }
 
     if format == Format::Gzip && large.is_ok() {
         assert!(
@@ -161,5 +172,31 @@ fn check_limits(
             large.len()
         ),
         (Err(_), Err(_)) => {}
+    }
+}
+
+/// Check the result of zstd decompression with a prepared dictionary
+/// (`prepared`) against that of decompression with its bytes (`raw`): the
+/// same output, or the same error.
+fn check_prepared(
+    prepared: &std::result::Result<Vec<u8>, ComprsError>,
+    raw: &std::result::Result<Vec<u8>, ComprsError>,
+) {
+    match (prepared, raw) {
+        (Ok(prepared), Ok(raw)) => assert!(
+            prepared == raw,
+            "zstd output differs between a prepared dictionary and its bytes"
+        ),
+        (Err(prepared), Err(raw)) => assert_eq!(
+            prepared.to_string(),
+            raw.to_string(),
+            "zstd errors differ between a prepared dictionary and its bytes"
+        ),
+        (Ok(_), Err(error)) => {
+            panic!("zstd succeeds with a prepared dictionary but fails with its bytes: {error}")
+        }
+        (Err(error), Ok(_)) => {
+            panic!("zstd fails with a prepared dictionary but succeeds with its bytes: {error}")
+        }
     }
 }

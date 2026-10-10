@@ -6,6 +6,7 @@ use zstd::stream::raw::{InBuffer, OutBuffer};
 use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx};
 
+use crate::dictionary::{Dictionary, DictionaryFormat};
 use crate::zstd::{DEFAULT_LEVEL, LEVEL};
 use crate::{ComprsError, MemoryUsage};
 
@@ -199,6 +200,28 @@ impl CompressDictContext {
         })
     }
 
+    /// Create a context for a prepared [`Dictionary`]. `level` selects the
+    /// level as in [`crate::zstd::compress_prepared`]: `None` the level of
+    /// `dict`, and `Some(0)` [`DEFAULT_LEVEL`], whatever the level of
+    /// `dict`. `workers` works as in [`with_workers`](Self::with_workers).
+    ///
+    /// The context loads the bytes of `dict`, which zstd digests once for
+    /// the stream at its level, rather than sharing a prepared compression
+    /// dictionary: zstd-safe's `CCtx::ref_cdict` makes the context borrow
+    /// the dictionary, which a context that outlives the call cannot do
+    /// without unsafe code. No level makes `dict` prepare or drop one.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a brotli dictionary, then
+    /// for invalid `workers`, then for an invalid `level`.
+    pub fn with_prepared(
+        dict: &Dictionary,
+        level: Option<i32>,
+        workers: u32,
+    ) -> Result<Self, ComprsError> {
+        let prepared_level = dict.zstd_level()?;
+        Self::with_workers(dict.raw(), Some(level.unwrap_or(prepared_level)), workers)
+    }
+
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
         self.inner.transform(chunk)
     }
@@ -233,6 +256,20 @@ impl DecompressDictContext {
         Ok(Self {
             inner: StreamDecoder::new(decoder, max_size, "zstd stream decompress"),
         })
+    }
+
+    /// Create a context for a prepared [`Dictionary`]. Like
+    /// [`CompressDictContext::with_prepared`], it loads the bytes of `dict`
+    /// once for the stream rather than borrowing the prepared decompression
+    /// dictionary.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a brotli dictionary, then
+    /// for an invalid `max_output_size`.
+    pub fn with_prepared(
+        dict: &Dictionary,
+        max_output_size: Option<f64>,
+    ) -> Result<Self, ComprsError> {
+        Self::new(dict.raw_for(DictionaryFormat::Zstd)?, max_output_size)
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
@@ -403,7 +440,7 @@ impl StreamEncoder {
 /// Exceeding `max_output_size` fails with [`ComprsError::SizeLimit`] and
 /// `context`, which also prefixes decoder errors.
 pub(crate) fn decompress_all(
-    decoder: &mut DCtx<'static>,
+    decoder: &mut DCtx<'_>,
     input: &[u8],
     max_output_size: usize,
     initial_capacity: usize,
@@ -418,8 +455,9 @@ pub(crate) fn decompress_all(
 }
 
 /// Decoder state shared by [`DecompressContext`], [`DecompressDictContext`]
-/// and [`decompress_all`], which borrows its decoder.
-struct StreamDecoder<D: BorrowMut<DCtx<'static>> = DCtx<'static>> {
+/// and [`decompress_all`], which borrows its decoder. That decoder may
+/// itself borrow a prepared dictionary.
+struct StreamDecoder<D = DCtx<'static>> {
     /// `None` once the stream is finished.
     decoder: Option<D>,
     output_buf: Vec<u8>,
@@ -432,7 +470,7 @@ struct StreamDecoder<D: BorrowMut<DCtx<'static>> = DCtx<'static>> {
     frame_complete: bool,
 }
 
-impl<D: BorrowMut<DCtx<'static>>> StreamDecoder<D> {
+impl<'a, D: BorrowMut<DCtx<'a>>> StreamDecoder<D> {
     fn new(decoder: D, max_output_size: usize, limit_context: &'static str) -> Self {
         Self {
             decoder: Some(decoder),

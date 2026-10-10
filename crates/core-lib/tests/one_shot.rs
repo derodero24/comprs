@@ -2,13 +2,21 @@
 
 mod common;
 
+use std::sync::LazyLock;
+
 use common::{Context, drive, noise, text};
 use comprs_core::detect::{self, Format as Detected};
+use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::{
-    ComprsError, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
+    ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
+    zstd, zstd_stream,
 };
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
+
+/// [`DICT`], prepared for zstd.
+static PREPARED: LazyLock<Dictionary> =
+    LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap());
 
 type Encode = fn(&[u8]) -> Result<Vec<u8>, ComprsError>;
 type Decode = fn(&[u8]) -> Result<Vec<u8>, ComprsError>;
@@ -118,6 +126,25 @@ const CODECS: &[Codec] = &[
         decompress: |data| zstd::decompress_with_dict(data, DICT),
         decompress_with_capacity: |data, capacity| {
             zstd::decompress_with_dict_with_capacity(data, DICT, capacity)
+        },
+        after_the_stream: After::Decoded,
+    },
+    Codec {
+        name: "zstd prepared dict",
+        truncated: "zstd",
+        detected: None,
+        encoders: [
+            |data| zstd::compress_prepared(data, &PREPARED, None, 0),
+            |data| {
+                stream(
+                    zstd_stream::CompressDictContext::with_prepared(&PREPARED, None, 0),
+                    data,
+                )
+            },
+        ],
+        decompress: |data| zstd::decompress_prepared(data, &PREPARED, MAX_DECOMPRESSED_SIZE),
+        decompress_with_capacity: |data, capacity| {
+            zstd::decompress_prepared(data, &PREPARED, capacity)
         },
         after_the_stream: After::Decoded,
     },
