@@ -10,11 +10,6 @@ import {
   ZstdCompressContext,
   zstdCompressAsync,
 } from '@derodero24/comprs';
-import {
-  createBrotliCompressTransform,
-  createGzipCompressTransform,
-  createZstdCompressTransform,
-} from '@derodero24/comprs/node';
 
 import type { Encoding, LevelOptions } from './types.js';
 import { ADLER32_INITIAL, adler32, toZlib, zlibHeader, zlibTrailer } from './zlib.js';
@@ -31,10 +26,32 @@ export interface Encoder {
   flush(): Uint8Array;
   /** End the compressed stream; the encoder cannot be used afterwards. */
   finish(): Uint8Array;
+  /**
+   * Release the native state of the encoder now rather than when it is
+   * garbage-collected; the encoder cannot be used afterwards. `finish()`
+   * releases the state too, and closing a finished or closed encoder does
+   * nothing.
+   */
+  close(): void;
 }
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
+}
+
+/**
+ * Close an encoder, ignoring a failure to do so. The contexts of comprs have
+ * `close()` since 2.1, which the peer range asks for, but pnpm and Yarn only
+ * warn about an unmet peer. With an older core, `close()` is missing, and
+ * calling it would fail a response that is otherwise complete; the native
+ * state of its encoder is released when it is garbage-collected instead.
+ */
+export function closeEncoder(encoder: Encoder): void {
+  try {
+    encoder.close();
+  } catch {
+    // Left to the garbage collector.
+  }
 }
 
 /**
@@ -62,6 +79,7 @@ function createZlibEncoder(level: number | undefined): Encoder {
     },
     flush: () => frame(context.flush()),
     finish: () => frame(Buffer.concat([context.finish(), zlibTrailer(checksum)])),
+    close: () => context.close(),
   };
 }
 
@@ -79,48 +97,133 @@ export function createEncoder(encoding: Encoding, level?: LevelOptions): Encoder
   }
 }
 
-/** Create a Node.js Transform that compresses to the zlib format. */
-function createZlibCompressTransform(level: number | undefined): Transform {
-  const encoder = createZlibEncoder(level);
+/** A Node.js Transform that compresses a response body. */
+export interface CompressTransform extends Transform {
+  /**
+   * Send what was written so far right away, in a form the client can
+   * decode, like the `flush()` of the `node:zlib` streams that `compression`
+   * uses. Does nothing when nothing was written since the last flush, or
+   * once the stream has ended.
+   */
+  flush(): void;
+}
 
-  const push = (stream: Transform, output: Uint8Array): void => {
-    if (output.byteLength > 0) stream.push(output);
-  };
+/**
+ * A Node.js Transform that compresses with an encoder. Like the Hono
+ * adapter, it flushes the encoder whenever its input has no chunk ready, so
+ * that a body written slowly, or never ended, reaches the client as it is
+ * written, while chunks written together are compressed together.
+ *
+ * Destroying the stream, which happens when it ends, fails or is destroyed
+ * early, closes the encoder, so that an aborted response releases its native
+ * state right away instead of when the garbage collector gets to it.
+ *
+ * Each result is pushed as one chunk: compressed output is no larger than
+ * about the input that produced it, so it needs no slicing, unlike the
+ * output of decompression.
+ */
+class EncoderTransform extends Transform implements CompressTransform {
+  readonly #encoder: Encoder;
+  /** Whether the encoder holds input that was not flushed. */
+  #unflushed = false;
+  /** The pending check for whether the input has paused. */
+  #idleCheck: NodeJS.Immediate | undefined;
 
-  return new Transform({
-    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
-      try {
-        push(this, encoder.transform(chunk));
-        callback();
-      } catch (err) {
-        callback(toError(err));
+  constructor(encoder: Encoder) {
+    super();
+    this.#encoder = encoder;
+  }
+
+  /** Push compressed output, if there is any. */
+  #push(output: Uint8Array): void {
+    if (output.byteLength > 0) this.push(output);
+  }
+
+  /**
+   * Check whether the input has paused once the event loop has run the work
+   * that is ready now, so that the writes made in the meantime are flushed
+   * together.
+   */
+  #scheduleIdleCheck(): void {
+    if (this.#unflushed) this.#idleCheck ??= setImmediate(() => this.#checkIdle());
+  }
+
+  /** Flush the encoder unless more input is waiting. */
+  #checkIdle(): void {
+    this.#idleCheck = undefined;
+    // Input that is still waiting schedules another check: a queued chunk
+    // when it is transformed, and a write held back until the output is read
+    // when a read lets it through.
+    if (this.writableLength === 0) this.flush();
+  }
+
+  #cancelIdleCheck(): void {
+    clearImmediate(this.#idleCheck);
+    this.#idleCheck = undefined;
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
+    try {
+      // An empty write adds no input, so it must not lead to a flush, which
+      // would send an empty block.
+      if (chunk.byteLength > 0) {
+        const output = this.#encoder.transform(chunk);
+        // Set before the output is pushed: a 'data' listener that flushes
+        // during push() then flushes this chunk too, and no flush without
+        // new input follows.
+        this.#unflushed = true;
+        this.#push(output);
       }
-    },
-    flush(callback: TransformCallback): void {
-      try {
-        push(this, encoder.finish());
-        callback();
-      } catch (err) {
-        callback(toError(err));
-      }
-    },
-  });
+      this.#scheduleIdleCheck();
+      callback();
+    } catch (err) {
+      callback(toError(err));
+    }
+  }
+
+  override _read(size: number): void {
+    // A write held back until its output was read completes here, and no
+    // other write may follow it, so check whether the input has paused.
+    super._read(size);
+    this.#scheduleIdleCheck();
+  }
+
+  override _flush(callback: TransformCallback): void {
+    this.#cancelIdleCheck();
+    try {
+      this.#push(this.#encoder.finish());
+      callback();
+    } catch (err) {
+      callback(toError(err));
+    }
+  }
+
+  override _destroy(err: Error | null, callback: (error?: Error | null) => void): void {
+    this.#cancelIdleCheck();
+    closeEncoder(this.#encoder);
+    callback(err);
+  }
+
+  flush(): void {
+    // Flushing an encoder without new input would still emit an empty block.
+    if (!this.#unflushed || this.writableEnded || this.destroyed) return;
+    this.#unflushed = false;
+    try {
+      this.#push(this.#encoder.flush());
+    } catch (err) {
+      this.destroy(toError(err));
+    }
+  }
 }
 
 /**
  * Create a Node.js Transform stream for the given encoding.
  */
-export function createCompressTransform(encoding: Encoding, level?: LevelOptions): Transform {
-  switch (encoding) {
-    case 'zstd':
-      return createZstdCompressTransform(level?.zstd);
-    case 'br':
-      return createBrotliCompressTransform(level?.br);
-    case 'gzip':
-      return createGzipCompressTransform(level?.gzip);
-    case 'deflate':
-      return createZlibCompressTransform(level?.deflate);
-  }
+export function createCompressTransform(
+  encoding: Encoding,
+  level?: LevelOptions,
+): CompressTransform {
+  return new EncoderTransform(createEncoder(encoding, level));
 }
 
 /**

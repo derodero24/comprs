@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 
-import { compressBufferAsync, createEncoder, type Encoder } from './compress.js';
+import { closeEncoder, compressBufferAsync, createEncoder, type Encoder } from './compress.js';
 import { negotiate } from './negotiate.js';
 import { resolveOptions, type Settings } from './options.js';
 import { appendVary, canCompressBody, isCandidate, meetsThreshold, weakenEtag } from './shared.js';
@@ -91,6 +91,8 @@ function enqueue(controller: Controller, output: Uint8Array): boolean {
  * The encoder is flushed whenever the body has no chunk ready, so that a
  * stream that produces data slowly, or never ends, reaches the client as it
  * is produced, while chunks that come together are compressed together.
+ * A compressed stream that is cancelled or fails closes the encoder, so its
+ * native state is released right away.
  */
 function compressStream(
   reader: Reader,
@@ -104,13 +106,24 @@ function compressStream(
   let unflushed = false;
   let cancelled = false;
 
+  /**
+   * Compress a chunk of the body. An empty chunk adds no input, so it must
+   * not lead to a flush, which would send an empty block.
+   */
+  const transform = (controller: Controller, chunk: Uint8Array): boolean => {
+    if (chunk.byteLength === 0) return false;
+    unflushed = true;
+    return enqueue(controller, encoder.transform(chunk));
+  };
+
   /** Compress the next chunk; returns whether the stream got output or ended. */
   const step = async (controller: Controller): Promise<boolean> => {
+    // Once cancel() has closed the encoder, it must not be used. Every await
+    // below is followed by the same check, so this one only guards against
+    // a cancel() that comes between two steps.
+    if (cancelled) return true;
     const chunk = queued.pop();
-    if (chunk) {
-      unflushed = true;
-      return enqueue(controller, encoder.transform(chunk));
-    }
+    if (chunk) return transform(controller, chunk);
     pending ??= reader.read();
     if (unflushed && (await Promise.race([pending, nextTurn()])) === null) {
       // The body has nothing ready: send what it gave so far.
@@ -125,8 +138,7 @@ function compressStream(
       controller.close();
       return true;
     }
-    unflushed = true;
-    return enqueue(controller, encoder.transform(result.value));
+    return transform(controller, result.value);
   };
 
   return new ReadableStream<Uint8Array>({
@@ -135,14 +147,16 @@ function compressStream(
         let sent = false;
         while (!sent) sent = await step(controller);
       } catch (err) {
-        // Stop the body too, as nothing reads it any more; a body that
-        // failed by itself refuses to be cancelled.
+        // Release the encoder, and stop the body, which nothing reads any
+        // more; a body that failed by itself refuses to be cancelled.
+        closeEncoder(encoder);
         reader.cancel(err).catch(() => {});
         throw err;
       }
     },
     cancel(reason: unknown): Promise<void> {
       cancelled = true;
+      closeEncoder(encoder);
       return reader.cancel(reason);
     },
   });

@@ -1,16 +1,24 @@
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { brotliDecompressSync, constants, gunzipSync, inflateSync } from 'node:zlib';
 import {
+  BrotliCompressContext,
   brotliDecompress,
+  DeflateCompressContext,
+  GzipCompressContext,
   gzipDecompress,
+  ZstdCompressContext,
   ZstdDecompressContext,
   zstdDecompress,
 } from '@derodero24/comprs';
 import { Hono } from 'hono';
+import { etag } from 'hono/etag';
 import { stream, streamSSE, streamText } from 'hono/streaming';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { Encoder } from '../src/compress.js';
 import { comprs } from '../src/hono.js';
 import type { Encoding } from '../src/types.js';
 
@@ -18,6 +26,18 @@ const TEST_BODY = 'Hello, World! '.repeat(200);
 const TEXT = { 'Content-Type': 'text/plain' };
 const ENCODINGS: readonly Encoding[] = ['zstd', 'br', 'gzip', 'deflate'];
 const encoder = new TextEncoder();
+
+/** The context class each encoding compresses with. */
+const CONTEXTS: Record<Encoding, { prototype: Encoder }> = {
+  zstd: ZstdCompressContext,
+  br: BrotliCompressContext,
+  gzip: GzipCompressContext,
+  deflate: DeflateCompressContext,
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function createApp(options?: Parameters<typeof comprs>[0]) {
   const app = new Hono();
@@ -64,6 +84,26 @@ async function within<T>(promise: T | Promise<T>, ms = 2000): Promise<T> {
     return await Promise.race([promise, timeout]);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Run `test` with `close()` removed from a context class, as in the cores
+ * before 2.1, which some package managers install with only a warning about
+ * the peer range.
+ */
+async function withoutClose(
+  context: { prototype: Encoder },
+  test: () => Promise<void>,
+): Promise<void> {
+  const { prototype } = context;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'close');
+  if (!descriptor) throw new Error('expected close() on the prototype');
+  Reflect.deleteProperty(prototype, 'close');
+  try {
+    await test();
+  } finally {
+    Object.defineProperty(prototype, 'close', descriptor);
   }
 }
 
@@ -196,12 +236,60 @@ describe('comprs hono middleware', () => {
       const res = await rawGet(app, '/small', 'gzip');
       expect(res.headers.vary).toContain('Accept-Encoding');
     });
+
+    it('should keep Vary on a 304 when registered after etag()', async () => {
+      const app = new Hono();
+      app.use(etag());
+      app.use(comprs());
+      app.get('/', (c) => c.text(TEST_BODY));
+
+      const first = await app.request('/', { headers: { 'Accept-Encoding': 'gzip' } });
+      const tag = first.headers.get('etag');
+      if (tag === null) throw new Error('expected an ETag');
+      const res = await app.request('/', {
+        headers: { 'Accept-Encoding': 'gzip', 'If-None-Match': tag },
+      });
+      expect(res.status).toBe(304);
+      expect(res.headers.get('vary')).toBe('Accept-Encoding');
+    });
+
+    // Up to Hono 4.7.6, setting a header after next() changed the response
+    // in place, which throws for the immutable headers of fetch().
+    it('should compress a response from fetch(), whose headers are immutable', async () => {
+      const message = { message: TEST_BODY };
+      const upstream = createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(message));
+      });
+      upstream.listen(0, '127.0.0.1');
+      await once(upstream, 'listening');
+      try {
+        const address = upstream.address();
+        if (address === null || typeof address === 'string') {
+          throw new Error('expected a TCP address');
+        }
+        const app = new Hono();
+        app.use(comprs());
+        app.get('/', () => fetch(`http://127.0.0.1:${address.port}/`));
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+        expect(res.status).toBe(200);
+        expect(res.headers.get('vary')).toBe('Accept-Encoding');
+        expect(res.headers.get('content-encoding')).toBe('gzip');
+        const body = gzipDecompress(Buffer.from(await within(res.arrayBuffer())));
+        expect(JSON.parse(body.toString())).toEqual(message);
+      } finally {
+        upstream.closeAllConnections();
+        upstream.close();
+      }
+    });
   });
 
   describe('streaming', () => {
     it.each(ENCODINGS)(
       'sends what a stream that stays open has produced (%s)',
       async (encoding) => {
+        const close = vi.spyOn(CONTEXTS[encoding].prototype, 'close');
         let cancelled = false;
         const app = new Hono();
         app.use(comprs());
@@ -225,11 +313,118 @@ describe('comprs hono middleware', () => {
         expect(res.headers.get('content-encoding')).toBe(encoding);
         const reader = bodyReader(res);
         expect(await within(readUntil(reader, encoding, TEST_BODY))).toBe(TEST_BODY);
-        // Cancelling the compressed stream releases the handler's stream.
+        // Cancelling the compressed stream releases the handler's stream and
+        // the encoder.
         await reader.cancel();
         expect(cancelled).toBe(true);
+        expect(close).toHaveBeenCalledOnce();
       },
     );
+
+    it.each(['gzip', 'deflate'] as const)(
+      'sends nothing for an empty chunk while the stream waits (%s)',
+      async (encoding) => {
+        const flush = vi.spyOn(CONTEXTS[encoding].prototype, 'flush');
+        let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+        const app = new Hono();
+        app.use(comprs());
+        app.get(
+          '/',
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  source = controller;
+                  controller.enqueue(encoder.encode(TEST_BODY));
+                },
+              }),
+              { headers: TEXT },
+            ),
+        );
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': encoding } }));
+        expect(res.headers.get('content-encoding')).toBe(encoding);
+        const reader = bodyReader(res);
+        await within(readUntil(reader, encoding, TEST_BODY));
+        expect(flush).toHaveBeenCalledOnce();
+        // An empty chunk adds no input, so no empty block follows it.
+        source?.enqueue(new Uint8Array(0));
+        const next = reader.read();
+        expect(await Promise.race([next, sleep(50).then(() => 'waiting')])).toBe('waiting');
+        expect(flush).toHaveBeenCalledOnce();
+        await reader.cancel();
+      },
+    );
+
+    it('cancels the body when the context has no close()', () =>
+      withoutClose(CONTEXTS.gzip, async () => {
+        let cancelled = false;
+        const app = new Hono();
+        app.use(comprs());
+        app.get(
+          '/',
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(encoder.encode(TEST_BODY));
+                },
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+              { headers: TEXT },
+            ),
+        );
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+        const reader = bodyReader(res);
+        expect(await within(readUntil(reader, 'gzip', TEST_BODY))).toBe(TEST_BODY);
+        await reader.cancel();
+        expect(cancelled).toBe(true);
+      }));
+
+    it('stops using the encoder once the body is cancelled between two chunks', async () => {
+      let cancel: (() => void) | undefined;
+      const transform = vi
+        .spyOn(GzipCompressContext.prototype, 'transform')
+        // The first chunk gives output, which fills the compressed body's queue.
+        .mockImplementationOnce(() => Buffer.from('first'))
+        // The client cancels the body while the second chunk is compressed,
+        // which happens once the client reads.
+        .mockImplementationOnce(() => {
+          cancel?.();
+          return Buffer.alloc(0);
+        });
+      const app = new Hono();
+      app.use(comprs());
+      app.get(
+        '/',
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const part of ['first ', 'second ', 'third ']) {
+                  controller.enqueue(encoder.encode(part.repeat(200)));
+                }
+              },
+            }),
+            { headers: TEXT },
+          ),
+      );
+
+      const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+      expect(res.headers.get('content-encoding')).toBe('gzip');
+      const reader = bodyReader(res);
+      cancel = () => {
+        reader.cancel().catch(() => {});
+      };
+      const { value } = await within(reader.read());
+      expect(value).toEqual(Buffer.from('first'));
+      await sleep(10);
+      // The third chunk, which was read ahead, is left alone.
+      expect(transform).toHaveBeenCalledTimes(2);
+    });
 
     it('sends each write of an endless streamText() as it happens', async () => {
       const app = new Hono();
@@ -265,7 +460,7 @@ describe('comprs hono middleware', () => {
       );
 
       const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
-      // Server-Sent Events are not compressed, so that none is held back.
+      // Server-Sent Events are not compressed.
       expect(res.headers.get('content-encoding')).toBeNull();
       const reader = bodyReader(res);
       await within(readUntil(reader, null, 'data: event 1 '));
@@ -362,6 +557,7 @@ describe('comprs hono middleware', () => {
 
   describe('errors', () => {
     it('aborts the compressed body when the stream fails later', async () => {
+      const close = vi.spyOn(GzipCompressContext.prototype, 'close');
       let source: ReadableStreamDefaultController<Uint8Array> | undefined;
       const app = new Hono();
       app.use(comprs());
@@ -384,6 +580,7 @@ describe('comprs hono middleware', () => {
       // The stream fails once the compressed response has been returned.
       source?.error(new Error('stream failed'));
       await expect(within(res.arrayBuffer())).rejects.toThrow('stream failed');
+      expect(close).toHaveBeenCalledOnce();
     });
 
     it('passes a stream that fails at once to the error handler', async () => {

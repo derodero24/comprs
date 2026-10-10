@@ -1,0 +1,33 @@
+---
+'@derodero24/comprs-middleware': minor
+---
+
+Streamed responses of the Express and Fastify adapters now reach the client
+whenever the handler stops writing, as with the Hono middleware, instead of
+only once the encoder's buffer filled or the response ended, so a streamed
+page, a token stream or a response that never ends flows as it is written.
+Writes that come together are still compressed together. The Express
+adapter adds `res.flush()`, as `compression` does, which sends the output
+so far right away; React's `renderToPipeableStream` calls it. Importing the
+adapter adds `flush()` to the type of Express's `Response`.
+
+A streamed response that is aborted or fails now releases the native state
+of its encoder right away in every adapter, instead of when the garbage
+collector gets to it; for zstd at level 19, that state is about 90 MB. The
+Express and Fastify adapters close the encoder when the compressing stream
+is destroyed, for `deflate` as well, and the Hono middleware closes it when
+the compressed body is cancelled or its stream fails.
+
+The `@derodero24/comprs` peer range is now `^2.1.0` (1.0.0 had `^2.0.0`),
+as the middleware now calls the `close()` that 2.1 adds to the stream
+contexts; with an older core, which some package managers install with only
+a warning, an encoder is released when it is garbage-collected, as before.
+The optional `hono` peer range is now `^4.7.7` (it was `^4.0.0`): up to Hono
+4.7.6, setting a header on a finished response changes it in place, so the
+Hono middleware turned a response from `fetch()`, whose headers cannot
+change, into a 500.
+
+The README no longer claims that every 304 response gets `Vary`. A 304 gets
+it only while it keeps a compressible Content-Type, which Express's
+`res.send()` and `express.static` remove; with Hono, the 304 of `etag()`
+keeps `Vary` when `comprs()` is registered after `etag()`.

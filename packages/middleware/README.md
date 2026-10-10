@@ -18,7 +18,7 @@ HTTP compression middleware powered by [comprs](https://github.com/derodero24/co
 npm install @derodero24/comprs @derodero24/comprs-middleware
 ```
 
-`@derodero24/comprs` 2.x is a peer dependency. Fastify 5 and Hono 4 are optional peer dependencies, needed only by their adapters. Express is not a peer dependency, as the Express adapter does not use it (see [Express](#express)).
+`@derodero24/comprs` 2.1 or a later 2.x is a peer dependency. Fastify 5 and Hono 4.7.7 or a later 4.x are optional peer dependencies, needed only by their adapters. Express is not a peer dependency, as the Express adapter does not use it (see [Express](#express)).
 
 The package requires Node.js 22.12 or later. It consists of ES modules, which Node.js 22.12 and later load with `require()` as well as with `import`:
 
@@ -149,11 +149,11 @@ All adapters automatically:
 - Remove the `Content-Length` of the uncompressed body; the Fastify and Hono adapters send that of the compressed body instead when the body is in memory
 - Turn a strong `ETag` into a weak one (`W/"..."`) on compressed responses, since a strong tag must differ between the compressed and the uncompressed representation ([RFC 9110, section 8.8.3.3](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3.3))
 - Send `deflate` in the zlib format (RFC 1950), as [RFC 9110, section 8.4.1.2](https://www.rfc-editor.org/rfc/rfc9110#section-8.4.1.2) defines the coding
-- Set `Vary: Accept-Encoding` on every response whose headers allow compression (none of the first four conditions below applies, and the `filter`, as well as `shouldCompress` on Fastify, returns `true`), whether or not this request gets compressed: also for `HEAD` requests, requests without `Accept-Encoding`, 304 responses and responses below the threshold. Other responses are never compressed and do not get it.
+- Set `Vary: Accept-Encoding` on every response whose headers allow compression (none of the first four conditions below applies, and the `filter`, as well as `shouldCompress` on Fastify, returns `true`), whether or not this request gets compressed: also for `HEAD` requests, requests without `Accept-Encoding`, and responses below the threshold. Other responses are never compressed and do not get it. A 304 response gets `Vary` only while it keeps a compressible Content-Type: Express's `res.send()` and `express.static` remove the Content-Type from their 304 responses, which therefore get no `Vary`. With Hono, the 304 of `etag()` keeps `Vary` when `comprs()` is registered after `etag()`, so that it runs inside `etag()`: `Vary` is then added before `etag()` turns the response into a 304. In that order, however, `comprs()` also compresses the bodies that `etag()` then replaces with a 304, and `etag()` hashes the compressed bytes, so its tag changes with the encoding, the compression level and the version of the codec. A cache that refreshes a stored response with a 304 keeps the `Vary` it stored ([RFC 9111, section 4.3.4](https://www.rfc-editor.org/rfc/rfc9111#section-4.3.4)).
 - Skip compression when:
   - Response already has `Content-Encoding`
   - `Cache-Control: no-transform` is set
-  - Content-Type is not compressible (images, etc.) or is `text/event-stream`, whose events would otherwise be held back by the compressor
+  - Content-Type is not compressible (images, etc.) or is `text/event-stream`, as with Hono's `compress()`: each Server-Sent Event should reach the client as soon as it is written, so compressing the stream would cost a flush per event
   - Content-Type is not set
   - Response has no content: status 1xx, 204 or 304, or an empty body
   - Response is a range: status 206 or a `Content-Range` header, whose offsets count uncompressed bytes
@@ -170,13 +170,16 @@ A compressed response keeps the behavior of a plain `ServerResponse`:
 - `res.write()` returns `false` while the client reads more slowly than the handler writes, and `'drain'` follows, so `stream.pipe(res)` pauses instead of buffering the body.
 - Writes after `res.end()` fail with `ERR_STREAM_WRITE_AFTER_END`, and callbacks passed to `res.end()` run once the response has finished.
 - A compression error aborts the response, and the compressor is released when the response closes, including when the client disconnects.
+- Whenever the handler stops writing, the client receives what it has written so far, so a response that never ends still flows. Writes that come together are compressed together.
+
+The adapter also adds `res.flush()`, as [`compression`](https://github.com/expressjs/compression) does: it sends the compressed output of what was written so far right away, without waiting for the handler to stop writing. React's `renderToPipeableStream` calls it when the destination has it. It does nothing when the response is not compressed or has ended. Importing the adapter adds `flush()` to the type of Express's `Response`.
 
 ### Fastify
 
 The Fastify plugin compresses every payload type Fastify sends:
 
 - A `string`, `Buffer` or `Uint8Array` is compressed in one call that runs on the libuv thread pool, so the event loop is not held up, and is sent with the `Content-Length` of the compressed body. If compression fails, the payload is sent uncompressed and a warning is logged.
-- A Node.js stream, a Web `ReadableStream`, or the body of a `Response` is compressed while it is sent. Its size is unknown, so the threshold only applies when the reply declares a `Content-Length`. The status and headers of a `Response` are applied to the reply first, as Fastify does, so the built-in checks and the filters see them.
+- A Node.js stream, a Web `ReadableStream`, or the body of a `Response` is compressed while it is sent. Whenever the stream stops producing data, the client receives what it has produced so far, so a stream that never ends still flows. Its size is unknown, so the threshold only applies when the reply declares a `Content-Length`. The status and headers of a `Response` are applied to the reply first, as Fastify does, so the built-in checks and the filters see them.
 
 Set `config: { compress: false }` on a route to leave its replies alone: they are neither compressed nor given `Vary`. The `compress` field is added to Fastify's route config type when the plugin is imported.
 

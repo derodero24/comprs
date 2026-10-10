@@ -198,8 +198,10 @@ const plugin: FastifyPluginAsync<FastifyComprsOptions> = async (
  * `string`, `Buffer` and `Uint8Array` payloads are compressed in one call
  * off the event loop and sent with a Content-Length; Node.js streams, Web
  * `ReadableStream`s and the body of a `Response` are compressed while they
- * are sent. Set `config: { compress: false }` on a route to leave its
- * replies alone.
+ * are sent. Whenever such a stream stops producing data, the client
+ * receives what it has produced so far, so a stream that never ends still
+ * flows. Set `config: { compress: false }` on a route to leave its replies
+ * alone.
  *
  * The plugin is wrapped with `fastify-plugin`: it applies to the routes of
  * the context it is registered in, including those of child contexts, and
