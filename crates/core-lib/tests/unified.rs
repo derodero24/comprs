@@ -12,7 +12,9 @@ use comprs_core::unified::{
     self, CompressContext, CompressOptions, DecompressContext, DecompressOptions, Detection,
     DictionaryRef, Format, GzipHeaderOptions,
 };
-use comprs_core::{ComprsError, MemoryUsage, brotli, detect, gzip, lz4, zstd, zstd_stream};
+use comprs_core::{
+    ComprsError, MemoryUsage, brotli, brotli_stream, detect, gzip, lz4, zstd, zstd_stream,
+};
 use flate2::{Decompress, FlushDecompress};
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary of the words";
@@ -1048,6 +1050,35 @@ fn brotli_dictionaries_give_the_output_of_the_per_format_functions() {
             let streamed = drive(&mut ctx, &input, &[1000]).unwrap();
             assert_eq!(streamed, expected, "quality {quality}");
         }
+    }
+}
+
+/// A brotli compression stream with a dictionary holds at most the first
+/// [`brotli_stream::DICT_REACH`] bytes of input, and then streams.
+#[test]
+fn brotli_dictionary_streams_hold_at_most_the_dictionary_reach() {
+    let input = text(brotli_stream::DICT_REACH + 64 * 1024);
+    for dictionary in [
+        DictionaryRef::Raw(DICT),
+        DictionaryRef::Prepared(&BROTLI_DICT),
+    ] {
+        let options = CompressOptions {
+            level: Some(2.0),
+            dictionary: Some(dictionary),
+            ..CompressOptions::default()
+        };
+        let mut ctx = CompressContext::new(Format::Brotli, &options).unwrap();
+        let mut output = Vec::new();
+        for chunk in input.chunks(1024 * 1024) {
+            output.extend(ctx.transform(chunk).unwrap());
+            if output.is_empty() {
+                assert!(ctx.memory_usage() <= DICT.len() + brotli_stream::DICT_REACH);
+            }
+        }
+        // The output of the first 4 MiB came before the end of the input.
+        assert!(!output.is_empty());
+        output.extend(ctx.finish().unwrap());
+        check_dictionary_decoding(Format::Brotli, &BROTLI_DICT, &input, &[output]);
     }
 }
 
