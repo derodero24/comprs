@@ -203,7 +203,7 @@ jobs:
     environment: npm-publish
     permissions:
       contents: write # napi prepublish creates the GitHub release
-      id-token: write # npm provenance
+      id-token: write # npm provenance and trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -228,9 +228,17 @@ jobs:
       - name: Assemble the npm packages
         run: node scripts/prepare-release.mjs --artifacts-dir artifacts
 
-      # First publish: use granular access token (NPM_TOKEN secret).
-      # After packages exist on npm, switch to OIDC trusted publishing
-      # and remove NPM_TOKEN.
+      # npm 11.5.1 and later publish through trusted publishing (OIDC) when
+      # the package has a trusted publisher for this workflow file
+      # (release.yml) and the npm-publish environment, and with
+      # NODE_AUTH_TOKEN otherwise; CI's release-dry-run job checks the npm
+      # version that .nvmrc brings. The `npm publish` calls with which napi
+      # prepublish (the prepublishOnly script) publishes the platform
+      # packages inherit this step's environment and do the same. Both
+      # publish steps must stay in release.yml and in the npm-publish
+      # environment, because the trusted publishers name them.
+      # NODE_AUTH_TOKEN and the NPM_TOKEN secret go once every package has
+      # published through OIDC (#584; see Releases in CONTRIBUTING.md).
       - name: Publish core to npm
         run: npm publish --provenance --access public
         env:
@@ -255,7 +263,7 @@ jobs:
     environment: npm-publish
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # npm provenance and trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -290,6 +298,7 @@ jobs:
           # pnpm pack writes the version in its place.
           TARBALL="${RUNNER_TEMP}/comprs-middleware.tgz"
           pnpm --dir packages/middleware pack --out "$TARBALL"
+          # Authenticates like the core publish (see the publish job).
           npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

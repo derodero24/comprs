@@ -27,7 +27,14 @@
  *      fetches through `new URL('…', import.meta.url)` rather than importing
  *      it, and no `sideEffects` field lets a bundler drop its
  *      initialisation;
- *   6. publint and attw accept that tarball.
+ *   6. publint and attw accept that tarball;
+ *   7. the root package, every platform package and the middleware package
+ *      name the same GitHub repository in `repository`. They are published
+ *      with provenance, and npm rejects a package (E422) whose
+ *      `repository.url` does not match the repository that the provenance
+ *      names. `napi prepublish` publishes the platform packages before the
+ *      root package, and the middleware is published last, so a mismatch in
+ *      any of them would fail the release halfway.
  *
  * Usage:
  *   node scripts/check-release.mjs [--allow-missing-targets]
@@ -52,6 +59,7 @@ import {
   ROOT,
   readJson,
   readRelease,
+  repositoryUrlProblems,
   run,
   runMain,
   runTool,
@@ -134,6 +142,7 @@ await runMain(async () => {
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
+  await step('Repository metadata', () => checkRepositoryUrls(release));
 
   if (problems.length > 0) {
     throw new Error(
@@ -244,6 +253,26 @@ function checkPlatformManifest(release, target) {
         `${release.version}; run napi version`,
     );
   }
+}
+
+/**
+ * Check that every package the release publishes names the root package's
+ * GitHub repository. A platform package without a package.json is left to
+ * checkManifests, which reports it.
+ *
+ * @param {Release} release
+ */
+function checkRepositoryUrls(release) {
+  const platformManifests = release.targets
+    .map((target) => join(target.packageDir, 'package.json'))
+    .filter((path) => existsSync(path));
+  const otherManifests = [...platformManifests, join(ROOT, 'packages/middleware/package.json')];
+  const manifests = [
+    { path: 'package.json', json: release.packageJson },
+    ...otherManifests.map((path) => ({ path: relative(ROOT, path), json: readJson(path) })),
+  ];
+  problems.push(...repositoryUrlProblems(manifests));
+  console.log(`Checked the repository URLs of ${manifests.map(({ path }) => path).join(', ')}.`);
 }
 
 /**

@@ -87,6 +87,103 @@ export function isRecord(value) {
 }
 
 /**
+ * @typedef {object} Manifest
+ * @property {string} path Path of the package.json, as problems name it.
+ * @property {Record<string, unknown>} json Its parsed contents.
+ */
+
+/**
+ * Check the `repository` URLs of the packages that the release publishes
+ * with provenance: the registry rejects a package whose `repository.url`
+ * does not name the GitHub repository that built it.
+ *
+ * Each URL is compared without a leading `git+`, a trailing `.git` and a
+ * trailing `/`. The root package's must name a GitHub repository, and every
+ * other package's must name the same one. The root package stands in for the
+ * repository that runs the release, so that CI passes in forks as well.
+ *
+ * @param {Manifest[]} manifests The root package.json first.
+ * @returns {string[]} The problems found, each naming its package.json.
+ */
+export function repositoryUrlProblems(manifests) {
+  const [root, ...others] = manifests;
+  if (root === undefined) {
+    return [];
+  }
+  const rootUrl = repositoryUrl(root.json);
+  if (rootUrl === undefined || !isGitHubRepositoryUrl(rootUrl)) {
+    return [
+      `${root.path} must name a GitHub repository, https://github.com/<owner>/<repository>, ` +
+        `but has ${describeRepositoryUrl(rootUrl)}`,
+    ];
+  }
+  return others
+    .map(({ path, json }) => ({ path, url: repositoryUrl(json) }))
+    .filter(({ url }) => url !== rootUrl)
+    .map(
+      ({ path, url }) =>
+        `${path} must name the repository ${rootUrl}, as ${root.path} does, ` +
+        `but has ${describeRepositoryUrl(url)}`,
+    );
+}
+
+/** The characters of a GitHub owner or repository name. */
+const GITHUB_NAME = /^[\w.-]+$/;
+
+/**
+ * Whether `url` is exactly `https://github.com/<owner>/<repository>`: parsed
+ * as a URL, without credentials, a port, a query, a fragment or more path.
+ *
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isGitHubRepositoryUrl(url) {
+  if (!URL.canParse(url) || /[?#]/.test(url)) {
+    return false;
+  }
+  const { protocol, username, password, host, pathname } = new URL(url);
+  const [, owner, repository, ...rest] = pathname.split('/');
+  return (
+    protocol === 'https:' &&
+    username === '' &&
+    password === '' &&
+    host === 'github.com' &&
+    rest.length === 0 &&
+    owner !== undefined &&
+    GITHUB_NAME.test(owner) &&
+    repository !== undefined &&
+    GITHUB_NAME.test(repository)
+  );
+}
+
+/**
+ * @param {string | undefined} url
+ * @returns {string}
+ */
+function describeRepositoryUrl(url) {
+  return url === undefined ? 'no repository URL' : `the repository URL ${url}`;
+}
+
+/**
+ * Return the URL of a package's `repository` field, a string or the `url` of
+ * an object, without a leading `git+`, a trailing `.git` and a trailing `/`.
+ *
+ * @param {Record<string, unknown>} manifest
+ * @returns {string | undefined}
+ */
+function repositoryUrl(manifest) {
+  const { repository } = manifest;
+  const url = isRecord(repository) ? repository['url'] : repository;
+  if (typeof url !== 'string') {
+    return undefined;
+  }
+  return url
+    .replace(/^git\+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/, '');
+}
+
+/**
  * Return the `napi` arguments that limit a command to some of the configured
  * targets, through a temporary config file that overrides `napi.targets`.
  * The file is removed when the process exits.
