@@ -37,7 +37,10 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
-  # another PR's branch) and PRs into main are checked too.
+  # another PR's branch) and PRs into main are checked too. Unlike pushes to
+  # develop, they run it for a change to any workflow, so that Workflow Lint
+  # checks it before it is merged; a merge that changes only a workflow that
+  # CI neither calls nor mirrors then does not run the full matrix on develop.
   pull_request:
     paths:
       - 'crates/**'
@@ -49,7 +52,6 @@ on:
       - 'Cargo.lock'
       - 'tsconfig*.json'
       - 'biome.json'
-      - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
@@ -70,8 +72,7 @@ on:
       - '.cargo/**'
       - 'rust-toolchain*'
       - '.nvmrc'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/release.yml'
+      - '.github/workflows/**'
 
 # A newer push to a pull request cancels its running CI. Pushes to develop get
 # a group per commit instead: sharing one group would still replace a pending
@@ -216,6 +217,44 @@ jobs:
       # packages/middleware/__test__/package.spec.ts checks it instead.
       - name: Validate middleware TypeScript type resolution
         run: pnpm --filter @derodero24/comprs-middleware attw
+
+  # actionlint checks the workflows: their syntax, expressions and contexts,
+  # the inputs of the actions they use, and, with shellcheck, their run:
+  # scripts. Parts of release.yml run only during a release, so a mistake
+  # there would otherwise surface only then. The job downloads actionlint's
+  # release binary and checks its SHA-256, rather than running its Docker
+  # image, which comes from Docker Hub, whose pull limit for anonymous users
+  # can fail a job (#664). To update actionlint, take the hash of the
+  # linux_amd64 archive from the checksums file of the release. shellcheck
+  # is pinned too, as a newer version can report new findings.
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install shellcheck
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: shellcheck@0.11.0
+      - name: Install actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+      # actionlint skips the shellcheck checks without a word when it cannot
+      # run shellcheck, so the step first makes sure that it can.
+      - name: Lint the workflows
+        run: |
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint" -color
 
   audit:
     name: Dependency Audit
@@ -795,7 +834,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

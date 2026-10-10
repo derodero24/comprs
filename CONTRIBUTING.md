@@ -103,6 +103,14 @@ pnpm run build:js     # Modules and declarations compiled from src/
 
 Clippy runs with `-D warnings` in CI, in the pre-push hook and in `pnpm run verify`, so any warning, from rustc or from clippy, fails it. CI lints with the latest stable Rust, whose new lints can fail a pull request that did not touch the code they flag; fix what they report. The Fuzz workflow lints the fuzz crate the same way (`cargo clippy --all-targets -- -D warnings` in `crates/core-lib/fuzz`).
 
+After changing a workflow in `.github/workflows/`, check it with [actionlint](https://github.com/rhysd/actionlint), which CI's Workflow Lint job runs. Its Docker image includes shellcheck, which actionlint runs on the `run:` scripts:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+```
+
+An installed `actionlint` works too (`actionlint -color`), but it checks the scripts only when `shellcheck` is installed as well, and skips them without a word otherwise.
+
 CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails when the coverage falls below the thresholds in `vitest.config.mts` and writes the report to `coverage/`. It also measures the Rust tests of comprs-core with `cargo llvm-cov`, without the napi and wasm-bindgen bindings, which only the JS tests run; both reports go to Codecov.
 
 CI also tests the WebAssembly build. To run these tests locally:
