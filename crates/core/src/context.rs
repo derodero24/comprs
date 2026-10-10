@@ -1,7 +1,7 @@
 //! Module setup, which installs the panic hook for the panics that
-//! comprs-core recovers from and adds `[Symbol.dispose]()` to the stream
-//! context classes, and the native state and shared methods of those
-//! classes.
+//! comprs-core recovers from, hides the binding of the unified API and adds
+//! `[Symbol.dispose]()` to the stream context classes, and the native state
+//! and shared methods of those classes.
 
 use std::panic;
 use std::sync::Once;
@@ -32,8 +32,8 @@ const CONTEXT_CLASSES: [&str; 14] = [
 ];
 
 /// Set up the module once napi-rs has registered its exports: keep the
-/// panics that comprs-core recovers from off stderr, and make the stream
-/// contexts disposable.
+/// panics that comprs-core recovers from off stderr, hide the binding of the
+/// unified API, and make the stream contexts disposable.
 ///
 /// The contexts get `[Symbol.dispose]()` as an alias of `close()`, so that a
 /// `using` declaration closes its context at the end of the scope. napi-rs
@@ -41,8 +41,10 @@ const CONTEXT_CLASSES: [&str; 14] = [
 /// once the classes are registered. Runtimes without `Symbol.dispose` go
 /// without it.
 #[napi(module_exports)]
-pub fn init(exports: Object, env: Env) -> napi::Result<()> {
+pub fn init(mut exports: Object, env: Env) -> napi::Result<()> {
     quiet_recovered_panics();
+    // Before the return below, so that every runtime gets the binding.
+    crate::next::hide(&env, &mut exports)?;
     // `Symbol` and the classes are functions, which the checked getters
     // reject as objects.
     let dispose: Unknown = env

@@ -11,7 +11,7 @@ use comprs_core::ComprsError;
 use napi::Task;
 use napi::bindgen_prelude::*;
 
-use crate::error::to_napi_error;
+use crate::error::{coded_error, to_napi_error};
 
 /// How a [`OneShot`] task settles its Promise. Both functions run on the
 /// JavaScript thread, so they can create JavaScript values.
@@ -48,6 +48,27 @@ impl Settle for LegacyBuffer {
 
     fn reject(_env: &Env, err: ComprsError) -> Error {
         to_napi_error(err)
+    }
+}
+
+/// Settles as the functions of the unified API (`@derodero24/comprs/next`)
+/// do: resolves to a plain `Uint8Array` that holds the output, and rejects
+/// with the error of [`coded_error`], which carries the code of the error's
+/// category.
+pub struct NextBytes;
+
+impl Settle for NextBytes {
+    type JsValue = Uint8Array;
+
+    fn resolve(_env: &Env, output: Vec<u8>) -> Result<Uint8Array> {
+        // As with `LegacyBuffer`, the output stays in the memory of the
+        // addon: a copy into memory that V8 allocates would run here, on the
+        // JavaScript thread, which the `*Async` functions keep the work off.
+        Ok(Uint8Array::from(output))
+    }
+
+    fn reject(env: &Env, err: ComprsError) -> Error {
+        coded_error(env, &err)
     }
 }
 

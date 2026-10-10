@@ -12,6 +12,10 @@ mod gzip;
 mod gzip_stream;
 mod lz4;
 mod lz4_stream;
+// Public, as the modules re-exported below are, so that the test build, in
+// which napi-rs registers no functions, does not report them as unused. Not
+// re-exported: its functions share the names of the root API's.
+pub mod next;
 mod task;
 mod zstd;
 mod zstd_stream;

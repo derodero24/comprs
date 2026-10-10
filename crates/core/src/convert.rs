@@ -1,22 +1,26 @@
-//! Conversion of the output of comprs-core into the `Buffer`s that the
-//! bindings return.
+//! Conversion of the output of comprs-core into the `Buffer`s and the
+//! `Uint8Array`s that the bindings return.
+
+use std::ptr;
 
 use comprs_core::ComprsError;
-use napi::bindgen_prelude::{Buffer, BufferSlice, Env};
+use napi::bindgen_prelude::{Buffer, BufferSlice, Env, FromNapiValue, Uint8Array};
+use napi::{check_status, sys};
 
 use crate::error::to_napi_error;
 
 /// Largest result, in bytes, that the synchronous functions and the methods
 /// of the stream contexts return in memory that V8 allocates.
 ///
-/// `Buffer::from(Vec<u8>)` hands the memory of the `Vec` to JavaScript as an
-/// external buffer. Node.js frees that memory only on a later turn of the
-/// event loop, even once V8 has collected the Buffer, so a synchronous loop
-/// gets none of it back and page-faults fresh memory on every call (#560).
-/// Node.js also marks external buffers as untransferable, so such a result
-/// cannot be transferred to a worker there (`DataCloneError`). A copy into
-/// memory that V8 allocates frees the `Vec` at once, and V8 frees the copy
-/// as soon as it collects it.
+/// `Buffer::from(Vec<u8>)`, like `Uint8Array::from(Vec<u8>)`, hands the
+/// memory of the `Vec` to JavaScript as an external buffer. Node.js frees
+/// that memory only on a later turn of the event loop, even once V8 has
+/// collected the Buffer, so a synchronous loop gets none of it back and
+/// page-faults fresh memory on every call (#560). Node.js also marks
+/// external buffers as untransferable, so such a result cannot be
+/// transferred to a worker there (`DataCloneError`). A copy into memory
+/// that V8 allocates frees the `Vec` at once, and V8 frees the copy as soon
+/// as it collects it.
 ///
 /// The copy takes about 0.1 ms per MiB. A synchronous loop saves more than
 /// that in page faults, measured with glibc for results of up to 16 MiB; at
@@ -51,4 +55,54 @@ pub(crate) fn to_buffer(env: &Env, data: Vec<u8>, limit: usize) -> napi::Result<
 /// error to throw.
 pub(crate) fn sync_result(env: &Env, result: Result<Vec<u8>, ComprsError>) -> napi::Result<Buffer> {
     to_buffer(env, result.map_err(to_napi_error)?, SYNC_COPY_LIMIT)
+}
+
+/// Return `data` as a plain `Uint8Array`: a copy in memory that V8
+/// allocates if `data` holds at most `limit` bytes, which frees `data` right
+/// away, and `data` itself as an external buffer otherwise.
+pub(crate) fn to_uint8array(env: &Env, data: Vec<u8>, limit: usize) -> napi::Result<Uint8Array> {
+    // napi-rs creates an empty array in V8's memory for an empty `Vec`,
+    // which `copy_to_v8` does not take.
+    if data.is_empty() || data.len() > limit {
+        return Ok(Uint8Array::from(data));
+    }
+    copy_to_v8(env, &data)
+}
+
+/// A new `Uint8Array` that holds a copy of `data`, which must not be empty,
+/// in an `ArrayBuffer` of its own that V8 allocates.
+///
+/// napi-rs 3.14's `Uint8ArraySlice::copy_from` creates such an array without
+/// copying the data into it, which leaves it zero-filled, so this function
+/// calls Node-API itself. (`BufferSlice::copy_from`, which [`to_buffer`]
+/// uses, calls `napi_create_buffer_copy` and does copy.)
+fn copy_to_v8(env: &Env, data: &[u8]) -> napi::Result<Uint8Array> {
+    let env = env.raw();
+    let mut memory = ptr::null_mut();
+    let mut buffer = ptr::null_mut();
+    let mut array = ptr::null_mut();
+    // SAFETY: `env` is the environment of the current call. A successful
+    // napi_create_arraybuffer sets `memory` to the start of the
+    // `data.len()` bytes of the new `buffer`, which no JavaScript code can
+    // reach yet; `data` is not empty, so `memory` is not null. `array` is
+    // then a Uint8Array over all of `buffer`, as
+    // `Uint8Array::from_napi_value` requires.
+    unsafe {
+        check_status!(sys::napi_create_arraybuffer(
+            env,
+            data.len(),
+            &mut memory,
+            &mut buffer
+        ))?;
+        ptr::copy_nonoverlapping(data.as_ptr(), memory.cast::<u8>(), data.len());
+        check_status!(sys::napi_create_typedarray(
+            env,
+            sys::TypedarrayType::uint8_array,
+            data.len(),
+            buffer,
+            0,
+            &mut array
+        ))?;
+        Uint8Array::from_napi_value(env, array)
+    }
 }
