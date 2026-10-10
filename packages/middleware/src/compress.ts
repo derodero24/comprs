@@ -66,7 +66,9 @@ function createZlibEncoder(level: number | undefined): Encoder {
   let checksum = ADLER32_INITIAL;
 
   const frame = (output: Uint8Array): Uint8Array => {
-    if (!header || output.byteLength === 0) return output;
+    if (!header || output.byteLength === 0) {
+      return output;
+    }
     const framed = Buffer.concat([header, output]);
     header = undefined;
     return framed;
@@ -136,7 +138,9 @@ class EncoderTransform extends Transform implements CompressTransform {
 
   /** Push compressed output, if there is any. */
   #push(output: Uint8Array): void {
-    if (output.byteLength > 0) this.push(output);
+    if (output.byteLength > 0) {
+      this.push(output);
+    }
   }
 
   /**
@@ -145,7 +149,9 @@ class EncoderTransform extends Transform implements CompressTransform {
    * together.
    */
   #scheduleIdleCheck(): void {
-    if (this.#unflushed) this.#idleCheck ??= setImmediate(() => this.#checkIdle());
+    if (this.#unflushed) {
+      this.#idleCheck ??= setImmediate(() => this.#checkIdle());
+    }
   }
 
   /** Flush the encoder unless more input is waiting. */
@@ -154,7 +160,9 @@ class EncoderTransform extends Transform implements CompressTransform {
     // Input that is still waiting schedules another check: a queued chunk
     // when it is transformed, and a write held back until the output is read
     // when a read lets it through.
-    if (this.writableLength === 0) this.flush();
+    if (this.writableLength === 0) {
+      this.flush();
+    }
   }
 
   #cancelIdleCheck(): void {
@@ -206,7 +214,9 @@ class EncoderTransform extends Transform implements CompressTransform {
 
   flush(): void {
     // Flushing an encoder without new input would still emit an empty block.
-    if (!this.#unflushed || this.writableEnded || this.destroyed) return;
+    if (!this.#unflushed || this.writableEnded || this.destroyed) {
+      return;
+    }
     this.#unflushed = false;
     try {
       this.#push(this.#encoder.flush());

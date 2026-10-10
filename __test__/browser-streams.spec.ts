@@ -467,7 +467,9 @@ describe.skipIf(!HAS_WASM_BUILD)('browser streams module', () => {
   it('accepts an ArrayBuffer from another realm', async () => {
     // As from an iframe: instanceof ArrayBuffer is false for it.
     const foreign: unknown = runInNewContext(`new ArrayBuffer(${compressed.zstd.byteLength})`);
-    if (!isArrayBuffer(foreign)) throw new Error('expected an ArrayBuffer');
+    if (!isArrayBuffer(foreign)) {
+      throw new Error('expected an ArrayBuffer');
+    }
     expect(foreign).not.toBeInstanceOf(ArrayBuffer);
     new Uint8Array(foreign).set(compressed.zstd);
     const output = await pipe(browser.createZstdDecompressStream(), [foreign]);

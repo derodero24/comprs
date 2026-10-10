@@ -37,7 +37,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);

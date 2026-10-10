@@ -71,7 +71,9 @@ function readUntil(res: IncomingMessage, expected: string): Promise<string> {
       chunks.push(chunk);
       const data = Buffer.concat(chunks);
       const text = gunzipSync(data, { finishFlush: constants.Z_SYNC_FLUSH }).toString();
-      if (text.includes(expected)) resolve(text);
+      if (text.includes(expected)) {
+        resolve(text);
+      }
     });
     res.on('end', () => reject(new Error(`the body ended before ${JSON.stringify(expected)}`)));
     res.on('error', reject);

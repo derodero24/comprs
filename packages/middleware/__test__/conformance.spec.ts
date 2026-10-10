@@ -66,7 +66,9 @@ async function listen(server: Server): Promise<Client> {
     await once(server, 'close');
   });
   const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('expected a TCP address');
+  if (address === null || typeof address === 'string') {
+    throw new Error('expected a TCP address');
+  }
   return httpClient(address.port);
 }
 
@@ -84,7 +86,9 @@ function httpClient(port: number): Client {
   return (path, init = {}) =>
     new Promise((resolve, reject) => {
       const headers: Record<string, string> = {};
-      if (init.acceptEncoding !== undefined) headers['Accept-Encoding'] = init.acceptEncoding;
+      if (init.acceptEncoding !== undefined) {
+        headers['Accept-Encoding'] = init.acceptEncoding;
+      }
       const method = init.method ?? 'GET';
       const req = request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
         const chunks: Buffer[] = [];
@@ -167,10 +171,14 @@ const adapters: Adapter[] = [
       }
       return Promise.resolve(async (path: string, init: RequestInit = {}) => {
         const headers = new Headers();
-        if (init.acceptEncoding !== undefined) headers.set('Accept-Encoding', init.acceptEncoding);
+        if (init.acceptEncoding !== undefined) {
+          headers.set('Accept-Encoding', init.acceptEncoding);
+        }
         const res = await app.request(path, { method: init.method ?? 'GET', headers });
         const received: Record<string, string> = {};
-        for (const [name, value] of res.headers) received[name] = value;
+        for (const [name, value] of res.headers) {
+          received[name] = value;
+        }
         return {
           status: res.status,
           headers: received,

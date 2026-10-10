@@ -31,7 +31,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -762,7 +764,9 @@ describe('brotli dictionary compression streams', () => {
     const written = writer.write(data);
     const first = await reader.read();
     await written;
-    if (first.done) throw new Error('the stream ended early');
+    if (first.done) {
+      throw new Error('the stream ended early');
+    }
     expect(first.value.byteLength).toBeGreaterThan(0);
 
     const ended = writer.close();

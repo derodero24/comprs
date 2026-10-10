@@ -43,28 +43,32 @@ function withSignal(signal, start) {
 }
 /** {@link withSignal} with a signal. */
 async function settleWith(signal, start) {
-    if (signal.aborted)
+    if (signal.aborted) {
         throw signal.reason;
+    }
     const withdrawal = (0, backend_js_1.backend)().createWithdrawal();
     // The executor of `withdrawn` replaces this at once.
     let onAbort = () => { };
     // Rejects when the backend withdraws the work; never settles otherwise.
     const withdrawn = new Promise((_, reject) => {
         onAbort = () => {
-            if (withdrawal !== undefined && (0, backend_js_1.backend)().withdraw(withdrawal))
+            if (withdrawal !== undefined && (0, backend_js_1.backend)().withdraw(withdrawal)) {
                 reject(signal.reason);
+            }
         };
     });
     signal.addEventListener('abort', onAbort, { once: true });
     try {
         const result = await Promise.race([start(withdrawal), withdrawn]);
-        if (signal.aborted)
+        if (signal.aborted) {
             throw signal.reason;
+        }
         return result;
     }
     catch (error) {
-        if (signal.aborted)
+        if (signal.aborted) {
             throw signal.reason;
+        }
         throw error;
     }
     finally {

@@ -185,7 +185,9 @@ function detachedViews(): [Uint8Array, DataView] {
  */
 function resized(view: (buffer: ArrayBuffer) => ArrayBufferView, byteLength: number) {
   const buffer: unknown = Reflect.construct(ArrayBuffer, [16, { maxByteLength: 32 }]);
-  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error('expected an ArrayBuffer');
+  }
   new Uint8Array(buffer).set(text.subarray(0, 16));
   const result = view(buffer);
   Reflect.apply(Reflect.get(buffer, 'resize'), buffer, [byteLength]);
@@ -1219,7 +1221,9 @@ const BYTES_READS: [string, Read][] = [
 
 /** `arg`, or the samples in it, as byte arrays that `as` makes. */
 function asBytes(arg: unknown, as: MakeBytes): unknown {
-  if (arg instanceof Uint8Array) return as(arg);
+  if (arg instanceof Uint8Array) {
+    return as(arg);
+  }
   if (Array.isArray(arg)) {
     return arg.map((sample: unknown) => (sample instanceof Uint8Array ? as(sample) : sample));
   }

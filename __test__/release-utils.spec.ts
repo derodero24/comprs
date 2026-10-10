@@ -250,16 +250,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** The JSON object in the file at `path`, relative to the repository. */
 function readManifest(path: string): Record<string, unknown> {
   const json: unknown = JSON.parse(readFileSync(resolve(__dirname, '..', path), 'utf8'));
-  if (!isRecord(json)) throw new Error(`${path} does not hold a JSON object`);
+  if (!isRecord(json)) {
+    throw new Error(`${path} does not hold a JSON object`);
+  }
   return json;
 }
 
 /** The `sideEffects` of the package.json at `path`, without `pattern`. */
 function sideEffectsWithout(path: string, pattern: string): unknown[] {
   const sideEffects = readManifest(path)['sideEffects'];
-  if (!Array.isArray(sideEffects)) throw new Error(`${path} has no sideEffects array`);
+  if (!Array.isArray(sideEffects)) {
+    throw new Error(`${path} has no sideEffects array`);
+  }
   const others: unknown[] = sideEffects.filter((item) => item !== pattern);
-  if (others.length === sideEffects.length) throw new Error(`${path} does not list ${pattern}`);
+  if (others.length === sideEffects.length) {
+    throw new Error(`${path} does not list ${pattern}`);
+  }
   return others;
 }
 

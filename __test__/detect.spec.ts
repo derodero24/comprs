@@ -143,7 +143,9 @@ describe('decompress (auto-detect)', () => {
 
   it('should round-trip large zstd data', () => {
     const large = Buffer.alloc(100_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const compressed = zstdCompress(large);
     const result = decompress(compressed);
     expect(Buffer.compare(result, large)).toBe(0);
@@ -151,7 +153,9 @@ describe('decompress (auto-detect)', () => {
 
   it('should round-trip large gzip data', () => {
     const large = Buffer.alloc(100_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const compressed = gzipCompress(large);
     const result = decompress(compressed);
     expect(Buffer.compare(result, large)).toBe(0);
@@ -159,7 +163,9 @@ describe('decompress (auto-detect)', () => {
 
   it('should round-trip large brotli data', () => {
     const large = Buffer.alloc(100_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const compressed = brotliCompress(large);
     const result = decompress(compressed);
     expect(Buffer.compare(result, large)).toBe(0);
@@ -225,7 +231,9 @@ describe('detectFormat edge cases', () => {
     for (const length of [64, 1024]) {
       let brotli = 0;
       for (let seed = 0; seed < 1000; seed++) {
-        if (detectFormat(pseudoRandomBytes(seed, length)) === 'brotli') brotli++;
+        if (detectFormat(pseudoRandomBytes(seed, length)) === 'brotli') {
+          brotli++;
+        }
       }
       expect(brotli, `${length} bytes`).toBe(0);
     }

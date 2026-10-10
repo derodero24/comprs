@@ -135,8 +135,12 @@ export function blockBytes(op: CodecOp, level: number | undefined): number {
     case 'brotli-compress': {
       const quality =
         typeof level === 'number' && !Number.isNaN(level) ? Math.trunc(level) : DEFAULT_QUALITY;
-      if (quality < 2) return 0;
-      if (quality < 4) return 16 * 1024;
+      if (quality < 2) {
+        return 0;
+      }
+      if (quality < 4) {
+        return 16 * 1024;
+      }
       return quality < 9 ? 64 * 1024 : 256 * 1024;
     }
     case 'gzip-compress':
@@ -161,7 +165,9 @@ const ZSTD_SETUP_MS = [2.8, 2.4, 37, 29, 34, 34, 17, 25, 27, 48, 89, 176, 412] a
  * on one machine (see ZSTD_SETUP_MS).
  */
 export function zstdSetupMs(level: number | undefined): number {
-  if (typeof level !== 'number' || Number.isNaN(level) || level < 10) return 0;
+  if (typeof level !== 'number' || Number.isNaN(level) || level < 10) {
+    return 0;
+  }
   return ZSTD_SETUP_MS[Math.min(Math.trunc(level), 22) - 10] ?? 0;
 }
 
@@ -213,7 +219,9 @@ let turnScheduled = false;
 
 /** Make nextTurn() run once the event loop turns, unless it is scheduled. */
 function scheduleTurn(): void {
-  if (turnScheduled) return;
+  if (turnScheduled) {
+    return;
+  }
   turnScheduled = true;
   setImmediate(nextTurn);
 }
@@ -226,7 +234,9 @@ function nextTurn(): void {
   turnScheduled = false;
   spent = 0;
   waiting.shift()?.();
-  if (waiting.length > 0) scheduleTurn();
+  if (waiting.length > 0) {
+    scheduleTurn();
+  }
 }
 
 /** Add `elapsed`, the time of a synchronous call in ms, to the budget. */
@@ -335,7 +345,9 @@ export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
 
   /** Call transform(chunk) or transformAsync(chunk). */
   transform(chunk: Uint8Array): Output | Promise<Output> {
-    if (spent >= YIELD_MS) return waitForTurn().then(() => this.transform(chunk));
+    if (spent >= YIELD_MS) {
+      return waitForTurn().then(() => this.transform(chunk));
+    }
     this.#unflushed += chunk.byteLength;
     const work = this.#work(chunk.byteLength);
     const setupMs = this.#setupMs;
@@ -357,8 +369,12 @@ export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
 
   /** Call flush() or flushAsync(). */
   flush(): Output | Promise<Output> {
-    if (spent >= YIELD_MS) return waitForTurn().then(() => this.flush());
-    if (this.#endsAsync()) return this.#ctx.flushAsync();
+    if (spent >= YIELD_MS) {
+      return waitForTurn().then(() => this.flush());
+    }
+    if (this.#endsAsync()) {
+      return this.#ctx.flushAsync();
+    }
     const start = performance.now();
     const output = this.#ctx.flush();
     addSpent(performance.now() - start);
@@ -367,8 +383,12 @@ export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
 
   /** Call finish() or finishAsync(). */
   finish(): Output | Promise<Output> {
-    if (spent >= YIELD_MS) return waitForTurn().then(() => this.finish());
-    if (this.#endsAsync()) return this.#ctx.finishAsync();
+    if (spent >= YIELD_MS) {
+      return waitForTurn().then(() => this.finish());
+    }
+    if (this.#endsAsync()) {
+      return this.#ctx.finishAsync();
+    }
     const start = performance.now();
     const output = this.#ctx.finish();
     addSpent(performance.now() - start);
@@ -396,7 +416,9 @@ export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
     }
     const before = this.#blocked;
     this.#blocked += bytes;
-    if (this.#block === 0) return bytes;
+    if (this.#block === 0) {
+      return bytes;
+    }
     const completed = Math.floor(this.#blocked / this.#block) - Math.floor(before / this.#block);
     return Math.max(bytes, completed * this.#block);
   }
@@ -408,7 +430,9 @@ export class ChunkScheduler<Output extends Uint8Array = Uint8Array> {
 
   /** Add the time of a call that processed `work` bytes to the moving average. */
   #learn(work: number, elapsed: number): void {
-    if (work < SAMPLE_BYTES) return;
+    if (work < SAMPLE_BYTES) {
+      return;
+    }
     const sample = Math.max(elapsed, 0) / work;
     this.#measured =
       this.#measured === 0 ? sample : this.#measured + SAMPLE_WEIGHT * (sample - this.#measured);

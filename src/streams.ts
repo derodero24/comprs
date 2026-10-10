@@ -55,7 +55,9 @@ function getterOf(prototype: object | null, key: PropertyKey): Getter {
 
 /** `getter`, called on `value`. A getter that the runtime lacks throws. */
 function callGetter(getter: Getter, value: unknown): unknown {
-  if (getter === undefined) throw new TypeError('the runtime lacks a getter of a built-in');
+  if (getter === undefined) {
+    throw new TypeError('the runtime lacks a getter of a built-in');
+  }
   return Reflect.apply(getter, value, []);
 }
 
@@ -126,10 +128,14 @@ function viewBytes(view: ArrayBufferView): Uint8Array {
  * does when it buffers a copy of the chunk.
  */
 function toUint8Array(chunk: unknown): Uint8Array {
-  if (ArrayBuffer.isView(chunk)) return viewBytes(chunk);
+  if (ArrayBuffer.isView(chunk)) {
+    return viewBytes(chunk);
+  }
   // Unlike instanceof, this also recognizes an ArrayBuffer or a
   // SharedArrayBuffer from another realm, such as a vm context.
-  if (types.isAnyArrayBuffer(chunk)) return new Uint8Array(chunk);
+  if (types.isAnyArrayBuffer(chunk)) {
+    return new Uint8Array(chunk);
+  }
   throw new TypeError('chunk must be an ArrayBuffer or ArrayBufferView');
 }
 
@@ -191,7 +197,9 @@ function closingStream(
   let cancelled = false;
   function emitter(controller: Controller): Emit {
     return (result: Uint8Array): undefined => {
-      if (cancelled || result.byteLength === 0) return;
+      if (cancelled || result.byteLength === 0) {
+        return;
+      }
       const chunk = outputChunk(result);
       try {
         controller.enqueue(chunk);
@@ -607,7 +615,9 @@ const MAGIC_LENGTH = 4;
 
 /** Concatenate `chunks`, whose lengths add up to `length`. */
 function concatChunks(chunks: Uint8Array[], length: number): Uint8Array {
-  if (chunks.length === 1 && chunks[0] !== undefined) return chunks[0];
+  if (chunks.length === 1 && chunks[0] !== undefined) {
+    return chunks[0];
+  }
   const data = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
@@ -664,14 +674,18 @@ export function createDecompressStream(
 
   return closingStream(
     (chunk, emit) => {
-      if (scheduler) return afterOutput(scheduler.transform(chunk), emit);
+      if (scheduler) {
+        return afterOutput(scheduler.transform(chunk), emit);
+      }
 
       // Copy the chunk: the writer may reuse its memory once this returns.
       const copy = new Uint8Array(chunk.byteLength);
       copy.set(chunk);
       buffered.push(copy);
       bufferedLength += copy.byteLength;
-      if (bufferedLength < detectAt) return undefined;
+      if (bufferedLength < detectAt) {
+        return undefined;
+      }
 
       const data = concatChunks(buffered, bufferedLength);
       const format = detectFormat(data);
@@ -685,7 +699,9 @@ export function createDecompressStream(
       return start(format, data, emit)[1];
     },
     (emit) => {
-      if (scheduler) return finishStream(scheduler, emit);
+      if (scheduler) {
+        return finishStream(scheduler, emit);
+      }
       // The input ended before its format was detected. Empty input has no
       // detectable format and throws.
       const data = concatChunks(buffered, bufferedLength);

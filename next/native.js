@@ -97,10 +97,12 @@ function createCompressStream(format, level, dictionary, gzipHeader, gzipFilenam
     // BrotliCompressDictContext of the package root does with
     // `{ incremental: true }`.
     let model = {};
-    if (format === 'zstd' && !withDictionary)
+    if (format === 'zstd' && !withDictionary) {
         model = { setupMs: (0, stream_schedule_js_1.zstdSetupMs)(level) };
-    if (format === 'brotli' && withDictionary)
+    }
+    if (format === 'brotli' && withDictionary) {
         model = { holds: stream_schedule_js_1.BROTLI_DICT_REACH };
+    }
     return scheduled(context, `${codecOf(format)}-compress`, level, model);
 }
 /** Backend.createDecompressStream, over the stream functions of the binding. */

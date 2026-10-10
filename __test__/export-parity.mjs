@@ -43,7 +43,9 @@ function exportsValue(checker, symbol) {
   /** @type {ts.Symbol | undefined} */
   let current = symbol;
   while (current !== undefined && current.flags & ts.SymbolFlags.Alias) {
-    if (current.declarations?.some(ts.isTypeOnlyImportOrExportDeclaration)) return false;
+    if (current.declarations?.some(ts.isTypeOnlyImportOrExportDeclaration)) {
+      return false;
+    }
     current = checker.getImmediateAliasedSymbol(current);
   }
   return current !== undefined && (current.flags & ts.SymbolFlags.Value) !== 0;
@@ -67,7 +69,9 @@ function declaredValues(files) {
     [...paths].map(([file, path]) => {
       const source = program.getSourceFile(path);
       const entry = source === undefined ? undefined : checker.getSymbolAtLocation(source);
-      if (entry === undefined) throw new Error(`${file} is not a module`);
+      if (entry === undefined) {
+        throw new Error(`${file} is not a module`);
+      }
       const names = checker
         .getExportsOfModule(entry)
         .filter((symbol) => exportsValue(checker, symbol))
@@ -99,7 +103,9 @@ function entries() {
   /** @type {unknown} */
   const manifest = JSON.parse(readFileSync(new URL('package.json', ROOT), 'utf8'));
   const exportMap = isRecord(manifest) ? manifest['exports'] : undefined;
-  if (!isRecord(exportMap)) throw new Error('package.json has no exports');
+  if (!isRecord(exportMap)) {
+    throw new Error('package.json has no exports');
+  }
   return Object.entries(exportMap).flatMap(([subpath, conditions]) => {
     const specifier = subpath === '.' ? PACKAGE : `${PACKAGE}/${subpath.replace(/^\.\//, '')}`;
     return /** @type {const} */ (['require', 'import']).map((condition) => {
@@ -125,7 +131,9 @@ const CJS_NAMESPACE_KEYS = new Set(['default', 'module.exports']);
  * @returns {Promise<string[]>}
  */
 async function exportedNames(entry) {
-  if (entry.condition === 'require') return Object.keys(require(entry.specifier));
+  if (entry.condition === 'require') {
+    return Object.keys(require(entry.specifier));
+  }
   const namespace = await import(entry.specifier);
   return Object.keys(namespace).filter((key) => !CJS_NAMESPACE_KEYS.has(key));
 }

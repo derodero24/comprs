@@ -49,7 +49,9 @@ async function main() {
   try {
     await decompressInto((chunk) => {
       const { buffer } = chunk;
-      if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+      if (!isArrayBuffer(buffer)) {
+        throw new Error('expected an ArrayBuffer');
+      }
       structuredClone(chunk, { transfer: [buffer] });
     });
   } catch (err) {

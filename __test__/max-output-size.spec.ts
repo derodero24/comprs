@@ -33,7 +33,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -46,8 +48,12 @@ function decompressAll(
 ): Buffer {
   const chunks: Buffer[] = [];
   chunks.push(ctx.transform(compressed));
-  if (ctx.flush) chunks.push(ctx.flush());
-  if (ctx.finish) chunks.push(ctx.finish());
+  if (ctx.flush) {
+    chunks.push(ctx.flush());
+  }
+  if (ctx.finish) {
+    chunks.push(ctx.finish());
+  }
   return Buffer.concat(chunks);
 }
 

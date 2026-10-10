@@ -73,7 +73,8 @@
         "useExportType": "error",
         "useImportType": "error",
         "useForOf": "error",
-        "noNamespace": "error"
+        "noNamespace": "error",
+        "useBlockStatements": "error"
       },
       "nursery": {
         "noFloatingPromises": "error",

@@ -42,7 +42,9 @@ async function decompress() {
     createZstdDecompressTransform(),
     new Writable({
       write(chunk, _encoding, callback) {
-        if (kept.length === 0) kept.push(chunk);
+        if (kept.length === 0) {
+          kept.push(chunk);
+        }
         received += chunk.byteLength;
         callback();
       },

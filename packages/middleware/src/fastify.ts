@@ -72,9 +72,13 @@ function replyHeader(reply: FastifyReply, name: string): string | undefined {
  * is returned as it is, for Fastify to reject.
  */
 function unwrapResponse(reply: FastifyReply, payload: unknown): unknown {
-  if (!(payload instanceof Response) || payload.bodyUsed) return payload;
+  if (!(payload instanceof Response) || payload.bodyUsed) {
+    return payload;
+  }
   reply.code(payload.status);
-  for (const [name, value] of payload.headers) reply.header(name, value);
+  for (const [name, value] of payload.headers) {
+    reply.header(name, value);
+  }
   return payload.body;
 }
 
@@ -90,13 +94,19 @@ function selectEncoding(
   filter: Filter,
 ): Encoding | null {
   const header = (name: string): string | undefined => replyHeader(reply, name);
-  if (!isCandidate(header, () => filter(request, reply))) return null;
+  if (!isCandidate(header, () => filter(request, reply))) {
+    return null;
+  }
   // Set even when this request gets no encoding, including HEAD requests:
   // other requests may.
   reply.header('Vary', appendVary(header('vary')));
 
-  if (request.method === 'HEAD') return null;
-  if (!canCompressBody(reply.statusCode, reply.hasHeader('content-range'))) return null;
+  if (request.method === 'HEAD') {
+    return null;
+  }
+  if (!canCompressBody(reply.statusCode, reply.hasHeader('content-range'))) {
+    return null;
+  }
   return negotiate(request.headers['accept-encoding'], settings.encodings);
 }
 
@@ -105,7 +115,9 @@ function setEncodingHeaders(reply: FastifyReply, encoding: Encoding): void {
   reply.header('Content-Encoding', encoding);
   reply.removeHeader('Content-Length');
   const etag = replyHeader(reply, 'etag');
-  if (etag) reply.header('ETag', weakenEtag(etag));
+  if (etag) {
+    reply.header('ETag', weakenEtag(etag));
+  }
 }
 
 /**
@@ -152,7 +164,9 @@ async function compressBuffered(
   settings: Settings,
 ): Promise<string | Uint8Array> {
   const data = typeof payload === 'string' ? Buffer.from(payload) : payload;
-  if (!meetsThreshold(data.byteLength, settings.threshold)) return payload;
+  if (!meetsThreshold(data.byteLength, settings.threshold)) {
+    return payload;
+  }
 
   let compressed: Buffer;
   try {
@@ -177,10 +191,14 @@ const plugin: FastifyPluginAsync<FastifyComprsOptions> = async (
     (!shouldCompress || shouldCompress(request, reply));
 
   fastify.addHook('onSend', async (request, reply, payload) => {
-    if (request.routeOptions.config.compress === false) return payload;
+    if (request.routeOptions.config.compress === false) {
+      return payload;
+    }
     const body = unwrapResponse(reply, payload);
     const encoding = selectEncoding(request, reply, settings, passesFilters);
-    if (!encoding) return body;
+    if (!encoding) {
+      return body;
+    }
 
     if (body instanceof Readable || body instanceof ReadableStream) {
       return compressStream(request, reply, body, encoding, settings);

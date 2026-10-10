@@ -159,7 +159,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   const reader = stream.getReader();
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);

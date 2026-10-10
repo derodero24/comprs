@@ -95,7 +95,9 @@ export const middleware = [express(), fastify, hono()];
 }, 60_000);
 
 afterAll(() => {
-  if (app !== undefined) rmSync(app, { recursive: true, force: true });
+  if (app !== undefined) {
+    rmSync(app, { recursive: true, force: true });
+  }
 });
 
 it('loads every entry point with require()', () => {

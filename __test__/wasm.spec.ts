@@ -17,20 +17,26 @@ const encoder = new TextEncoder();
 /** Call a function of the browser entry with arguments of any type. */
 function callWasm(name: string, ...args: unknown[]): unknown {
   const fn: unknown = Reflect.get(wasm, name);
-  if (typeof fn !== 'function') throw new Error(`${name} is not a function`);
+  if (typeof fn !== 'function') {
+    throw new Error(`${name} is not a function`);
+  }
   return Reflect.apply(fn, undefined, args);
 }
 
 /** The output of a wasm-bindgen function, checked to be bytes. */
 function bytes(output: unknown): Uint8Array {
-  if (!(output instanceof Uint8Array)) throw new Error('expected a Uint8Array');
+  if (!(output instanceof Uint8Array)) {
+    throw new Error('expected a Uint8Array');
+  }
   return output;
 }
 
 /** Construct a class of the browser entry with arguments of any type. */
 function constructWasm(name: string, ...args: unknown[]): unknown {
   const Class: unknown = Reflect.get(wasm, name);
-  if (typeof Class !== 'function') throw new Error(`${name} is not a class`);
+  if (typeof Class !== 'function') {
+    throw new Error(`${name} is not a class`);
+  }
   return Reflect.construct(Class, args);
 }
 

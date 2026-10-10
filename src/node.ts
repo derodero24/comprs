@@ -87,13 +87,17 @@ function probeMarkAsUntransferable(): boolean {
  */
 function pushSliced(stream: Transform, buf: Uint8Array): void {
   const length = buf.byteLength;
-  if (length === 0) return;
+  if (length === 0) {
+    return;
+  }
   const size = stream.readableHighWaterMark || 65536;
   if (length <= size) {
     stream.push(buf);
     return;
   }
-  if (canMarkUntransferable && length <= COPY_LIMIT) markAsUntransferable(buf.buffer);
+  if (canMarkUntransferable && length <= COPY_LIMIT) {
+    markAsUntransferable(buf.buffer);
+  }
   for (let i = 0; i < length; i += size) {
     stream.push(buf.subarray(i, i + size));
     if (buf.byteLength !== length) {
@@ -110,7 +114,9 @@ function pushSliced(stream: Transform, buf: Uint8Array): void {
  * may settle after destroy(), and its result is dropped.
  */
 function pushOutput(stream: Transform, output: Uint8Array): undefined {
-  if (!stream.destroyed) pushSliced(stream, output);
+  if (!stream.destroyed) {
+    pushSliced(stream, output);
+  }
 }
 
 /**
@@ -547,7 +553,9 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
       const copy = Buffer.from(chunk);
       buffered.push(copy);
       bufferedLength += copy.length;
-      if (bufferedLength < detectAt) return undefined;
+      if (bufferedLength < detectAt) {
+        return undefined;
+      }
 
       const data = Buffer.concat(buffered, bufferedLength);
       const format = detectFormat(data);
@@ -561,7 +569,9 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
       return start(stream, format, data)[1];
     },
     (stream) => {
-      if (scheduler) return finishTransform(stream, scheduler);
+      if (scheduler) {
+        return finishTransform(stream, scheduler);
+      }
       // The input ended before its format was detected. Empty input has
       // no detectable format and throws.
       const data = Buffer.concat(buffered, bufferedLength);

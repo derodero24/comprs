@@ -32,7 +32,9 @@ const CALLS: [name: string, call: (signal: unknown) => Promise<unknown>][] = [
  */
 function call(fn: (...args: never[]) => Promise<unknown>, ...args: unknown[]): Promise<unknown> {
   const result: unknown = Reflect.apply(fn, undefined, args);
-  if (!(result instanceof Promise)) throw new Error('expected a Promise');
+  if (!(result instanceof Promise)) {
+    throw new Error('expected a Promise');
+  }
   return result;
 }
 
@@ -79,7 +81,9 @@ async function withBackendSpy(
     new Proxy(original, {
       get(target, key, receiver): unknown {
         const value: unknown = Reflect.get(target, key, receiver);
-        if (typeof key !== 'string' || typeof value !== 'function') return value;
+        if (typeof key !== 'string' || typeof value !== 'function') {
+          return value;
+        }
         return (...args: unknown[]): unknown => {
           const call: BackendCall = { name: key, args };
           calls.push(call);
@@ -136,7 +140,9 @@ describe('the signal option of ./next', () => {
     // and leaks native memory for each signal that it converts.
     await withBackendSpy(async (calls) => {
       const { signal } = new AbortController();
-      for (const [, abortable] of CALLS) await abortable(signal);
+      for (const [, abortable] of CALLS) {
+        await abortable(signal);
+      }
       expect(calls.map(({ name }) => name)).toEqual([
         'createWithdrawal',
         'compressAsync',
@@ -156,9 +162,13 @@ describe('the signal option of ./next', () => {
 
   it('passes the backend no Withdrawal without a signal', async () => {
     await withBackendSpy(async (calls) => {
-      for (const [, abortable] of CALLS) await abortable(undefined);
+      for (const [, abortable] of CALLS) {
+        await abortable(undefined);
+      }
       expect(calls).toHaveLength(3);
-      for (const { args } of calls) expect(args.at(-1)).toBeUndefined();
+      for (const { args } of calls) {
+        expect(args.at(-1)).toBeUndefined();
+      }
     });
   });
 
@@ -177,7 +187,9 @@ describe('the signal option of ./next', () => {
         expect(withdrawn?.args).toEqual([created?.result]);
       },
       (name) => {
-        if (name === 'compressAsync') return new Promise<never>(() => {});
+        if (name === 'compressAsync') {
+          return new Promise<never>(() => {});
+        }
         return name === 'withdraw' ? true : undefined;
       },
     );
@@ -202,7 +214,9 @@ describe('the signal option of ./next', () => {
         expect(await rejection(promise)).toBe(reason);
       },
       (name) => {
-        if (name === 'compressAsync') return work;
+        if (name === 'compressAsync') {
+          return work;
+        }
         return name === 'withdraw' ? false : undefined;
       },
     );
@@ -220,7 +234,9 @@ describe('the signal option of ./next', () => {
         expect(await rejection(promise)).toBe(reason);
       },
       (name) => {
-        if (name === 'compressAsync') return Promise.resolve(zstdText);
+        if (name === 'compressAsync') {
+          return Promise.resolve(zstdText);
+        }
         return name === 'withdraw' ? false : undefined;
       },
     );

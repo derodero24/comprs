@@ -48,8 +48,11 @@ vi.mock('../src/compress.js', async (importOriginal) => {
           callback: TransformCallback,
         ) => {
           chunks += 1;
-          if (chunks === 1) transform(chunk, encoding, callback);
-          else callback(new Error('injected compressor failure'));
+          if (chunks === 1) {
+            transform(chunk, encoding, callback);
+          } else {
+            callback(new Error('injected compressor failure'));
+          }
         };
       }
       if (compressors.deferChunks) {
@@ -115,7 +118,9 @@ async function serve(
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('expected a TCP address');
+  if (address === null || typeof address === 'string') {
+    throw new Error('expected a TCP address');
+  }
   return { host: '127.0.0.1', port: address.port };
 }
 
@@ -179,7 +184,9 @@ function readUntil(res: IncomingMessage, expected: string): Promise<string> {
       chunks.push(chunk);
       const data = Buffer.concat(chunks);
       const text = gunzipSync(data, { finishFlush: constants.Z_SYNC_FLUSH }).toString();
-      if (text.includes(expected)) resolve(text);
+      if (text.includes(expected)) {
+        resolve(text);
+      }
     });
     res.on('end', () => reject(new Error(`the body ended before ${JSON.stringify(expected)}`)));
     res.on('error', reject);
@@ -298,7 +305,9 @@ describe('express adapter: deciding when the headers are emitted', () => {
     const first = await get(target);
     expect(first.headers.vary).toBe('Accept-Encoding');
     const etag = first.headers.etag;
-    if (etag === undefined) throw new Error('expected an ETag');
+    if (etag === undefined) {
+      throw new Error('expected an ETag');
+    }
     const res = await get(target, { 'If-None-Match': etag });
     expect(res.status).toBe(304);
     expect(res.headers['content-encoding']).toBeUndefined();
@@ -502,7 +511,9 @@ describe('express adapter: ServerResponse semantics', () => {
       const events: string[] = [];
       const emit = res.emit.bind(res);
       res.emit = (event: string | symbol, ...args: unknown[]): boolean => {
-        if (typeof event === 'string') events.push(event);
+        if (typeof event === 'string') {
+          events.push(event);
+        }
         return emit(event, ...args);
       };
       res.on('close', () => seen.resolve(events));
@@ -537,7 +548,9 @@ describe('express adapter: flushing', () => {
       // Let the compressed output start flowing to the response.
       await nextTurn();
       const compressor = compressors.created[0];
-      if (!compressor) throw new Error('expected a compressor');
+      if (!compressor) {
+        throw new Error('expected a compressor');
+      }
       res.write('first\n');
       let output = 0;
       compressor.on('data', (chunk: Buffer) => {
@@ -653,7 +666,9 @@ describe.skipIf(process.platform === 'win32')('express adapter: backpressure', (
         const chunk = randomBytes(chunkSize);
         sent.update(chunk);
         written += 1;
-        if (!res.write(chunk)) await once(res, 'drain');
+        if (!res.write(chunk)) {
+          await once(res, 'drain');
+        }
       }
       res.end();
     });

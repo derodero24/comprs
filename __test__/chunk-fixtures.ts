@@ -47,8 +47,12 @@ function toChunk(bytes: Uint8Array, kind: ChunkKind): Chunk[] {
     case 'Uint16Array': {
       const even = length - (length % 2);
       const chunks: Chunk[] = [];
-      if (even > 0) chunks.push(new Uint16Array(padded(bytes), 2, even / 2));
-      if (even < length) chunks.push(bytes.slice(even));
+      if (even > 0) {
+        chunks.push(new Uint16Array(padded(bytes), 2, even / 2));
+      }
+      if (even < length) {
+        chunks.push(bytes.slice(even));
+      }
       return chunks;
     }
     case 'SharedArrayBuffer': {
@@ -72,7 +76,9 @@ export function toChunks(data: Uint8Array, size: number, kind: ChunkKind): Chunk
 export function streamOf<T>(chunks: readonly T[]): ReadableStream<T> {
   return new ReadableStream<T>({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(chunk);
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
       controller.close();
     },
   });
@@ -81,6 +87,8 @@ export function streamOf<T>(chunks: readonly T[]): ReadableStream<T> {
 /** Read every chunk from `stream`. */
 export async function readChunks(stream: ReadableStream<Uint8Array>): Promise<Uint8Array[]> {
   const chunks: Uint8Array[] = [];
-  for await (const chunk of stream) chunks.push(chunk);
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
   return chunks;
 }

@@ -12,12 +12,18 @@ const WARMUP = 20;
 const SIZE = 1_000_000;
 
 const input = Buffer.alloc(SIZE);
-for (let i = 0; i < SIZE; i++) input[i] = i % 256;
+for (let i = 0; i < SIZE; i++) {
+  input[i] = i % 256;
+}
 const compressed = deflateCompress(input);
 
-for (let i = 0; i < WARMUP; i++) deflateDecompress(compressed);
+for (let i = 0; i < WARMUP; i++) {
+  deflateDecompress(compressed);
+}
 const before = process.memoryUsage.rss();
-for (let i = 0; i < CALLS; i++) deflateDecompress(compressed);
+for (let i = 0; i < CALLS; i++) {
+  deflateDecompress(compressed);
+}
 const growth = (process.memoryUsage.rss() - before) / 2 ** 20;
 
 process.stdout.write(JSON.stringify({ rssGrowthMiB: Math.round(growth) }));

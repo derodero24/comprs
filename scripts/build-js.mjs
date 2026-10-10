@@ -93,13 +93,17 @@ function readProject(config) {
 function compile(config) {
   const args = ['node_modules/typescript/bin/tsc', '-p', config, '--listEmittedFiles'];
   // tsc colors its diagnostics only when it writes to a terminal itself.
-  if (process.stdout.isTTY) args.push('--pretty');
+  if (process.stdout.isTTY) {
+    args.push('--pretty');
+  }
   const result = spawnSync(process.execPath, args, {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  if (result.error !== undefined) throw result.error;
+  if (result.error !== undefined) {
+    throw result.error;
+  }
   /** @type {string[]} */
   const emitted = [];
   /** @type {string[]} */
@@ -114,7 +118,9 @@ function compile(config) {
   // Blank lines separate the diagnostics in the --pretty format: keep all
   // but those at either end.
   const output = diagnostics.join('\n').trim();
-  if (output !== '') console.log(output);
+  if (output !== '') {
+    console.log(output);
+  }
   if (result.status !== 0) {
     throw new Error(`tsc -p ${config} failed`);
   }

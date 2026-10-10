@@ -37,7 +37,9 @@ function asAsync<Args extends unknown[], Result>(
  * of this backend returned, which api.ts passes back alone.
  */
 function prepared(handle: DictionaryHandle): NextDictionary {
-  if (handle instanceof NextDictionary) return handle;
+  if (handle instanceof NextDictionary) {
+    return handle;
+  }
   throw new TypeError('the dictionary handle is not one of the WebAssembly build');
 }
 

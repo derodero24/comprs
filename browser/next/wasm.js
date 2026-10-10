@@ -23,8 +23,9 @@ function asAsync(fn) {
  * of this backend returned, which api.ts passes back alone.
  */
 function prepared(handle) {
-    if (handle instanceof NextDictionary)
+    if (handle instanceof NextDictionary) {
         return handle;
+    }
     throw new TypeError('the dictionary handle is not one of the WebAssembly build');
 }
 /**

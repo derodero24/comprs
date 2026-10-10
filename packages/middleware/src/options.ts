@@ -35,7 +35,9 @@ function show(value: unknown): string {
 }
 
 function checkEncodings(encodings: unknown): readonly Encoding[] {
-  if (encodings === undefined) return DEFAULT_ENCODINGS;
+  if (encodings === undefined) {
+    return DEFAULT_ENCODINGS;
+  }
   if (!Array.isArray(encodings)) {
     throw new TypeError(`comprs: encodings must be an array, got ${show(encodings)}`);
   }
@@ -55,18 +57,28 @@ function checkEncodings(encodings: unknown): readonly Encoding[] {
 }
 
 function checkThreshold(threshold: unknown): number {
-  if (threshold === undefined) return DEFAULT_THRESHOLD;
+  if (threshold === undefined) {
+    return DEFAULT_THRESHOLD;
+  }
   const message = `comprs: threshold must be a finite number of bytes, 0 or more, got ${show(threshold)}`;
-  if (typeof threshold !== 'number') throw new TypeError(message);
-  if (!Number.isFinite(threshold) || threshold < 0) throw new RangeError(message);
+  if (typeof threshold !== 'number') {
+    throw new TypeError(message);
+  }
+  if (!Number.isFinite(threshold) || threshold < 0) {
+    throw new RangeError(message);
+  }
   return threshold;
 }
 
 function checkLevel(encoding: Encoding, level: unknown): number | undefined {
-  if (level === undefined) return undefined;
+  if (level === undefined) {
+    return undefined;
+  }
   const [min, max] = LEVELS[encoding];
   const message = `comprs: level.${encoding} must be an integer from ${min} to ${max}, got ${show(level)}`;
-  if (typeof level !== 'number') throw new TypeError(message);
+  if (typeof level !== 'number') {
+    throw new TypeError(message);
+  }
   if (!Number.isInteger(level) || level < min || level > max) {
     const reason =
       encoding === 'zstd' && level > max
@@ -78,7 +90,9 @@ function checkLevel(encoding: Encoding, level: unknown): number | undefined {
 }
 
 function checkLevels(levels: unknown): LevelOptions | undefined {
-  if (levels === undefined) return undefined;
+  if (levels === undefined) {
+    return undefined;
+  }
   if (typeof levels !== 'object' || levels === null || Array.isArray(levels)) {
     throw new TypeError(`comprs: level must be an object, got ${show(levels)}`);
   }
@@ -90,7 +104,9 @@ function checkLevels(levels: unknown): LevelOptions | undefined {
       );
     }
     const value = checkLevel(encoding, level);
-    if (value !== undefined) checked[encoding] = value;
+    if (value !== undefined) {
+      checked[encoding] = value;
+    }
   }
   return checked;
 }

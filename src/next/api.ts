@@ -411,13 +411,17 @@ function isIterable(value: unknown): value is Iterable<unknown> {
 
 /** `value`, which must be a number or `undefined`. */
 function optionalNumber(value: unknown, name: string): number | undefined {
-  if (value === undefined || typeof value === 'number') return value;
+  if (value === undefined || typeof value === 'number') {
+    return value;
+  }
   throw invalidArg(`${name} must be a number`);
 }
 
 /** `value`, which must be a string or `undefined`. */
 function optionalString(value: unknown, name: string): string | undefined {
-  if (value === undefined || typeof value === 'string') return value;
+  if (value === undefined || typeof value === 'string') {
+    return value;
+  }
   throw invalidArg(`${name} must be a string`);
 }
 
@@ -430,9 +434,13 @@ function signalOption(
   options: Unchecked<AbortOptions>,
   abortable: boolean,
 ): AbortSignalLike | undefined {
-  if (!abortable) return undefined;
+  if (!abortable) {
+    return undefined;
+  }
   const signal = options.signal;
-  if (signal === undefined || isAbortSignal(signal)) return signal;
+  if (signal === undefined || isAbortSignal(signal)) {
+    return signal;
+  }
   throw invalidArg('signal must be an AbortSignal');
 }
 
@@ -454,7 +462,9 @@ function getterOf(prototype: object | null | undefined, key: PropertyKey): Gette
 
 /** `getter`, called on `value`. A getter that the runtime lacks throws. */
 function callGetter(getter: Getter, value: unknown): unknown {
-  if (getter === undefined) throw new TypeError('the runtime lacks a getter of a built-in');
+  if (getter === undefined) {
+    throw new TypeError('the runtime lacks a getter of a built-in');
+  }
   return Reflect.apply(getter, value, []);
 }
 
@@ -604,7 +614,9 @@ function viewBytes(view: ArrayBufferView, name: string, types: string): Uint8Arr
     throw invalidArg(`${name} is out of bounds of its ArrayBuffer`);
   }
   if (typeof byteOffset === 'number' && typeof byteLength === 'number') {
-    if (unshared) return new Uint8Array(buffer, byteOffset, byteLength);
+    if (unshared) {
+      return new Uint8Array(buffer, byteOffset, byteLength);
+    }
     if (isSharedArrayBuffer(buffer)) {
       return new Uint8Array(buffer, byteOffset, byteLength).slice();
     }
@@ -624,14 +636,22 @@ function viewBytes(view: ArrayBufferView, name: string, types: string): Uint8Arr
  * `new Uint8Array()` fails on them without one, or reads them as empty.
  */
 function toBytes(value: unknown, name: string, types: string = INPUT_TYPES): Uint8Array {
-  if (ArrayBuffer.isView(value)) return viewBytes(value, name, types);
-  if (seemsShared(value) && isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
+  if (ArrayBuffer.isView(value)) {
+    return viewBytes(value, name, types);
+  }
+  if (seemsShared(value) && isSharedArrayBuffer(value)) {
+    return new Uint8Array(value).slice();
+  }
   if (isArrayBuffer(value)) {
-    if (isDetached(value)) throw invalidArg(`${name} is a detached ArrayBuffer`);
+    if (isDetached(value)) {
+      throw invalidArg(`${name} is a detached ArrayBuffer`);
+    }
     return new Uint8Array(value);
   }
   // A SharedArrayBuffer of another realm.
-  if (isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
+  if (isSharedArrayBuffer(value)) {
+    return new Uint8Array(value).slice();
+  }
   throw invalidArg(`${name} must be ${types}`);
 }
 
@@ -641,9 +661,13 @@ function toBytes(value: unknown, name: string, types: string = INPUT_TYPES): Uin
  * {@link toBytes} reads. A closed Dictionary fails.
  */
 function dictionaryArgs(value: unknown): DictionaryArgs {
-  if (value === undefined) return { dictionary: undefined, dictionaryHandle: undefined };
+  if (value === undefined) {
+    return { dictionary: undefined, dictionaryHandle: undefined };
+  }
   const handle = typeof value === 'object' && value !== null ? handleOf(value) : undefined;
-  if (handle !== undefined) return { dictionary: undefined, dictionaryHandle: handle };
+  if (handle !== undefined) {
+    return { dictionary: undefined, dictionaryHandle: handle };
+  }
   return {
     dictionary: toBytes(value, 'dictionary', DICTIONARY_TYPES),
     dictionaryHandle: undefined,
@@ -655,8 +679,12 @@ function dictionaryArgs(value: unknown): DictionaryArgs {
  * object without options.
  */
 function optionsObject<T>(options: unknown): Unchecked<T> {
-  if (options === undefined) return {};
-  if (!isObject<T>(options)) throw invalidArg('options must be an object');
+  if (options === undefined) {
+    return {};
+  }
+  if (!isObject<T>(options)) {
+    throw invalidArg('options must be an object');
+  }
   return options;
 }
 
@@ -665,7 +693,9 @@ function optionsObject<T>(options: unknown): Unchecked<T> {
  * if `abortable`, its signal. The dictionary is read but not checked.
  */
 function compressSettings(format: unknown, options: unknown, abortable: boolean): CompressSettings {
-  if (!isFormat(format)) throw invalidArg(`format must be one of ${FORMATS.join(', ')}`);
+  if (!isFormat(format)) {
+    throw invalidArg(`format must be one of ${FORMATS.join(', ')}`);
+  }
   const checked = optionsObject<CompressOptions & AbortOptions>(options);
   const level = optionalNumber(checked.level, 'level');
   const dictionary = checked.dictionary;
@@ -674,7 +704,9 @@ function compressSettings(format: unknown, options: unknown, abortable: boolean)
   let gzipFilename: string | undefined;
   let gzipMtime: number | undefined;
   if (header !== undefined) {
-    if (!isObject<GzipHeaderOptions>(header)) throw invalidArg('gzipHeader must be an object');
+    if (!isObject<GzipHeaderOptions>(header)) {
+      throw invalidArg('gzipHeader must be an object');
+    }
     gzipHeader = true;
     gzipFilename = optionalString(header.filename, 'gzipHeader.filename');
     gzipMtime = optionalNumber(header.mtime, 'gzipHeader.mtime');
@@ -690,7 +722,9 @@ function compressSettings(format: unknown, options: unknown, abortable: boolean)
  * after the getters of the options, which could detach their buffers.
  */
 function compressArgs(data: unknown, options: unknown, abortable: boolean): CompressArgs {
-  if (!isObject<CompressOptions>(options)) throw invalidArg('options must be an object');
+  if (!isObject<CompressOptions>(options)) {
+    throw invalidArg('options must be an object');
+  }
   const { dictionary, ...settings } = compressSettings(options.format, options, abortable);
   return { ...settings, data: toBytes(data, 'data'), ...dictionaryArgs(dictionary) };
 }
@@ -721,9 +755,13 @@ function decompressSettings(
 function decompressArgs(data: unknown, options: unknown, abortable: boolean): DecompressArgs {
   let format: unknown = 'auto';
   if (options !== undefined) {
-    if (!isObject<DecompressOptions>(options)) throw invalidArg('options must be an object');
+    if (!isObject<DecompressOptions>(options)) {
+      throw invalidArg('options must be an object');
+    }
     const name = options.format;
-    if (name !== undefined) format = name;
+    if (name !== undefined) {
+      format = name;
+    }
   }
   const { dictionary, ...settings } = decompressSettings(format, options, abortable);
   return { ...settings, data: toBytes(data, 'data'), ...dictionaryArgs(dictionary) };
@@ -731,7 +769,9 @@ function decompressArgs(data: unknown, options: unknown, abortable: boolean): De
 
 /** Check the arguments of {@link Dictionary.from}, as compressArgs does. */
 function createDictionaryArgs(bytes: unknown, options: unknown): CreateDictionaryArgs {
-  if (!isObject<DictionaryOptions>(options)) throw invalidArg('options must be an object');
+  if (!isObject<DictionaryOptions>(options)) {
+    throw invalidArg('options must be an object');
+  }
   const format = options.format;
   if (!isDictionaryFormat(format)) {
     throw invalidArg(`format must be one of ${DICTIONARY_FORMATS.join(', ')}`);
@@ -1096,14 +1136,18 @@ export class Dictionary {
    */
   close(): void {
     const handle = this.#handle;
-    if (handle === undefined) return;
+    if (handle === undefined) {
+      return;
+    }
     this.#handle = undefined;
     backend().closeDictionary(handle);
   }
 
   /** The handle of the dictionary, which must not be closed. */
   #open(): DictionaryHandle {
-    if (this.#handle === undefined) throw invalidArg('this Dictionary is closed');
+    if (this.#handle === undefined) {
+      throw invalidArg('this Dictionary is closed');
+    }
     return this.#handle;
   }
 
@@ -1214,7 +1258,9 @@ function codecStream(codec: CodecStream): TransformStream<Input, Bytes> {
   let open = true;
   let cancelled = false;
   const close = (): undefined => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     open = false;
     codec.close();
   };
@@ -1225,7 +1271,9 @@ function codecStream(codec: CodecStream): TransformStream<Input, Bytes> {
     controller: Controller,
   ): Promise<void> | undefined => {
     const enqueue = (output: Bytes): undefined => {
-      if (!cancelled && output.byteLength > 0) controller.enqueue(output);
+      if (!cancelled && output.byteLength > 0) {
+        controller.enqueue(output);
+      }
     };
     let output: Bytes | Promise<Bytes>;
     try {
@@ -1236,7 +1284,9 @@ function codecStream(codec: CodecStream): TransformStream<Input, Bytes> {
     }
     // Not instanceof: under Jest, which runs modules in a vm context, the
     // Promises of the native addon come from another realm.
-    if (ArrayBuffer.isView(output)) return enqueue(output);
+    if (ArrayBuffer.isView(output)) {
+      return enqueue(output);
+    }
     return output.then(enqueue, (error: unknown) => {
       close();
       throw error;
@@ -1247,7 +1297,9 @@ function codecStream(codec: CodecStream): TransformStream<Input, Bytes> {
       settle(() => codec.transform(toBytes(chunk, 'chunk')), controller),
     flush: (controller: Controller): Promise<void> | undefined => {
       const step = settle(() => codec.finish(), controller);
-      if (step === undefined) return close();
+      if (step === undefined) {
+        return close();
+      }
       return step.then(close);
     },
     cancel: (): undefined => {

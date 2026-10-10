@@ -172,9 +172,13 @@ function evenBytes(text: string): Uint8Array {
 function prose(count: number, seed: number): string {
   const next = random(seed);
   const word = (): string => {
-    if (next() < 0.03) return String(Math.floor(next() * 100_000));
+    if (next() < 0.03) {
+      return String(Math.floor(next() * 100_000));
+    }
     const found = WORDS[Math.floor(next() ** 2 * WORDS.length)];
-    if (found === undefined) throw new Error('expected a word');
+    if (found === undefined) {
+      throw new Error('expected a word');
+    }
     return found;
   };
   let text = '';
@@ -310,14 +314,18 @@ function resizableAfterPad(bytes: Uint8Array): ArrayBuffer {
     byteLength,
     { maxByteLength: 2 * byteLength },
   ]);
-  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error('expected an ArrayBuffer');
+  }
   new Uint8Array(buffer).fill(0xff).set(bytes, PAD);
   return buffer;
 }
 
 /** The number of 16-bit elements in `bytes`, whose length must be even. */
 function halfLength(bytes: Uint8Array): number {
-  if (bytes.length % 2 !== 0) throw new Error('expected an even number of bytes');
+  if (bytes.length % 2 !== 0) {
+    throw new Error('expected an even number of bytes');
+  }
   return bytes.length / 2;
 }
 
@@ -363,7 +371,9 @@ const INPUT_KINDS: readonly [kind: string, as: (bytes: Uint8Array) => Input][] =
  * length even, if it is odd: decoders skip it.
  */
 function evenZstd(data: Uint8Array): Uint8Array {
-  if (data.length % 2 === 0) return data;
+  if (data.length % 2 === 0) {
+    return data;
+  }
   return concat(data, Uint8Array.of(0x50, 0x2a, 0x4d, 0x18, 1, 0, 0, 0, 0));
 }
 
@@ -554,9 +564,13 @@ function nativeErrorCodes(): string[] {
     throw new Error('the native addon has no hidden binding');
   }
   const errorCodes: unknown = Reflect.get(binding, 'errorCodes');
-  if (typeof errorCodes !== 'function') throw new Error('the binding has no errorCodes()');
+  if (typeof errorCodes !== 'function') {
+    throw new Error('the binding has no errorCodes()');
+  }
   const codes: unknown = Reflect.apply(errorCodes, binding, []);
-  if (!isStringArray(codes)) throw new Error('errorCodes() returned no array of strings');
+  if (!isStringArray(codes)) {
+    throw new Error('errorCodes() returned no array of strings');
+  }
   return codes;
 }
 
@@ -935,7 +949,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
           run(() => api.decompressSync(compressed.zstd, { format: 'zstd', dictionary })),
           await settle(() => api.decompress(compressed.zstd, { dictionary })),
         ];
-        for (const result of outcome) expect(result).toMatchObject(expected);
+        for (const result of outcome) {
+          expect(result).toMatchObject(expected);
+        }
         outcomes.push(outcome);
         dictionary.close();
       }
@@ -979,7 +995,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
         'the constructor',
         (api: Api) => {
           const dictionaryClass: unknown = api.Dictionary;
-          if (typeof dictionaryClass !== 'function') throw new Error('Dictionary is no class');
+          if (typeof dictionaryClass !== 'function') {
+            throw new Error('Dictionary is no class');
+          }
           return Reflect.construct(dictionaryClass, []);
         },
       ],
@@ -1042,7 +1060,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
       const reason = new Error('aborted after the work');
       const promises = abortable(wasm, controller.signal);
       controller.abort(reason);
-      for (const promise of promises) await expect(promise).rejects.toBe(reason);
+      for (const promise of promises) {
+        await expect(promise).rejects.toBe(reason);
+      }
     });
 
     it('keep the results of calls that settled before the abort', async () => {
@@ -1102,7 +1122,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
     async function through(chunks: readonly unknown[], pair: TransformPair): Promise<Uint8Array> {
       const source = new ReadableStream<unknown>({
         start(controller): void {
-          for (const chunk of chunks) controller.enqueue(chunk);
+          for (const chunk of chunks) {
+            controller.enqueue(chunk);
+          }
           controller.close();
         },
       });
@@ -1290,9 +1312,13 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
       const glue = Object(await importGlue());
       const free = ['NextCompressContext', 'NextDecompressContext'].map((name) => {
         const glueClass: unknown = Reflect.get(glue, name);
-        if (typeof glueClass !== 'function') throw new Error(`the glue has no ${name}`);
+        if (typeof glueClass !== 'function') {
+          throw new Error(`the glue has no ${name}`);
+        }
         const prototype: unknown = glueClass.prototype;
-        if (!isFreeable(prototype)) throw new Error(`${name} has no free()`);
+        if (!isFreeable(prototype)) {
+          throw new Error(`${name} has no free()`);
+        }
         return vi.spyOn(prototype, 'free');
       });
       const compressed = await through([text], new wasm.CompressionStream('zstd'));
@@ -1311,7 +1337,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
     it('carry the codes of the native build', async () => {
       const glue = await importGlue();
       const errorCodes: unknown = Reflect.get(Object(glue), 'nextErrorCodes');
-      if (typeof errorCodes !== 'function') throw new Error('the glue has no nextErrorCodes()');
+      if (typeof errorCodes !== 'function') {
+        throw new Error('the glue has no nextErrorCodes()');
+      }
       expect(Reflect.apply(errorCodes, undefined, [])).toEqual(nativeErrorCodes());
     });
 
@@ -1346,7 +1374,9 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
 function exportsValue(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
   let current: ts.Symbol | undefined = symbol;
   while (current !== undefined && current.flags & ts.SymbolFlags.Alias) {
-    if (current.declarations?.some(ts.isTypeOnlyImportOrExportDeclaration)) return false;
+    if (current.declarations?.some(ts.isTypeOnlyImportOrExportDeclaration)) {
+      return false;
+    }
     current = checker.getImmediateAliasedSymbol(current);
   }
   return current !== undefined && (current.flags & ts.SymbolFlags.Value) !== 0;
@@ -1363,7 +1393,9 @@ function exportsOf(file: string): string[] {
   const checker = program.getTypeChecker();
   const source = program.getSourceFile(path);
   const entry = source === undefined ? undefined : checker.getSymbolAtLocation(source);
-  if (entry === undefined) throw new Error(`${file} is not a module`);
+  if (entry === undefined) {
+    throw new Error(`${file} is not a module`);
+  }
   return checker
     .getExportsOfModule(entry)
     .map((symbol) => `${exportsValue(checker, symbol) ? 'value' : 'type'} ${symbol.name}`)

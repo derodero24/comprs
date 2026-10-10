@@ -84,8 +84,12 @@ function rootCompress(data: Uint8Array, format: Format, level: number | undefine
  */
 function zlibHeader(level: number | undefined): Uint8Array {
   const effective = level ?? 6;
-  if (effective < 2) return Uint8Array.of(0x78, 0x01);
-  if (effective < 6) return Uint8Array.of(0x78, 0x5e);
+  if (effective < 2) {
+    return Uint8Array.of(0x78, 0x01);
+  }
+  if (effective < 6) {
+    return Uint8Array.of(0x78, 0x5e);
+  }
   return effective === 6 ? Uint8Array.of(0x78, 0x9c) : Uint8Array.of(0x78, 0xda);
 }
 
@@ -500,7 +504,9 @@ describe('inputs', () => {
     const mixed = samples.map((sample, i) => {
       const kinds = inputs(sample);
       const kind = kinds[i % kinds.length];
-      if (kind === undefined) throw new Error('expected an input');
+      if (kind === undefined) {
+        throw new Error('expected an input');
+      }
       return kind[1];
     });
     expect(next.trainDictionarySync(mixed, { maxSize: 4096 })).toEqual(expected);
@@ -613,7 +619,9 @@ describe('bytes in a SharedArrayBuffer', () => {
   function recording(inner: Backend, received: Uint8Array[]): Backend {
     function record(...inputs: (Uint8Array | undefined)[]): void {
       for (const input of inputs) {
-        if (input !== undefined) received.push(input);
+        if (input !== undefined) {
+          received.push(input);
+        }
       }
     }
     return {
@@ -840,7 +848,9 @@ const ERROR_CASES: ErrorCase[] = [
 function declaredErrorCodes(): string[] {
   const source = readFileSync(resolve(__dirname, '../next/api.d.ts'), 'utf8');
   const declaration = /^export type ErrorCode =([^;]*);/m.exec(source)?.[1];
-  if (declaration === undefined) throw new Error('next/api.d.ts declares no ErrorCode');
+  if (declaration === undefined) {
+    throw new Error('next/api.d.ts declares no ErrorCode');
+  }
   return [...declaration.matchAll(/'([^']*)'/g)].flatMap((match) => match[1] ?? []);
 }
 
@@ -854,7 +864,9 @@ function bindingErrorCodes(): unknown {
     throw new Error('the native addon has no hidden binding');
   }
   const errorCodes: unknown = Reflect.get(binding, 'errorCodes');
-  if (typeof errorCodes !== 'function') throw new Error('the binding has no errorCodes()');
+  if (typeof errorCodes !== 'function') {
+    throw new Error('the binding has no errorCodes()');
+  }
   return Reflect.apply(errorCodes, binding, []);
 }
 
@@ -862,7 +874,9 @@ function bindingErrorCodes(): unknown {
 function documentedErrorCodes(): string[] {
   const readme = readFileSync(resolve(__dirname, '../README.md'), 'utf8');
   const section = readme.split(/^## /m).find((part) => part.startsWith('Unified API'));
-  if (section === undefined) throw new Error('the README has no section on the unified API');
+  if (section === undefined) {
+    throw new Error('the README has no section on the unified API');
+  }
   return [...section.matchAll(/^\| `(ERR_COMPRS_\w+)` \|/gm)].flatMap((match) => match[1] ?? []);
 }
 
@@ -933,9 +947,13 @@ interface Resizable {
  */
 function resizable(byteLength: number, maxByteLength: number): Resizable {
   const buffer: unknown = Reflect.construct(ArrayBuffer, [byteLength, { maxByteLength }]);
-  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error('expected an ArrayBuffer');
+  }
   const resize: unknown = Reflect.get(buffer, 'resize');
-  if (typeof resize !== 'function') throw new Error('the runtime cannot resize ArrayBuffers');
+  if (typeof resize !== 'function') {
+    throw new Error('the runtime cannot resize ArrayBuffers');
+  }
   return {
     buffer,
     resize(length) {

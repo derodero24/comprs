@@ -50,7 +50,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -151,7 +153,9 @@ describe('streaming round-trip', () => {
 
   it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const stream = toChunkedStream(large, 64 * 1024);
 
     const result = await collectStream(
@@ -279,7 +283,9 @@ describe('chunk types', () => {
     // runs in a vm context: instanceof ArrayBuffer is false for it.
     const compressed = zstdCompress(data);
     const foreign: unknown = runInNewContext(`new ArrayBuffer(${compressed.byteLength})`);
-    if (!isArrayBuffer(foreign)) throw new Error('expected an ArrayBuffer');
+    if (!isArrayBuffer(foreign)) {
+      throw new Error('expected an ArrayBuffer');
+    }
     expect(foreign).not.toBeInstanceOf(ArrayBuffer);
     new Uint8Array(foreign).set(compressed);
 
@@ -306,7 +312,9 @@ describe('Web stream output', () => {
     }
     const moved = chunks.map((chunk) => {
       const { buffer } = chunk;
-      if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+      if (!isArrayBuffer(buffer)) {
+        throw new Error('expected an ArrayBuffer');
+      }
       return structuredClone(chunk, { transfer: [buffer] });
     });
 
@@ -328,12 +336,16 @@ describe('Web stream output', () => {
     const data = Buffer.alloc(size, 7);
     const stream = streamOf([zstdCompress(data)]).pipeThrough(createZstdDecompressStream());
     const [chunk, ...rest] = await readChunks(stream);
-    if (chunk === undefined) throw new Error('expected a chunk');
+    if (chunk === undefined) {
+      throw new Error('expected a chunk');
+    }
     expect(rest).toEqual([]);
     expect(chunk.byteLength).toBe(size);
     expect(Object.getPrototypeOf(chunk)).toBe(Uint8Array.prototype);
     const { buffer } = chunk;
-    if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+    if (!isArrayBuffer(buffer)) {
+      throw new Error('expected an ArrayBuffer');
+    }
     const moved = structuredClone(chunk, { transfer: [buffer] });
     expect(chunk.byteLength).toBe(0);
     expect(Buffer.from(moved.buffer, moved.byteOffset, moved.byteLength).equals(data)).toBe(true);
@@ -359,7 +371,9 @@ describe('LZ4 decompression streams', () => {
     const written = writer.write(frame.subarray(0, half));
     const first = await reader.read();
     await written;
-    if (first.done) throw new Error('the stream ended early');
+    if (first.done) {
+      throw new Error('the stream ended early');
+    }
     expect(first.value.byteLength).toBeGreaterThan(0);
 
     const ended = writer.write(frame.subarray(half)).then(() => writer.close());
@@ -401,7 +415,9 @@ async function readBytes(
   try {
     while (received < length) {
       const result = await Promise.race([reader.read(), timeout]);
-      if (result.done) throw new Error(`the stream ended after ${received} of ${length} bytes`);
+      if (result.done) {
+        throw new Error(`the stream ended after ${received} of ${length} bytes`);
+      }
       chunks.push(result.value);
       received += result.value.byteLength;
     }

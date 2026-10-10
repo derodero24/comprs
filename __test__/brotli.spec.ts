@@ -15,7 +15,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   const reader = stream.getReader();
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -262,7 +264,9 @@ describe('brotli streaming round-trip', () => {
 
   it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const stream = toChunkedStream(large, 64 * 1024);
 
     const result = await collectStream(

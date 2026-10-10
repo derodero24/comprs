@@ -570,7 +570,9 @@ describe('input ownership', () => {
         const expected = sync(...pristine);
         const placed = pristine.map(place);
         const result = fn(...placed);
-        for (const arg of placed) overwrite(arg);
+        for (const arg of placed) {
+          overwrite(arg);
+        }
         expect(await result).toEqual(expected);
       });
     });
@@ -596,7 +598,9 @@ describe('input ownership', () => {
     );
     const samples = pristine.map((sample) => new Uint8Array(sample));
     const result = zstdTrainDictionaryAsync(samples, 4096);
-    for (const sample of samples) sample.fill(0xaa);
+    for (const sample of samples) {
+      sample.fill(0xaa);
+    }
     // Training is deterministic: the same samples give the same dictionary.
     expect(await result).toEqual(zstdTrainDictionary(pristine, 4096));
   });
