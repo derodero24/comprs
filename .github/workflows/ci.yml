@@ -93,13 +93,20 @@ on:
       - '.changeset/config.json'
       - '.devcontainer/**'
       - '.github/workflows/**'
+  # Maintainers can run CI on any branch from the Actions tab, such as the
+  # branch of the Version Packages pull request, which changesets/action opens
+  # with GITHUB_TOKEN and which therefore starts no workflow on its own
+  # (#574). release.yml will dispatch it on the bot pull requests.
+  workflow_dispatch:
 
-# A newer push to a pull request cancels its running CI. Pushes to develop get
-# a group per commit instead: sharing one group would still replace a pending
-# run with the next one, so a burst of merges would leave commits untested.
+# A newer push to a pull request cancels its running CI. Dispatched runs group
+# per branch in the same way, so a newer dispatch replaces the running one.
+# Pushes to develop get a group per commit instead: sharing one group would
+# still replace a pending run with the next one, so a burst of merges would
+# leave commits untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -124,10 +131,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
         run: |
-          # Pushes to develop always run the full matrix. Pull requests run it
-          # only when something that ends up in the native binary or in the
-          # release packaging changed; JS-only PRs and most dependency updates
-          # build and test on Linux alone.
+          # Pushes to develop and dispatched runs always run the full matrix.
+          # Pull requests run it only when something that ends up in the
+          # native binary or in the release packaging changed; JS-only PRs and
+          # most dependency updates build and test on Linux alone.
           native=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
