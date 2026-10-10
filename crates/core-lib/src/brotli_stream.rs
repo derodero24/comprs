@@ -448,6 +448,14 @@ struct StreamEncoder {
     pending: Vec<u8>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The operation on which [`StreamEncoder::run`] panics in this thread,
+    /// for the tests of an encoder that fails.
+    static FAULT: std::cell::Cell<Option<BrotliEncoderOperation>> =
+        const { std::cell::Cell::new(None) };
+}
+
 impl StreamEncoder {
     /// An encoder with `params` and no custom dictionary. The state is
     /// boxed, as it holds several kilobytes of tables itself.
@@ -477,6 +485,12 @@ impl StreamEncoder {
     /// chunks it arrives in: the input short of that waits in
     /// [`Self::pending`] for more, a flush or the end of the stream.
     fn run(&mut self, op: BrotliEncoderOperation, mut input: &[u8]) -> std::io::Result<Vec<u8>> {
+        #[cfg(test)]
+        if FAULT.get() == Some(op) {
+            // Unlike `panic!`, `resume_unwind` does not run the panic hook,
+            // which would print the panic.
+            std::panic::resume_unwind(Box::new("an injected encoder panic"));
+        }
         let process = BrotliEncoderOperation::BROTLI_OPERATION_PROCESS;
         let mut output = Vec::new();
         if !self.pending.is_empty() {
@@ -826,7 +840,7 @@ impl StreamDecoder {
 #[cfg(test)]
 mod tests {
     use brotli::enc::encode::BrotliEncoderOperation::{
-        BROTLI_OPERATION_FINISH as FINISH, BROTLI_OPERATION_FLUSH as FLUSH,
+        self, BROTLI_OPERATION_FINISH as FINISH, BROTLI_OPERATION_FLUSH as FLUSH,
         BROTLI_OPERATION_PROCESS as PROCESS,
     };
     use brotli::enc::{Allocator, StandardAlloc};
@@ -1497,6 +1511,73 @@ mod tests {
             ctx.finish(),
             Err(ComprsError::StreamFinished("brotli dict stream"))
         ));
+    }
+
+    /// Makes the encoders of this thread panic on an operation, until it is
+    /// dropped.
+    struct Fault;
+
+    impl Fault {
+        fn on(op: BrotliEncoderOperation) -> Self {
+            super::FAULT.set(Some(op));
+            Self
+        }
+    }
+
+    impl Drop for Fault {
+        fn drop(&mut self) {
+            super::FAULT.set(None);
+        }
+    }
+
+    /// A panic of the encoder, in any call that runs it, ends the stream
+    /// with an error: the context drops the encoder, and every later call
+    /// fails with the error until `finish`, which ends the stream.
+    #[test]
+    fn incremental_dict_context_reports_an_encoder_panic() {
+        type Call = fn(&mut CompressDictContext, &[u8]) -> Result<Vec<u8>, ComprsError>;
+        // The name of a case, the input that the context takes first, then
+        // the operation on which the encoder panics, in the call that runs
+        // it on the last bytes.
+        type Case<'a> = (&'a str, &'a [u8], BrotliEncoderOperation, Call, &'a [u8]);
+        let transform: Call = |ctx, chunk| ctx.transform(chunk);
+        let flush: Call = |ctx, _| ctx.flush();
+        let finish: Call = |ctx, _| ctx.finish();
+        let message = "brotli dict stream compress failed: the encoder panicked";
+        let input = mixed(DICT_REACH + 64 * KIB);
+        let (start, rest) = input.split_at(DICT_REACH + 1);
+        let cases: [Case; 4] = [
+            // The flush of the input that the context held.
+            ("the transform past the reach", &[], FLUSH, transform, start),
+            ("a later transform", start, PROCESS, transform, rest),
+            ("flush", start, FLUSH, flush, &[]),
+            ("finish", start, FINISH, finish, &[]),
+        ];
+        for (call_name, first, op, call, chunk) in cases {
+            let mut ctx = CompressDictContext::incremental(b"dictionary", Some(1)).unwrap();
+            ctx.transform(first).unwrap();
+            assert!(ctx.memory_usage() > 0, "{call_name}");
+            let failed = {
+                let _fault = Fault::on(op);
+                call(&mut ctx, chunk)
+            };
+            assert_eq!(failed.unwrap_err().to_string(), message, "{call_name}");
+            assert_eq!(ctx.memory_usage(), 0, "{call_name}");
+            if op != FINISH {
+                for result in [ctx.transform(b"more"), ctx.flush(), ctx.finish()] {
+                    assert_eq!(result.unwrap_err().to_string(), message, "{call_name}");
+                }
+            }
+            for result in [ctx.transform(b"more"), ctx.flush(), ctx.finish()] {
+                assert!(
+                    matches!(
+                        result,
+                        Err(ComprsError::StreamFinished("brotli dict stream"))
+                    ),
+                    "{call_name}"
+                );
+            }
+        }
     }
 
     #[test]
