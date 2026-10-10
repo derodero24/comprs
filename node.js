@@ -132,7 +132,7 @@ function contextTransform(ctx) {
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
@@ -149,7 +149,7 @@ function createZstdCompressTransform(level) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -164,7 +164,7 @@ function createZstdDecompressTransform(maxOutputSize) {
  * Produces spec-compliant gzip output with proper header and CRC32 footer.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -182,7 +182,7 @@ function createGzipCompressTransform(level) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -196,7 +196,7 @@ function createGzipDecompressTransform(maxOutputSize) {
  * (no gzip header/footer) compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param level Compression level (0-9). Default is 6.
  */
@@ -213,7 +213,7 @@ function createDeflateCompressTransform(level) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -227,7 +227,7 @@ function createDeflateDecompressTransform(maxOutputSize) {
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param quality Compression quality (0-11). Default is 6.
  */
@@ -244,7 +244,7 @@ function createBrotliCompressTransform(quality) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -258,7 +258,7 @@ function createBrotliDecompressTransform(maxOutputSize) {
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Pre-trained dictionary (from `zstdTrainDictionary`).
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
@@ -276,7 +276,7 @@ function createZstdCompressDictTransform(dict, level) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Pre-trained dictionary (must match the one used for compression).
  */
@@ -290,7 +290,7 @@ function createZstdDecompressDictTransform(dict, maxOutputSize) {
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Custom dictionary bytes.
  * @param quality Compression quality (0-11). Default is 6.
@@ -308,7 +308,7 @@ function createBrotliCompressDictTransform(dict, quality) {
  * does, including empty input.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param dict Custom dictionary (must match the one used for compression).
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
@@ -354,7 +354,7 @@ const MAGIC_LENGTH = 4;
  * and on zstd, gzip or brotli input that ends before the compressed stream does.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
@@ -417,7 +417,7 @@ function createDecompressTransform(maxOutputSize) {
  * with `stream.pipeline()` and pipe-based workflows.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  */
 function createLz4CompressTransform() {
     return contextTransform(new index_js_1.Lz4CompressContext());
@@ -434,7 +434,7 @@ function createLz4CompressTransform() {
  * frame.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
- * default).
+ * default, 16 KiB on Windows).
  *
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
