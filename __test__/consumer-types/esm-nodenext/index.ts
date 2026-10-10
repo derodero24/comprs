@@ -14,6 +14,7 @@ import {
   zstdCompress,
   zstdCompressAsync,
 } from '@derodero24/comprs';
+import { Dictionary, compressSync as nextCompressSync } from '@derodero24/comprs/next';
 import { createZstdCompressTransform } from '@derodero24/comprs/node';
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
@@ -83,8 +84,19 @@ const binary = new ReadableStream<ArrayBuffer | DataView>({
 const fromBinary: ReadableStream<Uint8Array> = binary.pipeThrough(createGzipCompressStream());
 const narrow: TransformStream<Uint8Array, Uint8Array> = createGzipDecompressStream();
 
+/**
+ * Compress `data` with a dictionary that a `using` declaration closes,
+ * which type-checks where the TypeScript library declares `Symbol.dispose`,
+ * as @types/node makes it do.
+ */
+function compressWithDictionary(data: Uint8Array, bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  using dictionary = Dictionary.from(bytes, { format: 'zstd', level: 19 });
+  return nextCompressSync(data, { format: 'zstd', dictionary });
+}
+
 export {
   chunks,
+  compressWithDictionary,
   filename,
   format,
   fromBinary,

@@ -10,8 +10,8 @@
 //! only ever see values of the declared types. comprs-core checks the ranges
 //! and the combinations of the values. The glue exports the functions as
 //! `nextCompress`, `nextDecompress`, `nextDetectFormat`,
-//! `nextTrainDictionary` and `nextErrorCodes`; the browser entry,
-//! browser/index.js, does not.
+//! `nextTrainDictionary` and `nextErrorCodes`, with the class
+//! `NextDictionary`; the browser entry, browser/index.js, does not.
 //!
 //! Every error carries the code of its category ([`ComprsError::code`]) as
 //! `code`, as [`coded_error`] describes; a panic or a failed allocation
@@ -22,9 +22,17 @@
 //! workers are not supported in this build" (`ERR_COMPRS_INVALID_ARG`).
 //! There are no `*Async` functions: the backend runs these on the calling
 //! thread.
+//!
+//! The `Dictionary` class of the TypeScript layer holds a prepared
+//! dictionary as a [`NextDictionary`] (#557), whose `compress()` and
+//! `decompress()` are `nextCompress()` and `nextDecompress()` with it in
+//! place of the bytes of a dictionary. The glue cannot take an optional
+//! reference to the class as an argument of a function, as the native
+//! binding takes its handle.
 
 use comprs_core::ComprsError;
-use comprs_core::unified;
+use comprs_core::dictionary::Dictionary;
+use comprs_core::unified::{self, DictionaryRef};
 use js_sys::{Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 
@@ -75,7 +83,7 @@ pub fn next_compress(
         data,
         format,
         level,
-        dictionary.as_deref(),
+        dictionary.as_deref().map(DictionaryRef::Raw),
         gzip_header,
         gzip_filename,
         gzip_mtime,
@@ -99,8 +107,77 @@ pub fn next_decompress(
         data,
         format.as_deref(),
         max_output_size,
-        dictionary.as_deref(),
+        dictionary.as_deref().map(DictionaryRef::Raw),
     ))
+}
+
+/// A prepared dictionary, which the `Dictionary` class of the TypeScript
+/// layer holds and frees with `free()` when it is closed. The glue frees it
+/// too when the garbage collector collects the object.
+#[wasm_bindgen(js_name = "NextDictionary")]
+pub struct NextDictionary(Dictionary);
+
+#[wasm_bindgen(js_class = "NextDictionary")]
+impl NextDictionary {
+    /// Prepare a dictionary for the format named `format`, `zstd` or
+    /// `brotli`, from a copy of `bytes`, with [`Dictionary::new`], which
+    /// prepares a zstd dictionary for the compression `level` and for
+    /// decompression: `Dictionary.from()` of the unified API.
+    #[wasm_bindgen(constructor)]
+    pub fn new(bytes: &[u8], format: &str, level: Option<f64>) -> Result<NextDictionary, JsValue> {
+        let dictionary = format
+            .parse()
+            .and_then(|format| Dictionary::new(bytes, format, level));
+        coded(dictionary).map(NextDictionary)
+    }
+
+    /// [`next_compress`] with this dictionary in place of the bytes of one.
+    #[allow(clippy::too_many_arguments)] // The fields of the options.
+    pub fn compress(
+        &self,
+        data: &[u8],
+        format: &str,
+        level: Option<f64>,
+        gzip_header: Option<bool>,
+        gzip_filename: Option<String>,
+        gzip_mtime: Option<f64>,
+        workers: Option<f64>,
+    ) -> Result<Vec<u8>, JsValue> {
+        coded(unified::compress_fields(
+            data,
+            format,
+            level,
+            Some(DictionaryRef::Prepared(&self.0)),
+            gzip_header,
+            gzip_filename,
+            gzip_mtime,
+            workers,
+        ))
+    }
+
+    /// [`next_decompress`] with this dictionary in place of the bytes of
+    /// one, which selects its own format if `format` is `null` or
+    /// `undefined`.
+    pub fn decompress(
+        &self,
+        data: &[u8],
+        format: Option<String>,
+        max_output_size: Option<f64>,
+    ) -> Result<Vec<u8>, JsValue> {
+        coded(unified::decompress_fields(
+            data,
+            format.as_deref(),
+            max_output_size,
+            Some(DictionaryRef::Prepared(&self.0)),
+        ))
+    }
+
+    /// A copy of the bytes of the dictionary: `toBytes()` of the
+    /// `Dictionary` class.
+    #[wasm_bindgen(js_name = "toBytes")]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.raw().to_vec()
+    }
 }
 
 /// The name of the format of `data` that [`unified::detect`] finds, or

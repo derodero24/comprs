@@ -11,6 +11,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use zstd::zstd_safe::{self, CCtx, CDict, DDict};
@@ -27,12 +28,35 @@ pub enum DictionaryFormat {
 }
 
 impl DictionaryFormat {
+    /// Both formats.
+    pub const ALL: [DictionaryFormat; 2] = [DictionaryFormat::Zstd, DictionaryFormat::Brotli];
+
     /// The name of the format: "zstd" or "brotli".
     pub fn name(self) -> &'static str {
         match self {
             DictionaryFormat::Zstd => "zstd",
             DictionaryFormat::Brotli => "brotli",
         }
+    }
+}
+
+/// Parses the names of [`DictionaryFormat::name`], for the bindings, which
+/// take the format as a string: any other name, that of a format without
+/// dictionaries included, fails with [`ComprsError::InvalidArg`] ("format
+/// must be one of zstd, brotli").
+impl FromStr for DictionaryFormat {
+    type Err = ComprsError;
+
+    fn from_str(name: &str) -> Result<DictionaryFormat, ComprsError> {
+        DictionaryFormat::ALL
+            .into_iter()
+            .find(|format| format.name() == name)
+            .ok_or_else(|| {
+                ComprsError::InvalidArg(format!(
+                    "format must be one of {}",
+                    DictionaryFormat::ALL.map(DictionaryFormat::name).join(", ")
+                ))
+            })
     }
 }
 
@@ -320,6 +344,21 @@ mod tests {
     use super::*;
 
     const RAW: &[u8] = b"a dictionary of the words that the messages share, a dictionary";
+
+    #[test]
+    fn parses_the_names_of_the_formats() {
+        for format in DictionaryFormat::ALL {
+            assert_eq!(format.name().parse::<DictionaryFormat>().unwrap(), format);
+        }
+        for name in ["gzip", "Zstd", "zstd ", ""] {
+            match name.parse::<DictionaryFormat>() {
+                Err(ComprsError::InvalidArg(message)) => {
+                    assert_eq!(message, "format must be one of zstd, brotli");
+                }
+                other => panic!("{name:?} parsed as {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn keeps_the_last_three_other_levels() {

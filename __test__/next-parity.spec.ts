@@ -7,18 +7,14 @@ import type {
   Bytes,
   CompressOptions,
   DecompressOptions,
+  DictionaryOptions,
   ErrorCode,
   Format,
   Input,
   TrainDictionaryOptions,
 } from '../next/index.js';
 import * as native from '../next/index.js';
-import {
-  type BrowserNext,
-  HAS_WASM_BUILD,
-  importBrowserNext,
-  wasmMemory,
-} from './load-browser-entry.js';
+import { HAS_WASM_BUILD, importBrowserNext, wasmMemory } from './load-browser-entry.js';
 
 // The unified API, @derodero24/comprs/next (#577), in the browser build,
 // against the native build: the functions of src/next/api.ts over the
@@ -40,16 +36,35 @@ import {
 const require = createRequire(__filename);
 
 /**
- * The functions of either build that the tests call, as next/index.d.ts
- * declares them. An interface of its own rather than `typeof native`, so
- * that the browser module still satisfies it once the API has members that
- * no two modules share, such as classes with private fields.
+ * The options of either build: `Options` with a `dictionary` of either
+ * build. The Dictionary class of each build has a private field, which
+ * makes it nominal: a Dictionary of one build is no Dictionary of the
+ * other, in its type as at run time.
+ */
+type EitherBuild<Options> = Omit<Options, 'dictionary'> & { dictionary?: unknown };
+
+/** A Dictionary of either build, by its public members. */
+interface PreparedDictionary {
+  readonly format: 'zstd' | 'brotli';
+  readonly byteLength: number;
+  toBytes(): Bytes;
+  close(): void;
+  [Symbol.dispose](): void;
+}
+
+/**
+ * The functions and the Dictionary class of either build that the tests
+ * call, as next/index.d.ts declares them. An interface of its own rather
+ * than `typeof native`, which the browser module does not satisfy: the
+ * Dictionary class of each build has a private field, and so do the
+ * options that take one, through EitherBuild.
  */
 interface Api {
-  compress(data: Input, options: CompressOptions): Promise<Bytes>;
-  compressSync(data: Input, options: CompressOptions): Bytes;
-  decompress(data: Input, options?: DecompressOptions): Promise<Bytes>;
-  decompressSync(data: Input, options?: DecompressOptions): Bytes;
+  Dictionary: { from(bytes: Input, options: DictionaryOptions): PreparedDictionary };
+  compress(data: Input, options: EitherBuild<CompressOptions>): Promise<Bytes>;
+  compressSync(data: Input, options: EitherBuild<CompressOptions>): Bytes;
+  decompress(data: Input, options?: EitherBuild<DecompressOptions>): Promise<Bytes>;
+  decompressSync(data: Input, options?: EitherBuild<DecompressOptions>): Bytes;
   detectFormat(data: Input): Format | undefined;
   trainDictionary(samples: Iterable<Input>, options?: TrainDictionaryOptions): Promise<Bytes>;
   trainDictionarySync(samples: Iterable<Input>, options?: TrainDictionaryOptions): Bytes;
@@ -549,7 +564,7 @@ function nativeErrorCodes(): string[] {
 }
 
 describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
-  let wasm: BrowserNext;
+  let wasm: Api;
   beforeAll(async () => {
     wasm = await importBrowserNext();
   });
@@ -815,6 +830,131 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
         },
         run(() => native.trainDictionarySync(samples, options)),
       );
+    });
+  });
+
+  describe('prepared dictionaries', () => {
+    /** A Dictionary of `api` for `format`, from the shared dictionary bytes. */
+    function prepare<Prepared>(
+      api: { Dictionary: { from(bytes: Input, options: DictionaryOptions): Prepared } },
+      format: 'zstd' | 'brotli',
+      level?: number,
+    ): Prepared {
+      return api.Dictionary.from(dictionary, level === undefined ? { format } : { format, level });
+    }
+
+    it.each([
+      ['zstd', undefined, undefined],
+      ['zstd', 19, undefined],
+      ['zstd', 3, 7],
+      ['brotli', undefined, 5],
+    ] as const)(
+      'give the bytes of the native build in %s, prepared at level %s, at level %s',
+      async (format, prepared, level) => {
+        const [expected, actual] = both((api) =>
+          run(() =>
+            api.compressSync(text, { format, level, dictionary: prepare(api, format, prepared) }),
+          ),
+        );
+        expect(expected).toHaveProperty('returned');
+        expect(actual).toEqual(expected);
+        const wasmDictionary = prepare(wasm, format, prepared);
+        expect(
+          await settle(() => wasm.compress(text, { format, level, dictionary: wasmDictionary })),
+        ).toEqual(expected);
+      },
+    );
+
+    it.each(['zstd', 'brotli'] as const)(
+      'read %s that the native build wrote, in the format of the dictionary',
+      async (format) => {
+        const data = native.compressSync(text, { format, dictionary: prepare(native, format) });
+        const wasmDictionary = prepare(wasm, format);
+        expect(wasm.decompressSync(data, { dictionary: wasmDictionary })).toEqual(text);
+        expect(await wasm.decompress(data, { format, dictionary: wasmDictionary })).toEqual(text);
+        expect(wasm.decompressSync(data, { format, dictionary })).toEqual(text);
+      },
+    );
+
+    it('hold the bytes and the format', () => {
+      const [expected, actual] = both((api) =>
+        run(() => {
+          const prepared = prepare(api, 'zstd');
+          return [prepared.format, prepared.byteLength, prepared.toBytes()];
+        }),
+      );
+      expect(expected).toEqual({ returned: ['zstd', dictionary.byteLength, dictionary] });
+      expect(actual).toEqual(expected);
+    });
+
+    it('are closed by close() and [Symbol.dispose]()', async () => {
+      for (const close of ['close', Symbol.dispose] as const) {
+        const prepared = prepare(wasm, 'zstd');
+        expect(prepared[close]).toBe(prepared.close);
+        const compressing = wasm.compress(text, { format: 'zstd', dictionary: prepared });
+        prepared[close]();
+        expect(await compressing).toEqual(
+          native.compressSync(text, { format: 'zstd', dictionary: prepare(native, 'zstd') }),
+        );
+        const [expected, actual] = both((api) => {
+          const closed = prepare(api, 'zstd');
+          closed.close();
+          closed.close();
+          return run(() => api.compressSync(text, { format: 'zstd', dictionary: closed }));
+        });
+        expect(expected).toMatchObject({
+          threw: { class: 'TypeError', code: 'ERR_COMPRS_INVALID_ARG' },
+        });
+        expect(actual).toEqual(expected);
+        expect(run(() => prepared.toBytes())).toEqual(expected);
+      }
+    });
+
+    it.each([
+      [
+        'a dictionary of another format',
+        (api: Api) =>
+          api.compressSync(text, { format: 'brotli', dictionary: prepare(api, 'zstd') }),
+      ],
+      [
+        'a format without dictionaries',
+        (api: Api) => api.compressSync(text, { format: 'gzip', dictionary: prepare(api, 'zstd') }),
+      ],
+      [
+        'decompression in another format',
+        (api: Api) =>
+          api.decompressSync(compressed.zstd, {
+            format: 'zstd',
+            dictionary: prepare(api, 'brotli'),
+          }),
+      ],
+      [
+        'a format that is not for dictionaries',
+        (api: Api) =>
+          Reflect.apply(api.Dictionary.from, api.Dictionary, [dictionary, { format: 'lz4' }]),
+      ],
+      ['empty bytes', (api: Api) => api.Dictionary.from(new Uint8Array(0), { format: 'zstd' })],
+      ['a level out of range', (api: Api) => prepare(api, 'zstd', 23)],
+      ['a level for brotli', (api: Api) => prepare(api, 'brotli', 1)],
+      [
+        'bytes that zstd cannot digest',
+        (api: Api) =>
+          api.Dictionary.from(Uint8Array.of(0x37, 0xa4, 0x30, 0xec, 0, 0, 0, 0), {
+            format: 'zstd',
+          }),
+      ],
+      [
+        'the constructor',
+        (api: Api) => {
+          const dictionaryClass: unknown = api.Dictionary;
+          if (typeof dictionaryClass !== 'function') throw new Error('Dictionary is no class');
+          return Reflect.construct(dictionaryClass, []);
+        },
+      ],
+    ])('fail as in the native build for %s', (_, call) => {
+      const [expected, actual] = both((api) => run(() => call(api)));
+      expect(expected).toHaveProperty('threw.code');
+      expect(actual).toEqual(expected);
     });
   });
 

@@ -72,9 +72,6 @@ export function importBrowserNext() {
 /** The exports of the browser entry, as browser/index.d.ts declares them. */
 export type BrowserEntry = Awaited<ReturnType<typeof importBrowserEntry>>;
 
-/** The exports of browser/next/browser.js, as its declarations declare them. */
-export type BrowserNext = Awaited<ReturnType<typeof importBrowserNext>>;
-
 /** The exports of browser/streams.js, as browser/streams.d.ts declares them. */
 export type BrowserStreams = Awaited<ReturnType<typeof importBrowserStreams>>;
 

@@ -330,7 +330,7 @@ fn fields_give_the_options_that_they_hold() {
         &data,
         "zstd",
         Some(5.0),
-        Some(DICT),
+        Some(DictionaryRef::Raw(DICT)),
         None,
         None,
         None,
@@ -342,7 +342,25 @@ fn fields_give_the_options_that_they_hold() {
         unified::compress(&data, Format::Zstd, &options).unwrap()
     );
     assert_eq!(
-        unified::decompress_fields(&compressed, Some("zstd"), Some(5_000.0), Some(DICT)).unwrap(),
+        unified::decompress_fields(
+            &compressed,
+            Some("zstd"),
+            Some(5_000.0),
+            Some(DictionaryRef::Raw(DICT))
+        )
+        .unwrap(),
+        data
+    );
+    // A prepared dictionary, whose format decompression takes without one.
+    let prepared = Some(DictionaryRef::Prepared(&ZSTD_DICT_19));
+    let compressed =
+        unified::compress_fields(&data, "zstd", None, prepared, None, None, None, None).unwrap();
+    assert_eq!(
+        compressed,
+        zstd::compress_prepared(&data, &ZSTD_DICT_19, None, 0).unwrap()
+    );
+    assert_eq!(
+        unified::decompress_fields(&compressed, None, None, prepared).unwrap(),
         data
     );
     // Detection without a format.
@@ -361,7 +379,7 @@ fn fields_check_the_format_first_then_the_options_in_order() {
             b"data",
             "zip",
             Some(99.0),
-            Some(b""),
+            Some(DictionaryRef::Raw(b"")),
             Some(true),
             Some("a\0b".to_string()),
             Some(-1.0),
@@ -370,7 +388,12 @@ fn fields_check_the_format_first_then_the_options_in_order() {
         format,
     );
     assert_invalid(
-        unified::decompress_fields(b"data", Some("zip"), Some(-1.0), Some(b"")),
+        unified::decompress_fields(
+            b"data",
+            Some("zip"),
+            Some(-1.0),
+            Some(DictionaryRef::Raw(b"")),
+        ),
         format,
     );
     assert_invalid(
@@ -378,7 +401,7 @@ fn fields_check_the_format_first_then_the_options_in_order() {
             b"data",
             "gzip",
             Some(99.0),
-            Some(DICT),
+            Some(DictionaryRef::Raw(DICT)),
             None,
             None,
             None,
@@ -387,7 +410,20 @@ fn fields_check_the_format_first_then_the_options_in_order() {
         "gzip does not support dictionaries",
     );
     assert_invalid(
-        unified::decompress_fields(b"data", None, Some(-1.0), Some(DICT)),
+        unified::compress_fields(
+            b"data",
+            "brotli",
+            Some(99.0),
+            Some(DictionaryRef::Prepared(&ZSTD_DICT)),
+            None,
+            None,
+            None,
+            None,
+        ),
+        "this Dictionary is for zstd",
+    );
+    assert_invalid(
+        unified::decompress_fields(b"data", None, Some(-1.0), Some(DictionaryRef::Raw(DICT))),
         "pass `format` to decompress with a dictionary",
     );
     assert_invalid(

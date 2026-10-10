@@ -565,7 +565,7 @@ pub fn train_dictionary(
 
 /// Compress `data` in the format named `format` with [`compress`], with the
 /// options as the bindings take them from the TypeScript layer of the
-/// unified API: as positional arguments, the dictionary as raw bytes.
+/// unified API: as positional arguments.
 ///
 /// `gzip_header` tells whether the options have a gzip header, which may
 /// have no fields; `gzip_filename` and `gzip_mtime` hold its fields and
@@ -578,7 +578,7 @@ pub fn compress_fields(
     data: &[u8],
     format: &str,
     level: Option<f64>,
-    dictionary: Option<&[u8]>,
+    dictionary: Option<DictionaryRef<'_>>,
     gzip_header: Option<bool>,
     gzip_filename: Option<String>,
     gzip_mtime: Option<f64>,
@@ -587,7 +587,7 @@ pub fn compress_fields(
     let format: Format = format.parse()?;
     let options = CompressOptions {
         level,
-        dictionary: dictionary.map(DictionaryRef::Raw),
+        dictionary,
         gzip_header: GzipHeaderOptions::from_fields(
             gzip_header == Some(true),
             gzip_filename,
@@ -607,12 +607,12 @@ pub fn decompress_fields(
     data: &[u8],
     format: Option<&str>,
     max_output_size: Option<f64>,
-    dictionary: Option<&[u8]>,
+    dictionary: Option<DictionaryRef<'_>>,
 ) -> Result<Vec<u8>, ComprsError> {
     let options = DecompressOptions {
         format: format.map(str::parse).transpose()?,
         max_output_size,
-        dictionary: dictionary.map(DictionaryRef::Raw),
+        dictionary,
     };
     decompress(data, &options)
 }

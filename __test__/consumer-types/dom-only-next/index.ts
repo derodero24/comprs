@@ -9,8 +9,20 @@
 // typings of TypeScript 5.7 and later take as a BlobPart or a BufferSource,
 // unlike a Buffer, which the root entry returns, or a Uint8Array over any
 // ArrayBufferLike (#577).
-import type { Bytes, CompressOptions, ErrorCode, Format } from '@derodero24/comprs/next';
-import { compress, compressSync, decompress, detectFormat } from '@derodero24/comprs/next';
+import type {
+  Bytes,
+  CompressOptions,
+  DictionaryOptions,
+  ErrorCode,
+  Format,
+} from '@derodero24/comprs/next';
+import {
+  compress,
+  compressSync,
+  Dictionary,
+  decompress,
+  detectFormat,
+} from '@derodero24/comprs/next';
 
 const input = new TextEncoder().encode('hello');
 
@@ -27,6 +39,15 @@ const zlib: Bytes = compressSync(input, options);
 const restored: Uint8Array<ArrayBuffer> = await decompress(zlib, { format: 'auto' });
 const format: Format | undefined = detectFormat(zlib);
 
+// The declarations of Dictionary type-check without those of
+// `Symbol.dispose`, which the DOM library and ES2023 lack: it then declares
+// no [Symbol.dispose]() method, and close() frees it.
+const dictionaryOptions: DictionaryOptions = { format: 'zstd', level: undefined };
+const dictionary = Dictionary.from(input, dictionaryOptions);
+const withDictionary: Bytes = compressSync(input, { format: 'zstd', dictionary });
+const dictionaryBytes: Uint8Array<ArrayBuffer> = dictionary.toBytes();
+dictionary.close();
+
 const SIZE_LIMIT: ErrorCode = 'ERR_COMPRS_SIZE_LIMIT';
 
 /** Whether `error` is an error of ./next whose output exceeded the limit. */
@@ -34,4 +55,4 @@ function isSizeLimit(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === SIZE_LIMIT;
 }
 
-export { blob, digest, format, isSizeLimit, restored };
+export { blob, dictionaryBytes, digest, format, isSizeLimit, restored, withDictionary };

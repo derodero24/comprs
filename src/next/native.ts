@@ -17,6 +17,9 @@ const FUNCTIONS: readonly (keyof Backend)[] = [
   'detectFormat',
   'trainDictionary',
   'trainDictionaryAsync',
+  'createDictionary',
+  'dictionaryToBytes',
+  'closeDictionary',
 ];
 
 function isBackend(value: unknown): value is Backend {

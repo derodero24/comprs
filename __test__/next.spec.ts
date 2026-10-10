@@ -667,6 +667,12 @@ describe('bytes in a SharedArrayBuffer', () => {
         record(...samples);
         return inner.trainDictionaryAsync(samples, maxSize);
       },
+      createDictionary: (bytes, format, level) => {
+        record(bytes);
+        return inner.createDictionary(bytes, format, level);
+      },
+      dictionaryToBytes: (handle) => inner.dictionaryToBytes(handle),
+      closeDictionary: (handle) => inner.closeDictionary(handle),
     };
   }
 
@@ -694,11 +700,15 @@ describe('bytes in a SharedArrayBuffer', () => {
       expect(next.trainDictionarySync(samples.map(shared), { maxSize: 4096 })).toEqual(trained);
       const sharedViews = samples.map((sample) => new Uint8Array(shared(sample)));
       expect(await next.trainDictionary(sharedViews, { maxSize: 4096 })).toEqual(trained);
+      const prepared = next.Dictionary.from(new DataView(shared(dictionary)), { format: 'zstd' });
+      expect(prepared.toBytes()).toEqual(dictionary);
+      prepared.close();
     } finally {
       setBackend(original);
     }
-    // The data of each call, the dictionaries of two, and the samples.
-    expect(received).toHaveLength(6 + 2 + 2 * samples.length);
+    // The data of each call, the dictionaries of two, the samples, and the
+    // bytes of the prepared dictionary.
+    expect(received).toHaveLength(6 + 2 + 2 * samples.length + 1);
     for (const input of received) {
       expect(Object.prototype.toString.call(input.buffer)).toBe('[object ArrayBuffer]');
     }
@@ -992,13 +1002,15 @@ const BAD_ARGUMENTS: BadArguments[] = [
     name: 'a dictionary of the wrong type',
     pair: 'compress',
     args: () => [text, { format: 'zstd', dictionary: 'dictionary' }],
-    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    message:
+      'dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
   },
   {
     name: 'a dictionary of the wrong type for decompression',
     pair: 'decompress',
     args: () => [zstdText, { format: 'zstd', dictionary: [1, 2, 3] }],
-    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    message:
+      'dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
   },
   {
     name: 'a gzip header that is no object',
@@ -1166,13 +1178,15 @@ const BAD_ARGUMENTS: BadArguments[] = [
     name: 'a Proxy of an ArrayBuffer as the dictionary',
     pair: 'compress',
     args: () => [text, { format: 'zstd', dictionary: new Proxy(new ArrayBuffer(8), {}) }],
-    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    message:
+      'dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
   },
   {
     name: 'an object tagged as an ArrayBuffer as the dictionary',
     pair: 'decompress',
     args: () => [zstdText, { format: 'zstd', dictionary: { [Symbol.toStringTag]: 'ArrayBuffer' } }],
-    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    message:
+      'dictionary must be a Dictionary or an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
   },
   {
     name: 'non-iterable samples',
@@ -1310,8 +1324,9 @@ function exportedNames(namespace: object): string[] {
 }
 
 describe('the ES module entry', () => {
-  /** The functions of the API. */
+  /** The functions and the class of the API. */
   const NAMES = [
+    'Dictionary',
     'compress',
     'compressSync',
     'decompress',

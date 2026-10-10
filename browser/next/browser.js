@@ -4,4 +4,4 @@
 // as for the browser entry of the package. It exports what the entry point
 // for Node.js, index.ts, exports.
 import './wasm.js';
-export { compress, compressSync, decompress, decompressSync, detectFormat, trainDictionary, trainDictionarySync, } from './api.js';
+export { compress, compressSync, Dictionary, decompress, decompressSync, detectFormat, trainDictionary, trainDictionarySync, } from './api.js';

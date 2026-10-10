@@ -5,7 +5,7 @@
 // nothing of a particular runtime, so that the browser build compiles it
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
-import { backend } from './backend.js';
+import { backend, type DictionaryHandle } from './backend.js';
 
 /**
  * A compression format, by the names of the Compression Streams standard
@@ -113,8 +113,9 @@ export interface CompressOptions {
    * The compression level, an integer whose range and default depend on the
    * format:
    *
-   * - zstd: -131072 to 22, 3 by default, which 0 also selects. Negative
-   *   levels trade compression ratio for speed;
+   * - zstd: -131072 to 22, 3 by default, which 0 also selects. With a
+   *   {@link Dictionary}, the default is the level that it was prepared
+   *   for. Negative levels trade compression ratio for speed;
    * - gzip, deflate and deflate-raw: 0 (no compression) to 9, 6 by default;
    * - brotli: 0 to 11 (the quality of brotli), 6 by default.
    *
@@ -122,11 +123,16 @@ export interface CompressOptions {
    */
   level?: number | undefined;
   /**
-   * A dictionary, for zstd and brotli only, which must not be empty.
-   * Decompression needs the same dictionary. A zstd dictionary may be one
-   * that {@link trainDictionary} trained, or any bytes.
+   * A dictionary, for zstd and brotli only: a {@link Dictionary} for the
+   * format, or the bytes of one, which must not be empty. Decompression
+   * needs the same dictionary. A zstd dictionary may be one that
+   * {@link trainDictionary} trained, or any bytes.
+   *
+   * zstd digests the bytes of a dictionary on every call, which costs far
+   * more than compressing a small message with it: a {@link Dictionary}
+   * digests them once.
    */
-  dictionary?: Input | undefined;
+  dictionary?: Dictionary | Input | undefined;
   /**
    * The fields of the gzip header, for gzip only. Without it, or with an
    * empty object, the header has no name and no modification time.
@@ -167,6 +173,9 @@ export interface DecompressOptions {
    * but never deflate-raw, which has no header to recognize. Brotli data has
    * no magic number, so detection guesses it, and data that it takes for
    * brotli but that does not decode fails with `ERR_COMPRS_UNKNOWN_FORMAT`.
+   *
+   * With a {@link Dictionary} as the `dictionary`, `'auto'` stands for the
+   * format of the dictionary instead.
    */
   format?: Format | 'auto' | undefined;
   /**
@@ -189,10 +198,27 @@ export interface DecompressOptions {
   maxOutputSize?: number | undefined;
   /**
    * The dictionary that the data was compressed with, for zstd and brotli
-   * only. It needs a `format`: with `'auto'`, decompression fails with
+   * only: a {@link Dictionary}, or the same bytes, whatever compression
+   * took. Bytes need a `format`: with `'auto'`, decompression fails with
    * `ERR_COMPRS_INVALID_ARG`.
    */
-  dictionary?: Input | undefined;
+  dictionary?: Dictionary | Input | undefined;
+}
+
+/** The options of {@link Dictionary.from}. Other properties are ignored. */
+export interface DictionaryOptions {
+  /** The format that the dictionary is for: `'zstd'` or `'brotli'`. */
+  format: 'zstd' | 'brotli';
+  /**
+   * The zstd compression level to prepare the dictionary for: an integer
+   * from -131072 to 22, 3 by default, which 0 also selects. Compression
+   * with the dictionary and without a `level` of its own compresses at this
+   * level. Other levels work too: the dictionary prepares each on its first
+   * use, and keeps the last 3 of them.
+   *
+   * Brotli dictionaries take no level: leave it out.
+   */
+  level?: number | undefined;
 }
 
 /**
@@ -218,18 +244,32 @@ const FORMAT_SET: ReadonlySet<unknown> = new Set(FORMATS);
 /** What {@link Input} may be, in error messages. */
 const INPUT_TYPES = 'an ArrayBuffer, SharedArrayBuffer or ArrayBufferView';
 
+/** What the `dictionary` option may be, in error messages. */
+const DICTIONARY_TYPES = `a Dictionary or ${INPUT_TYPES}`;
+
+/** The formats of a {@link Dictionary}, in the order of their names in error messages. */
+const DICTIONARY_FORMATS: readonly DictionaryOptions['format'][] = ['zstd', 'brotli'];
+
 /**
  * An object whose fields are those of `T`, of any type: what the caller
  * passed for `T`, before it is checked.
  */
 type Unchecked<T> = { readonly [K in keyof T]?: unknown };
 
+/**
+ * The `dictionary` option, checked: the bytes of a dictionary or the handle
+ * of a {@link Dictionary}, as the backend takes them.
+ */
+interface DictionaryArgs {
+  dictionary: Uint8Array | undefined;
+  dictionaryHandle: DictionaryHandle | undefined;
+}
+
 /** The arguments of Backend.compress, checked. */
-interface CompressArgs {
+interface CompressArgs extends DictionaryArgs {
   data: Uint8Array;
   format: Format;
   level: number | undefined;
-  dictionary: Uint8Array | undefined;
   gzipHeader: boolean | undefined;
   gzipFilename: string | undefined;
   gzipMtime: number | undefined;
@@ -237,11 +277,17 @@ interface CompressArgs {
 }
 
 /** The arguments of Backend.decompress, checked. */
-interface DecompressArgs {
+interface DecompressArgs extends DictionaryArgs {
   data: Uint8Array;
   format: Format | undefined;
   maxOutputSize: number | undefined;
-  dictionary: Uint8Array | undefined;
+}
+
+/** The arguments of Backend.createDictionary, checked. */
+interface CreateDictionaryArgs {
+  bytes: Uint8Array;
+  format: DictionaryOptions['format'];
+  level: number | undefined;
 }
 
 /** The arguments of Backend.trainDictionary, checked. */
@@ -262,6 +308,10 @@ function isObject<T>(value: unknown): value is Unchecked<T> {
 
 function isFormat(value: unknown): value is Format {
   return FORMAT_SET.has(value);
+}
+
+function isDictionaryFormat(value: unknown): value is DictionaryOptions['format'] {
+  return value === 'zstd' || value === 'brotli';
 }
 
 function isIterable(value: unknown): value is Iterable<unknown> {
@@ -433,7 +483,7 @@ function isResizable(buffer: ArrayBuffer): boolean {
  * a typed array read it as empty, at an offset of 0, so keys(), which
  * throws for it, checks a typed array first.
  */
-function viewBytes(view: ArrayBufferView, name: string): Uint8Array {
+function viewBytes(view: ArrayBufferView, name: string, types: string): Uint8Array {
   const type = callGetter(TYPED_ARRAY_NAME, view);
   const getters = type === undefined ? DATA_VIEW_GETTERS : TYPED_ARRAY_GETTERS;
   const buffer = callGetter(getters.buffer, view);
@@ -459,20 +509,21 @@ function viewBytes(view: ArrayBufferView, name: string): Uint8Array {
     }
   }
   // The getters of every view return its buffer and two numbers.
-  throw invalidArg(`${name} must be ${INPUT_TYPES}`);
+  throw invalidArg(`${name} must be ${types}`);
 }
 
 /**
  * The bytes of `value`, an {@link Input} that the error messages call
  * `name`, as a new Uint8Array that the backend may read: over the same bytes
  * for an ArrayBuffer and a view of one, and over a copy of the bytes in a
- * SharedArrayBuffer.
+ * SharedArrayBuffer. Any other value fails with a message that says that
+ * `name` must be `types`.
  *
  * A detached buffer and a view out of bounds fail here with a code, before
  * `new Uint8Array()` fails on them without one, or reads them as empty.
  */
-function toBytes(value: unknown, name: string): Uint8Array {
-  if (ArrayBuffer.isView(value)) return viewBytes(value, name);
+function toBytes(value: unknown, name: string, types: string = INPUT_TYPES): Uint8Array {
+  if (ArrayBuffer.isView(value)) return viewBytes(value, name, types);
   if (seemsShared(value) && isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
   if (isArrayBuffer(value)) {
     if (isDetached(value)) throw invalidArg(`${name} is a detached ArrayBuffer`);
@@ -480,12 +531,22 @@ function toBytes(value: unknown, name: string): Uint8Array {
   }
   // A SharedArrayBuffer of another realm.
   if (isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
-  throw invalidArg(`${name} must be ${INPUT_TYPES}`);
+  throw invalidArg(`${name} must be ${types}`);
 }
 
-/** {@link toBytes} for an optional input. */
-function toOptionalBytes(value: unknown, name: string): Uint8Array | undefined {
-  return value === undefined ? undefined : toBytes(value, name);
+/**
+ * The `dictionary` option, `value`, as the backend takes it: the handle of
+ * a {@link Dictionary}, or the bytes of an {@link Input}, which
+ * {@link toBytes} reads. A closed Dictionary fails.
+ */
+function dictionaryArgs(value: unknown): DictionaryArgs {
+  if (value === undefined) return { dictionary: undefined, dictionaryHandle: undefined };
+  const handle = typeof value === 'object' && value !== null ? handleOf(value) : undefined;
+  if (handle !== undefined) return { dictionary: undefined, dictionaryHandle: handle };
+  return {
+    dictionary: toBytes(value, 'dictionary', DICTIONARY_TYPES),
+    dictionaryHandle: undefined,
+  };
 }
 
 /**
@@ -513,7 +574,7 @@ function compressArgs(data: unknown, options: unknown): CompressArgs {
     data: toBytes(data, 'data'),
     format,
     level,
-    dictionary: toOptionalBytes(dictionary, 'dictionary'),
+    ...dictionaryArgs(dictionary),
     gzipHeader,
     gzipFilename,
     gzipMtime,
@@ -540,8 +601,19 @@ function decompressArgs(data: unknown, options: unknown): DecompressArgs {
     data: toBytes(data, 'data'),
     format,
     maxOutputSize,
-    dictionary: toOptionalBytes(dictionary, 'dictionary'),
+    ...dictionaryArgs(dictionary),
   };
+}
+
+/** Check the arguments of {@link Dictionary.from}, as compressArgs does. */
+function createDictionaryArgs(bytes: unknown, options: unknown): CreateDictionaryArgs {
+  if (!isObject<DictionaryOptions>(options)) throw invalidArg('options must be an object');
+  const format = options.format;
+  if (!isDictionaryFormat(format)) {
+    throw invalidArg(`format must be one of ${DICTIONARY_FORMATS.join(', ')}`);
+  }
+  const level = optionalNumber(options.level, 'level');
+  return { bytes: toBytes(bytes, 'bytes'), format, level };
 }
 
 /**
@@ -571,13 +643,14 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
  * The output holds the same bytes as that of the functions of the root
  * entry at the same settings, such as `zstdCompress(data, level)`, or
  * `deflateCompress(data, level)` for `'deflate-raw'`, unless zstd compresses
- * with `workers`.
+ * with `workers`, or a large input with a {@link Dictionary}.
  *
- * The data and the dictionary are copied when compress() is called, so
- * changing them afterwards does not change the result. In Node.js, the data
- * is compressed on a thread of the libuv pool. The browser build has no
- * such pool: it compresses the data on the calling thread, which it blocks,
- * before compress() returns.
+ * The data and the bytes of a dictionary are copied when compress() is
+ * called, so changing them afterwards does not change the result, and the
+ * call keeps using a {@link Dictionary} that is closed afterwards. In
+ * Node.js, the data is compressed on a thread of the libuv pool. The browser
+ * build has no such pool: it compresses the data on the calling thread,
+ * which it blocks, before compress() returns.
  *
  * @returns A Promise of the compressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
@@ -595,6 +668,7 @@ export function compress(data: Input, options: CompressOptions): Promise<Bytes> 
       args.gzipFilename,
       args.gzipMtime,
       args.workers,
+      args.dictionaryHandle,
     );
   } catch (error) {
     return Promise.reject(error);
@@ -619,6 +693,7 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
     args.gzipFilename,
     args.gzipMtime,
     args.workers,
+    args.dictionaryHandle,
   );
 }
 
@@ -634,11 +709,12 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
  * find, empty data included, fails with `ERR_COMPRS_UNKNOWN_FORMAT`, as
  * {@link DecompressOptions.format} describes.
  *
- * The data and the dictionary are copied when decompress() is called, so
- * changing them afterwards does not change the result. In Node.js, the data
- * is decompressed on a thread of the libuv pool. The browser build
- * decompresses it on the calling thread, which it blocks, before
- * decompress() returns.
+ * The data and the bytes of a dictionary are copied when decompress() is
+ * called, so changing them afterwards does not change the result, and the
+ * call keeps using a {@link Dictionary} that is closed afterwards. In
+ * Node.js, the data is decompressed on a thread of the libuv pool. The
+ * browser build decompresses it on the calling thread, which it blocks,
+ * before decompress() returns.
  *
  * @returns A Promise of the decompressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`.
@@ -647,7 +723,13 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
 export function decompress(data: Input, options?: DecompressOptions): Promise<Bytes> {
   try {
     const args = decompressArgs(data, options);
-    return backend().decompressAsync(args.data, args.format, args.maxOutputSize, args.dictionary);
+    return backend().decompressAsync(
+      args.data,
+      args.format,
+      args.maxOutputSize,
+      args.dictionary,
+      args.dictionaryHandle,
+    );
   } catch (error) {
     return Promise.reject(error);
   }
@@ -662,7 +744,13 @@ export function decompress(data: Input, options?: DecompressOptions): Promise<By
  */
 export function decompressSync(data: Input, options?: DecompressOptions): Bytes {
   const args = decompressArgs(data, options);
-  return backend().decompress(args.data, args.format, args.maxOutputSize, args.dictionary);
+  return backend().decompress(
+    args.data,
+    args.format,
+    args.maxOutputSize,
+    args.dictionary,
+    args.dictionaryHandle,
+  );
 }
 
 /**
@@ -718,4 +806,159 @@ export function trainDictionarySync(
 ): Bytes {
   const args = trainDictionaryArgs(samples, options);
   return backend().trainDictionary(args.samples, args.maxSize);
+}
+
+/** `Symbol.dispose`, if the TypeScript library declares it. */
+type DisposeSymbol = SymbolConstructor extends {
+  readonly dispose: infer Key extends symbol;
+}
+  ? Key
+  : never;
+
+/**
+ * The `[Symbol.dispose]()` method of {@link Dictionary}, which this module
+ * defines where the runtime has `Symbol.dispose`. It is declared only where
+ * the TypeScript library has it too, so that these declarations also
+ * type-check without it, as with the DOM library alone.
+ */
+type Disposal = { [Key in DisposeSymbol]: () => void };
+
+/**
+ * The key without which the constructor of {@link Dictionary} throws, so
+ * that {@link Dictionary.from} alone creates dictionaries.
+ */
+const CONSTRUCT: unique symbol = Symbol('Dictionary');
+
+/**
+ * The handle of `value` if it is a {@link Dictionary} that is not closed,
+ * or `undefined` if it is no Dictionary. A closed Dictionary fails with
+ * `ERR_COMPRS_INVALID_ARG`. The class sets this in its static block, since
+ * only its own code reads its private field; until then, no value is a
+ * Dictionary.
+ */
+let handleOf: (value: object) => DictionaryHandle | undefined = () => undefined;
+
+// `Dictionary.prototype[Symbol.dispose]`, where the TypeScript library
+// declares `Symbol.dispose`. The class gets it at run time, below.
+export interface Dictionary extends Disposal {}
+
+/**
+ * A zstd or brotli dictionary, prepared once for every call that compresses
+ * or decompresses with it, as the `dictionary` option of {@link compress},
+ * {@link decompress} and their `*Sync` variants.
+ *
+ * zstd digests the bytes of a dictionary before it compresses or
+ * decompresses the first frame with them, which costs far more than a small
+ * message: a call with the bytes of a dictionary digests them every time, a
+ * Dictionary once. A zstd Dictionary is digested when it is created, for its
+ * compression level and for decompression. A brotli Dictionary holds the
+ * bytes, which brotli takes as they are and indexes on every call, so it
+ * saves little time yet.
+ *
+ * A Dictionary holds memory outside the JavaScript heap. For zstd, that is
+ * a copy of the bytes, a digest for decompression of about their size, and
+ * a digest for each compression level that it keeps, which grows with the
+ * level: 0.8 MB in all at level 3 for a dictionary of 110 KiB, and 2 MB at
+ * level 19. The garbage collector frees it with the Dictionary;
+ * {@link Dictionary.close} frees it earlier. `[Symbol.dispose]()` is
+ * `close()`, for `using` declarations.
+ *
+ * A Dictionary is for its {@link Dictionary.format} alone: with any other
+ * format, the functions fail with `ERR_COMPRS_INVALID_ARG`, such as "this
+ * Dictionary is for zstd". Data compressed with a Dictionary decompresses
+ * with its bytes too, and the other way round.
+ */
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the interface only declares the [Symbol.dispose]() method that this module adds to the class.
+export class Dictionary {
+  /** The dictionary of the backend, or `undefined` once closed. */
+  #handle: DictionaryHandle | undefined;
+
+  /** The format that the dictionary is for. */
+  readonly format: 'zstd' | 'brotli';
+
+  /** The size of the dictionary, in bytes. */
+  readonly byteLength: number;
+
+  private constructor(
+    key: symbol,
+    handle: DictionaryHandle,
+    format: 'zstd' | 'brotli',
+    byteLength: number,
+  ) {
+    if (key !== CONSTRUCT) {
+      throw invalidArg('Dictionary cannot be constructed: create one with Dictionary.from()');
+    }
+    this.#handle = handle;
+    this.format = format;
+    this.byteLength = byteLength;
+  }
+
+  /**
+   * Prepare a dictionary for `options.format` from `bytes`, which may be any
+   * bytes but must not be empty, such as a zstd dictionary that
+   * {@link trainDictionary} trained. A zstd dictionary is digested for
+   * compression at `options.level` and for decompression.
+   *
+   * The bytes are copied, so changing them afterwards does not change the
+   * dictionary.
+   *
+   * @returns The dictionary.
+   * @throws An error with an {@link ErrorCode} as `code`:
+   * `ERR_COMPRS_INVALID_ARG` for invalid arguments, a level for a brotli
+   * dictionary included, and `ERR_COMPRS_OPERATION_FAILED` for bytes that
+   * zstd cannot digest, such as a trained dictionary cut short.
+   */
+  static from(bytes: Input, options: DictionaryOptions): Dictionary {
+    const args = createDictionaryArgs(bytes, options);
+    const handle = backend().createDictionary(args.bytes, args.format, args.level);
+    return new Dictionary(CONSTRUCT, handle, args.format, args.bytes.byteLength);
+  }
+
+  /**
+   * A copy of the bytes of the dictionary, which decompress what the
+   * dictionary compressed, and compress what it decompresses.
+   *
+   * @throws A TypeError with the code `ERR_COMPRS_INVALID_ARG` once the
+   * dictionary is closed.
+   */
+  toBytes(): Bytes {
+    return backend().dictionaryToBytes(this.#open());
+  }
+
+  /**
+   * Free the memory of the dictionary now, rather than when the garbage
+   * collector collects it. Calls that already started with the dictionary
+   * finish with it. Later calls with it, and {@link Dictionary.toBytes},
+   * fail with `ERR_COMPRS_INVALID_ARG` ("this Dictionary is closed");
+   * closing it again does nothing.
+   */
+  close(): void {
+    const handle = this.#handle;
+    if (handle === undefined) return;
+    this.#handle = undefined;
+    backend().closeDictionary(handle);
+  }
+
+  /** The handle of the dictionary, which must not be closed. */
+  #open(): DictionaryHandle {
+    if (this.#handle === undefined) throw invalidArg('this Dictionary is closed');
+    return this.#handle;
+  }
+
+  static {
+    handleOf = (value: object): DictionaryHandle | undefined =>
+      #handle in value ? value.#open() : undefined;
+  }
+}
+
+// [Symbol.dispose]() is close(), as for the stream contexts of the package
+// root, where the runtime has Symbol.dispose, which TypeScript's library
+// for ES2023 does not declare.
+const DISPOSE: unknown = Reflect.get(Symbol, 'dispose');
+if (typeof DISPOSE === 'symbol') {
+  Object.defineProperty(Dictionary.prototype, DISPOSE, {
+    value: Dictionary.prototype.close,
+    writable: true,
+    configurable: true,
+  });
 }

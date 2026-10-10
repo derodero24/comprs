@@ -8,6 +8,7 @@ export type {
   Bytes,
   CompressOptions,
   DecompressOptions,
+  DictionaryOptions,
   ErrorCode,
   Format,
   GzipHeaderOptions,
@@ -17,6 +18,7 @@ export type {
 export {
   compress,
   compressSync,
+  Dictionary,
   decompress,
   decompressSync,
   detectFormat,
