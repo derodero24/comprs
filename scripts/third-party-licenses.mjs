@@ -20,7 +20,9 @@
  * needs `cargo`, and network access then). A crate that publishes no license
  * file gets the committed copy of its repository's license from
  * scripts/licenses/ (OVERRIDES); any other crate without one fails the
- * generation.
+ * generation. A bundled C file whose header carries a copyright notice that
+ * the crate's license files lack adds a committed copy of that header
+ * (SOURCE_NOTICES).
  *
  * Usage:
  *   node scripts/third-party-licenses.mjs --package <comprs|comprs-wasm> --target <triple> [--output <file>]
@@ -42,7 +44,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { capture, isRecord, readRelease, runMain } from './release-utils.mjs';
+import { capture, isRecord, ROOT, readRelease, runMain } from './release-utils.mjs';
 
 /** @typedef {import('./release-utils.mjs').ReleaseTarget} ReleaseTarget */
 
@@ -69,8 +71,9 @@ import { capture, isRecord, readRelease, runMain } from './release-utils.mjs';
  */
 
 /**
- * A license text, and the file it comes from: a path in the crate's sources,
- * or the URL of the upstream file that an override copies.
+ * A license text, and the file it comes from: a path in the crate's sources
+ * (for a SOURCE_NOTICES entry, the source file whose header it copies), or
+ * the URL of the upstream file that an override copies.
  *
  * @typedef {object} LicenseText
  * @property {string} file
@@ -107,18 +110,61 @@ const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright|unlicense)([.-].*)?$
  * License files below the root of a crate, such as those of bundled C code,
  * by crate name, relative to the crate. Generation fails if one is missing.
  *
- * zstd-sys builds the zstd C library from its sources, under Meta's BSD
- * license in zstd/LICENSE; zstd/COPYING, the GPLv2 alternative, is left out.
- * brotli needs no entry: it is a Rust port that bundles no C code, and its
- * own LICENSE.MIT (the Brotli Authors) and LICENSE.BSD-3-Clause (Dropbox)
- * carry both notices.
+ * zstd-sys builds the zstd C library from its sources. zstd/LICENSE holds
+ * Meta's BSD license, which covers most of them; the files whose headers
+ * carry other copyright notices are in SOURCE_NOTICES. zstd is dual-licensed
+ * and used under that BSD license, so zstd/COPYING, the GPLv2 alternative,
+ * is left out. brotli needs no entry: it is a Rust port that bundles no C
+ * code, and its own LICENSE.MIT (the Brotli Authors) and
+ * LICENSE.BSD-3-Clause (Dropbox) carry both notices.
  *
  * @type {Map<string, string[]>}
  */
 const EXTRA_FILES = new Map([['zstd-sys', ['zstd/LICENSE']]]);
 
-/** Committed copies of upstream license files, for OVERRIDES. */
+/** Committed copies of upstream texts, for OVERRIDES and SOURCE_NOTICES. */
 const LICENSES_DIR = join(import.meta.dirname, 'licenses');
+
+/**
+ * Notices that a crate needs besides its license files, by crate name: the
+ * copyright notices in the headers of bundled source files that its license
+ * files do not carry. Each entry names a source file, relative to the crate,
+ * and a committed text in scripts/licenses/ that says where the header
+ * comes from and ends with a verbatim copy of it; the notice lists that
+ * text for the source file. Generation fails when a source file is missing,
+ * or no longer starts with the header that its copy ends with, so that a
+ * crate update that changes a header also updates the copy.
+ *
+ * zstd-sys compiles every C file of zstd/lib/common, compress, decompress
+ * and, with the zdict_builder feature that every build enables,
+ * dictBuilder (but not xxhash.c). Their headers name Meta alone, as
+ * zstd/LICENSE does, except for:
+ *
+ *   - threading.c and threading.h (Tino Reichardt), the Windows thread
+ *     wrappers that the native Windows builds link, as comprs-core enables
+ *     zstdmt (ZSTD_MULTITHREAD); elsewhere they compile to almost nothing;
+ *   - xxhash.h (Yann Collet - Meta Platforms), whose hash functions every
+ *     build inlines;
+ *   - divsufsort.c (Yuta Mori, MIT), which the dictionary builder compiles,
+ *     although only the legacy trainer, which comprs does not call, uses it.
+ *
+ * They are listed for every build that links zstd-sys, not only where the
+ * linker keeps their code: a notice too many does no harm, and one too few
+ * would.
+ *
+ * @type {Map<string, { source: string, copy: string }[]>}
+ */
+const SOURCE_NOTICES = new Map([
+  [
+    'zstd-sys',
+    [
+      { source: 'zstd/lib/common/threading.c', copy: 'zstd-threading.NOTICE' },
+      { source: 'zstd/lib/common/threading.h', copy: 'zstd-threading.NOTICE' },
+      { source: 'zstd/lib/common/xxhash.h', copy: 'zstd-xxhash.NOTICE' },
+      { source: 'zstd/lib/dictBuilder/divsufsort.c', copy: 'zstd-divsufsort.NOTICE' },
+    ],
+  ],
+]);
 
 /**
  * The repository license of napi and napi-sys: napi-rs/napi-rs at the tags
@@ -375,6 +421,7 @@ export function collectLicenses(crates, packages) {
     if (texts.length === 0) {
       unlicensed.push(`${name} ${version}`);
     } else {
+      texts.push(...sourceNotices(pkg));
       found.push({ name, version, license: pkg.license, repository: pkg.repository, texts });
     }
   }
@@ -466,6 +513,48 @@ function extraFiles(pkg, dir) {
     }
   }
   return files;
+}
+
+/**
+ * The SOURCE_NOTICES of a crate, each with the source file whose header it
+ * copies. Throws if a source file is missing, or does not start with the
+ * header that its copy ends with.
+ *
+ * @param {CargoPackage} pkg
+ * @returns {LicenseText[]}
+ */
+function sourceNotices(pkg) {
+  const dir = dirname(pkg.manifestPath);
+  return (SOURCE_NOTICES.get(pkg.name) ?? []).map(({ source, copy }) => {
+    const copyPath = relative(ROOT, join(LICENSES_DIR, copy)).replaceAll('\\', '/');
+    if (!isFile(join(dir, source))) {
+      throw new Error(
+        `${pkg.name} ${pkg.version} has no ${source} in ${dir}, whose header ${copyPath} ` +
+          'copies; update or remove its SOURCE_NOTICES entry in scripts/third-party-licenses.mjs',
+      );
+    }
+    const text = readText(join(LICENSES_DIR, copy));
+    const header = leadingComment(readText(join(dir, source)));
+    if (header === undefined || !text.endsWith(header)) {
+      throw new Error(
+        `The header of ${source} in ${pkg.name} ${pkg.version} is not the one that ` +
+          `${copyPath} copies; copy the new header into it verbatim`,
+      );
+    }
+    return { file: source, text };
+  });
+}
+
+/**
+ * The block comment that a C source file starts with, if any, up to the end
+ * of that comment.
+ *
+ * @param {string} text
+ * @returns {string | undefined}
+ */
+function leadingComment(text) {
+  const end = text.indexOf('*/');
+  return text.startsWith('/*') && end !== -1 ? text.slice(0, end + 2) : undefined;
 }
 
 /**

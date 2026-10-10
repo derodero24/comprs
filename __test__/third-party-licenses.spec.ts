@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -44,6 +44,11 @@ const THIRD_PARTY_LICENSES = pathToFileURL(
 ).href;
 
 const REGISTRY = 'registry+https://github.com/rust-lang/crates.io-index';
+
+/** The committed texts that OVERRIDES and SOURCE_NOTICES name. */
+const LICENSES_DIR = resolve(__dirname, '../scripts/licenses');
+
+const ZSTD_SYS: CrateId = { name: 'zstd-sys', version: '2.1.0+zstd.1.5.7' };
 
 let licenses: ThirdPartyLicenses;
 
@@ -272,20 +277,103 @@ describe('collectLicenses', () => {
     ]);
   });
 
-  it('adds the license of the zstd C library that zstd-sys bundles, but not its GPL alternative', () => {
-    const zstdSys = registryCrate('zstd-sys', '2.1.0+zstd.1.5.7', {
+  /**
+   * A zstd-sys crate in the fake registry, with the license files of the
+   * real one and the zstd sources whose headers SOURCE_NOTICES copies, each
+   * starting with the header of its committed copy unless `sources` says
+   * otherwise (undefined leaves the file out).
+   */
+  function zstdSysCrate(sources: Record<string, string | undefined> = {}): CargoPackage {
+    const header = (copy: string): string => {
+      const text = readFileSync(join(LICENSES_DIR, copy), 'utf8');
+      return text.slice(text.indexOf('/*'));
+    };
+    const files = Object.entries({
+      'zstd/lib/common/threading.c': `${header('zstd-threading.NOTICE')}\nint g_symbol;\n`,
+      'zstd/lib/common/threading.h': `${header('zstd-threading.NOTICE')}\n#define THREADING_H\n`,
+      'zstd/lib/common/xxhash.h': `${header('zstd-xxhash.NOTICE')}\n#define XXH_NO_XXH3\n`,
+      'zstd/lib/dictBuilder/divsufsort.c': `${header('zstd-divsufsort.NOTICE')}\n#include "divsufsort.h"\n`,
+      ...sources,
+    }).filter((entry): entry is [string, string] => entry[1] !== undefined);
+    return registryCrate(ZSTD_SYS.name, ZSTD_SYS.version, {
       LICENSE: 'zstd-sys bindings license',
       'zstd/LICENSE': 'BSD License\n\nFor Zstandard software',
       'zstd/COPYING': 'GNU GENERAL PUBLIC LICENSE',
+      ...Object.fromEntries(files),
     });
-    const [found] = licenses.collectLicenses(
-      [{ name: 'zstd-sys', version: '2.1.0+zstd.1.5.7' }],
-      [zstdSys],
-    );
-    expect(found?.texts).toEqual([
+  }
+
+  it('adds the license of the zstd C library that zstd-sys bundles, but not its GPL alternative', () => {
+    const [found] = licenses.collectLicenses([ZSTD_SYS], [zstdSysCrate()]);
+    expect(found?.texts.slice(0, 2)).toEqual([
       { file: 'LICENSE', text: 'zstd-sys bindings license' },
       { file: 'zstd/LICENSE', text: 'BSD License\n\nFor Zstandard software' },
     ]);
+    expect(found?.texts.map(({ text }) => text).join('\n')).not.toContain(
+      'GNU GENERAL PUBLIC LICENSE',
+    );
+  });
+
+  it('adds the notices of the zstd sources whose headers name other authors', () => {
+    const [found] = licenses.collectLicenses([ZSTD_SYS], [zstdSysCrate()]);
+    expect(found?.texts.map(({ file }) => file)).toEqual([
+      'LICENSE',
+      'zstd/LICENSE',
+      'zstd/lib/common/threading.c',
+      'zstd/lib/common/threading.h',
+      'zstd/lib/common/xxhash.h',
+      'zstd/lib/dictBuilder/divsufsort.c',
+    ]);
+    const notice = licenses.renderNotice({ title: 'pkg (triple)', crates: found ? [found] : [] });
+    const zstdSys = 'zstd-sys 2.1.0+zstd.1.5.7';
+    expect(usedBy(notice).slice(2)).toEqual([
+      `Used by: ${zstdSys} (zstd/lib/common/threading.c), ${zstdSys} (zstd/lib/common/threading.h)`,
+      `Used by: ${zstdSys} (zstd/lib/common/xxhash.h)`,
+      `Used by: ${zstdSys} (zstd/lib/dictBuilder/divsufsort.c)`,
+    ]);
+    // The Windows thread wrappers of zstdmt, which comprs-core enables.
+    expect(notice).toContain(
+      [
+        '/**',
+        ' * Copyright (c) 2016 Tino Reichardt',
+        ' * All rights reserved.',
+        ' *',
+        ' * You can contact the author at:',
+        ' * - zstdmt source repository: https://github.com/mcmilk/zstdmt',
+        ' *',
+        ' * This source code is licensed under both the BSD-style license (found in the',
+      ].join('\n'),
+    );
+    expect(notice).toContain(' * Copyright (c) Yann Collet - Meta Platforms, Inc\n');
+    expect(notice).toContain(' * Copyright (c) 2003-2008 Yuta Mori All Rights Reserved.\n');
+    // Each dual-licensed notice says which of its licenses applies.
+    expect(notice.match(/is used under the BSD-style\s+license/g)).toHaveLength(2);
+  });
+
+  it('reads the headers of the zstd sources whatever their line endings', () => {
+    const zstdSys = zstdSysCrate();
+    const expected = licenses.collectLicenses([ZSTD_SYS], [zstdSys]);
+    const path = join(dirname(zstdSys.manifestPath), 'zstd/lib/common/threading.c');
+    writeFileSync(path, readFileSync(path, 'utf8').replaceAll('\n', '\r\n'));
+    expect(licenses.collectLicenses([ZSTD_SYS], [zstdSys])).toEqual(expected);
+  });
+
+  it('fails when a zstd source with a notice of its own is missing', () => {
+    const zstdSys = zstdSysCrate({ 'zstd/lib/common/threading.h': undefined });
+    expect(() => licenses.collectLicenses([ZSTD_SYS], [zstdSys])).toThrow(
+      'zstd-sys 2.1.0+zstd.1.5.7 has no zstd/lib/common/threading.h',
+    );
+  });
+
+  it.each([
+    ['a changed header', '/**\n * Copyright (c) 2016-2026 Tino Reichardt\n */\nint g_symbol;\n'],
+    ['no header', 'int g_symbol;\n'],
+  ])('fails when a zstd source has %s', (_, contents) => {
+    const zstdSys = zstdSysCrate({ 'zstd/lib/common/threading.c': contents });
+    expect(() => licenses.collectLicenses([ZSTD_SYS], [zstdSys])).toThrow(
+      'The header of zstd/lib/common/threading.c in zstd-sys 2.1.0+zstd.1.5.7 is not the one ' +
+        'that scripts/licenses/zstd-threading.NOTICE copies',
+    );
   });
 
   it('fails when the bundled zstd license is missing', () => {

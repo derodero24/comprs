@@ -222,7 +222,7 @@ node scripts/third-party-licenses.mjs --package comprs --target x86_64-unknown-l
 node scripts/third-party-licenses.mjs --package comprs-wasm --target wasm32-unknown-unknown
 ```
 
-A new dependency whose crate publishes no license file fails the dry run until its upstream license is added: commit a verbatim copy of the license file of its repository to `scripts/licenses/`, and add an entry for it to `OVERRIDES` in `scripts/third-party-licenses.mjs`, with the URL of the file at the commit it was copied from. If the crate keeps its license files below its root instead, name them in `EXTRA_FILES`.
+A new dependency whose crate publishes no license file fails the dry run until its upstream license is added: commit a verbatim copy of the license file of its repository to `scripts/licenses/`, and add an entry for it to `OVERRIDES` in `scripts/third-party-licenses.mjs`, with the URL of the file at the commit it was copied from. If the crate keeps its license files below its root instead, name them in `EXTRA_FILES`. A crate that compiles C sources whose headers carry copyright notices that its license files lack, as zstd-sys does, needs those headers too: commit each one verbatim to `scripts/licenses/`, after a note on where it comes from, and add an entry for its source file to `SOURCE_NOTICES`. When a crate update changes such a header, the generation fails until the copy is updated.
 
 ## Releases
 
