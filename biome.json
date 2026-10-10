@@ -51,6 +51,7 @@
       },
       "complexity": {
         "noForEach": "error",
+        "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
           "level": "warn",
           "options": { "maxAllowedComplexity": 15 }

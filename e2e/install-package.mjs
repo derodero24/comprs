@@ -74,9 +74,9 @@ function hostTarget(targets) {
   const matches = targets.filter((target) => {
     const manifest = readJson(join(target.packageDir, 'package.json'));
     return (
-      allows(manifest.os, process.platform) &&
-      allows(manifest.cpu, process.arch) &&
-      (libc === undefined || allows(manifest.libc, libc))
+      allows(manifest['os'], process.platform) &&
+      allows(manifest['cpu'], process.arch) &&
+      (libc === undefined || allows(manifest['libc'], libc))
     );
   });
   const [target] = matches;
@@ -131,7 +131,7 @@ function hostLibc() {
   }
   /** @type {unknown} */
   const report = process.report.getReport();
-  const header = isRecord(report) ? report.header : undefined;
+  const header = isRecord(report) ? report['header'] : undefined;
   return isRecord(header) && 'glibcVersionRuntime' in header ? 'glibc' : 'musl';
 }
 

@@ -13,7 +13,7 @@ import { readNapiConfig } from '@napi-rs/cli';
 /** Repository root, where the root package lives. */
 export const ROOT = resolve(import.meta.dirname, '..');
 
-const IN_GITHUB_ACTIONS = process.env.GITHUB_ACTIONS === 'true';
+const IN_GITHUB_ACTIONS = process.env['GITHUB_ACTIONS'] === 'true';
 
 /**
  * @typedef {object} ReleaseTarget
@@ -42,7 +42,7 @@ const IN_GITHUB_ACTIONS = process.env.GITHUB_ACTIONS === 'true';
 export async function readRelease() {
   const config = await readNapiConfig(join(ROOT, 'package.json'));
   const packageJson = readJson(join(ROOT, 'package.json'));
-  const version = packageJson.version;
+  const { version } = packageJson;
   if (typeof version !== 'string') {
     throw new Error('package.json has no version');
   }
@@ -222,7 +222,7 @@ export function npmPack(cwd, args) {
   return {
     filename,
     files: entries
-      .map((entry) => (isRecord(entry) ? entry.path : undefined))
+      .map((entry) => (isRecord(entry) ? entry['path'] : undefined))
       .filter((path) => typeof path === 'string')
       .sort(),
   };

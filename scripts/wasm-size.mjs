@@ -54,8 +54,11 @@ const rows = [
   },
 ];
 
+/** @param {number} n */
 const bytes = (n) => n.toLocaleString('en-US');
-const over = rows.filter((row) => row.budget !== undefined && row.size > row.budget);
+const over = rows.flatMap(({ name, size, budget }) =>
+  budget !== undefined && size > budget ? [{ name, excess: size - budget }] : [],
+);
 
 const table = [
   `| \`${WASM_FILE}\` | Bytes | Budget |`,
@@ -68,7 +71,7 @@ const table = [
 const verdict =
   over.length === 0
     ? 'Within budget.'
-    : `Over budget: ${over.map((row) => `${row.name} by ${bytes(row.size - row.budget)} bytes`).join(', ')}. The budget is in scripts/wasm-size.mjs.`;
+    : `Over budget: ${over.map((row) => `${row.name} by ${bytes(row.excess)} bytes`).join(', ')}. The budget is in scripts/wasm-size.mjs.`;
 
 console.log(`${table}\n\n${verdict}`);
 if (values.markdown !== undefined) {

@@ -145,7 +145,7 @@ function copyWasmBindgenBuild(artifactsDir) {
  * @returns {string[]}
  */
 function packageFiles(manifest, packageDir, manifestPath) {
-  const entries = manifest.files;
+  const entries = manifest['files'];
   if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string')) {
     throw new Error(`${manifestPath} has no files list`);
   }

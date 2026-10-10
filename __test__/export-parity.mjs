@@ -11,10 +11,13 @@ const require = createRequire(import.meta.url);
 const PACKAGE = '@derodero24/comprs';
 const DECLARED_VALUE = /^export declare (?:function|class|(?:const )?enum|const) (\w+)/gm;
 
-/** @param {string} file */
+/**
+ * @param {string} file
+ * @returns {string[]}
+ */
 function declaredNames(file) {
   const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-  return [...source.matchAll(DECLARED_VALUE)].map((match) => match[1]);
+  return [...source.matchAll(DECLARED_VALUE)].flatMap((match) => match[1] ?? []);
 }
 
 // Names that Node.js adds to the namespace of a CommonJS module that is
@@ -70,10 +73,7 @@ compare('require(root)', Object.keys(require(PACKAGE)), rootNames);
 // The ES module root also re-exports the stream helpers (index.d.mts).
 compare('import(root)', keysOf(await import(PACKAGE)), [...rootNames, ...streamNames]);
 
-for (const [subpath, names] of [
-  ['streams', streamNames],
-  ['node', nodeNames],
-]) {
+for (const [subpath, names] of Object.entries({ streams: streamNames, node: nodeNames })) {
   const specifier = `${PACKAGE}/${subpath}`;
   compare(`require(./${subpath})`, Object.keys(require(specifier)), names);
   compare(`import(./${subpath})`, keysOf(await import(specifier)), names);

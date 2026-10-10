@@ -364,7 +364,9 @@ function compressResponse(req: IncomingMessage, res: ServerResponse, settings: S
  * app.use(comprs({ encodings: ['zstd', 'br', 'gzip'] }));
  * ```
  */
-export function comprs(options: ComprsOptions = {}) {
+export function comprs(
+  options: ComprsOptions = {},
+): (req: IncomingMessage, res: ServerResponse, next: () => void) => void {
   const { encodings, threshold, level } = resolveOptions(options);
   const { filter } = options;
 

@@ -70,8 +70,8 @@ function readProject(config) {
   } catch (error) {
     throw new Error(`${config} is not plain JSON, which this script reads`, { cause: error });
   }
-  const options = isRecord(json) ? json.compilerOptions : undefined;
-  const files = isRecord(json) ? json.files : undefined;
+  const options = isRecord(json) ? json['compilerOptions'] : undefined;
+  const files = isRecord(json) ? json['files'] : undefined;
   /** @param {string} name */
   const option = (name) => {
     const value = isRecord(options) ? options[name] : undefined;

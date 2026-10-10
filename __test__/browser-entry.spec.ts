@@ -125,7 +125,7 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   it.each(BROWSER_MODULES.map((file) => [relative(ROOT, file), file]))(
     '%s is parsed as an ES module',
     (_name, file) => {
-      expect(nearestManifest(file).manifest.type).toBe('module');
+      expect(nearestManifest(file).manifest['type']).toBe('module');
     },
   );
 
@@ -139,9 +139,9 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
       const root: Record<string, unknown> = JSON.parse(
         readFileSync(resolve(ROOT, 'package.json'), 'utf8'),
       );
-      expect(hasSideEffects(root.sideEffects, ROOT, file)).toBe(true);
+      expect(hasSideEffects(root['sideEffects'], ROOT, file)).toBe(true);
       const { dir, manifest } = nearestManifest(file);
-      expect(hasSideEffects(manifest.sideEffects, dir, file)).toBe(true);
+      expect(hasSideEffects(manifest['sideEffects'], dir, file)).toBe(true);
     },
   );
 
