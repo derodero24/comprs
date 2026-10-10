@@ -3,8 +3,9 @@
 ---
 
 LZ4 decompression streams now emit each block as soon as all of it has
-arrived, and hold at most one block of their input (up to 4 MiB, or 8 MiB
-in a legacy frame), instead of the whole input until it ends:
+arrived, and hold at most one block of their input (up to 4 MiB, or a
+little over 8 MiB in a legacy frame), instead of the whole input until it
+ends:
 `createLz4DecompressStream()`, `createLz4DecompressTransform()`, and
 `createDecompressStream()` and `createDecompressTransform()` for LZ4 input.
 They report data after the last frame on the chunk that holds it.
