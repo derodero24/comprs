@@ -733,6 +733,30 @@ const STREAM_USES: [string, Call][] = [
   ]),
 ];
 
+// After a decompression context rejects data after the end of its stream,
+// or buffers it, finish() and later calls fail, in both builds, rather than
+// return the output decoded before that data (#712).
+/** What the calls of a context that failed returned or threw. */
+interface AfterAnError {
+  transform: Outcome;
+  finish: Outcome;
+  later: Outcome;
+}
+
+const AFTER_AN_ERROR: [string, (api: Api) => AfterAnError][] = DECOMPRESSION_CONTEXTS.map(
+  ([name, create, compressed]): [string, (api: Api) => AfterAnError] => [
+    `${name}: finish() after data after the end of the stream`,
+    (api) => {
+      const context = create(api);
+      return {
+        transform: attempt(() => context.transform(new Uint8Array([...compressed, ...garbage]))),
+        finish: attempt(() => context.finish()),
+        later: attempt(() => context.transform(compressed)),
+      };
+    },
+  ],
+);
+
 /** A context of each class, and input that it accepts. */
 const CONTEXT_INPUTS: [string, (api: Api) => StreamContext, Uint8Array][] = [
   ...COMPRESSION_CONTEXTS.map(
@@ -1311,6 +1335,13 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
 
   it.each(CLOSE_USES)('%s', (_label, call) => {
     expect(run(call, wasm)).toStrictEqual(run(call, nativeApi));
+  });
+
+  it.each(AFTER_AN_ERROR)('%s', (_label, call) => {
+    const expected = call(nativeApi);
+    expect(expected.finish).toHaveProperty('threw');
+    expect(expected.later).toHaveProperty('threw');
+    expect(call(wasm)).toStrictEqual(expected);
   });
 
   // A chunk that ends mid-stream, as a stream that is flushed after each

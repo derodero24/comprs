@@ -214,8 +214,11 @@ impl MemoryUsage for DeflateCompressContext {
 
 /// Streaming raw deflate decompression context.
 pub struct DeflateDecompressContext {
-    /// `None` once the stream is finished.
+    /// `None` once the stream is finished, or a call failed.
     inflater: Option<Inflater>,
+    /// The error of a call that failed, which the later calls report again
+    /// until `finish`.
+    failed: Option<ComprsError>,
     output: LimitedVec,
 }
 
@@ -224,6 +227,7 @@ impl DeflateDecompressContext {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         Ok(Self {
             inflater: Some(Inflater::new(FlateWrapper::Raw)),
+            failed: None,
             output: LimitedVec::new(max_size, "deflate stream decompress"),
         })
     }
@@ -239,13 +243,19 @@ impl DeflateDecompressContext {
     /// Finalize the decompression stream, returning any remaining output.
     ///
     /// Fails with [`ComprsError::Truncated`] unless the input contained the
-    /// final block of the deflate stream.
+    /// final block of the deflate stream, and with the error of an earlier
+    /// call that failed. `finish` ends the stream whether it succeeds or
+    /// not: every later call fails with [`ComprsError::StreamFinished`].
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        if let Some(error) = self.failed.take() {
+            return Err(error);
+        }
         let output = self.inflate(&[], "deflate stream finish");
         let stream_end = self
             .inflater
             .take()
             .is_some_and(|inflater| inflater.stream_end());
+        self.failed = None;
         let output = output?;
         if !stream_end {
             return Err(ComprsError::Truncated("deflate"));
@@ -253,7 +263,36 @@ impl DeflateDecompressContext {
         Ok(output)
     }
 
+    /// Inflate `input`, returning all the output of the input so far.
+    ///
+    /// An error leaves the context failed, as in a
+    /// [`StrictDecompressContext`] (#712): the context drops its inflater
+    /// and the output that the failed call decoded, and every later call
+    /// fails with the same error. A `finish` after the error for data after
+    /// the end of the stream would otherwise succeed, with the output
+    /// decoded before that data.
     fn inflate(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        if let Some(error) = &self.failed {
+            return Err(error.duplicate());
+        }
+        let result = self.inflate_into_output(input, context);
+        // A failed call drops its output and returns only the error.
+        let output = self.output.take();
+        match result {
+            Ok(()) => Ok(output),
+            Err(error) => {
+                self.inflater = None;
+                self.failed = Some(error.duplicate());
+                Err(error)
+            }
+        }
+    }
+
+    fn inflate_into_output(
+        &mut self,
+        input: &[u8],
+        context: &'static str,
+    ) -> Result<(), ComprsError> {
         let inflater = self
             .inflater
             .as_mut()
@@ -268,8 +307,7 @@ impl DeflateDecompressContext {
                 source: "unexpected data after the end of the stream".into(),
             });
         }
-
-        Ok(self.output.take())
+        Ok(())
     }
 }
 
@@ -750,6 +788,27 @@ mod tests {
             err.to_string(),
             "deflate stream decompress failed: unexpected data after the end of the stream"
         );
+    }
+
+    /// After a call fails, every later call fails with its error, `finish`
+    /// included, which then ends the stream; the failed context holds no
+    /// state (#712).
+    #[test]
+    fn deflate_decompress_context_keeps_failing_after_an_error() {
+        let mut input = deflate(&b"complete ".repeat(1000));
+        input.extend(b"trailing");
+        let mut ctx = DeflateDecompressContext::new(None).unwrap();
+        let message =
+            "deflate stream decompress failed: unexpected data after the end of the stream";
+        assert_eq!(ctx.transform(&input).unwrap_err().to_string(), message);
+        assert_eq!(ctx.memory_usage(), 0);
+        assert_eq!(ctx.transform(b"more").unwrap_err().to_string(), message);
+        assert_eq!(ctx.flush().unwrap_err().to_string(), message);
+        assert_eq!(ctx.finish().unwrap_err().to_string(), message);
+        assert!(matches!(
+            ctx.finish(),
+            Err(ComprsError::StreamFinished("deflate stream"))
+        ));
     }
 
     #[test]

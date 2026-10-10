@@ -745,8 +745,11 @@ fn data_after_the_stream(context: &'static str) -> ComprsError {
 /// `brotli::DecompressorWriter`, whose `close()` cannot tell a complete stream
 /// from one whose error it has already reported.
 struct StreamDecoder {
-    /// `None` once the stream is finished.
+    /// `None` once the stream is finished, or a call failed.
     state: Option<DecoderState>,
+    /// The error of a call that failed, which the later calls report again
+    /// until `finish`.
+    failed: Option<ComprsError>,
     /// Shares its count with the allocators of `state`.
     alloc: CountingAlloc,
     /// Buffer each decoder call fills before its output moves to `output`.
@@ -764,6 +767,7 @@ impl StreamDecoder {
         let alloc = CountingAlloc::default();
         Self {
             state: Some(decoder_state(dict, &alloc)),
+            failed: None,
             alloc,
             buffer: vec![0; BUFFER_SIZE],
             total_out: 0,
@@ -775,7 +779,33 @@ impl StreamDecoder {
 
     /// Decompress `input`, returning all the output of the input so far.
     /// An empty `input` only drains the decoder.
+    ///
+    /// An error leaves the decoder failed, as it leaves a stream of the
+    /// Compression Streams standard errored (#712): the decoder drops its
+    /// state and the output that the failed call decoded, and every later
+    /// call fails with the same error. A `finish` after the error for data
+    /// after the end of the stream would otherwise succeed, with the output
+    /// decoded before that data.
     fn decompress(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        if let Some(error) = &self.failed {
+            return Err(error.duplicate());
+        }
+        let result = self.run(input, context);
+        // A failed call drops its output and returns only the error.
+        let output = self.output.take();
+        match result {
+            Ok(()) => Ok(output),
+            Err(error) => {
+                self.state = None;
+                self.failed = Some(error.duplicate());
+                Err(error)
+            }
+        }
+    }
+
+    /// Feed `input` to the decoder, which writes all the output of the input
+    /// so far to `output`.
+    fn run(&mut self, input: &[u8], context: &'static str) -> Result<(), ComprsError> {
         let state = self
             .state
             .as_mut()
@@ -827,14 +857,21 @@ impl StreamDecoder {
             }
         }
 
-        Ok(self.output.take())
+        Ok(())
     }
 
     /// Drain the decoder and end the stream, failing unless the decoder
-    /// reached the end of the brotli stream.
+    /// reached the end of the brotli stream, and with the error of an
+    /// earlier call that failed. `finish` ends the stream whether it
+    /// succeeds or not: every later call fails with
+    /// [`ComprsError::StreamFinished`].
     fn finish(&mut self, context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        if let Some(error) = self.failed.take() {
+            return Err(error);
+        }
         let output = self.decompress(&[], context);
         self.state = None;
+        self.failed = None;
         let output = output?;
         if !self.ended {
             return Err(ComprsError::Truncated("brotli"));
@@ -1017,6 +1054,78 @@ mod tests {
             let mut ctx = DecompressContext::new(None).unwrap();
             let output = decompress_all(&mut ctx, &compressed, chunk_size).unwrap();
             assert_eq!(output, original, "chunk size {chunk_size}");
+        }
+    }
+
+    /// After a call fails, every later call fails with its error, `finish`
+    /// included, which then ends the stream; the failed context drops its
+    /// decoder state (#712).
+    #[test]
+    fn decompress_contexts_keep_failing_after_an_error() {
+        let original = b"complete brotli stream ".repeat(500);
+        let dict = english_dict();
+        let cases = [
+            (
+                Decoder::Plain(DecompressContext::new(None).unwrap()),
+                crate::brotli::compress(&original, None).unwrap(),
+                "brotli stream",
+            ),
+            (
+                Decoder::Dict(DecompressDictContext::new(&dict, None).unwrap()),
+                compress_with_dict(&original, &dict, None).unwrap(),
+                "brotli dict stream",
+            ),
+        ];
+        for (mut ctx, mut input, name) in cases {
+            input.extend(b"trailing");
+            let message =
+                format!("{name} decompress failed: unexpected data after the end of the stream");
+            assert_eq!(ctx.transform(&input).unwrap_err().to_string(), message);
+            assert_eq!(ctx.memory_usage(), BUFFER_SIZE, "{name}");
+            assert_eq!(ctx.transform(b"more").unwrap_err().to_string(), message);
+            assert_eq!(ctx.flush().unwrap_err().to_string(), message);
+            assert_eq!(ctx.finish().unwrap_err().to_string(), message);
+            assert_eq!(
+                ctx.finish().unwrap_err().to_string(),
+                format!("{name} already finished")
+            );
+        }
+    }
+
+    /// A brotli decompression context of either kind, for the tests that
+    /// cover both.
+    enum Decoder {
+        Plain(DecompressContext),
+        Dict(DecompressDictContext),
+    }
+
+    impl Decoder {
+        fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+            match self {
+                Decoder::Plain(ctx) => ctx.transform(chunk),
+                Decoder::Dict(ctx) => ctx.transform(chunk),
+            }
+        }
+
+        fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+            match self {
+                Decoder::Plain(ctx) => ctx.flush(),
+                Decoder::Dict(ctx) => ctx.flush(),
+            }
+        }
+
+        fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+            match self {
+                Decoder::Plain(ctx) => ctx.finish(),
+                Decoder::Dict(ctx) => ctx.finish(),
+            }
+        }
+
+        fn memory_usage(&self) -> usize {
+            match self {
+                Decoder::Plain(ctx) => ctx.memory_usage(),
+                Decoder::Dict(ctx) => ctx.memory_usage(),
+            }
         }
     }
 
