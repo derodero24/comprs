@@ -1,11 +1,20 @@
 name: CodeQL
 
+# The path lists name each extension of the source files that CodeQL
+# analyses. GitHub's path globs match neither index.mjs with *.js nor
+# index.mts with *.ts, so the published src/*.mts sources and the release
+# scripts in scripts/*.mjs need globs of their own.
 on:
   push:
     branches: [develop]
     paths:
       - '**/*.ts'
       - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.mts'
+      - '**/*.cts'
+      - '**/*.html'
       - '**/*.json'
       - '**/*.rs'
       - '**/Cargo.toml'
@@ -16,6 +25,11 @@ on:
     paths:
       - '**/*.ts'
       - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.mts'
+      - '**/*.cts'
+      - '**/*.html'
       - '**/*.json'
       - '**/*.rs'
       - '**/Cargo.toml'
