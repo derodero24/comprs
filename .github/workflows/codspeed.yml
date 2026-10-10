@@ -33,7 +33,13 @@ permissions: {}
 jobs:
   rust-benchmarks:
     name: Rust Benchmarks
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest. Simulation mode counts instructions
+    # inside libc as well, so develop baselines and pull requests must run on
+    # the same image. CodSpeed's runner (5.4.x) ships valgrind-codspeed
+    # packages only for Ubuntu 22.04/24.04 and Debian 12, and elsewhere
+    # builds valgrind from source on a "best effort" basis. Move to a newer
+    # image in one change of its own once CodSpeed supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
