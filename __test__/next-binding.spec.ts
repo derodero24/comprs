@@ -434,6 +434,51 @@ const ERROR_CASES: ErrorCase[] = [
     async: (n) => n.compressAsync(text, 'gzip', undefined, undefined, true, undefined, -1),
   },
   {
+    name: 'a gzip filename with a NUL character',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzip filename must not contain NUL characters',
+    sync: (n) => n.compress(text, 'gzip', undefined, undefined, true, 'a\0b'),
+    async: (n) => n.compressAsync(text, 'gzip', undefined, undefined, true, 'a\0b'),
+  },
+  // comprs-core checks the options in the order of unified::compress: the
+  // dictionary, the gzip header, the workers, the level, then the fields of
+  // the gzip header, its mtime before its filename.
+  {
+    name: 'a dictionary for gzip with an mtime out of range',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzip does not support dictionaries',
+    sync: (n) => n.compress(text, 'gzip', undefined, dictionary, true, undefined, -1),
+    async: (n) => n.compressAsync(text, 'gzip', undefined, dictionary, true, undefined, -1),
+  },
+  {
+    name: 'workers for gzip with an mtime out of range',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'workers applies to zstd compression only',
+    sync: (n) => n.compress(text, 'gzip', undefined, undefined, true, undefined, -1, 2),
+    async: (n) => n.compressAsync(text, 'gzip', undefined, undefined, true, undefined, -1, 2),
+  },
+  {
+    name: 'a gzip level out of range with an mtime out of range',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzip compression level must be an integer between 0 and 9',
+    sync: (n) => n.compress(text, 'gzip', 10, undefined, true, undefined, -1),
+    async: (n) => n.compressAsync(text, 'gzip', 10, undefined, true, undefined, -1),
+  },
+  {
+    name: 'a gzip level out of range with a filename with a NUL character',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzip compression level must be an integer between 0 and 9',
+    sync: (n) => n.compress(text, 'gzip', 10, undefined, true, 'a\0b'),
+    async: (n) => n.compressAsync(text, 'gzip', 10, undefined, true, 'a\0b'),
+  },
+  {
+    name: 'an mtime out of range with a filename with a NUL character',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'mtime must be an integer between 0 and 4294967295',
+    sync: (n) => n.compress(text, 'gzip', undefined, undefined, true, 'a\0b', -1),
+    async: (n) => n.compressAsync(text, 'gzip', undefined, undefined, true, 'a\0b', -1),
+  },
+  {
     name: 'workers for gzip',
     code: 'ERR_COMPRS_INVALID_ARG',
     message: 'workers applies to zstd compression only',

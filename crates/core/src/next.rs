@@ -20,8 +20,9 @@
 //! thread pool and settle as [`NextBytes`] does.
 
 use comprs_core::ComprsError;
-use comprs_core::gzip::{GzipHeaderOptions, MTIME};
-use comprs_core::unified::{self, CompressOptions, DecompressOptions, DictionaryRef, Format};
+use comprs_core::unified::{
+    self, CompressOptions, DecompressOptions, DictionaryRef, Format, GzipHeaderOptions,
+};
 use napi::bindgen_prelude::{
     AsyncTask, Env, FromNapiValue, JsObjectValue, Object, Property, PropertyAttributes, Uint8Array,
 };
@@ -92,33 +93,9 @@ fn sync_output(env: &Env, result: Result<Vec<u8>, ComprsError>) -> napi::Result<
     to_uint8array(env, output, SYNC_COPY_LIMIT)
 }
 
-/// The gzip header of the options, if they have one: if `present` is true,
-/// as the TypeScript layer passes it for any `gzipHeader` object, even one
-/// without fields, or if `filename` or `mtime`, a number of seconds since
-/// the Unix epoch, is set.
-///
-/// The header holds the mtime as an integer, so the mtime of a header for
-/// gzip is checked here, before `unified::compress` checks the other
-/// options. For any other format, `unified::compress` rejects the header
-/// whatever its fields hold.
-fn gzip_header_options(
-    format: Format,
-    present: Option<bool>,
-    filename: Option<String>,
-    mtime: Option<f64>,
-) -> Result<Option<GzipHeaderOptions>, ComprsError> {
-    if present != Some(true) && filename.is_none() && mtime.is_none() {
-        return Ok(None);
-    }
-    let mtime = match format {
-        Format::Gzip => MTIME.check_optional_f64(mtime)?,
-        _ => None,
-    };
-    Ok(Some(GzipHeaderOptions { filename, mtime }))
-}
-
 /// Compress `data` in the format named `format` with
-/// [`unified::compress`].
+/// [`unified::compress`], which checks the options in its order. The gzip
+/// header is that of [`GzipHeaderOptions::from_fields`].
 #[allow(clippy::too_many_arguments)] // The fields of the options.
 fn compress_data(
     data: &[u8],
@@ -134,7 +111,11 @@ fn compress_data(
     let options = CompressOptions {
         level,
         dictionary: dictionary.map(DictionaryRef::Raw),
-        gzip_header: gzip_header_options(format, gzip_header, gzip_filename, gzip_mtime)?,
+        gzip_header: GzipHeaderOptions::from_fields(
+            gzip_header == Some(true),
+            gzip_filename,
+            gzip_mtime,
+        ),
         workers,
     };
     unified::compress(data, format, &options)

@@ -20,7 +20,7 @@ use flate2::{Decompress, FlushDecompress, Status};
 
 use crate::detect::{self, BrotliProbe};
 use crate::dictionary::{Dictionary, DictionaryFormat};
-use crate::gzip::{FlateWrapper, GzipHeaderOptions};
+use crate::gzip::FlateWrapper;
 use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
 use crate::{
     ComprsError, IntArg, MemoryUsage, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
@@ -145,12 +145,55 @@ pub struct CompressOptions<'a> {
     pub level: Option<f64>,
     /// A dictionary, for zstd and brotli.
     pub dictionary: Option<DictionaryRef<'a>>,
-    /// The fields of the gzip header, for gzip.
+    /// The gzip header, for gzip. Any other format rejects a header, even
+    /// one without fields, before its fields are checked.
     pub gzip_header: Option<GzipHeaderOptions>,
     /// The number of worker threads, for zstd: a number of
     /// [`zstd::WORKERS`], 0 by default. Builds without the `zstdmt` feature
     /// accept only 0.
     pub workers: Option<f64>,
+}
+
+/// The fields of the gzip header of [`CompressOptions`]: those of
+/// [`gzip::GzipHeaderOptions`], with the mtime as a JavaScript number, as
+/// the bindings pass it, which [`compress`] checks in the order that it
+/// describes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GzipHeaderOptions {
+    /// The name of the original file. It must not contain NUL characters
+    /// and must be at most [`gzip::MAX_FILENAME_LEN`] bytes long.
+    pub filename: Option<String>,
+    /// The modification time, in seconds since the Unix epoch: an integer
+    /// of [`gzip::MTIME`], 0 by default.
+    pub mtime: Option<f64>,
+}
+
+impl GzipHeaderOptions {
+    /// The gzip header of options that a binding takes as positional
+    /// arguments: a header if `present`, as the TypeScript layer passes it
+    /// for any `gzipHeader` object, even one without fields, or if
+    /// `filename` or `mtime` is set, which imply it; `None` otherwise.
+    ///
+    /// The fields are not checked here: [`compress`] and
+    /// [`CompressContext::new`] reject the header for any format but gzip
+    /// whatever they hold, and check them for gzip after the other options.
+    pub fn from_fields(
+        present: bool,
+        filename: Option<String>,
+        mtime: Option<f64>,
+    ) -> Option<GzipHeaderOptions> {
+        (present || filename.is_some() || mtime.is_some())
+            .then_some(GzipHeaderOptions { filename, mtime })
+    }
+
+    /// The header as the per-format functions take it, with its mtime
+    /// checked. They check the filename.
+    fn checked(&self) -> Result<gzip::GzipHeaderOptions, ComprsError> {
+        Ok(gzip::GzipHeaderOptions {
+            filename: self.filename.clone(),
+            mtime: gzip::MTIME.check_optional_f64(self.mtime)?,
+        })
+    }
 }
 
 /// The options of [`decompress`] and [`DecompressContext::new`].
@@ -191,7 +234,8 @@ enum Encoder<'a> {
     },
     Gzip {
         level: Option<u32>,
-        header: Option<&'a GzipHeaderOptions>,
+        /// With its mtime checked.
+        header: Option<gzip::GzipHeaderOptions>,
     },
     Deflate {
         level: Option<u32>,
@@ -207,8 +251,9 @@ enum Encoder<'a> {
 }
 
 /// Check `options` for compression in `format`, in this order: the
-/// dictionary, the gzip header, the workers, then the level. The encoder
-/// checks the fields of the gzip header.
+/// dictionary, the gzip header, the workers, the level, then the mtime of
+/// the gzip header. The per-format encoder checks the filename of the
+/// header last.
 fn encoder<'a>(
     format: Format,
     options: &'a CompressOptions<'a>,
@@ -239,10 +284,16 @@ fn encoder<'a>(
             dictionary,
             workers,
         },
-        Format::Gzip => Encoder::Gzip {
-            level: GZIP_LEVEL.check_optional_f64(level)?,
-            header: options.gzip_header.as_ref(),
-        },
+        Format::Gzip => {
+            let level = GZIP_LEVEL.check_optional_f64(level)?;
+            // The fields of the header come after the level.
+            let header = options
+                .gzip_header
+                .as_ref()
+                .map(GzipHeaderOptions::checked)
+                .transpose()?;
+            Encoder::Gzip { level, header }
+        }
         Format::Deflate => Encoder::Deflate {
             level: DEFLATE_LEVEL.check_optional_f64(level)?,
         },
@@ -304,12 +355,14 @@ fn check_dictionary(
 /// not take or an invalid value, as [`CompressOptions`] describes. The
 /// options are checked in this order: the dictionary ("gzip does not
 /// support dictionaries", "dictionary must not be empty", "this Dictionary
-/// is for brotli"), the gzip header ("gzipHeader applies to gzip compression
+/// is for brotli"), the gzip header, which any format but gzip rejects
+/// whatever its fields hold ("gzipHeader applies to gzip compression
 /// only"), the workers ("workers applies to zstd compression only", then
 /// their number), the level ("deflate-raw compression level must be an
 /// integer between 0 and 9", "lz4 does not take a compression level"), then
-/// the fields of the gzip header ("gzip filename must not contain NUL
-/// characters").
+/// the fields of the gzip header: its mtime ("mtime must be an integer
+/// between 0 and 4294967295"), then its filename ("gzip filename must not
+/// contain NUL characters").
 pub fn compress(
     data: &[u8],
     format: Format,
@@ -338,7 +391,7 @@ pub fn compress(
         Encoder::Gzip {
             level,
             header: Some(header),
-        } => gzip::compress_with_header(data, header, level),
+        } => gzip::compress_with_header(data, &header, level),
         Encoder::Deflate { level } => gzip::zlib_compress(data, level),
         Encoder::DeflateRaw { level } => gzip::deflate_compress(data, level),
         Encoder::Brotli {
@@ -762,7 +815,7 @@ impl CompressContext {
                 level,
                 header: Some(header),
             } => Self::Gzip(gzip_stream::GzipCompressContext::with_header(
-                level, header,
+                level, &header,
             )?),
             Encoder::Deflate { level } => {
                 Self::Deflate(gzip_stream::ZlibCompressContext::new(level)?)

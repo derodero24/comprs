@@ -8,10 +8,9 @@ use std::sync::LazyLock;
 
 use common::{drive, noise, text};
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
-use comprs_core::gzip::GzipHeaderOptions;
 use comprs_core::unified::{
     self, CompressContext, CompressOptions, DecompressContext, DecompressOptions, Detection,
-    DictionaryRef, Format,
+    DictionaryRef, Format, GzipHeaderOptions,
 };
 use comprs_core::{ComprsError, MemoryUsage, brotli, detect, gzip, lz4, zstd};
 use flate2::{Decompress, FlushDecompress};
@@ -224,14 +223,17 @@ fn deflate_is_zlib_and_deflate_raw_is_raw_deflate() {
 #[test]
 fn gzip_header_gives_the_output_of_compress_with_header() {
     let input = text(10_000);
-    let header = GzipHeaderOptions {
+    let header = gzip::GzipHeaderOptions {
         filename: Some("unified.txt".to_string()),
         mtime: Some(1_700_000_000),
     };
     for level in [None, Some(1.0)] {
         let options = CompressOptions {
             level,
-            gzip_header: Some(header.clone()),
+            gzip_header: Some(GzipHeaderOptions {
+                filename: Some("unified.txt".to_string()),
+                mtime: Some(1_700_000_000.0),
+            }),
             ..CompressOptions::default()
         };
         let compressed = unified::compress(&input, Format::Gzip, &options).unwrap();
@@ -252,6 +254,29 @@ fn gzip_header_gives_the_output_of_compress_with_header() {
             assert_eq!(read.mtime, 1_700_000_000);
             assert!(unified::decompress(data, &as_format(None)).unwrap() == input);
         }
+    }
+}
+
+#[test]
+fn gzip_header_from_fields_is_implied_by_any_field() {
+    assert_eq!(GzipHeaderOptions::from_fields(false, None, None), None);
+    assert_eq!(
+        GzipHeaderOptions::from_fields(true, None, None),
+        Some(GzipHeaderOptions::default())
+    );
+    assert_eq!(
+        GzipHeaderOptions::from_fields(false, Some("a.txt".to_string()), None),
+        Some(GzipHeaderOptions {
+            filename: Some("a.txt".to_string()),
+            mtime: None,
+        })
+    );
+    // The fields stay as they are, for unified::compress to check them in
+    // its order.
+    for mtime in [0.0, -1.0, 1.5, f64::NAN] {
+        let header = GzipHeaderOptions::from_fields(false, None, Some(mtime)).unwrap();
+        assert_eq!(header.filename, None);
+        assert_eq!(header.mtime.map(f64::to_bits), Some(mtime.to_bits()));
     }
 }
 
@@ -1060,6 +1085,102 @@ fn compress_options_are_checked() {
         assert_invalid(unified::compress(b"data", *format, options), message);
         assert_invalid(CompressContext::new(*format, options), message);
     }
+}
+
+#[test]
+fn the_fields_of_the_gzip_header_are_checked_last() {
+    const MTIME: &str = "mtime must be an integer between 0 and 4294967295";
+    const GZIP_LEVEL: &str = "gzip compression level must be an integer between 0 and 9";
+    // The header of the options, with an mtime out of range and, if
+    // `filename`, a filename with a NUL character.
+    let header = |mtime: f64, filename: bool| {
+        Some(GzipHeaderOptions {
+            filename: filename.then(|| "a\0b".to_string()),
+            mtime: Some(mtime),
+        })
+    };
+    let mut cases: Vec<(Format, CompressOptions, &str)> = [-1.0, 1.5, f64::NAN, 4_294_967_296.0]
+        .into_iter()
+        .map(|mtime| {
+            let options = CompressOptions {
+                gzip_header: header(mtime, false),
+                ..CompressOptions::default()
+            };
+            (Format::Gzip, options, MTIME)
+        })
+        .collect();
+    cases.extend([
+        // The dictionary, the gzip header for another format, the workers
+        // and the level come before the fields of the header.
+        (
+            Format::Gzip,
+            CompressOptions {
+                dictionary: Some(DictionaryRef::Raw(DICT)),
+                gzip_header: header(-1.0, true),
+                ..CompressOptions::default()
+            },
+            "gzip does not support dictionaries",
+        ),
+        (
+            Format::Zstd,
+            CompressOptions {
+                gzip_header: header(-1.0, true),
+                level: Some(23.0),
+                ..CompressOptions::default()
+            },
+            "gzipHeader applies to gzip compression only",
+        ),
+        (
+            Format::Gzip,
+            CompressOptions {
+                gzip_header: header(-1.0, true),
+                workers: Some(2.0),
+                ..CompressOptions::default()
+            },
+            "workers applies to zstd compression only",
+        ),
+        (
+            Format::Gzip,
+            CompressOptions {
+                gzip_header: header(-1.0, false),
+                level: Some(10.0),
+                ..CompressOptions::default()
+            },
+            GZIP_LEVEL,
+        ),
+        (
+            Format::Gzip,
+            CompressOptions {
+                gzip_header: header(-1.0, true),
+                level: Some(10.0),
+                ..CompressOptions::default()
+            },
+            GZIP_LEVEL,
+        ),
+        // Of the fields, the mtime comes first.
+        (
+            Format::Gzip,
+            CompressOptions {
+                gzip_header: header(-1.0, true),
+                ..CompressOptions::default()
+            },
+            MTIME,
+        ),
+    ]);
+    for (format, options, message) in &cases {
+        assert_invalid(unified::compress(b"data", *format, options), message);
+        assert_invalid(CompressContext::new(*format, options), message);
+    }
+    // The largest mtime is in range.
+    let options = CompressOptions {
+        gzip_header: Some(GzipHeaderOptions {
+            filename: None,
+            mtime: Some(4_294_967_295.0),
+        }),
+        ..CompressOptions::default()
+    };
+    let compressed = unified::compress(b"data", Format::Gzip, &options).unwrap();
+    assert_eq!(gzip::read_header(&compressed).unwrap().mtime, u32::MAX);
 }
 
 #[test]
