@@ -26,11 +26,15 @@ export type Format = 'zstd' | 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'l
 
 /**
  * Bytes that the functions read: any ArrayBuffer, SharedArrayBuffer or
- * ArrayBufferView, read byte for byte, so a `Uint16Array` is not converted
- * element by element. Bytes in a SharedArrayBuffer are copied before they
- * are read, so that another thread writing them cannot change them midway.
- * A detached ArrayBuffer, or a view of one, fails with
- * `ERR_COMPRS_INVALID_ARG`.
+ * ArrayBufferView, of this realm or another one, such as a vm context, read
+ * byte for byte, so a `Uint16Array` is not converted element by element.
+ * Bytes in a SharedArrayBuffer are copied before they are read, so that
+ * another thread writing them cannot change them midway.
+ *
+ * Any other value fails with `ERR_COMPRS_INVALID_ARG`, a Proxy of a buffer
+ * and an object whose `Symbol.toStringTag` names a buffer included. So do a
+ * detached ArrayBuffer, a view of one, and a view out of the bounds of a
+ * resizable ArrayBuffer that shrank below its end.
  */
 export type Input = ArrayBufferLike | ArrayBufferView;
 
@@ -259,60 +263,197 @@ function optionalString(value: unknown, name: string): string | undefined {
   throw invalidArg(`${name} must be a string`);
 }
 
-/** The tag of `value`, which tells buffers of every realm apart. */
-function tagOf(value: unknown): string {
-  return Object.prototype.toString.call(value);
-}
+/** A getter of a built-in prototype, if the runtime has it. */
+type Getter = (() => unknown) | undefined;
 
 /**
- * Whether `value` is an ArrayBuffer, also one of another realm, such as a
- * vm context, which instanceof does not recognize.
+ * The getter of `key` on `prototype`, a built-in prototype.
+ *
+ * Such a getter reads the internal slots of the value that it is called on,
+ * and throws a TypeError for a value without them. That tells buffers and
+ * views of every realm apart, such as those of a vm context, which
+ * instanceof does not recognize, and neither a Proxy of a buffer, nor a
+ * `Symbol.toStringTag`, nor a property that shadows the getter misleads it.
+ */
+function getterOf(prototype: object | null | undefined, key: PropertyKey): Getter {
+  return prototype ? Object.getOwnPropertyDescriptor(prototype, key)?.get : undefined;
+}
+
+/** `getter`, called on `value`. A getter that the runtime lacks throws. */
+function callGetter(getter: Getter, value: unknown): unknown {
+  if (getter === undefined) throw new TypeError('the runtime lacks a getter of a built-in');
+  return Reflect.apply(getter, value, []);
+}
+
+/** Whether `value` has the internal slots that `getter` reads. */
+function hasSlotsOf(getter: Getter, value: unknown): boolean {
+  try {
+    callGetter(getter, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The getters of the buffer and the bounds of a view. */
+interface ViewGetters {
+  readonly buffer: Getter;
+  readonly byteOffset: Getter;
+  readonly byteLength: Getter;
+}
+
+function viewGetters(prototype: object | null): ViewGetters {
+  return {
+    buffer: getterOf(prototype, 'buffer'),
+    byteOffset: getterOf(prototype, 'byteOffset'),
+    byteLength: getterOf(prototype, 'byteLength'),
+  };
+}
+
+/** %TypedArray%.prototype, which every typed array inherits from. */
+const TYPED_ARRAY_PROTOTYPE = Reflect.getPrototypeOf(Uint8Array.prototype);
+const TYPED_ARRAY_GETTERS = viewGetters(TYPED_ARRAY_PROTOTYPE);
+const DATA_VIEW_GETTERS = viewGetters(DataView.prototype);
+
+/**
+ * The getter of the name of the type of a typed array, such as
+ * `'Uint8Array'` for a Buffer too, which returns `undefined` for any other
+ * value.
+ */
+const TYPED_ARRAY_NAME = getterOf(TYPED_ARRAY_PROTOTYPE, Symbol.toStringTag);
+
+/**
+ * keys() of %TypedArray%.prototype, which throws for a typed array out of
+ * the bounds of its buffer, and allocates nothing but an iterator.
+ */
+const TYPED_ARRAY_KEYS: (this: ArrayBufferView) => unknown = Uint8Array.prototype.keys;
+
+const ARRAY_BUFFER_BYTE_LENGTH = getterOf(ArrayBuffer.prototype, 'byteLength');
+const ARRAY_BUFFER_DETACHED = getterOf(ArrayBuffer.prototype, 'detached');
+const ARRAY_BUFFER_RESIZABLE = getterOf(ArrayBuffer.prototype, 'resizable');
+
+/**
+ * The getter of the size of a SharedArrayBuffer. Browsers whose page is not
+ * cross-origin isolated have no SharedArrayBuffer, and so no such buffers.
+ */
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH = getterOf(
+  typeof SharedArrayBuffer === 'function' ? SharedArrayBuffer.prototype : undefined,
+  'byteLength',
+);
+
+/**
+ * Whether `value` is an ArrayBuffer, of any realm. The getter of its size
+ * throws for every other value, a SharedArrayBuffer included.
  */
 function isArrayBuffer(value: unknown): value is ArrayBuffer {
-  return value instanceof ArrayBuffer || tagOf(value) === '[object ArrayBuffer]';
+  return hasSlotsOf(ARRAY_BUFFER_BYTE_LENGTH, value);
 }
 
 /** Whether `value` is a SharedArrayBuffer, of any realm. */
 function isSharedArrayBuffer(value: unknown): value is SharedArrayBuffer {
-  return !(value instanceof ArrayBuffer) && tagOf(value) === '[object SharedArrayBuffer]';
+  return hasSlotsOf(SHARED_ARRAY_BUFFER_BYTE_LENGTH, value);
+}
+
+/**
+ * Whether `value` inherits from the SharedArrayBuffer of this realm. That
+ * proves nothing, but tells whether to ask {@link isSharedArrayBuffer} before
+ * {@link isArrayBuffer}: each of them takes microseconds for a buffer of the
+ * other kind, for which its getter throws.
+ */
+function seemsShared(value: unknown): boolean {
+  try {
+    return typeof SharedArrayBuffer === 'function' && value instanceof SharedArrayBuffer;
+  } catch {
+    // instanceof runs the getPrototypeOf trap of a Proxy, which may throw.
+    return false;
+  }
+}
+
+/**
+ * Whether `buffer`, the buffer of a view, is an ArrayBuffer rather than a
+ * SharedArrayBuffer, asked in the order that {@link seemsShared} tells.
+ */
+function isUnshared(buffer: unknown): buffer is ArrayBuffer {
+  return !(seemsShared(buffer) && isSharedArrayBuffer(buffer)) && isArrayBuffer(buffer);
 }
 
 /**
  * Whether `buffer` is detached. Runtimes that predate the `detached`
  * property of ArrayBuffer (ES2024) report none: there a detached buffer, or
- * a view of one, reads as empty or fails without a code. Every runtime that
- * the native build supports has the property.
+ * a view of one, may read as empty or fail without a code. Every runtime
+ * that the native build supports has the property.
  */
-function isDetached(buffer: ArrayBufferLike): boolean {
-  return 'detached' in buffer && buffer.detached === true;
+function isDetached(buffer: ArrayBuffer): boolean {
+  return ARRAY_BUFFER_DETACHED !== undefined && callGetter(ARRAY_BUFFER_DETACHED, buffer) === true;
+}
+
+/**
+ * Whether `buffer` is resizable, which runtimes that predate resizable
+ * ArrayBuffers (ES2024) never report.
+ */
+function isResizable(buffer: ArrayBuffer): boolean {
+  return (
+    ARRAY_BUFFER_RESIZABLE !== undefined && callGetter(ARRAY_BUFFER_RESIZABLE, buffer) === true
+  );
+}
+
+/**
+ * {@link toBytes} for a view. Its buffer and its bounds are read with the
+ * getters of built-in prototypes, which no property of the view shadows.
+ *
+ * A view is out of bounds once its buffer, a resizable ArrayBuffer, shrank
+ * below its end: a SharedArrayBuffer only grows, and other buffers keep
+ * their size. The getters of a DataView throw for such a view, but those of
+ * a typed array read it as empty, at an offset of 0, so keys(), which
+ * throws for it, checks a typed array first.
+ */
+function viewBytes(view: ArrayBufferView, name: string): Uint8Array {
+  const type = callGetter(TYPED_ARRAY_NAME, view);
+  const getters = type === undefined ? DATA_VIEW_GETTERS : TYPED_ARRAY_GETTERS;
+  const buffer = callGetter(getters.buffer, view);
+  const unshared = isUnshared(buffer);
+  if (unshared && isDetached(buffer)) {
+    throw invalidArg(`${name} is backed by a detached ArrayBuffer`);
+  }
+  let byteOffset: unknown;
+  let byteLength: unknown;
+  try {
+    if (unshared && type !== undefined && isResizable(buffer)) {
+      Reflect.apply(TYPED_ARRAY_KEYS, view, []);
+    }
+    if (unshared && type === 'Uint8Array' && view instanceof Uint8Array) return view;
+    byteOffset = callGetter(getters.byteOffset, view);
+    byteLength = callGetter(getters.byteLength, view);
+  } catch {
+    throw invalidArg(`${name} is out of bounds of its ArrayBuffer`);
+  }
+  if (typeof byteOffset === 'number' && typeof byteLength === 'number') {
+    if (unshared) return new Uint8Array(buffer, byteOffset, byteLength);
+    if (isSharedArrayBuffer(buffer)) {
+      return new Uint8Array(buffer, byteOffset, byteLength).slice();
+    }
+  }
+  // The getters of every view return its buffer and two numbers.
+  throw invalidArg(`${name} must be ${INPUT_TYPES}`);
 }
 
 /**
  * The bytes of `value`, an {@link Input} that the error messages call
- * `name`, as a Uint8Array that the backend may read: a Uint8Array as it is,
- * any other view as a Uint8Array of the same bytes, and the bytes in a
- * SharedArrayBuffer as a copy.
+ * `name`, as a Uint8Array that the backend may read: a Uint8Array over an
+ * ArrayBuffer as it is, any other view of an ArrayBuffer as a Uint8Array of
+ * the same bytes, and the bytes in a SharedArrayBuffer as a copy.
  *
- * A detached buffer fails here with a code, before `new Uint8Array()` fails
- * on it without one.
+ * A detached buffer and a view out of bounds fail here with a code, before
+ * `new Uint8Array()` fails on them without one, or reads them as empty.
  */
 function toBytes(value: unknown, name: string): Uint8Array {
-  if (ArrayBuffer.isView(value)) {
-    const buffer = value.buffer;
-    if (isDetached(buffer)) {
-      throw invalidArg(`${name} is backed by a detached ArrayBuffer`);
-    }
-    if (isSharedArrayBuffer(buffer)) {
-      return new Uint8Array(buffer, value.byteOffset, value.byteLength).slice();
-    }
-    return value instanceof Uint8Array
-      ? value
-      : new Uint8Array(buffer, value.byteOffset, value.byteLength);
-  }
+  if (ArrayBuffer.isView(value)) return viewBytes(value, name);
+  if (seemsShared(value) && isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
   if (isArrayBuffer(value)) {
     if (isDetached(value)) throw invalidArg(`${name} is a detached ArrayBuffer`);
     return new Uint8Array(value);
   }
+  // A SharedArrayBuffer of another realm.
   if (isSharedArrayBuffer(value)) return new Uint8Array(value).slice();
   throw invalidArg(`${name} must be ${INPUT_TYPES}`);
 }

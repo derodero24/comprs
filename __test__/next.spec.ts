@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { types } from 'node:util';
+import { createContext, runInContext } from 'node:vm';
 import {
   deflateRawSync,
   deflateSync,
@@ -232,6 +234,16 @@ describe('detection', () => {
       'ERR_COMPRS_INVALID_ARG',
       'data is backed by a detached ArrayBuffer',
     );
+    expectCoded(
+      thrown(() => next.detectFormat(shrunk((buffer) => new Uint8Array(buffer, 4, 4), 2))),
+      'ERR_COMPRS_INVALID_ARG',
+      'data is out of bounds of its ArrayBuffer',
+    );
+    expectCoded(
+      thrown(() => next.detectFormat(new Proxy(new ArrayBuffer(8), {}))),
+      'ERR_COMPRS_INVALID_ARG',
+      'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    );
   });
 });
 
@@ -420,6 +432,79 @@ describe('inputs', () => {
     expect(await decompressing).toEqual(text);
   });
 
+  it('are read as they are when the functions are called, from a resizable buffer', async () => {
+    const length = text.byteLength;
+    const { buffer, resize } = resizable(length + 4, length + 8);
+    new Uint8Array(buffer).fill(0xff).set(text, 2);
+    const fixed = new DataView(buffer, 2, length);
+    const tracking = new Uint8Array(buffer, 2);
+    const trackingView = new DataView(buffer, 2);
+    // Shrunk to the end of the text, which every view still holds.
+    resize(length + 2);
+    const expected = next.compressSync(text, { format: 'zstd' });
+    for (const input of [fixed, tracking, trackingView]) {
+      expect(next.compressSync(input, { format: 'zstd' })).toEqual(expected);
+      expect(await next.compress(input, { format: 'zstd' })).toEqual(expected);
+    }
+    // Grown again: the views that track the length of the buffer see the
+    // zeros that it grew by.
+    resize(length + 6);
+    const grown = plain(Buffer.concat([text, new Uint8Array(4)]));
+    expect(next.compressSync(fixed, { format: 'zstd' })).toEqual(expected);
+    for (const input of [tracking, trackingView]) {
+      expect(next.decompressSync(next.compressSync(input, { format: 'zstd' }))).toEqual(grown);
+    }
+    // The buffer itself, shrunk to the text.
+    const whole = resizable(length + 8, length + 8);
+    new Uint8Array(whole.buffer).set(text);
+    whole.resize(length);
+    expect(next.compressSync(whole.buffer, { format: 'zstd' })).toEqual(expected);
+  });
+
+  it('are read by their internal slots, not by properties that shadow them', () => {
+    const payload = text.subarray(0, 1000);
+    const buffer = new ArrayBuffer(payload.byteLength + 4);
+    new Uint8Array(buffer).fill(0xff).set(payload, 2);
+    const expected = next.compressSync(payload, { format: 'zstd' });
+    for (const view of [
+      new Uint8Array(buffer, 2, payload.byteLength),
+      new Uint16Array(buffer, 2, payload.byteLength / 2),
+      new DataView(buffer, 2, payload.byteLength),
+    ]) {
+      Object.defineProperties(view, {
+        buffer: { value: new ArrayBuffer(8) },
+        byteOffset: { value: 0 },
+        byteLength: { value: 1 },
+        [Symbol.toStringTag]: { value: 'Uint8Array' },
+      });
+      expect(next.compressSync(view, { format: 'zstd' })).toEqual(expected);
+    }
+  });
+
+  it('may be of another realm', async () => {
+    const payload = text.subarray(0, 1000);
+    const context = createContext({ bytes: Array.from(payload) });
+    const expected = next.compressSync(payload, { format: 'zstd' });
+    for (const code of [
+      'new Uint8Array(bytes).buffer',
+      'const shared = new SharedArrayBuffer(bytes.length); new Uint8Array(shared).set(bytes); shared',
+      'new Uint8Array(bytes)',
+      'new Uint16Array(new Uint8Array(bytes).buffer)',
+      'new DataView(new Uint8Array(bytes).buffer)',
+    ]) {
+      const value: unknown = runInContext(code, context);
+      expect(value).not.toBeInstanceOf(Object);
+      if (!ArrayBuffer.isView(value) && !types.isAnyArrayBuffer(value)) {
+        throw new Error(`${code} gave no input`);
+      }
+      expect(next.compressSync(value, { format: 'zstd' })).toEqual(expected);
+      expect(await next.compress(value, { format: 'zstd' })).toEqual(expected);
+      expect(next.compressSync(text, { format: 'zstd', dictionary: value })).toEqual(
+        plain(zstdCompressWithDict(text, payload)),
+      );
+    }
+  });
+
   it('ignore unknown options', () => {
     // Names of the root entry's arguments, which the options do not take.
     const options = { format: 'zstd', quality: 9, capacity: 1 } as const;
@@ -605,6 +690,44 @@ function detachedView(): Uint8Array {
   return detached(Uint8Array.from(text));
 }
 
+/** A resizable ArrayBuffer and the function that resizes it. */
+interface Resizable {
+  buffer: ArrayBuffer;
+  resize(byteLength: number): void;
+}
+
+/**
+ * A resizable ArrayBuffer of `byteLength` bytes, which can grow to
+ * `maxByteLength`. Resizable buffers are of ES2024, which the lib of the
+ * tests predates, so they are made and resized by reflection.
+ */
+function resizable(byteLength: number, maxByteLength: number): Resizable {
+  const buffer: unknown = Reflect.construct(ArrayBuffer, [byteLength, { maxByteLength }]);
+  if (!(buffer instanceof ArrayBuffer)) throw new Error('expected an ArrayBuffer');
+  const resize: unknown = Reflect.get(buffer, 'resize');
+  if (typeof resize !== 'function') throw new Error('the runtime cannot resize ArrayBuffers');
+  return {
+    buffer,
+    resize(length) {
+      Reflect.apply(resize, buffer, [length]);
+    },
+  };
+}
+
+/**
+ * The view that `view` makes of a resizable buffer of 8 bytes, which then
+ * shrinks to `byteLength`, below the end of the view.
+ */
+function shrunk(
+  view: (buffer: ArrayBuffer) => ArrayBufferView,
+  byteLength: number,
+): ArrayBufferView {
+  const { buffer, resize } = resizable(8, 8);
+  const result = view(buffer);
+  resize(byteLength);
+  return result;
+}
+
 const BAD_ARGUMENTS: BadArguments[] = [
   {
     name: 'a missing format',
@@ -745,6 +868,108 @@ const BAD_ARGUMENTS: BadArguments[] = [
     message: 'dictionary is backed by a detached ArrayBuffer',
   },
   {
+    name: 'a DataView out of the bounds of its shrunk buffer',
+    pair: 'compress',
+    args: () => [shrunk((buffer) => new DataView(buffer, 1, 1), 0), { format: 'zstd' }],
+    message: 'data is out of bounds of its ArrayBuffer',
+  },
+  {
+    // The getters of a typed array read it as empty, which is no error.
+    name: 'a Uint8Array out of the bounds of its shrunk buffer',
+    pair: 'compress',
+    args: () => [shrunk((buffer) => new Uint8Array(buffer, 4, 4), 2), { format: 'zstd' }],
+    message: 'data is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a Uint16Array that tracks a buffer shrunk below its offset',
+    pair: 'decompress',
+    args: () => [shrunk((buffer) => new Uint16Array(buffer, 4), 2)],
+    message: 'data is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a DataView that tracks a buffer shrunk below its offset',
+    pair: 'decompress',
+    args: () => [shrunk((buffer) => new DataView(buffer, 4), 2), { format: 'gzip' }],
+    message: 'data is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a dictionary out of the bounds of its shrunk buffer',
+    pair: 'compress',
+    args: () => [
+      text,
+      { format: 'zstd', dictionary: shrunk((buffer) => new Uint8Array(buffer, 4, 4), 2) },
+    ],
+    message: 'dictionary is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a dictionary out of the bounds of its shrunk buffer for decompression',
+    pair: 'decompress',
+    args: () => [
+      zstdText,
+      { format: 'zstd', dictionary: shrunk((buffer) => new DataView(buffer, 1, 1), 0) },
+    ],
+    message: 'dictionary is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a Proxy of an ArrayBuffer',
+    pair: 'compress',
+    args: () => [new Proxy(new ArrayBuffer(8), {}), { format: 'zstd' }],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    // The checks read the internal slots of the value, not its properties.
+    name: 'a Proxy of an ArrayBuffer whose traps throw',
+    pair: 'compress',
+    args: () => [
+      new Proxy(new ArrayBuffer(8), {
+        get: () => {
+          throw new Error('get');
+        },
+        getPrototypeOf: () => {
+          throw new Error('getPrototypeOf');
+        },
+      }),
+      { format: 'zstd' },
+    ],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a Proxy of a SharedArrayBuffer',
+    pair: 'decompress',
+    args: () => [new Proxy(new SharedArrayBuffer(8), {})],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a Proxy of a Uint8Array',
+    pair: 'decompress',
+    args: () => [new Proxy(Uint8Array.from(zstdText), {})],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'an object tagged as an ArrayBuffer',
+    pair: 'decompress',
+    args: () => [{ [Symbol.toStringTag]: 'ArrayBuffer' }, { format: 'zstd' }],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'an object tagged as a SharedArrayBuffer',
+    pair: 'compress',
+    args: () => [{ [Symbol.toStringTag]: 'SharedArrayBuffer' }, { format: 'zstd' }],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a Proxy of an ArrayBuffer as the dictionary',
+    pair: 'compress',
+    args: () => [text, { format: 'zstd', dictionary: new Proxy(new ArrayBuffer(8), {}) }],
+    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'an object tagged as an ArrayBuffer as the dictionary',
+    pair: 'decompress',
+    args: () => [zstdText, { format: 'zstd', dictionary: { [Symbol.toStringTag]: 'ArrayBuffer' } }],
+    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
     name: 'non-iterable samples',
     pair: 'trainDictionary',
     args: () => [{ length: 1, 0: text }],
@@ -761,6 +986,24 @@ const BAD_ARGUMENTS: BadArguments[] = [
     pair: 'trainDictionary',
     args: () => [[text, detachedView()]],
     message: 'samples[1] is backed by a detached ArrayBuffer',
+  },
+  {
+    name: 'a sample out of the bounds of its shrunk buffer',
+    pair: 'trainDictionary',
+    args: () => [[text, shrunk((buffer) => new Uint8Array(buffer, 4, 4), 2)]],
+    message: 'samples[1] is out of bounds of its ArrayBuffer',
+  },
+  {
+    name: 'a Proxy of an ArrayBuffer among the samples',
+    pair: 'trainDictionary',
+    args: () => [[text, text, new Proxy(new ArrayBuffer(8), {})]],
+    message: 'samples[2] must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'an object tagged as an ArrayBuffer among the samples',
+    pair: 'trainDictionary',
+    args: () => [[{ [Symbol.toStringTag]: 'ArrayBuffer' }]],
+    message: 'samples[0] must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
   },
   {
     // The second argument of the root entry's zstdTrainDictionary().

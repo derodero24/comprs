@@ -16,11 +16,15 @@
 export type Format = 'zstd' | 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'lz4';
 /**
  * Bytes that the functions read: any ArrayBuffer, SharedArrayBuffer or
- * ArrayBufferView, read byte for byte, so a `Uint16Array` is not converted
- * element by element. Bytes in a SharedArrayBuffer are copied before they
- * are read, so that another thread writing them cannot change them midway.
- * A detached ArrayBuffer, or a view of one, fails with
- * `ERR_COMPRS_INVALID_ARG`.
+ * ArrayBufferView, of this realm or another one, such as a vm context, read
+ * byte for byte, so a `Uint16Array` is not converted element by element.
+ * Bytes in a SharedArrayBuffer are copied before they are read, so that
+ * another thread writing them cannot change them midway.
+ *
+ * Any other value fails with `ERR_COMPRS_INVALID_ARG`, a Proxy of a buffer
+ * and an object whose `Symbol.toStringTag` names a buffer included. So do a
+ * detached ArrayBuffer, a view of one, and a view out of the bounds of a
+ * resizable ArrayBuffer that shrank below its end.
  */
 export type Input = ArrayBufferLike | ArrayBufferView;
 /**
