@@ -10,9 +10,11 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(__dirname, '..');
 const ENTRY = resolve(ROOT, 'browser/index.js');
 const STREAMS_ENTRY = resolve(ROOT, 'browser/streams.js');
+// The module that loads the WebAssembly module, which the entry imports.
+const WASM_MODULE = resolve(ROOT, 'browser/wasm.js');
 const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
 // The JS modules the entry points load, the wasm-bindgen glue among them.
-const BROWSER_MODULES = ['index.js', 'streams.js', 'comprs-wasm.js'].map((file) =>
+const BROWSER_MODULES = ['index.js', 'streams.js', 'wasm.js', 'comprs-wasm.js'].map((file) =>
   resolve(ROOT, 'browser', file),
 );
 // How long each Node.js process may run. Vitest fails a test that outlasts
@@ -132,8 +134,10 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   // Vite resolves the side effects of a package entry with the package root's
   // package.json, webpack with the nearest one. If either marks the entry as
   // side-effect free, a bundler may skip its initialisation and import the
-  // re-exported functions straight from the glue.
-  it.each([ENTRY, STREAMS_ENTRY].map((file) => [relative(ROOT, file), file]))(
+  // re-exported functions straight from the glue; if either marks wasm.js
+  // so, a bundler may drop the import of it, which loads the WebAssembly
+  // module.
+  it.each([ENTRY, STREAMS_ENTRY, WASM_MODULE].map((file) => [relative(ROOT, file), file]))(
     '%s is not side-effect free for any bundler',
     (_name, file) => {
       const root: Record<string, unknown> = JSON.parse(

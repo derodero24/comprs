@@ -73,7 +73,9 @@ export type Bytes = ReturnType<Uint8Array['slice']>;
  * Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. New codes may
  * be added in minor releases. An error thrown by the caller's own code, such
  * as a getter of an options object or the iterator of the samples, is passed
- * on unchanged, without a code.
+ * on unchanged, without a code. In the browser build, a panic, or an
+ * allocation that the WebAssembly memory cannot grow for, fails with a
+ * `WebAssembly.RuntimeError` instead, without a code.
  */
 export type ErrorCode =
   | 'ERR_COMPRS_INVALID_ARG'
@@ -173,6 +175,11 @@ export interface DecompressOptions {
    * with `ERR_COMPRS_SIZE_LIMIT` too. zstd writes no larger window at
    * levels up to 19, so the frames that {@link compress} writes at those
    * levels decode under any limit that their output fits in.
+   *
+   * In the browser build, limits above 4294967295 (4 GiB - 1) act as
+   * 4294967295, since WebAssembly memory cannot hold more: errors name that
+   * limit, and a zstd frame that declares a larger content size fails with
+   * `ERR_COMPRS_SIZE_LIMIT`.
    */
   maxOutputSize?: number | undefined;
   /**
@@ -409,7 +416,11 @@ function isResizable(buffer: ArrayBuffer): boolean {
 
 /**
  * {@link toBytes} for a view. Its buffer and its bounds are read with the
- * getters of built-in prototypes, which no property of the view shadows.
+ * getters of built-in prototypes, which no property of the view shadows,
+ * and the backend gets a new Uint8Array over them, never the view itself,
+ * not even a Uint8Array: the wasm-bindgen glue sizes its copies by the
+ * `length` property, which a subclass or an own property of the view can
+ * make disagree with its bytes.
  *
  * A view is out of bounds once its buffer, a resizable ArrayBuffer, shrank
  * below its end: a SharedArrayBuffer only grows, and other buffers keep
@@ -431,7 +442,6 @@ function viewBytes(view: ArrayBufferView, name: string): Uint8Array {
     if (unshared && type !== undefined && isResizable(buffer)) {
       Reflect.apply(TYPED_ARRAY_KEYS, view, []);
     }
-    if (unshared && type === 'Uint8Array' && view instanceof Uint8Array) return view;
     byteOffset = callGetter(getters.byteOffset, view);
     byteLength = callGetter(getters.byteLength, view);
   } catch {
@@ -449,9 +459,9 @@ function viewBytes(view: ArrayBufferView, name: string): Uint8Array {
 
 /**
  * The bytes of `value`, an {@link Input} that the error messages call
- * `name`, as a Uint8Array that the backend may read: a Uint8Array over an
- * ArrayBuffer as it is, any other view of an ArrayBuffer as a Uint8Array of
- * the same bytes, and the bytes in a SharedArrayBuffer as a copy.
+ * `name`, as a new Uint8Array that the backend may read: over the same bytes
+ * for an ArrayBuffer and a view of one, and over a copy of the bytes in a
+ * SharedArrayBuffer.
  *
  * A detached buffer and a view out of bounds fail here with a code, before
  * `new Uint8Array()` fails on them without one, or reads them as empty.
@@ -560,7 +570,9 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
  *
  * The data and the dictionary are copied when compress() is called, so
  * changing them afterwards does not change the result. In Node.js, the data
- * is compressed on a thread of the libuv pool.
+ * is compressed on a thread of the libuv pool. The browser build has no
+ * such pool: it compresses the data on the calling thread, which it blocks,
+ * before compress() returns.
  *
  * @returns A Promise of the compressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
@@ -619,7 +631,9 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
  *
  * The data and the dictionary are copied when decompress() is called, so
  * changing them afterwards does not change the result. In Node.js, the data
- * is decompressed on a thread of the libuv pool.
+ * is decompressed on a thread of the libuv pool. The browser build
+ * decompresses it on the calling thread, which it blocks, before
+ * decompress() returns.
  *
  * @returns A Promise of the decompressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`.
@@ -665,7 +679,9 @@ export function detectFormat(data: Input): Format | undefined {
  * samples as the size of the dictionary.
  *
  * The samples are copied when trainDictionary() is called. In Node.js, the
- * dictionary is trained on a thread of the libuv pool.
+ * dictionary is trained on a thread of the libuv pool. The browser build
+ * trains it on the calling thread, which it blocks, before trainDictionary()
+ * returns.
  *
  * @returns A Promise of the dictionary, which rejects on every error, invalid
  * arguments included, with an {@link ErrorCode} as `code`: training fails

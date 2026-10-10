@@ -563,6 +563,60 @@ pub fn train_dictionary(
     zstd::train_dictionary(samples, max_size)
 }
 
+/// Compress `data` in the format named `format` with [`compress`], with the
+/// options as the bindings take them from the TypeScript layer of the
+/// unified API: as positional arguments, the dictionary as raw bytes.
+///
+/// `gzip_header` tells whether the options have a gzip header, which may
+/// have no fields; `gzip_filename` and `gzip_mtime` hold its fields and
+/// imply it, as [`GzipHeaderOptions::from_fields`] describes. The name of
+/// the format is checked first, as [`Format`]'s `FromStr` does ("format
+/// must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4"), then the
+/// options, in the order that [`compress`] describes.
+#[allow(clippy::too_many_arguments)] // The fields of the options.
+pub fn compress_fields(
+    data: &[u8],
+    format: &str,
+    level: Option<f64>,
+    dictionary: Option<&[u8]>,
+    gzip_header: Option<bool>,
+    gzip_filename: Option<String>,
+    gzip_mtime: Option<f64>,
+    workers: Option<f64>,
+) -> Result<Vec<u8>, ComprsError> {
+    let format: Format = format.parse()?;
+    let options = CompressOptions {
+        level,
+        dictionary: dictionary.map(DictionaryRef::Raw),
+        gzip_header: GzipHeaderOptions::from_fields(
+            gzip_header == Some(true),
+            gzip_filename,
+            gzip_mtime,
+        ),
+        workers,
+    };
+    compress(data, format, &options)
+}
+
+/// Decompress `data` in the format named `format`, or in the format that
+/// detection finds for `None`, with [`decompress`], with the options as the
+/// bindings take them, as [`compress_fields`] does. The name of the format
+/// is checked first, then the options, in the order that [`decompress`]
+/// describes.
+pub fn decompress_fields(
+    data: &[u8],
+    format: Option<&str>,
+    max_output_size: Option<f64>,
+    dictionary: Option<&[u8]>,
+) -> Result<Vec<u8>, ComprsError> {
+    let options = DecompressOptions {
+        format: format.map(str::parse).transpose()?,
+        max_output_size,
+        dictionary: dictionary.map(DictionaryRef::Raw),
+    };
+    decompress(data, &options)
+}
+
 /// How much of the input detection decodes to recognize zlib and brotli,
 /// and how much input [`AutoDecoder`] holds at most: 64 KiB.
 const MAX_PREFIX: usize = detect::BROTLI_PROBE_SIZE;

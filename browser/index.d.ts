@@ -8,7 +8,7 @@
 // them against the native declarations.
 // They are written by hand rather than re-exported from the generated
 // comprs-wasm.d.ts, which has no *Async functions, declares the init
-// functions that the entry calls itself, and needs the DOM library.
+// functions that wasm.js calls, and needs the DOM library.
 
 // biome-ignore lint/complexity/noUselessEmptyExport: in a declaration file, it limits the exports to the declarations marked `export`, leaving out the base classes of the stream contexts.
 export {};

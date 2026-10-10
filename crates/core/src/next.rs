@@ -21,9 +21,7 @@
 //! thread pool and settle as [`NextBytes`] does.
 
 use comprs_core::ComprsError;
-use comprs_core::unified::{
-    self, CompressOptions, DecompressOptions, DictionaryRef, Format, GzipHeaderOptions,
-};
+use comprs_core::unified::{self, Format};
 use napi::bindgen_prelude::{
     AsyncTask, Env, FromNapiValue, JsObjectValue, Object, Property, PropertyAttributes, Uint8Array,
 };
@@ -94,52 +92,9 @@ fn sync_output(env: &Env, result: Result<Vec<u8>, ComprsError>) -> napi::Result<
     to_uint8array(env, output, SYNC_COPY_LIMIT)
 }
 
-/// Compress `data` in the format named `format` with
-/// [`unified::compress`], which checks the options in its order. The gzip
-/// header is that of [`GzipHeaderOptions::from_fields`].
-#[allow(clippy::too_many_arguments)] // The fields of the options.
-fn compress_data(
-    data: &[u8],
-    format: &str,
-    level: Option<f64>,
-    dictionary: Option<&[u8]>,
-    gzip_header: Option<bool>,
-    gzip_filename: Option<String>,
-    gzip_mtime: Option<f64>,
-    workers: Option<f64>,
-) -> Result<Vec<u8>, ComprsError> {
-    let format: Format = format.parse()?;
-    let options = CompressOptions {
-        level,
-        dictionary: dictionary.map(DictionaryRef::Raw),
-        gzip_header: GzipHeaderOptions::from_fields(
-            gzip_header == Some(true),
-            gzip_filename,
-            gzip_mtime,
-        ),
-        workers,
-    };
-    unified::compress(data, format, &options)
-}
-
-/// Decompress `data` in the format named `format`, or the format that
-/// detection finds for `None`, with [`unified::decompress`].
-fn decompress_data(
-    data: &[u8],
-    format: Option<&str>,
-    max_output_size: Option<f64>,
-    dictionary: Option<&[u8]>,
-) -> Result<Vec<u8>, ComprsError> {
-    let options = DecompressOptions {
-        format: format.map(str::parse).transpose()?,
-        max_output_size,
-        dictionary: dictionary.map(DictionaryRef::Raw),
-    };
-    unified::decompress(data, &options)
-}
-
 /// Compress `data` in `format`: `compressSync()` of the unified API, with
-/// the fields of its options as positional arguments.
+/// the fields of its options as positional arguments, which
+/// [`unified::compress_fields`] checks in its order.
 ///
 /// `dictionary` holds the bytes of a dictionary, for zstd and brotli.
 /// `gzipHeader` tells whether the options have a gzip header, for gzip,
@@ -160,7 +115,7 @@ pub fn compress(
 ) -> napi::Result<Uint8Array> {
     sync_output(
         &env,
-        compress_data(
+        unified::compress_fields(
             data,
             &format,
             level,
@@ -198,7 +153,7 @@ pub fn compress_async(
         // The task checks the options, so that their errors reject the
         // Promise with the coded errors of `NextBytes`.
         Ok(OneShot::new(move || {
-            compress_data(
+            unified::compress_fields(
                 &data,
                 &format,
                 level,
@@ -214,7 +169,8 @@ pub fn compress_async(
 
 /// Decompress `data` in `format`, or in the format that detection finds if
 /// `format` is `null` or `undefined`: `decompressSync()` of the unified API,
-/// with the fields of its options as positional arguments.
+/// with the fields of its options as positional arguments, which
+/// [`unified::decompress_fields`] checks in its order.
 #[napi(namespace = "next", skip_typescript)]
 pub fn decompress(
     env: Env,
@@ -225,7 +181,7 @@ pub fn decompress(
 ) -> napi::Result<Uint8Array> {
     sync_output(
         &env,
-        decompress_data(data, format.as_deref(), max_output_size, dictionary),
+        unified::decompress_fields(data, format.as_deref(), max_output_size, dictionary),
     )
 }
 
@@ -244,7 +200,7 @@ pub fn decompress_async(
         let max_output_size = max_output_size.get()?;
         let dictionary = dictionary.get()?.map(<[u8]>::to_vec);
         Ok(OneShot::new(move || {
-            decompress_data(
+            unified::decompress_fields(
                 &data,
                 format.as_deref(),
                 max_output_size,

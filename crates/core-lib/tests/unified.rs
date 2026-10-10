@@ -285,6 +285,118 @@ fn gzip_header_from_fields_is_implied_by_any_field() {
 }
 
 #[test]
+fn fields_give_the_options_that_they_hold() {
+    let data = text(5_000);
+    let gzip = |options: CompressOptions| unified::compress(&data, Format::Gzip, &options).unwrap();
+    let header = |filename: Option<&str>, mtime: Option<f64>| CompressOptions {
+        gzip_header: Some(GzipHeaderOptions {
+            filename: filename.map(String::from),
+            mtime,
+        }),
+        ..CompressOptions::default()
+    };
+    // A gzip header from its flag, or from any of its fields.
+    let fields = |present, filename: Option<&str>, mtime| {
+        unified::compress_fields(
+            &data,
+            "gzip",
+            None,
+            None,
+            present,
+            filename.map(String::from),
+            mtime,
+            None,
+        )
+        .unwrap()
+    };
+    assert_eq!(fields(None, None, None), gzip(CompressOptions::default()));
+    assert_eq!(
+        fields(Some(false), None, None),
+        gzip(CompressOptions::default())
+    );
+    assert_eq!(fields(Some(true), None, None), gzip(header(None, None)));
+    assert_eq!(
+        fields(None, Some("a.txt"), Some(7.0)),
+        gzip(header(Some("a.txt"), Some(7.0)))
+    );
+    // A level, a dictionary as raw bytes, and workers.
+    let options = CompressOptions {
+        level: Some(5.0),
+        dictionary: Some(DictionaryRef::Raw(DICT)),
+        workers: Some(0.0),
+        ..CompressOptions::default()
+    };
+    let compressed = unified::compress_fields(
+        &data,
+        "zstd",
+        Some(5.0),
+        Some(DICT),
+        None,
+        None,
+        None,
+        Some(0.0),
+    )
+    .unwrap();
+    assert_eq!(
+        compressed,
+        unified::compress(&data, Format::Zstd, &options).unwrap()
+    );
+    assert_eq!(
+        unified::decompress_fields(&compressed, Some("zstd"), Some(5_000.0), Some(DICT)).unwrap(),
+        data
+    );
+    // Detection without a format.
+    let lz4 = unified::compress(&data, Format::Lz4, &CompressOptions::default()).unwrap();
+    assert_eq!(
+        unified::decompress_fields(&lz4, None, None, None).unwrap(),
+        data
+    );
+}
+
+#[test]
+fn fields_check_the_format_first_then_the_options_in_order() {
+    let format = "format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4";
+    assert_invalid(
+        unified::compress_fields(
+            b"data",
+            "zip",
+            Some(99.0),
+            Some(b""),
+            Some(true),
+            Some("a\0b".to_string()),
+            Some(-1.0),
+            Some(-1.0),
+        ),
+        format,
+    );
+    assert_invalid(
+        unified::decompress_fields(b"data", Some("zip"), Some(-1.0), Some(b"")),
+        format,
+    );
+    assert_invalid(
+        unified::compress_fields(
+            b"data",
+            "gzip",
+            Some(99.0),
+            Some(DICT),
+            None,
+            None,
+            None,
+            None,
+        ),
+        "gzip does not support dictionaries",
+    );
+    assert_invalid(
+        unified::decompress_fields(b"data", None, Some(-1.0), Some(DICT)),
+        "pass `format` to decompress with a dictionary",
+    );
+    assert_invalid(
+        unified::decompress_fields(b"data", Some("zstd"), Some(-1.0), None),
+        "maxOutputSize must be an integer between 0 and 9007199254740991",
+    );
+}
+
+#[test]
 fn detect_finds_every_format_but_raw_deflate() {
     for input in [text(20_000), noise(5_000, 4), b"a".to_vec(), Vec::new()] {
         for format in Format::ALL {

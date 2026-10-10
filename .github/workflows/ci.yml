@@ -565,9 +565,10 @@ jobs:
 
   # The test job skips __test__/wasm.spec.ts, __test__/wasm-parity.spec.ts,
   # __test__/browser-streams.spec.ts and the tests of
-  # __test__/browser-entry.spec.ts and __test__/legacy-error-codes.spec.ts
-  # that load the browser entry, as it has no wasm-bindgen build. This job
-  # runs them, with the native addon for the parity checks.
+  # __test__/browser-entry.spec.ts, __test__/legacy-error-codes.spec.ts and
+  # __test__/next-parity.spec.ts that load the browser entry or the browser
+  # build of ./next, as it has no wasm-bindgen build. This job runs them,
+  # with the native addon for the parity checks.
   test-wasm:
     name: WASM Test (Node.js)
     needs: [build, build-wasm-bindgen]

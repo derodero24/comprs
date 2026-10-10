@@ -2,7 +2,9 @@ import type { Bytes, Format } from './api.js';
 
 /**
  * The codecs behind the functions of api.ts: the hidden binding of the
- * native addon (native.ts), or of the WebAssembly build in browsers.
+ * native addon (native.ts), or the functions of the WebAssembly build that
+ * browser/wasm.js loads (wasm.ts), whose async functions run on the calling
+ * thread.
  *
  * The functions of api.ts check the shapes and the types of their arguments
  * and pass the fields of the options objects on as positional arguments,
@@ -10,8 +12,10 @@ import type { Bytes, Format } from './api.js';
  * ranges and the combinations of the values, and every error that it
  * throws, or rejects a Promise with, carries the `code` of its category:
  * ERR_COMPRS_INVALID_ARG is a TypeError, every other code a plain Error.
- * The inputs are plain bytes that no other agent can write: api.ts copies
- * those in a SharedArrayBuffer.
+ * Only a trap of the WebAssembly build, after a panic or a failed
+ * allocation, fails with a `WebAssembly.RuntimeError` without a code. The
+ * inputs are plain bytes that no other agent can write: api.ts copies those
+ * in a SharedArrayBuffer.
  */
 export interface Backend {
   /**

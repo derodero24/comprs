@@ -33,7 +33,8 @@
   ],
   "sideEffects": [
     "./browser/index.js",
-    "./browser/streams.js"
+    "./browser/streams.js",
+    "./browser/wasm.js"
   ],
   "type": "commonjs",
   "main": "index.js",
@@ -97,6 +98,8 @@
     "browser/index.d.ts",
     "browser/streams.js",
     "browser/streams.d.ts",
+    "browser/wasm.js",
+    "browser/wasm.d.ts",
     "browser/comprs-wasm.js",
     "browser/comprs-wasm.d.ts",
     "browser/comprs-wasm_bg.wasm"
@@ -134,9 +137,9 @@
     "format": "biome format --write",
     "lint": "biome check --error-on-warnings",
     "lint:fix": "biome check --write",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.next-browser.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run",
-    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts __test__/next-parity.spec.ts",
     "test:types": "node scripts/check-consumer-types.mjs",
     "test:watch": "vitest watch",
     "bench": "vitest bench",

@@ -1,0 +1,11 @@
+{
+  // The project that editors find for the browser build of the unified API
+  // in this directory, browser.ts and wasm.ts: the options and files of
+  // tsconfig.next-browser.json, which pnpm run build:js compiles, without
+  // output. Editors check the sources that it does not include, such as
+  // index.ts and native.ts, with ../tsconfig.json.
+  "extends": "../../tsconfig.next-browser.json",
+  "compilerOptions": {
+    "noEmit": true
+  }
+}
