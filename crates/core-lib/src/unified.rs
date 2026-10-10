@@ -14,6 +14,7 @@
 //! [`crate::detect`] and its format enum stay as they are.
 
 use std::fmt;
+use std::str::FromStr;
 
 use flate2::{Decompress, FlushDecompress, Status};
 
@@ -75,6 +76,23 @@ impl Format {
 impl fmt::Display for Format {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
+    }
+}
+
+/// Parses the names of [`Format::name`], as [`Format::from_name`] does, for
+/// the bindings, which take the format as a string: any other name fails
+/// with [`ComprsError::InvalidArg`] ("format must be one of zstd, gzip,
+/// deflate, deflate-raw, brotli, lz4").
+impl FromStr for Format {
+    type Err = ComprsError;
+
+    fn from_str(name: &str) -> Result<Format, ComprsError> {
+        Format::from_name(name).ok_or_else(|| {
+            ComprsError::InvalidArg(format!(
+                "format must be one of {}",
+                Format::ALL.map(Format::name).join(", ")
+            ))
+        })
     }
 }
 
@@ -458,6 +476,32 @@ fn detected_error(format: Format, error: ComprsError) -> ComprsError {
         }
         error => error,
     }
+}
+
+/// The largest dictionary that [`train_dictionary`] may train:
+/// [`zstd::DICT_SIZE`] under the name of the unified API, `maxSize`.
+pub const DICTIONARY_SIZE: IntArg<usize> = IntArg {
+    name: "maxSize",
+    ..zstd::DICT_SIZE
+};
+
+/// Train a zstd dictionary of at most `max_size` bytes from `samples`, as
+/// [`zstd::train_dictionary`] does. `max_size` is a JavaScript number, as
+/// the bindings pass it: an integer of [`DICTIONARY_SIZE`],
+/// [`zstd::DEFAULT_MAX_DICT_SIZE`] by default.
+///
+/// Fails with [`ComprsError::InvalidArg`] for any other `max_size` ("maxSize
+/// must be an integer between 0 and 16777216"), and with
+/// [`ComprsError::Operation`] when zstd cannot train a dictionary, such as
+/// from no samples or too little data.
+pub fn train_dictionary(
+    samples: &[Vec<u8>],
+    max_size: Option<f64>,
+) -> Result<Vec<u8>, ComprsError> {
+    let max_size = DICTIONARY_SIZE
+        .check_optional_f64(max_size)?
+        .unwrap_or(zstd::DEFAULT_MAX_DICT_SIZE);
+    zstd::train_dictionary(samples, max_size)
 }
 
 /// How much of the input detection decodes to recognize zlib and brotli,

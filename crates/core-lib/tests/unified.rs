@@ -128,6 +128,44 @@ fn format_names_are_those_of_the_compression_streams_standard() {
 }
 
 #[test]
+fn format_names_parse_and_other_names_are_invalid() {
+    for format in Format::ALL {
+        assert_eq!(format.name().parse::<Format>().unwrap(), format);
+    }
+    for name in ["", "auto", "Deflate", "zlib"] {
+        assert_invalid(
+            name.parse::<Format>(),
+            "format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4",
+        );
+    }
+}
+
+#[test]
+fn train_dictionary_takes_max_size_as_a_number() {
+    let samples: Vec<Vec<u8>> = (0..200)
+        .map(|i| format!(r#"{{"id":{i},"name":"item {i}","tags":["a","b"]}}"#).into_bytes())
+        .collect();
+    let max_size = 2048;
+    let trained = unified::train_dictionary(&samples, Some(max_size as f64)).unwrap();
+    assert_eq!(trained, zstd::train_dictionary(&samples, max_size).unwrap());
+    assert_eq!(
+        unified::train_dictionary(&samples, None).unwrap(),
+        zstd::train_dictionary(&samples, zstd::DEFAULT_MAX_DICT_SIZE).unwrap()
+    );
+
+    for max_size in [-1.0, 0.5, f64::NAN, (zstd::MAX_DICT_SIZE + 1) as f64] {
+        assert_invalid(
+            unified::train_dictionary(&samples, Some(max_size)),
+            "maxSize must be an integer between 0 and 16777216",
+        );
+    }
+    // zstd cannot train a dictionary without samples.
+    let err = unified::train_dictionary(&[], None).unwrap_err();
+    assert!(matches!(err, ComprsError::Operation { .. }), "{err:?}");
+    assert_eq!(err.code(), "ERR_COMPRS_OPERATION_FAILED");
+}
+
+#[test]
 fn every_format_and_level_gives_the_output_of_the_per_format_function() {
     for format in Format::ALL {
         for level in levels(format) {
