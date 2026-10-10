@@ -63,6 +63,7 @@ The stream helpers, the ES module entry and the unified API are written in TypeS
 | ------ | ------ |
 | `src/streams.ts` | `streams.js` and `streams.d.ts`: the Web Streams helpers (`@derodero24/comprs/streams`) |
 | `src/node.ts` | `node.js` and `node.d.ts`: the Node.js transforms (`@derodero24/comprs/node`) |
+| `src/stream-schedule.ts` | `stream-schedule.js` and `stream-schedule.d.ts`: `ChunkScheduler`, which decides which calls of the Web Streams helpers and the Node.js transforms run on the libuv thread pool. npm publishes it for those two modules, which import it; `package.json` does not export it |
 | `src/index.mts` | `index.mjs` and `index.d.mts`: the ES module entry |
 | `src/browser/streams.ts` | `browser/streams.js` and `browser/streams.d.ts`: the Web Streams helpers for browsers |
 | `src/next/` | `next/` and `browser/next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)). `api.ts` holds the functions and checks the types of their arguments, `abort.ts` handles the `signal` option of the async functions, and `backend.ts` holds the `Backend` interface, which the backend of each build implements. In `next/`, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) the backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries for Node.js. In `browser/next/`, `wasm.ts` makes the functions of the WebAssembly build (`crates/wasm/src/next.rs`), which `browser/wasm.js` loads, the backend, and `browser.ts` is the entry for browsers |

@@ -39,6 +39,15 @@ use crate::error::to_napi_error;
 /// of the stream contexts up to this size without copying them again.
 pub(crate) const SYNC_COPY_LIMIT: usize = 2 << 20;
 
+/// Largest result, in bytes, that the asynchronous methods of the stream
+/// contexts, such as `transformAsync()`, return in memory that V8
+/// allocates, for the reasons that [`SYNC_COPY_LIMIT`] gives. The copy runs
+/// on the JavaScript thread, when the Promise settles.
+///
+/// `src/streams.ts` mirrors the smaller of this value and
+/// [`SYNC_COPY_LIMIT`].
+pub(crate) const ASYNC_STREAM_COPY_LIMIT: usize = SYNC_COPY_LIMIT;
+
 /// Return `data` as a `Buffer`: a copy in memory that V8 allocates if `data`
 /// holds at most `limit` bytes, which frees `data` right away, and `data`
 /// itself as an external buffer otherwise.

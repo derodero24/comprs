@@ -54,7 +54,10 @@ impl BrotliCompressContext {
     }
 }
 
-stream_context_methods!(BrotliCompressContext);
+stream_context_methods!(
+    BrotliCompressContext,
+    comprs_core::brotli_stream::CompressContext
+);
 
 /// Streaming brotli decompression context.
 ///
@@ -102,7 +105,10 @@ impl BrotliDecompressContext {
     }
 }
 
-stream_context_methods!(BrotliDecompressContext);
+stream_context_methods!(
+    BrotliDecompressContext,
+    comprs_core::brotli_stream::DecompressContext
+);
 
 /// Streaming brotli compression context with custom dictionary, in one of
 /// two modes:
@@ -181,7 +187,10 @@ impl BrotliCompressDictContext {
     }
 }
 
-stream_context_methods!(BrotliCompressDictContext);
+stream_context_methods!(
+    BrotliCompressDictContext,
+    comprs_core::brotli_stream::CompressDictContext
+);
 
 /// Streaming brotli decompression context with custom dictionary.
 ///
@@ -236,4 +245,7 @@ impl BrotliDecompressDictContext {
     }
 }
 
-stream_context_methods!(BrotliDecompressDictContext);
+stream_context_methods!(
+    BrotliDecompressDictContext,
+    comprs_core::brotli_stream::DecompressDictContext
+);

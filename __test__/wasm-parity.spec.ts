@@ -284,6 +284,9 @@ interface StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
   flush(): Uint8Array;
   finish(): Uint8Array;
+  transformAsync(chunk: Uint8Array): Promise<Uint8Array>;
+  flushAsync(): Promise<Uint8Array>;
+  finishAsync(): Promise<Uint8Array>;
   close(): void;
   [Symbol.dispose](): void;
 }
@@ -859,6 +862,95 @@ const FLUSHED_STREAMS: [
   ],
 ];
 
+/**
+ * Feed `input` to a stream context in two halves with its asynchronous
+ * methods, then flush and end it, and return what each call resolved to.
+ * The flush comes last, where the default Lz4DecompressContext accepts it.
+ */
+async function drainAsync(context: StreamContext, input: Uint8Array): Promise<Uint8Array[]> {
+  const [first, second] = halves(input);
+  return [
+    await context.transformAsync(first),
+    await context.transformAsync(second),
+    await context.flushAsync(),
+    await context.finishAsync(),
+  ];
+}
+
+// The asynchronous methods of the stream contexts (#554), which the native
+// addon runs on the libuv thread pool and the browser build runs
+// synchronously: they resolve to what the synchronous methods return, and
+// reject with what they throw, such as the errors of a finished or a closed
+// stream, in both builds.
+const ASYNC_RESULTS: [string, Call][] = CONTEXT_INPUTS.map(([name, create, input]) => [
+  `${name}: transformAsync(), flushAsync() and finishAsync()`,
+  (api) => drainAsync(create(api), input),
+]);
+
+const ASYNC_REJECTIONS: [string, Call][] = [
+  ...CONTEXT_INPUTS.flatMap(([name, create, input]): [string, Call][] => [
+    [
+      `${name}: transformAsync() after finishAsync()`,
+      async (api) => {
+        const context = create(api);
+        await drainAsync(context, input);
+        return context.transformAsync(input);
+      },
+    ],
+    [
+      `${name}: finishAsync() after finish()`,
+      (api) => {
+        const context = create(api);
+        drain(context, [input]);
+        return context.finishAsync();
+      },
+    ],
+    [
+      `${name}: transformAsync() after close()`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        return context.transformAsync(input);
+      },
+    ],
+    [
+      `${name}: flushAsync() after close()`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        return context.flushAsync();
+      },
+    ],
+    [
+      `${name}: finishAsync() after close()`,
+      (api) => {
+        const context = started(create, api, input);
+        context.close();
+        return context.finishAsync();
+      },
+    ],
+  ]),
+  ...DECOMPRESSION_CONTEXTS.flatMap(([name, create, compressed]): [string, Call][] => [
+    [
+      `${name}: transformAsync(garbage), then finishAsync()`,
+      async (api) => {
+        const context = create(api);
+        await context.transformAsync(garbage);
+        return context.finishAsync();
+      },
+    ],
+    [
+      `${name}: finishAsync() on input cut short`,
+      async (api) => {
+        const context = create(api);
+        await context.transformAsync(truncate(compressed));
+        await context.flushAsync();
+        return context.finishAsync();
+      },
+    ],
+  ]),
+];
+
 // Every parameter that takes a byte array, called with `value` in its place.
 const BYTES_PARAMETERS: [string, CallWith][] = [
   ['zstdCompress(data)', (api, value) => invoke(api.zstdCompress, value)],
@@ -1240,6 +1332,18 @@ describe.skipIf(!HAS_WASM_BUILD)('wasm-bindgen build parity with the native addo
       }
     },
   );
+
+  it.each(ASYNC_RESULTS)('%s', async (_label, call) => {
+    const expected = await settled(call(nativeApi));
+    expect(expected).toHaveProperty('returned');
+    expect(await settled(call(wasm))).toStrictEqual(expected);
+  });
+
+  it.each(ASYNC_REJECTIONS)('%s', async (_label, call) => {
+    const expected = await settled(call(nativeApi));
+    expect(expected).toHaveProperty('threw');
+    expect(await settled(call(wasm))).toStrictEqual(expected);
+  });
 
   it.each(BYTES_PARAMETERS)('%s rejects what is not a byte array', (_label, callWith) => {
     const thrownBy = (api: Api) =>

@@ -53,7 +53,10 @@ impl GzipCompressContext {
     }
 }
 
-stream_context_methods!(GzipCompressContext);
+stream_context_methods!(
+    GzipCompressContext,
+    comprs_core::gzip_stream::GzipCompressContext
+);
 
 /// Streaming gzip decompression context.
 ///
@@ -101,7 +104,10 @@ impl GzipDecompressContext {
     }
 }
 
-stream_context_methods!(GzipDecompressContext);
+stream_context_methods!(
+    GzipDecompressContext,
+    comprs_core::gzip_stream::GzipDecompressContext
+);
 
 /// Streaming raw deflate compression context.
 ///
@@ -151,7 +157,10 @@ impl DeflateCompressContext {
     }
 }
 
-stream_context_methods!(DeflateCompressContext);
+stream_context_methods!(
+    DeflateCompressContext,
+    comprs_core::gzip_stream::DeflateCompressContext
+);
 
 /// Streaming raw deflate decompression context.
 ///
@@ -199,4 +208,7 @@ impl DeflateDecompressContext {
     }
 }
 
-stream_context_methods!(DeflateDecompressContext);
+stream_context_methods!(
+    DeflateDecompressContext,
+    comprs_core::gzip_stream::DeflateDecompressContext
+);

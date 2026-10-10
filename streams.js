@@ -16,6 +16,7 @@ exports.createLz4DecompressStream = createLz4DecompressStream;
 exports.createDecompressStream = createDecompressStream;
 const node_util_1 = require("node:util");
 const index_js_1 = require("./index.js");
+const stream_schedule_js_1 = require("./stream-schedule.js");
 /**
  * View `chunk`, a chunk written to a stream, as bytes. The streams accept
  * what `CompressionStream` accepts, any ArrayBuffer or ArrayBufferView, as
@@ -36,13 +37,16 @@ function toUint8Array(chunk) {
 }
 /**
  * Largest result of a stream context that the streams enqueue without
- * copying it. It mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs: the
- * contexts return results up to that size in memory that V8 allocates, and
- * larger ones in memory of the addon, which Node.js marks as untransferable.
+ * copying it. It mirrors SYNC_COPY_LIMIT and ASYNC_STREAM_COPY_LIMIT in
+ * crates/core/src/convert.rs, the smaller of them should they differ: the
+ * contexts return results up to that size in memory that V8 allocates, from
+ * their synchronous and their asynchronous methods, and larger ones in memory
+ * of the addon, which Node.js marks as untransferable.
  */
 const VIEW_LIMIT = 2 * 1024 * 1024;
 /**
- * Enqueue `result`, which a stream context returned, unless it is empty.
+ * The chunk that the streams enqueue for `result`, which a stream context
+ * returned.
  *
  * The streams emit plain Uint8Array chunks, not Buffers, whose slice()
  * differs. A result in memory that V8 allocated, with an ArrayBuffer of its
@@ -53,54 +57,106 @@ const VIEW_LIMIT = 2 * 1024 * 1024;
  * allocates from a pool, transferring a shared ArrayBuffer would detach
  * other chunks too.
  */
-function enqueueIfNonEmpty(controller, result) {
-    if (result.byteLength === 0)
-        return;
+function outputChunk(result) {
     const ownsBuffer = result.byteLength <= VIEW_LIMIT &&
         result.byteOffset === 0 &&
         result.buffer.byteLength === result.byteLength;
-    controller.enqueue(ownsBuffer
+    return ownsBuffer
         ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength)
-        : new Uint8Array(result));
+        : new Uint8Array(result);
 }
 /**
  * Create a TransformStream from `transform` and `flush`, which call stream
- * contexts. `transform` receives each input chunk as a Uint8Array, and a
- * chunk that is not an ArrayBuffer or ArrayBufferView errors the stream.
- * `close` closes the contexts once the stream ends, fails or is cancelled,
- * which releases their native memory right away instead of when the garbage
- * collector gets to them.
+ * contexts and pass their results to `emit`, at once or once a call on the
+ * thread pool settles. `transform` receives each input chunk as a
+ * Uint8Array, and a chunk that is not an ArrayBuffer or ArrayBufferView
+ * errors the stream. `close` closes the contexts once the stream ends, fails
+ * or is cancelled, which releases their native memory right away instead of
+ * when the garbage collector gets to them.
+ *
+ * A call may still be in flight when the stream is cancelled: its context
+ * releases the memory once the call settles, and its result is dropped. The
+ * stream waits for the Promise that `transform` or `flush` returns before it
+ * calls either again, and handles its rejection even after a cancel, so a
+ * call that fails late is never an unhandled rejection, which would crash
+ * Node.js by default.
  */
 function closingStream(transform, flush, close) {
+    // Whether the readable side takes no more chunks.
+    let cancelled = false;
+    function emitter(controller) {
+        return (result) => {
+            if (cancelled || result.byteLength === 0)
+                return;
+            const chunk = outputChunk(result);
+            try {
+                controller.enqueue(chunk);
+            }
+            catch {
+                // A reader cancelled the readable side while flush() waited for a
+                // call on the thread pool. The stream then waits for flush()
+                // instead of calling cancel(), and enqueue() throws, which would
+                // fail the cancel with that error: the output is dropped instead,
+                // as after cancel().
+                cancelled = true;
+            }
+        };
+    }
     return new TransformStream({
         transform(chunk, controller) {
+            let step;
             try {
-                transform(toUint8Array(chunk), controller);
+                step = transform(toUint8Array(chunk), emitter(controller));
             }
             catch (err) {
                 close();
                 throw err;
             }
+            return step?.catch((err) => {
+                close();
+                throw err;
+            });
         },
         flush(controller) {
+            let step;
             try {
-                flush(controller);
+                step = flush(emitter(controller));
             }
-            finally {
+            catch (err) {
                 close();
+                throw err;
             }
+            if (step === undefined) {
+                close();
+                return undefined;
+            }
+            return step.finally(close);
         },
         cancel() {
+            cancelled = true;
             close();
         },
     });
 }
-/** Create a TransformStream that feeds its input through `ctx`. */
-function contextStream(ctx) {
-    return closingStream((chunk, controller) => enqueueIfNonEmpty(controller, ctx.transform(chunk)), (controller) => {
-        enqueueIfNonEmpty(controller, ctx.flush());
-        enqueueIfNonEmpty(controller, ctx.finish());
-    }, () => ctx.close());
+/**
+ * Pass the output of `flush()` and then of `finish()` of `scheduler` to
+ * `emit`. finish() ends the stream, and fails if the input of a
+ * decompression stream did not hold the whole compressed stream.
+ */
+function finishStream(scheduler, emit) {
+    return (0, stream_schedule_js_1.afterOutput)(scheduler.flush(), (flushed) => {
+        emit(flushed);
+        return (0, stream_schedule_js_1.afterOutput)(scheduler.finish(), emit);
+    });
+}
+/**
+ * Create a TransformStream that feeds its input through `ctx`, a stream
+ * context of `op` at `level`, which processes it as `model` adds (see
+ * codecScheduler).
+ */
+function contextStream(ctx, op, level, model) {
+    const scheduler = (0, stream_schedule_js_1.codecScheduler)(ctx, op, level, model);
+    return closingStream((chunk, emit) => (0, stream_schedule_js_1.afterOutput)(scheduler.transform(chunk), emit), (emit) => finishStream(scheduler, emit), () => ctx.close());
 }
 /**
  * Create a streaming brotli compression TransformStream.
@@ -115,7 +171,7 @@ function contextStream(ctx) {
  * @param quality Compression quality (0-11). Default is 6.
  */
 function createBrotliCompressStream(quality) {
-    return contextStream(new index_js_1.BrotliCompressContext(quality));
+    return contextStream(new index_js_1.BrotliCompressContext(quality), 'brotli-compress', quality);
 }
 /**
  * Create a streaming brotli decompression TransformStream.
@@ -131,7 +187,7 @@ function createBrotliCompressStream(quality) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createBrotliDecompressStream(maxOutputSize) {
-    return contextStream(new index_js_1.BrotliDecompressContext(maxOutputSize));
+    return contextStream(new index_js_1.BrotliDecompressContext(maxOutputSize), 'brotli-decompress', undefined);
 }
 /**
  * Create a streaming zstd compression TransformStream.
@@ -146,7 +202,9 @@ function createBrotliDecompressStream(maxOutputSize) {
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
 function createZstdCompressStream(level) {
-    return contextStream(new index_js_1.ZstdCompressContext(level));
+    return contextStream(new index_js_1.ZstdCompressContext(level), 'zstd-compress', level, {
+        setupMs: (0, stream_schedule_js_1.zstdSetupMs)(level),
+    });
 }
 /**
  * Create a streaming zstd decompression TransformStream.
@@ -162,7 +220,7 @@ function createZstdCompressStream(level) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createZstdDecompressStream(maxOutputSize) {
-    return contextStream(new index_js_1.ZstdDecompressContext(maxOutputSize));
+    return contextStream(new index_js_1.ZstdDecompressContext(maxOutputSize), 'zstd-decompress', undefined);
 }
 /**
  * Create a streaming gzip compression TransformStream.
@@ -176,7 +234,7 @@ function createZstdDecompressStream(maxOutputSize) {
  * @param level Compression level (0-9). Default is 6.
  */
 function createGzipCompressStream(level) {
-    return contextStream(new index_js_1.GzipCompressContext(level));
+    return contextStream(new index_js_1.GzipCompressContext(level), 'gzip-compress', level);
 }
 /**
  * Create a streaming gzip decompression TransformStream.
@@ -193,7 +251,7 @@ function createGzipCompressStream(level) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createGzipDecompressStream(maxOutputSize) {
-    return contextStream(new index_js_1.GzipDecompressContext(maxOutputSize));
+    return contextStream(new index_js_1.GzipDecompressContext(maxOutputSize), 'gzip-decompress', undefined);
 }
 /**
  * Create a streaming raw deflate compression TransformStream.
@@ -207,7 +265,7 @@ function createGzipDecompressStream(maxOutputSize) {
  * @param level Compression level (0-9). Default is 6.
  */
 function createDeflateCompressStream(level) {
-    return contextStream(new index_js_1.DeflateCompressContext(level));
+    return contextStream(new index_js_1.DeflateCompressContext(level), 'gzip-compress', level);
 }
 /**
  * Create a streaming raw deflate decompression TransformStream.
@@ -224,7 +282,7 @@ function createDeflateCompressStream(level) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createDeflateDecompressStream(maxOutputSize) {
-    return contextStream(new index_js_1.DeflateDecompressContext(maxOutputSize));
+    return contextStream(new index_js_1.DeflateDecompressContext(maxOutputSize), 'gzip-decompress', undefined);
 }
 /**
  * Create a streaming brotli compression TransformStream with a custom dictionary.
@@ -243,7 +301,7 @@ function createDeflateDecompressStream(maxOutputSize) {
  * @param quality Compression quality (0-11). Default is 6.
  */
 function createBrotliCompressDictStream(dict, quality) {
-    return contextStream(new index_js_1.BrotliCompressDictContext(dict, quality, { incremental: true }));
+    return contextStream(new index_js_1.BrotliCompressDictContext(dict, quality, { incremental: true }), 'brotli-compress', quality, { holds: stream_schedule_js_1.BROTLI_DICT_REACH });
 }
 /**
  * Create a streaming brotli decompression TransformStream with a custom dictionary.
@@ -261,7 +319,7 @@ function createBrotliCompressDictStream(dict, quality) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createBrotliDecompressDictStream(dict, maxOutputSize) {
-    return contextStream(new index_js_1.BrotliDecompressDictContext(dict, maxOutputSize));
+    return contextStream(new index_js_1.BrotliDecompressDictContext(dict, maxOutputSize), 'brotli-decompress', undefined);
 }
 /**
  * Create a streaming zstd compression TransformStream with a pre-trained dictionary.
@@ -276,7 +334,7 @@ function createBrotliDecompressDictStream(dict, maxOutputSize) {
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
 function createZstdCompressDictStream(dict, level) {
-    return contextStream(new index_js_1.ZstdCompressDictContext(dict, level));
+    return contextStream(new index_js_1.ZstdCompressDictContext(dict, level), 'zstd-compress', level);
 }
 /**
  * Create a streaming zstd decompression TransformStream with a pre-trained dictionary.
@@ -294,7 +352,7 @@ function createZstdCompressDictStream(dict, level) {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createZstdDecompressDictStream(dict, maxOutputSize) {
-    return contextStream(new index_js_1.ZstdDecompressDictContext(dict, maxOutputSize));
+    return contextStream(new index_js_1.ZstdDecompressDictContext(dict, maxOutputSize), 'zstd-decompress', undefined);
 }
 /**
  * Create a streaming LZ4 frame compression TransformStream.
@@ -305,7 +363,7 @@ function createZstdDecompressDictStream(dict, maxOutputSize) {
  * read byte for byte: a `Uint16Array` is not converted element by element.
  */
 function createLz4CompressStream() {
-    return contextStream(new index_js_1.Lz4CompressContext());
+    return contextStream(new index_js_1.Lz4CompressContext(), 'lz4-compress', undefined);
 }
 /**
  * Create a streaming LZ4 frame decompression TransformStream.
@@ -325,21 +383,36 @@ function createLz4CompressStream() {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 function createLz4DecompressStream(maxOutputSize) {
-    return contextStream(new index_js_1.Lz4DecompressContext(maxOutputSize, { incremental: true }));
+    return contextStream(new index_js_1.Lz4DecompressContext(maxOutputSize, { incremental: true }), 'lz4-decompress', undefined);
 }
-function createDecompressContext(format, maxOutputSize) {
+/**
+ * A decompression context for `format`, and the scheduler that calls it.
+ * Throws for a format that is unknown.
+ */
+function decompressScheduler(format, maxOutputSize) {
+    let ctx;
+    let op;
     switch (format) {
         case 'zstd':
-            return new index_js_1.ZstdDecompressContext(maxOutputSize);
+            ctx = new index_js_1.ZstdDecompressContext(maxOutputSize);
+            op = 'zstd-decompress';
+            break;
         case 'gzip':
-            return new index_js_1.GzipDecompressContext(maxOutputSize);
+            ctx = new index_js_1.GzipDecompressContext(maxOutputSize);
+            op = 'gzip-decompress';
+            break;
         case 'brotli':
-            return new index_js_1.BrotliDecompressContext(maxOutputSize);
+            ctx = new index_js_1.BrotliDecompressContext(maxOutputSize);
+            op = 'brotli-decompress';
+            break;
         case 'lz4':
-            return new index_js_1.Lz4DecompressContext(maxOutputSize, { incremental: true });
+            ctx = new index_js_1.Lz4DecompressContext(maxOutputSize, { incremental: true });
+            op = 'lz4-decompress';
+            break;
         default:
             throw new Error('unable to detect compression format from stream data');
     }
+    return { ctx, scheduler: (0, stream_schedule_js_1.codecScheduler)(ctx, op, undefined) };
 }
 /**
  * How much input the auto-detecting stream waits for at most before it
@@ -383,6 +456,7 @@ function concatChunks(chunks, length) {
  */
 function createDecompressStream(maxOutputSize) {
     let ctx = null;
+    let scheduler = null;
     // The input received before the format is detected. Emptied once the
     // format is known, or the stream has closed, to release that memory.
     let buffered = [];
@@ -390,25 +464,27 @@ function createDecompressStream(maxOutputSize) {
     // Detection runs once this much input has arrived, then each time the
     // input doubles, so that small chunks do not make it run on every chunk.
     let detectAt = MAGIC_LENGTH;
-    function start(format, data, controller) {
-        const context = createDecompressContext(format, maxOutputSize);
-        ctx = context;
+    /**
+     * Start decompressing `data` as `format`: return the scheduler, and the
+     * step that transforms `data`.
+     */
+    function start(format, data, emit) {
+        const started = decompressScheduler(format, maxOutputSize);
+        ctx = started.ctx;
+        scheduler = started.scheduler;
         buffered = [];
-        enqueueIfNonEmpty(controller, context.transform(data));
-        return context;
+        return [started.scheduler, (0, stream_schedule_js_1.afterOutput)(started.scheduler.transform(data), emit)];
     }
-    return closingStream((chunk, controller) => {
-        if (ctx) {
-            enqueueIfNonEmpty(controller, ctx.transform(chunk));
-            return;
-        }
+    return closingStream((chunk, emit) => {
+        if (scheduler)
+            return (0, stream_schedule_js_1.afterOutput)(scheduler.transform(chunk), emit);
         // Copy the chunk: the writer may reuse its memory once this returns.
         const copy = new Uint8Array(chunk.byteLength);
         copy.set(chunk);
         buffered.push(copy);
         bufferedLength += copy.byteLength;
         if (bufferedLength < detectAt)
-            return;
+            return undefined;
         const data = concatChunks(buffered, bufferedLength);
         const format = (0, index_js_1.detectFormat)(data);
         // More input may still reveal the format, as for the start of a
@@ -416,20 +492,19 @@ function createDecompressStream(maxOutputSize) {
         if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
             buffered = [data];
             detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
-            return;
+            return undefined;
         }
-        start(format, data, controller);
-    }, (controller) => {
-        let context = ctx;
-        if (!context) {
-            // The input ended before its format was detected. Empty input has no
-            // detectable format and throws.
-            const data = concatChunks(buffered, bufferedLength);
-            context = start((0, index_js_1.detectFormat)(data), data, controller);
-        }
-        enqueueIfNonEmpty(controller, context.flush());
-        // finish() verifies that the input contained the whole stream.
-        enqueueIfNonEmpty(controller, context.finish());
+        return start(format, data, emit)[1];
+    }, (emit) => {
+        if (scheduler)
+            return finishStream(scheduler, emit);
+        // The input ended before its format was detected. Empty input has no
+        // detectable format and throws.
+        const data = concatChunks(buffered, bufferedLength);
+        const [started, step] = start((0, index_js_1.detectFormat)(data), data, emit);
+        return step === undefined
+            ? finishStream(started, emit)
+            : step.then(() => finishStream(started, emit));
     }, () => {
         ctx?.close();
         buffered = [];

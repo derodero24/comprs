@@ -17,6 +17,7 @@ mod lz4_stream;
 // re-exported: its functions share the names of the root API's.
 pub mod next;
 mod options;
+mod stream_task;
 mod task;
 mod zstd;
 mod zstd_stream;

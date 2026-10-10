@@ -325,6 +325,38 @@ declare class StreamContext extends DisposableContext {
    * object to garbage collection. Any later call of a method throws.
    */
   free(): void;
+  /**
+   * `transform(chunk)`, which returns a Promise of the output, and reports
+   * every error, an invalid argument included, by rejecting it. The native
+   * addon runs it on the libuv thread pool; this build runs it
+   * synchronously, on the calling thread, before it returns.
+   *
+   * At most one asynchronous call may be in flight per context: in the
+   * native addon, until its Promise settles, another asynchronous call
+   * rejects and a synchronous call throws "<name> is busy: an asynchronous
+   * call has not finished", such as "zstd stream is busy: an asynchronous
+   * call has not finished". After `close()`, calls reject with "<name>
+   * already closed".
+   */
+  transformAsync(chunk: Uint8Array): Promise<Uint8Array>;
+  /**
+   * `flush()`, which returns a Promise of the output, and reports every
+   * error by rejecting it. The native addon runs it on the libuv thread
+   * pool; this build runs it synchronously, on the calling thread, before it
+   * returns. At most one asynchronous call may be in flight per context, as
+   * for `transformAsync()`. After `close()`, calls reject with "<name>
+   * already closed".
+   */
+  flushAsync(): Promise<Uint8Array>;
+  /**
+   * `finish()`, which returns a Promise of the rest of the output, and
+   * reports every error by rejecting it. The native addon runs it on the
+   * libuv thread pool; this build runs it synchronously, on the calling
+   * thread, before it returns. At most one asynchronous call may be in
+   * flight per context, as for `transformAsync()`. After `close()`, calls
+   * reject with "<name> already closed".
+   */
+  finishAsync(): Promise<Uint8Array>;
 }
 
 export declare class ZstdCompressContext extends StreamContext {

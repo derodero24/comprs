@@ -29,6 +29,7 @@
  * @property {FormatEnum} CompressionFormat
  * @property {(data: Uint8Array) => number} crc32
  * @property {() => string} version
+ * @property {new () => AsyncContext} ZstdCompressContext
  * @property {StreamFactory} createZstdCompressStream
  * @property {StreamFactory} createDecompressStream
  * @property {() => Promise<AsyncFunctions>} importAsync Load
@@ -61,6 +62,15 @@
  * @property {string} Brotli
  * @property {string} Lz4
  * @property {string} Unknown
+ */
+
+/**
+ * The asynchronous methods of a stream context.
+ *
+ * @typedef {object} AsyncContext
+ * @property {(chunk: Uint8Array) => Promise<Uint8Array>} transformAsync
+ * @property {() => Promise<Uint8Array>} flushAsync
+ * @property {() => Promise<Uint8Array>} finishAsync
  */
 
 /**
@@ -167,6 +177,18 @@ export async function checkPackage(comprs) {
   await run('async round trip', async () => {
     const { gzipCompressAsync, gzipDecompressAsync } = await comprs.importAsync();
     assertBytes(await gzipDecompressAsync(await gzipCompressAsync(data)), data);
+  });
+  await run('stream context async round trip', async () => {
+    // The native addon runs these methods on its thread pool, which Deno
+    // and Bun provide too; the browser build runs them synchronously.
+    const context = new comprs.ZstdCompressContext();
+    /** @type {Uint8Array[]} */
+    const output = [];
+    for (let offset = 0; offset < data.length; offset += 1024 * 1024) {
+      output.push(await context.transformAsync(data.subarray(offset, offset + 1024 * 1024)));
+    }
+    output.push(await context.flushAsync(), await context.finishAsync());
+    assertBytes(comprs.zstdDecompress(concat(output)), data);
   });
   await run('no task classes', async () => {
     // napi-rs adds a class to the native binding for every `#[napi]` impl
@@ -296,6 +318,20 @@ function input() {
     offset += encoder.encodeInto(word, data.subarray(offset)).written;
   }
   return data;
+}
+
+/**
+ * @param {Uint8Array[]} chunks
+ * @returns {Uint8Array} The chunks, one after the other.
+ */
+function concat(chunks) {
+  const output = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
 }
 
 /**
