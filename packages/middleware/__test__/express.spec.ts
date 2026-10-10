@@ -291,6 +291,20 @@ describe('express adapter: deciding when the headers are emitted', () => {
     expect(res.headers.vary).toBe('Accept-Encoding');
   });
 
+  it('adds no Vary to the 304 of res.send(), which removes the Content-Type', async () => {
+    const target = await serve((_req, res) => {
+      res.type('text/plain').send(BODY);
+    });
+    const first = await get(target);
+    expect(first.headers.vary).toBe('Accept-Encoding');
+    const etag = first.headers.etag;
+    if (etag === undefined) throw new Error('expected an ETag');
+    const res = await get(target, { 'If-None-Match': etag });
+    expect(res.status).toBe(304);
+    expect(res.headers['content-encoding']).toBeUndefined();
+    expect(res.headers.vary).toBeUndefined();
+  });
+
   it('does not compress a response ended without a body', async () => {
     const target = await serve((_req, res) => {
       res.setHeader('Content-Type', 'text/plain');

@@ -24,3 +24,8 @@ The optional `hono` peer range is now `^4.7.7` (it was `^4.0.0`): up to Hono
 4.7.6, setting a header on a finished response changes it in place, so the
 Hono middleware turned a response from `fetch()`, whose headers cannot
 change, into a 500.
+
+The README no longer claims that every 304 response gets `Vary`. A 304 gets
+it only while it keeps a compressible Content-Type, which Express's
+`res.send()` and `express.static` remove; with Hono, the 304 of `etag()`
+keeps `Vary` when `comprs()` is registered after `etag()`.

@@ -14,6 +14,7 @@ import {
   zstdDecompress,
 } from '@derodero24/comprs';
 import { Hono } from 'hono';
+import { etag } from 'hono/etag';
 import { stream, streamSSE, streamText } from 'hono/streaming';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -214,6 +215,22 @@ describe('comprs hono middleware', () => {
     it('should set Vary even when not compressing', async () => {
       const res = await rawGet(app, '/small', 'gzip');
       expect(res.headers.vary).toContain('Accept-Encoding');
+    });
+
+    it('should keep Vary on a 304 when registered after etag()', async () => {
+      const app = new Hono();
+      app.use(etag());
+      app.use(comprs());
+      app.get('/', (c) => c.text(TEST_BODY));
+
+      const first = await app.request('/', { headers: { 'Accept-Encoding': 'gzip' } });
+      const tag = first.headers.get('etag');
+      if (tag === null) throw new Error('expected an ETag');
+      const res = await app.request('/', {
+        headers: { 'Accept-Encoding': 'gzip', 'If-None-Match': tag },
+      });
+      expect(res.status).toBe(304);
+      expect(res.headers.get('vary')).toBe('Accept-Encoding');
     });
 
     // Up to Hono 4.7.6, setting a header after next() changed the response
