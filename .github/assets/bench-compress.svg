@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220" width="680" height="220">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220" width="680" height="220" role="img" aria-labelledby="bench-compress-title">
+<title id="bench-compress-title">Gzip Compression — 10 KB</title>
 <style>
   text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
   .title { font-size: 16px; font-weight: 600; fill: #1f2937; }

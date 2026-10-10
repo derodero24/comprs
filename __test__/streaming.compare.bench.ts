@@ -1,6 +1,6 @@
 import { Readable, type Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createGunzip, createGzip } from 'node:zlib';
+import * as zlib from 'node:zlib';
 import { test } from 'vitest';
 import {
   createGzipCompressTransform,
@@ -8,12 +8,10 @@ import {
   createZstdCompressTransform,
   createZstdDecompressTransform,
 } from '../node.js';
-import { BENCH_OPTIONS } from './bench-fixtures.js';
+import { LARGE, recordSizes, runBenchmarks } from './bench-fixtures.js';
 
-// --- 1MB patterned data (compressible) ---
-const CHUNK_SIZE = 16_384; // 16KB chunks
-const DATA = Buffer.alloc(1_000_000);
-for (let i = 0; i < DATA.length; i++) DATA[i] = i % 256;
+const CHUNK_SIZE = 16_384;
+const INPUT = 'patterned 1MB in 16KB chunks';
 
 /** Create a Readable from data, split into chunks of the given size. */
 function toChunkedReadable(data: Buffer, chunkSize: number): Readable {
@@ -31,18 +29,11 @@ function toChunkedReadable(data: Buffer, chunkSize: number): Readable {
   });
 }
 
-/** Run a pipeline from source through the transforms, discarding the output. */
-async function collectPipeline(source: Readable, ...transforms: Transform[]): Promise<void> {
-  const sink = new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  });
-  await pipeline([source, ...transforms, sink]);
-}
-
-/** Compress DATA in 16KB chunks with the given transform. */
-async function compressData(transform: Transform): Promise<Buffer> {
+/**
+ * Pipe data in 16KB chunks through the transforms, and return the output, for
+ * the setup of a test. The timed runs use {@link drainChunks}.
+ */
+async function pipeChunks(data: Buffer, ...transforms: Transform[]): Promise<Buffer> {
   const chunks: Buffer[] = [];
   const sink = new Writable({
     write(chunk: Buffer, _encoding, callback) {
@@ -50,101 +41,135 @@ async function compressData(transform: Transform): Promise<Buffer> {
       callback();
     },
   });
-  await pipeline(toChunkedReadable(DATA, CHUNK_SIZE), transform, sink);
+  await pipeline([toChunkedReadable(data, CHUNK_SIZE), ...transforms, sink]);
   return Buffer.concat(chunks);
 }
 
-// =====================================================
-// Gzip streaming compression benchmarks
-// =====================================================
+/**
+ * Pipe data in 16KB chunks through the transforms, and discard the output.
+ * Keeping the chunks and concatenating them would add the same cost to every
+ * library on each call, and narrow the gap between them.
+ */
+async function drainChunks(data: Buffer, ...transforms: Transform[]): Promise<void> {
+  const sink = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+  await pipeline([toChunkedReadable(data, CHUNK_SIZE), ...transforms, sink]);
+}
 
-test('gzip stream compress - 1MB (16KB chunks)', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', async () => {
-      await collectPipeline(toChunkedReadable(DATA, CHUNK_SIZE), createGzipCompressTransform());
-    }),
-    bench('node:zlib', async () => {
-      await collectPipeline(toChunkedReadable(DATA, CHUNK_SIZE), createGzip());
-    }),
-    BENCH_OPTIONS,
-  );
-});
+/** A library's streams for one format, at the settings of a comparison. */
+interface StreamLibrary {
+  readonly name: string;
+  readonly compress: () => Transform;
+  readonly decompress: () => Transform;
+}
 
-// =====================================================
-// Gzip streaming decompression benchmarks
-// =====================================================
+/**
+ * Compares the libraries' streams on LARGE, in tests named
+ * `<format> stream <compress|decompress|round-trip> <setting> - <input>`,
+ * which scripts/bench-report.mjs reads. As in the one-shot comparisons, every
+ * library decompresses the output of the first one, comprs.
+ */
+function compareStreams(
+  format: string,
+  setting: string,
+  libraries: readonly StreamLibrary[],
+): void {
+  const name = (operation: string): string => `${format} stream ${operation} ${setting} - ${INPUT}`;
 
-test('gzip stream decompress - 1MB (16KB chunks)', async ({ bench }) => {
-  const compressedComprs = await compressData(createGzipCompressTransform());
-  const compressedNode = await compressData(createGzip());
-  await bench.compare(
-    bench('comprs', async () => {
-      await collectPipeline(
-        toChunkedReadable(compressedComprs, CHUNK_SIZE),
-        createGzipDecompressTransform(),
-      );
-    }),
-    bench('node:zlib', async () => {
-      await collectPipeline(toChunkedReadable(compressedNode, CHUNK_SIZE), createGunzip());
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-// =====================================================
-// Gzip streaming round-trip benchmarks
-// =====================================================
-
-test('gzip stream round-trip - 1MB (16KB chunks)', async ({ bench }) => {
-  await bench.compare(
-    bench('comprs', async () => {
-      await collectPipeline(
-        toChunkedReadable(DATA, CHUNK_SIZE),
-        createGzipCompressTransform(),
-        createGzipDecompressTransform(),
-      );
-    }),
-    bench('node:zlib', async () => {
-      await collectPipeline(toChunkedReadable(DATA, CHUNK_SIZE), createGzip(), createGunzip());
-    }),
-    BENCH_OPTIONS,
-  );
-});
-
-// =====================================================
-// Zstd streaming compression benchmarks
-// =====================================================
-
-test('zstd stream compress - 1MB (16KB chunks)', async ({ bench }) => {
-  await bench('comprs', async () => {
-    await collectPipeline(toChunkedReadable(DATA, CHUNK_SIZE), createZstdCompressTransform());
-  }).run(BENCH_OPTIONS);
-});
-
-// =====================================================
-// Zstd streaming decompression benchmarks
-// =====================================================
-
-test('zstd stream decompress - 1MB (16KB chunks)', async ({ bench }) => {
-  const compressed = await compressData(createZstdCompressTransform());
-  await bench('comprs', async () => {
-    await collectPipeline(
-      toChunkedReadable(compressed, CHUNK_SIZE),
-      createZstdDecompressTransform(),
+  test(name('compress'), async ({ bench }) => {
+    const outputs = await Promise.all(
+      libraries.map(async (library) => ({
+        library,
+        output: await pipeChunks(LARGE, library.compress()),
+      })),
     );
-  }).run(BENCH_OPTIONS);
-});
-
-// =====================================================
-// Zstd streaming round-trip benchmarks
-// =====================================================
-
-test('zstd stream round-trip - 1MB (16KB chunks)', async ({ bench }) => {
-  await bench('comprs', async () => {
-    await collectPipeline(
-      toChunkedReadable(DATA, CHUNK_SIZE),
-      createZstdCompressTransform(),
-      createZstdDecompressTransform(),
+    const [first] = outputs;
+    if (first === undefined) {
+      throw new Error(`${name('compress')}: no library to compare`);
+    }
+    recordSizes(
+      `${format} stream ${setting} - ${INPUT}`,
+      LARGE.length,
+      Object.fromEntries(outputs.map(({ library, output }) => [library.name, output.length])),
     );
-  }).run(BENCH_OPTIONS);
-});
+    await runBenchmarks(
+      bench,
+      libraries.map((library) =>
+        bench(library.name, async () => {
+          await drainChunks(LARGE, library.compress());
+        }),
+      ),
+    );
+  });
+
+  test(name('decompress'), async ({ bench }) => {
+    const [comprs] = libraries;
+    if (comprs === undefined) {
+      throw new Error(`${name('decompress')}: no library to compare`);
+    }
+    const compressed = await pipeChunks(LARGE, comprs.compress());
+    // A library that cannot decompress the input would be timed failing.
+    const restored = await Promise.all(
+      libraries.map((library) => pipeChunks(compressed, library.decompress())),
+    );
+    if (restored.some((output) => !output.equals(LARGE))) {
+      throw new Error(`${name('decompress')}: a library does not restore the input`);
+    }
+    await runBenchmarks(
+      bench,
+      libraries.map((library) =>
+        bench(library.name, async () => {
+          await drainChunks(compressed, library.decompress());
+        }),
+      ),
+    );
+  });
+
+  test(name('round-trip'), async ({ bench }) => {
+    await runBenchmarks(
+      bench,
+      libraries.map((library) =>
+        bench(library.name, async () => {
+          await drainChunks(LARGE, library.compress(), library.decompress());
+        }),
+      ),
+    );
+  });
+}
+
+// The default level of every library, passed explicitly.
+const GZIP_LEVEL = 6;
+const ZSTD_LEVEL = 3;
+
+compareStreams('gzip', `level ${GZIP_LEVEL}`, [
+  {
+    name: 'comprs',
+    compress: () => createGzipCompressTransform(GZIP_LEVEL),
+    decompress: () => createGzipDecompressTransform(),
+  },
+  {
+    name: 'node:zlib',
+    compress: () => zlib.createGzip({ level: GZIP_LEVEL }),
+    decompress: () => zlib.createGunzip(),
+  },
+]);
+
+// node:zlib has no zstd before Node.js 22.15: comprs then runs alone.
+const nodeZstd: StreamLibrary = {
+  name: 'node:zlib',
+  compress: () =>
+    zlib.createZstdCompress({ params: { [zlib.constants.ZSTD_c_compressionLevel]: ZSTD_LEVEL } }),
+  decompress: () => zlib.createZstdDecompress(),
+};
+
+compareStreams('zstd', `level ${ZSTD_LEVEL}`, [
+  {
+    name: 'comprs',
+    compress: () => createZstdCompressTransform(ZSTD_LEVEL),
+    decompress: () => createZstdDecompressTransform(),
+  },
+  ...(typeof zlib.createZstdCompress === 'function' ? [nodeZstd] : []),
+]);

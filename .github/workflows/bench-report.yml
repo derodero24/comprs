@@ -1,0 +1,94 @@
+name: Bench Report
+
+# Regenerates the benchmark tables and charts of README.md with
+# scripts/bench-report.mjs, on a GitHub-hosted runner, and pushes them to a new
+# branch, bench-report/<run id>-<run attempt>, for a maintainer to open a pull
+# request from (see "Regenerating the README benchmarks" in CONTRIBUTING.md).
+# A re-run of the workflow keeps the run id, so the attempt gives it a branch
+# of its own instead of a rejected push to the first attempt's. No job both
+# runs the repository's code and holds a token that can write: the bench job
+# runs the benchmarks with a read-only token, and the publish-branch job,
+# which can push, runs no code from the repository, only git on the files
+# that the bench job uploaded. It never pushes to develop or main.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: pnpm install --frozen-lockfile
+      # The release build, which npm publishes.
+      - run: pnpm run build
+      - name: Run the benchmarks and render the report
+        run: node scripts/bench-report.mjs --raw-dir "$RUNNER_TEMP/bench-report/raw"
+      # upload-artifact leaves out hidden directories such as .github, so the
+      # files go into the artifact under their names alone.
+      - name: Collect the report
+        run: |
+          cp README.md .github/assets/bench-compress.svg .github/assets/bench-cross-algorithm.svg \
+            "$RUNNER_TEMP/bench-report/"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: bench-report
+          path: ${{ runner.temp }}/bench-report
+          if-no-files-found: error
+
+  publish-branch:
+    name: Publish branch
+    needs: bench
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the bench-report/<run id>-<run attempt> branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: bench-report
+          path: ${{ runner.temp }}/bench-report
+      - name: Commit the report
+        run: |
+          cp "$RUNNER_TEMP/bench-report/README.md" README.md
+          cp "$RUNNER_TEMP/bench-report/bench-compress.svg" \
+            "$RUNNER_TEMP/bench-report/bench-cross-algorithm.svg" .github/assets/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md .github/assets/bench-compress.svg .github/assets/bench-cross-algorithm.svg
+          git commit -m "docs(bench): regenerate the benchmark tables"
+      # The token reaches git as an HTTP header for this one push, as
+      # actions/checkout would pass it, and is not stored in .git/config.
+      - name: Push the branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="bench-report/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:refs/heads/${branch}"
+          {
+            echo "Pushed the report to \`${branch}\`."
+            echo
+            echo "[Open a pull request](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${GITHUB_REF_NAME}...${branch}?expand=1) into \`${GITHUB_REF_NAME}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

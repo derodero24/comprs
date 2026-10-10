@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
-import type { BenchRunOptions } from 'vitest';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { type Bench, type BenchRegistration, type BenchRunOptions, test } from 'vitest';
 
 // --- Tinybench options for every benchmark ---
 // The defaults of tinybench 2, which Vitest 4 used: at least half a second and
@@ -62,3 +63,145 @@ export const TEXT_DATA = Buffer.from(
     200,
   ),
 );
+
+// --- Comparisons (*.compare.bench.ts) ---
+// scripts/bench-report.mjs runs the comparisons and writes their results into
+// the README. Every library in a comparison runs at the same settings.
+
+/** A benchmark input, with the label that names it in the tests and the README. */
+export interface BenchInput {
+  readonly label: string;
+  readonly data: Buffer;
+}
+
+/** The inputs of the comparisons. */
+export const INPUTS: readonly BenchInput[] = [
+  { label: 'text 150B', data: SMALL },
+  { label: 'JSON 84KB', data: JSON_DATA },
+  { label: 'text 45KB', data: TEXT_DATA },
+  { label: 'random 10KB', data: RANDOM_MEDIUM },
+  { label: 'random 1MB', data: RANDOM_LARGE },
+  { label: 'patterned 1MB', data: LARGE },
+];
+
+/**
+ * Records the input length and the compressed sizes of a group of benchmarks,
+ * such as 'gzip level 6 - JSON 84KB', for scripts/bench-report.mjs, which
+ * computes the speeds in MB/s and the compression ratios from them. Merges
+ * them into the JSON file that COMPRS_BENCH_SIZES names; does nothing without
+ * it. Vitest runs one benchmark file at a time, so two files never write the
+ * file at once.
+ */
+export function recordSizes(
+  group: string,
+  inputLength: number,
+  sizes: Readonly<Record<string, number>>,
+): void {
+  const file = process.env['COMPRS_BENCH_SIZES'];
+  if (file === undefined || file === '') {
+    return;
+  }
+  const recorded: unknown = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+  if (typeof recorded !== 'object' || recorded === null || Array.isArray(recorded)) {
+    throw new Error(`${file} does not hold a JSON object`);
+  }
+  writeFileSync(
+    file,
+    `${JSON.stringify({ ...recorded, [group]: { inputLength, sizes } }, null, 2)}\n`,
+  );
+}
+
+/** A library's functions for one format, at the settings of a comparison. */
+export interface Library {
+  readonly name: string;
+  readonly compress: (data: Buffer) => Uint8Array;
+  readonly decompress: (data: Uint8Array) => Uint8Array;
+}
+
+/** Options of {@link compareLibraries}. */
+export interface CompareOptions {
+  /** The inputs to compare the libraries on: INPUTS by default. */
+  readonly inputs?: readonly BenchInput[];
+  /**
+   * Whether each library decompresses its own output, as libraries of
+   * different formats must. By default, every library decompresses the output
+   * of the first one, comprs, so that only the decoders differ.
+   */
+  readonly ownOutput?: boolean;
+}
+
+/**
+ * Compares the libraries on each input, in a test named
+ * `<format> compress <setting> - <input label>` and one named
+ * `<format> decompress <setting> - <input label>`, and records the compressed
+ * sizes as `<format> <setting> - <input label>`. scripts/bench-report.mjs
+ * finds the results by these names.
+ */
+export function compareLibraries(
+  format: string,
+  setting: string,
+  libraries: readonly Library[],
+  { inputs = INPUTS, ownOutput = false }: CompareOptions = {},
+): void {
+  for (const { label, data } of inputs) {
+    const group = `${format} ${setting} - ${label}`;
+    const outputs = libraries.map((library) => ({ library, output: library.compress(data) }));
+    const first = outputs[0];
+    if (first === undefined) {
+      throw new Error(`${group}: no library to compare`);
+    }
+    const decompressions = outputs.map(({ library, output }) => ({
+      library,
+      input: ownOutput ? output : first.output,
+    }));
+    // A library that cannot decompress its input would be timed failing.
+    for (const { library, input } of decompressions) {
+      if (Buffer.compare(library.decompress(input), data) !== 0) {
+        throw new Error(`${group}: ${library.name} does not restore the input`);
+      }
+    }
+    recordSizes(
+      group,
+      data.length,
+      Object.fromEntries(outputs.map(({ library, output }) => [library.name, output.length])),
+    );
+
+    test(`${format} compress ${setting} - ${label}`, async ({ bench }) => {
+      await runBenchmarks(
+        bench,
+        libraries.map((library) =>
+          bench(library.name, () => {
+            library.compress(data);
+          }),
+        ),
+      );
+    });
+
+    test(`${format} decompress ${setting} - ${label}`, async ({ bench }) => {
+      await runBenchmarks(
+        bench,
+        decompressions.map(({ library, input }) =>
+          bench(library.name, () => {
+            library.decompress(input);
+          }),
+        ),
+      );
+    });
+  }
+}
+
+/** Runs a benchmark alone, or compares several. */
+export async function runBenchmarks(
+  bench: Bench,
+  benchmarks: readonly BenchRegistration<string>[],
+): Promise<void> {
+  const [first, ...others] = benchmarks;
+  if (first === undefined) {
+    throw new Error('no benchmark to run');
+  }
+  if (others.length === 0) {
+    await first.run(BENCH_OPTIONS);
+  } else {
+    await bench.compare(first, ...others, BENCH_OPTIONS);
+  }
+}

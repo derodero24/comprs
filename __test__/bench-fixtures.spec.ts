@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { crc32, zstdCompress } from '../index.js';
-import { deterministicBytes, JSON_DATA, RANDOM_LARGE, RANDOM_MEDIUM } from './bench-fixtures.js';
+import {
+  deterministicBytes,
+  INPUTS,
+  JSON_DATA,
+  RANDOM_LARGE,
+  RANDOM_MEDIUM,
+  recordSizes,
+} from './bench-fixtures.js';
 
 // crates/bench/src/lib.rs checks the same values, so the Rust and JS
 // benchmarks compress the same bytes.
@@ -23,5 +33,39 @@ describe('bench fixtures', () => {
     ['1MB', RANDOM_LARGE],
   ])('random %s data does not compress', (_, data) => {
     expect(zstdCompress(data).length).toBeGreaterThanOrEqual(data.length * 0.99);
+  });
+});
+
+describe('comparison inputs', () => {
+  // The README tables name the inputs by these labels.
+  it.each(INPUTS)('$label has the size that its label names', ({ label, data }) => {
+    const size = /(\d+)(B|KB|MB)$/.exec(label);
+    expect(size).not.toBeNull();
+    const [, count = '', unit = ''] = size ?? [];
+    const scale = { B: 1, KB: 1024, MB: 1024 ** 2 }[unit] ?? Number.NaN;
+    expect(Math.round(data.length / scale)).toBe(Number(count));
+  });
+});
+
+describe('recordSizes', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('merges the sizes of each group into the file that COMPRS_BENCH_SIZES names', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'comprs-bench-sizes-'));
+    try {
+      const file = join(dir, 'sizes.json');
+      vi.stubEnv('COMPRS_BENCH_SIZES', file);
+      recordSizes('gzip level 6 - JSON 84KB', 100, { comprs: 10, pako: 12 });
+      recordSizes('zstd level 3 - JSON 84KB', 100, { comprs: 9 });
+      recordSizes('gzip level 6 - JSON 84KB', 100, { comprs: 11, pako: 12 });
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+        'gzip level 6 - JSON 84KB': { inputLength: 100, sizes: { comprs: 11, pako: 12 } },
+        'zstd level 3 - JSON 84KB': { inputLength: 100, sizes: { comprs: 9 } },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
