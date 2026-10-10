@@ -3,7 +3,15 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import ts from 'typescript-5';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { CompressOptions, ErrorCode, Format } from '../next/index.js';
+import type {
+  Bytes,
+  CompressOptions,
+  DecompressOptions,
+  ErrorCode,
+  Format,
+  Input,
+  TrainDictionaryOptions,
+} from '../next/index.js';
 import * as native from '../next/index.js';
 import {
   type BrowserNext,
@@ -23,8 +31,21 @@ import {
 
 const require = createRequire(__filename);
 
-/** The API of either build, as next/index.d.ts declares it. */
-type Api = typeof native;
+/**
+ * The functions of either build that the tests call, as next/index.d.ts
+ * declares them. An interface of its own rather than `typeof native`, so
+ * that the browser module still satisfies it once the API has members that
+ * no two modules share, such as classes with private fields.
+ */
+interface Api {
+  compress(data: Input, options: CompressOptions): Promise<Bytes>;
+  compressSync(data: Input, options: CompressOptions): Bytes;
+  decompress(data: Input, options?: DecompressOptions): Promise<Bytes>;
+  decompressSync(data: Input, options?: DecompressOptions): Bytes;
+  detectFormat(data: Input): Format | undefined;
+  trainDictionary(samples: Iterable<Input>, options?: TrainDictionaryOptions): Promise<Bytes>;
+  trainDictionarySync(samples: Iterable<Input>, options?: TrainDictionaryOptions): Bytes;
+}
 
 /** The formats of the unified API. */
 const FORMATS: readonly Format[] = ['zstd', 'gzip', 'deflate', 'deflate-raw', 'brotli', 'lz4'];
@@ -185,7 +206,7 @@ function decompressCase(
   name: string,
   code: ErrorCode,
   data: Uint8Array,
-  options?: native.DecompressOptions,
+  options?: DecompressOptions,
 ): ErrorCase {
   return {
     name,
