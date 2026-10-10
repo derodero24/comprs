@@ -127,7 +127,6 @@
     "build:js": "node scripts/build-js.mjs",
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "size:wasm": "node scripts/wasm-size.mjs",
-    "artifacts": "napi artifacts",
     "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version",
