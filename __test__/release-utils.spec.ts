@@ -153,7 +153,18 @@ function sideEffectsWithout(path: string, pattern: string): unknown[] {
 }
 
 /** The browser modules of the package, which the tests copy. */
-const BROWSER_MODULES = ['browser/index.js', 'browser/streams.js', 'browser/wasm.js'];
+const BROWSER_MODULES = [
+  'browser/index.js',
+  'browser/streams.js',
+  'browser/wasm.js',
+  'browser/next/browser.js',
+  'browser/next/wasm.js',
+  'browser/next/api.js',
+  'browser/next/backend.js',
+];
+
+/** The browser entry points of the package, which the tests check. */
+const BROWSER_ENTRIES = ['browser/index.js', 'browser/streams.js', 'browser/next/browser.js'];
 
 /** The `sideEffects` fields of the manifests of a package. */
 interface SideEffects {
@@ -190,7 +201,7 @@ function browserProblems(sideEffects: SideEffects): string[] {
       writeFileSync(join(dir, path), contents);
     }
     const packed = Object.keys(files).sort();
-    return browserEntryProblems(dir, packed, ['browser/index.js', 'browser/streams.js'], () => {});
+    return browserEntryProblems(dir, packed, BROWSER_ENTRIES, () => {});
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -202,25 +213,34 @@ describe('browserEntryProblems', () => {
   });
 
   it.each([
-    ['package.json', './browser/index.js'],
-    ['browser/package.json', './index.js'],
-  ] as const)('reports an entry point that %s marks side-effect free', (manifest, pattern) => {
-    expect(browserProblems({ [manifest]: sideEffectsWithout(manifest, pattern) })).toEqual([
-      `${manifest} marks the browser entry browser/index.js as side-effect free, so bundlers may drop the initialisation of the WebAssembly module`,
-    ]);
-  });
+    ['package.json', './browser/index.js', 'browser/index.js'],
+    ['browser/package.json', './index.js', 'browser/index.js'],
+    ['package.json', './browser/next/browser.js', 'browser/next/browser.js'],
+    ['browser/package.json', './next/browser.js', 'browser/next/browser.js'],
+  ] as const)(
+    'reports an entry point that %s marks side-effect free (%s)',
+    (manifest, pattern, entry) => {
+      expect(browserProblems({ [manifest]: sideEffectsWithout(manifest, pattern) })).toEqual([
+        `${manifest} marks the browser entry ${entry} as side-effect free, so bundlers may drop the initialisation of the WebAssembly module`,
+      ]);
+    },
+  );
 
   // browser/index.js imports browser/wasm.js, which initialises the
-  // WebAssembly module, for its side effects alone: a bundler that takes it
-  // for side-effect free drops the import, whatever it keeps of the entry.
+  // WebAssembly module, for its side effects alone, as browser/next/browser.js
+  // imports browser/next/wasm.js, which sets the backend of ./next: a bundler
+  // that takes such a module for side-effect free drops the import, whatever
+  // it keeps of the entry.
   it.each([
-    ['package.json', './browser/wasm.js'],
-    ['browser/package.json', './wasm.js'],
+    ['package.json', './browser/wasm.js', 'browser/wasm.js', 'browser/index.js'],
+    ['browser/package.json', './wasm.js', 'browser/wasm.js', 'browser/index.js'],
+    ['package.json', './browser/next/wasm.js', 'browser/next/wasm.js', 'browser/next/browser.js'],
+    ['browser/package.json', './next/wasm.js', 'browser/next/wasm.js', 'browser/next/browser.js'],
   ] as const)(
-    'reports a module imported for its side effects only that %s marks side-effect free',
-    (manifest, pattern) => {
+    'reports a module imported for its side effects only that %s marks side-effect free (%s)',
+    (manifest, pattern, module, importer) => {
       expect(browserProblems({ [manifest]: sideEffectsWithout(manifest, pattern) })).toEqual([
-        `${manifest} marks browser/wasm.js, which browser/index.js imports for its side effects only, as side-effect free, so bundlers may drop that import`,
+        `${manifest} marks ${module}, which ${importer} imports for its side effects only, as side-effect free, so bundlers may drop that import`,
       ]);
     },
   );
