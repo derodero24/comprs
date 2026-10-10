@@ -276,7 +276,7 @@ pnpm run build
 
 ## Code style
 
-- **Rust:** rustfmt + clippy, whose warnings fail CI. No `unsafe` code.
+- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`); only the bindings use it, the napi-rs addon for N-API calls and the WebAssembly build for its global allocator.
 - **TypeScript/JavaScript:** Biome.
 
 ## Questions?

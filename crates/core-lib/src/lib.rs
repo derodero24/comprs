@@ -1,4 +1,9 @@
 #![deny(clippy::all)]
+// comprs-core needs no unsafe code: only the bindings use it, the napi-rs
+// addon for N-API calls and the WebAssembly build for its global allocator.
+// The integration tests in tests/ implement GlobalAlloc, which is unsafe, so
+// this is a crate attribute rather than a [lints] table in Cargo.toml.
+#![forbid(unsafe_code)]
 
 mod args;
 pub mod brotli;
