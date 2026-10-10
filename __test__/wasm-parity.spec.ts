@@ -145,8 +145,8 @@ function halves(data: Uint8Array): [Uint8Array, Uint8Array] {
 const INCREMENTAL = { incremental: true };
 
 /**
- * Zeros past the first 4 MiB, which an incremental brotli dictionary
- * compression context holds before it streams.
+ * Zeros, one byte more than the 4 MiB less 16 bytes that an incremental
+ * brotli dictionary compression context holds before it streams.
  */
 const PAST_THE_DICT_REACH = new Uint8Array(4 * 1024 * 1024 - 15);
 
@@ -478,7 +478,7 @@ const CALLS: [string, Call][] = [
     },
   ]),
   // The brotli dictionary compression context too, which streams only past
-  // the first 4 MiB of input.
+  // the first 4 MiB less 16 bytes of input.
   ...CONTEXT_OPTIONS.map(([label, options]): [string, Call] => [
     `new BrotliCompressDictContext(dict, 0, ${label})`,
     (api) => {

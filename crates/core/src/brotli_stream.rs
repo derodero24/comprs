@@ -110,17 +110,16 @@ stream_context_methods!(BrotliDecompressContext);
 /// - By default, it buffers its input: `transform()` and `flush()` return
 ///   an empty buffer, and `finish()` compresses all of the input with the
 ///   dictionary, into the output of `brotliCompressWithDict()`.
-/// - With `{ incremental: true }`, it holds at most the first 4 MiB of input
-///   (4,194,288 bytes, as far as brotli refers back to the dictionary),
-///   which compress with the dictionary into the output of
+/// - With `{ incremental: true }`, it holds at most the first 4 MiB less
+///   16 bytes of input (4,194,288 bytes, as far as brotli refers back to
+///   the dictionary), which compress with the dictionary into the output of
 ///   `brotliCompressWithDict()` if the input ends there. A longer input is
 ///   compressed without the dictionary, which only helps the start of a
 ///   stream, into a stream that decodes with or without it: the
-///   `transform()` that takes the input past 4 MiB returns the output of
-///   the first 4 MiB, and from then on, `transform()` returns the output
-///   that the encoder has emitted, `flush()` all the output of the input so
-///   far, and `finish()` the rest of the stream. The stream helpers use this
-///   mode.
+///   `transform()` that takes the input past those bytes returns their
+///   output, and from then on, `transform()` returns the output that the
+///   encoder has emitted, `flush()` all the output of the input so far, and
+///   `finish()` the rest of the stream. The stream helpers use this mode.
 #[napi(custom_finalize)]
 pub struct BrotliCompressDictContext {
     inner: NativeState<comprs_core::brotli_stream::CompressDictContext>,
@@ -166,8 +165,8 @@ impl BrotliCompressDictContext {
 
     /// Return an empty buffer while the context holds its input, as it
     /// always does by default. Incremental, once the input has passed the
-    /// first 4 MiB, flush the encoder and return all the output of the input
-    /// so far.
+    /// first 4,194,288 bytes, flush the encoder and return all the output of
+    /// the input so far.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())

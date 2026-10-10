@@ -121,17 +121,16 @@ export declare class BrotliCompressContext {
  * - By default, it buffers its input: `transform()` and `flush()` return
  *   an empty buffer, and `finish()` compresses all of the input with the
  *   dictionary, into the output of `brotliCompressWithDict()`.
- * - With `{ incremental: true }`, it holds at most the first 4 MiB of input
- *   (4,194,288 bytes, as far as brotli refers back to the dictionary),
- *   which compress with the dictionary into the output of
+ * - With `{ incremental: true }`, it holds at most the first 4 MiB less
+ *   16 bytes of input (4,194,288 bytes, as far as brotli refers back to
+ *   the dictionary), which compress with the dictionary into the output of
  *   `brotliCompressWithDict()` if the input ends there. A longer input is
  *   compressed without the dictionary, which only helps the start of a
  *   stream, into a stream that decodes with or without it: the
- *   `transform()` that takes the input past 4 MiB returns the output of
- *   the first 4 MiB, and from then on, `transform()` returns the output
- *   that the encoder has emitted, `flush()` all the output of the input so
- *   far, and `finish()` the rest of the stream. The stream helpers use this
- *   mode.
+ *   `transform()` that takes the input past those bytes returns their
+ *   output, and from then on, `transform()` returns the output that the
+ *   encoder has emitted, `flush()` all the output of the input so far, and
+ *   `finish()` the rest of the stream. The stream helpers use this mode.
  */
 export declare class BrotliCompressDictContext {
   /**
@@ -149,8 +148,8 @@ export declare class BrotliCompressDictContext {
   /**
    * Return an empty buffer while the context holds its input, as it
    * always does by default. Incremental, once the input has passed the
-   * first 4 MiB, flush the encoder and return all the output of the input
-   * so far.
+   * first 4,194,288 bytes, flush the encoder and return all the output of
+   * the input so far.
    */
   flush(): Buffer
   /**
@@ -972,8 +971,9 @@ export interface StreamContextOptions {
    * With `incremental: true`, `Lz4DecompressContext.transform()` returns
    * each LZ4 block once all of it has arrived, `flush()` returns nothing
    * more, and `maxOutputSize` limits the output of the whole stream;
-   * `BrotliCompressDictContext` holds at most the first 4 MiB of input,
-   * then compresses each chunk as it arrives, without the dictionary.
+   * `BrotliCompressDictContext` holds at most the first 4 MiB less
+   * 16 bytes of input (4,194,288 bytes), then compresses each chunk as it
+   * arrives, without the dictionary.
    * Without it, the context keeps the behaviour that it has always had.
    * The stream helpers of `@derodero24/comprs/streams` and
    * `@derodero24/comprs/node` set it.

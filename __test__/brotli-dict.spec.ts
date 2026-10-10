@@ -511,16 +511,16 @@ function compress(ctx: DictContext, data: Uint8Array, size: number): Uint8Array[
 /** The tests of the incremental mode of the BrotliCompressDictContext of `load`. */
 function incrementalTests(load: () => Promise<DictContextClass>): void {
   const dict = buildDict();
-  // Two chunks of 256 KiB past the 4 MiB, at a quality that uses the
+  // Two chunks of 256 KiB past DICT_REACH, at a quality that uses the
   // dictionary within them.
   const quality = 2;
   const data = records(DICT_REACH + 512 * 1024);
 
-  it('should hold the first 4 MiB, then stream', async () => {
+  it('should hold the first DICT_REACH bytes, then stream', async () => {
     const Context = await load();
     const ctx = new Context(dict, quality, { incremental: true });
     const outputs = compress(ctx, data, 256 * 1024);
-    // The chunks within the first 4 MiB, and the one that passes them.
+    // The chunks within the first DICT_REACH bytes, and the one that passes them.
     const held = Math.ceil(DICT_REACH / (256 * 1024));
     for (const output of outputs.slice(0, held - 1)) {
       expect(output.length).toBe(0);
@@ -529,7 +529,7 @@ function incrementalTests(load: () => Promise<DictContextClass>): void {
     const all = Buffer.concat(outputs);
     expect(all.length - (outputs.at(-1)?.length ?? 0)).toBeGreaterThan(all.length / 2);
     expect(brotliDecompressWithDict(all, Buffer.from(dict)).equals(data)).toBe(true);
-    // Past the first 4 MiB, the stream does not use the dictionary.
+    // Past DICT_REACH bytes, the stream does not use the dictionary.
     expect(brotliDecompress(all).equals(data)).toBe(true);
   });
 
@@ -548,7 +548,7 @@ function incrementalTests(load: () => Promise<DictContextClass>): void {
     expect(brotliDecompressWithDict(Buffer.concat(outputs), dict).equals(data)).toBe(true);
   });
 
-  it('should give the output of brotliCompressWithDict() up to 4 MiB', async () => {
+  it('should give the output of brotliCompressWithDict() up to DICT_REACH bytes', async () => {
     const Context = await load();
     for (const input of [data.subarray(0, 0), data.subarray(0, 100_000)]) {
       const ctx = new Context(dict, quality, { incremental: true });
@@ -571,7 +571,7 @@ function incrementalTests(load: () => Promise<DictContextClass>): void {
   });
 
   // The modes that options select, by what transform() returns for more
-  // than 4 MiB, and the errors for invalid options.
+  // than DICT_REACH bytes, and the errors for invalid options.
   it.each<[string, unknown, boolean | string]>([
     ['undefined', undefined, false],
     ['null', null, false],
@@ -641,8 +641,8 @@ describe('brotli dictionary compression streams', () => {
     expect(brotliDecompressWithDict(Buffer.concat(output), dict).equals(data)).toBe(true);
   }
 
-  // They emit the output of the first 4 MiB as soon as the input passes
-  // them, without waiting for the end of the input.
+  // They emit the output of the first DICT_REACH bytes as soon as the
+  // input passes them, without waiting for the end of the input.
   it('createBrotliCompressDictStream() should emit output before the input ends', async () => {
     await checkWebStream(createBrotliCompressDictStream(dict, 2));
   });

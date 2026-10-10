@@ -378,10 +378,11 @@ export interface StreamContextOptions {
    * `incremental: true`, `Lz4DecompressContext.transform()` returns each LZ4
    * block once all of it has arrived, `flush()` returns nothing more, and
    * `maxOutputSize` limits the output of the whole stream;
-   * `BrotliCompressDictContext` holds at most the first 4 MiB of input, then
-   * compresses each chunk as it arrives, without the dictionary. Without it,
-   * the context keeps the behaviour that it has always had. The stream
-   * helpers of `@derodero24/comprs/streams` set it.
+   * `BrotliCompressDictContext` holds at most the first 4 MiB less 16 bytes
+   * of input (4,194,288 bytes), then compresses each chunk as it arrives,
+   * without the dictionary. Without it, the context keeps the behaviour that
+   * it has always had. The stream helpers of `@derodero24/comprs/streams`
+   * set it.
    */
   incremental?: boolean | undefined;
 }
@@ -391,12 +392,12 @@ export interface StreamContextOptions {
  * modes. By default, it buffers its input: transform() and flush() return an
  * empty array, and finish() compresses all of the input, into the output of
  * brotliCompressWithDict(). With `{ incremental: true }`, it holds at most
- * the first 4 MiB of input (4,194,288 bytes), which compress with the
- * dictionary into the output of brotliCompressWithDict() if the input ends
- * there. A longer input is compressed without the dictionary, which only
- * helps the start of a stream, into a stream that decodes with or without
- * it: the transform() that takes the input past 4 MiB returns the output of
- * the first 4 MiB, and from then on transform() returns the output that is
+ * the first 4 MiB less 16 bytes of input (4,194,288 bytes), which compress
+ * with the dictionary into the output of brotliCompressWithDict() if the
+ * input ends there. A longer input is compressed without the dictionary,
+ * which only helps the start of a stream, into a stream that decodes with or
+ * without it: the transform() that takes the input past those bytes returns
+ * their output, and from then on transform() returns the output that is
  * ready, flush() all the output of the input so far, and finish() the rest
  * of the stream.
  */
@@ -410,8 +411,8 @@ export declare class BrotliCompressDictContext extends StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
   /**
    * Return an empty array while the context holds its input, as it always
-   * does by default. Incremental, once the input has passed the first 4 MiB,
-   * return all the output of the input so far.
+   * does by default. Incremental, once the input has passed the first
+   * 4,194,288 bytes, return all the output of the input so far.
    */
   flush(): Uint8Array;
   /**

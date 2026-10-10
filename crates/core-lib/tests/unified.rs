@@ -1075,7 +1075,8 @@ fn brotli_dictionary_streams_hold_at_most_the_dictionary_reach() {
                 assert!(ctx.memory_usage() <= DICT.len() + brotli_stream::DICT_REACH);
             }
         }
-        // The output of the first 4 MiB came before the end of the input.
+        // The output of the first DICT_REACH bytes came before the end of the
+        // input.
         assert!(!output.is_empty());
         output.extend(ctx.finish().unwrap());
         check_dictionary_decoding(Format::Brotli, &BROTLI_DICT, &input, &[output]);

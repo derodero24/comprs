@@ -325,10 +325,10 @@ export function createZstdDecompressDictTransform(
  *
  * Uses Node.js `stream.Transform` to provide chunked compression with a custom
  * dictionary, compatible with `stream.pipeline()` and pipe-based workflows. It
- * holds up to the first 4 MiB of the input, and compresses an input that
- * ends there with the dictionary. A longer input is compressed without the
- * dictionary, which only helps the start of a stream, and the Transform
- * pushes compressed output as the input arrives.
+ * holds up to the first 4 MiB less 16 bytes (4,194,288 bytes) of the input,
+ * and compresses an input that ends there with the dictionary. A longer
+ * input is compressed without the dictionary, which only helps the start of
+ * a stream, and the Transform pushes compressed output as the input arrives.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
  * default, 16 KiB on Windows).

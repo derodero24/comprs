@@ -880,8 +880,9 @@ stream_context_methods!(BrotliDecompressContext);
 /// Streaming brotli compression context with custom dictionary, in the
 /// modes of the native addon's: by default, `transform()` and `flush()`
 /// return nothing and `finish()` compresses all of the input; with
-/// `{ incremental: true }`, it holds at most the first 4 MiB of input, then
-/// compresses each chunk as it arrives, without the dictionary.
+/// `{ incremental: true }`, it holds at most the first 4 MiB less 16 bytes
+/// of input (4,194,288 bytes), then compresses each chunk as it arrives,
+/// without the dictionary.
 #[wasm_bindgen]
 pub struct BrotliCompressDictContext {
     inner: StreamState<comprs_core::brotli_stream::CompressDictContext>,
