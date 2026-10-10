@@ -199,7 +199,7 @@ impl GzipHeaderOptions {
 /// The options of [`decompress`] and [`DecompressContext::new`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DecompressOptions<'a> {
-    /// The format of the input, or `None` to detect it as [`detect`] does.
+    /// The format of the input, or `None` to detect it as [`detect()`] does.
     /// Detection never picks [`Format::DeflateRaw`], which has no header to
     /// recognize. With a prepared dictionary, `None` selects the format of
     /// the dictionary instead.
@@ -209,7 +209,10 @@ pub struct DecompressOptions<'a> {
     /// the window of a frame: under a limit of 64 MiB or less, a frame whose
     /// window is larger than the limit allows fails with
     /// [`ComprsError::SizeLimit`] as well, as
-    /// [`zstd_stream::DecompressContext::new`] describes.
+    /// [`zstd_stream::DecompressContext::new`] describes. Until #565, a
+    /// [`DecompressContext`] for lz4 applies it to the output of each
+    /// `flush` and of `finish` rather than to that of the whole stream, as
+    /// [`DecompressContext`] describes.
     pub max_output_size: Option<f64>,
     /// The dictionary that the input was compressed with, for zstd and
     /// brotli. Raw bytes need a `format`.
@@ -459,7 +462,7 @@ fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, C
     }))
 }
 
-/// Decompress `data`, in the format of `options` or the one that [`detect`]
+/// Decompress `data`, in the format of `options` or the one that [`detect()`]
 /// finds.
 ///
 /// The decoders are strict, in every format:
@@ -481,7 +484,7 @@ fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, C
 /// deflate and deflate-raw, [`brotli::decompress_strict`] and
 /// [`lz4::decompress_with_capacity`].
 ///
-/// Without a format or a prepared dictionary, data whose format [`detect`]
+/// Without a format or a prepared dictionary, data whose format [`detect()`]
 /// does not find, empty input included, fails with
 /// [`ComprsError::UnknownFormat`]: "unable to detect the compression
 /// format; pass `format`". Brotli has no magic number, so detection only
@@ -600,11 +603,21 @@ pub enum Detection {
 ///    brotli stream stays detected as more of it arrives.
 ///
 /// It returns [`Detection::NeedMore`] while more data could change the
-/// answer, which only happens without `is_final`: zlib is known once its
-/// stream ends, it inflates to 64 KiB, the data fills 64 KiB or `is_final`
-/// is set, and so is a brotli stream that does not decode to more than it
-/// holds. With `is_final`, it returns [`Detection::Known`] or
-/// [`Detection::Unknown`], which [`detect`] maps to an `Option`.
+/// answer, which only happens without `is_final`:
+///
+/// - zlib is known once its stream ends, it inflates to 64 KiB, the data
+///   fills 64 KiB or `is_final` is set;
+/// - brotli is known once the data fills 64 KiB while the stream goes on,
+///   or once the decoder has written more bytes than it has read, which
+///   detection checks each time the decoder has written 4 KiB and where
+///   the data ends. A stream that ends before a check shows this, such as
+///   a whole stream that decodes to at most 4 KiB, is only a guess, unlike a
+///   whole zlib stream with its checksum, and data after its end rules it
+///   out: it is unknown if data follows it, and needs more until
+///   `is_final` if it ends where the data ends.
+///
+/// With `is_final`, it returns [`Detection::Known`] or
+/// [`Detection::Unknown`], which [`detect()`] maps to an `Option`.
 ///
 /// It never returns [`Format::DeflateRaw`], which has no header to
 /// recognize.
@@ -871,6 +884,16 @@ impl MemoryUsage for CompressContext {
 /// deflate-raw, [`brotli_stream::DecompressContext`] or
 /// [`brotli_stream::DecompressDictContext`], [`lz4_stream::DecompressContext`],
 /// which decodes on `flush` and `finish`, and [`AutoDecoder`].
+///
+/// Until #565 switches lz4 to an incremental decoder, the lz4 context holds
+/// its input and decodes all of it on `flush` and `finish`, so a `flush`
+/// must fall between frames: one inside an LZ4 frame or a block, or before
+/// any input, fails with [`ComprsError::Truncated`], and one between the
+/// blocks of a legacy frame, which has no end mark, ends the frame there,
+/// so that the rest of it then fails with [`ComprsError::Corrupt`]. Nor does
+/// the context count its output across calls: `max_output_size` bounds the
+/// output of each `flush` and of `finish`, not that of the stream. The same
+/// holds for an [`AutoDecoder`] once it detects lz4.
 pub enum DecompressContext {
     Zstd(zstd_stream::DecompressContext),
     ZstdDict(zstd_stream::DecompressDictContext),
@@ -996,11 +1019,20 @@ const AUTO_STREAM: &str = "auto stream";
 /// Once the format is known, the stream creates the decompression context
 /// of the format, passes it the input that it held and then every call,
 /// and returns its output. Until then, `transform` and `flush` return no
-/// output: a zlib stream that does not inflate to 64 KiB, and a brotli
-/// stream whose data does not compress, are known only at the end of the
-/// stream, after 64 KiB of input or on `finish`. So are zstd and LZ4 frames
-/// after skippable frames of more than 64 KiB in all, which the stream
-/// therefore fails to detect, unlike [`decompress`].
+/// output, and some data is known late or not at all:
+///
+/// - a zlib stream that does not inflate to 64 KiB is known once a try
+///   sees the end of the stream, after 64 KiB of input or on `finish`;
+/// - a brotli stream is known once a try sees it decode to more bytes than
+///   it holds, as [`detect_prefix`] describes, and otherwise after 64 KiB
+///   of input or on `finish`. So a stream whose data does not compress is
+///   known late, and one that ends before a try sees it decode to more than
+///   it holds, such as a whole stream that decodes to at most 4 KiB, only
+///   on `finish`, since data may still follow it, which would make it no
+///   brotli stream;
+/// - zstd and LZ4 frames whose magic number, after skippable frames, does
+///   not fit in the first 64 KiB are not detected at all: [`decompress`]
+///   finds them, but the stream fails once it holds 64 KiB.
 ///
 /// When detection fails, the call fails with [`ComprsError::UnknownFormat`],
 /// as does every later call until `finish` ends the stream. Errors of a
