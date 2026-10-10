@@ -82,6 +82,7 @@ dependencies = [
  "brotli",
  "comprs-core",
  "libfuzzer-sys",
+ "lz4_flex",
 ]
 
 [[package]]

@@ -377,10 +377,13 @@ export function createLz4CompressStream(): TransformStream<
  * Create a streaming LZ4 frame decompression TransformStream.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked LZ4 decompression.
+ * It emits the content of each block as soon as all of the block has
+ * arrived, and holds at most one block of the input.
  *
  * The input may hold several concatenated frames, including skippable and
  * legacy frames. The stream errors if the input ends inside a frame,
- * including empty input, or if data that is not a frame follows a frame.
+ * including empty input, or as soon as data that is not a frame follows a
+ * frame.
  *
  * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
  * read byte for byte: a `Uint16Array` is not converted element by element.
@@ -390,7 +393,7 @@ export function createLz4CompressStream(): TransformStream<
 export function createLz4DecompressStream(
   maxOutputSize?: number,
 ): TransformStream<ArrayBufferLike | ArrayBufferView, Uint8Array> {
-  return contextStream(new Lz4DecompressContext(maxOutputSize));
+  return contextStream(new Lz4DecompressContext(maxOutputSize, { incremental: true }));
 }
 
 function createDecompressContext(
@@ -405,7 +408,7 @@ function createDecompressContext(
     case 'brotli':
       return new BrotliDecompressContext(maxOutputSize);
     case 'lz4':
-      return new Lz4DecompressContext(maxOutputSize);
+      return new Lz4DecompressContext(maxOutputSize, { incremental: true });
     default:
       throw new Error('unable to detect compression format from stream data');
   }

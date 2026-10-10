@@ -96,13 +96,6 @@ pub fn fuzz_unified_decompress(input: &[u8]) -> Result<()> {
     let (stream, peak) = heap::measure(|| DecompressContext::new(&auto(limit)));
     check_heap(LARGEST_DECODER, "stream creation", peak, 0, input_len);
     let mut stream = stream.unwrap_or_else(|error| panic!("stream creation failed: {error}"));
-    // The lz4 decompression context decodes complete frames on flush, which
-    // ends its input.
-    let chunks = if detected == Some(Unified::Lz4) {
-        chunks.without_flushes()
-    } else {
-        chunks
-    };
     let streamed = chunks.run_measured(&mut stream, &data, limit, keep_going, &|peak| {
         check_heap(LARGEST_DECODER, "stream call", peak, limit, input_len)
     });

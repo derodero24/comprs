@@ -665,9 +665,13 @@ fn auto_decoder_holds_at_most_64_kib() {
 fn auto_decoder_flushes_once_it_knows_the_format() {
     let input = text(10_000);
     let (first, second) = input.split_at(6_000);
-    // The lz4 decompression context decodes complete frames only, so its
-    // flush ends the input.
-    for format in [Format::Zstd, Format::Gzip, Format::Deflate, Format::Brotli] {
+    for format in [
+        Format::Zstd,
+        Format::Gzip,
+        Format::Deflate,
+        Format::Brotli,
+        Format::Lz4,
+    ] {
         let mut compressor = CompressContext::new(format, &at_level(None)).unwrap();
         let mut flushed = compressor.transform(first).unwrap();
         flushed.extend(compressor.flush().unwrap());
@@ -748,6 +752,39 @@ fn max_output_size_bounds_the_output() {
                     result.map(|output| output.len())
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn max_output_size_bounds_the_output_of_a_whole_lz4_stream() {
+    // Two frames that each fit in the limit, but not together, with a flush
+    // between them: the limit applies to the output of the stream, not to
+    // that of each flush, given lz4 or detected.
+    let n = 1000;
+    let content = text(n / 2 + 1);
+    let frame = lz4::compress(&content).unwrap();
+    for format in [Some(Format::Lz4), None] {
+        let options = DecompressOptions {
+            format,
+            max_output_size: Some(n as f64),
+            ..DecompressOptions::default()
+        };
+        let mut ctx = DecompressContext::new(&options).unwrap();
+        let mut output = ctx.transform(&frame).unwrap();
+        output.extend(ctx.flush().unwrap());
+        assert!(output == content, "{format:?}");
+        let second = ctx.transform(&frame).and_then(|mut output| {
+            output.extend(ctx.flush()?);
+            Ok(output)
+        });
+        // The failed call, and every later one.
+        for result in [second, ctx.transform(&frame), ctx.flush(), ctx.finish()] {
+            assert!(
+                matches!(result, Err(ComprsError::SizeLimit { limit, .. }) if limit == n),
+                "{format:?}: {:?}",
+                result.map(|output| output.len())
+            );
         }
     }
 }

@@ -1,8 +1,11 @@
 //! Fuzzer-chosen parameters: output limits, dictionaries, compression levels,
 //! how to feed a stream context and damage to a valid compressed stream.
 
+use std::io::Write;
+
 use comprs_core::ComprsError;
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
+use lz4_flex::frame::{BlockMode, BlockSize, FrameEncoder, FrameInfo};
 
 use crate::format::{Format, Stream};
 use crate::heap;
@@ -101,6 +104,60 @@ pub fn affordable_level(
     }
 }
 
+/// Settings of an LZ4 frame that lz4_flex's frame encoder writes, where
+/// comprs-core's encoder always writes independent blocks of 64 or 256 KiB
+/// with a content checksum: every block maximum size, linked blocks, and
+/// each optional field.
+#[derive(Debug)]
+pub struct Lz4Frame {
+    info: FrameInfo,
+    /// Declare the content size in the descriptor.
+    content_size: bool,
+}
+
+impl Lz4Frame {
+    /// Read the settings of a frame for data of `format`: `None` for the
+    /// encoder of comprs-core, always for formats other than LZ4.
+    pub fn arbitrary(u: &mut Unstructured, format: Format) -> Result<Option<Self>> {
+        if format != Format::Lz4 || !u.arbitrary::<bool>()? {
+            return Ok(None);
+        }
+        let block_size = *u.choose(&[
+            BlockSize::Max64KB,
+            BlockSize::Max256KB,
+            BlockSize::Max1MB,
+            BlockSize::Max4MB,
+        ])?;
+        let block_mode = if u.arbitrary::<bool>()? {
+            BlockMode::Linked
+        } else {
+            BlockMode::Independent
+        };
+        let info = FrameInfo::new()
+            .block_size(block_size)
+            .block_mode(block_mode)
+            .block_checksums(u.arbitrary()?)
+            .content_checksum(u.arbitrary()?);
+        Ok(Some(Self {
+            info,
+            content_size: u.arbitrary()?,
+        }))
+    }
+
+    /// Compress `data` into one frame with these settings.
+    pub fn compress(&self, data: &[u8]) -> Vec<u8> {
+        let info = self
+            .info
+            .clone()
+            .content_size(self.content_size.then_some(data.len() as u64));
+        let mut encoder = FrameEncoder::with_frame_info(info, Vec::new());
+        encoder
+            .write_all(data)
+            .and_then(|()| encoder.finish().map_err(Into::into))
+            .unwrap_or_else(|error| panic!("lz4_flex compression with {self:?} failed: {error}"))
+    }
+}
+
 /// How a stream context is fed: input chunks with sizes cycled from a short
 /// list, with empty chunks and `flush` calls in between.
 #[derive(Debug)]
@@ -133,8 +190,8 @@ impl ChunkPlan {
         Ok(Self { steps })
     }
 
-    /// The same plan without `flush` calls between chunks, for the LZ4
-    /// decompression context: its `flush` decodes the buffered input as
+    /// The same plan without `flush` calls between chunks, for the buffered
+    /// LZ4 decompression context: its `flush` decodes the buffered input as
     /// complete frames, so it ends the input.
     pub fn without_flushes(mut self) -> Self {
         for step in &mut self.steps {

@@ -205,6 +205,41 @@ impl GzipHeaderOptions {
     }
 }
 
+#[wasm_bindgen(typescript_custom_section)]
+const STREAM_CONTEXT_OPTIONS_TYPES: &str = r#"
+export interface StreamContextOptions {
+  incremental?: boolean | undefined;
+}
+"#;
+
+/// Read the `options` argument of a stream context constructor, as the
+/// native addon does (crates/core/src/options.rs): whether it sets
+/// `incremental`. `undefined` and `null` stand for no options, and for no
+/// `incremental`; other values that are not objects, and an `incremental`
+/// that is not a boolean, are rejected with the native addon's messages.
+/// wasm-bindgen does not check the type of an object argument, so the value
+/// is taken as it is and checked here. A getter that throws throws its
+/// error.
+fn stream_context_options(options: &JsValue) -> Result<bool, JsValue> {
+    if options.is_undefined() || options.is_null() {
+        return Ok(false);
+    }
+    if !options.is_object() {
+        return Err(invalid_arg("options must be an object"));
+    }
+    let incremental = Reflect::get(options, &JsValue::from_str("incremental"))?;
+    if incremental.is_undefined() || incremental.is_null() {
+        return Ok(false);
+    }
+    incremental
+        .as_bool()
+        .ok_or_else(|| invalid_arg("incremental must be a boolean"))
+}
+
+fn invalid_arg(message: &str) -> JsValue {
+    to_js_error(ComprsError::InvalidArg(message.to_string())).into()
+}
+
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
@@ -913,6 +948,13 @@ impl Lz4CompressContext {
 
 stream_context_methods!(Lz4CompressContext);
 
+/// Streaming LZ4 frame decompression context, in the modes of the native
+/// addon's: by default, `transform()` buffers the input and returns nothing,
+/// and `flush()` decodes what has been buffered, with `maxOutputSize`
+/// applying to each `flush()`; with `{ incremental: true }`, `transform()`
+/// returns each block once all of it has arrived, `flush()` returns nothing,
+/// `finish()` throws unless the input ended between frames, and
+/// `maxOutputSize` applies to the whole stream.
 #[wasm_bindgen]
 pub struct Lz4DecompressContext {
     inner: StreamState<comprs_core::lz4_stream::DecompressContext>,
@@ -921,13 +963,17 @@ pub struct Lz4DecompressContext {
 #[wasm_bindgen]
 impl Lz4DecompressContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(max_output_size: Option<f64>) -> Result<Lz4DecompressContext, JsError> {
+    pub fn new(
+        max_output_size: Option<f64>,
+        #[wasm_bindgen(unchecked_param_type = "StreamContextOptions | null")] options: JsValue,
+    ) -> Result<Lz4DecompressContext, JsValue> {
+        let context = if stream_context_options(&options)? {
+            comprs_core::lz4_stream::DecompressContext::incremental(max_output_size)
+        } else {
+            comprs_core::lz4_stream::DecompressContext::new(max_output_size)
+        };
         Ok(Self {
-            inner: StreamState::new(
-                comprs_core::lz4_stream::DecompressContext::new(max_output_size)
-                    .map_err(to_js_error)?,
-                "lz4 stream",
-            ),
+            inner: StreamState::new(context.map_err(to_js_error)?, "lz4 stream"),
         })
     }
 }

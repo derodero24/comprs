@@ -380,9 +380,51 @@ export declare class Lz4CompressContext extends StreamContext {
 }
 
 /**
- * Decodes the buffered input in flush(), which throws if no input was
- * transformed; finish() also decodes what is left, then ends the stream.
+ * Options of a stream context, as the native declarations define them.
+ *
+ * Only `Lz4DecompressContext` takes them so far.
+ */
+export interface StreamContextOptions {
+  /**
+   * Decode the input as it arrives. With `incremental: true`,
+   * `transform()` returns the output of the input as soon as it is
+   * available (each LZ4 block once all of it has arrived), `flush()`
+   * returns nothing more, and `maxOutputSize` limits the output of the
+   * whole stream. Without it, the context keeps the behaviour that it has
+   * always had. The stream helpers of `@derodero24/comprs/streams` set it.
+   */
+  incremental?: boolean | undefined;
+}
+
+/**
+ * Streaming LZ4 frame decompression context, in one of two modes. By
+ * default, it buffers its input: transform() returns an empty array, and
+ * flush() decodes what has been buffered since the last flush(), with
+ * `maxOutputSize` applying to each flush() on its own; flush() throws if no
+ * input was transformed, and finish() decodes what is left, then ends the
+ * stream. With `{ incremental: true }`, it decodes its input as it arrives,
+ * and keeps at most one block of it: transform() returns each block once
+ * all of the block has arrived, flush() returns an empty array, finish()
+ * throws unless the input ended between frames, and `maxOutputSize` limits
+ * the output of the whole stream.
  */
 export declare class Lz4DecompressContext extends StreamContext {
-  constructor(maxOutputSize?: number | null);
+  constructor(maxOutputSize?: number | null, options?: StreamContextOptions | null);
+  /**
+   * By default, keep `chunk` and return an empty array. Incremental, return
+   * the content of the blocks that `chunk` completes, and throw if the
+   * input is invalid or the output exceeds `maxOutputSize`.
+   */
+  transform(chunk: Uint8Array): Uint8Array;
+  /**
+   * By default, decode the input buffered since the last flush(), which must
+   * end between frames. Incremental, return an empty array.
+   */
+  flush(): Uint8Array;
+  /**
+   * End the stream. By default, decode what is left, like flush().
+   * Incremental, return an empty array, or throw unless the input ended
+   * between frames.
+   */
+  finish(): Uint8Array;
 }

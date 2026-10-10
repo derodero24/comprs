@@ -201,12 +201,14 @@ export declare function createLz4CompressTransform(): Transform;
  * Create a Node.js stream.Transform for LZ4 frame decompression.
  *
  * Uses Node.js `stream.Transform` to provide chunked LZ4 decompression compatible
- * with `stream.pipeline()` and pipe-based workflows.
+ * with `stream.pipeline()` and pipe-based workflows. It pushes the content of
+ * each block as soon as all of the block has arrived, and holds at most one
+ * block of the input.
  *
  * The input may hold several concatenated frames, including skippable and
  * legacy frames. The transform emits an error if the input ends inside a
- * frame, including empty input, or if data that is not a frame follows a
- * frame.
+ * frame, including empty input, or as soon as data that is not a frame
+ * follows a frame.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
  * default, 16 KiB on Windows).

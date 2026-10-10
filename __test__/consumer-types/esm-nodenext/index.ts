@@ -2,7 +2,7 @@
 // strict settings and its dependencies' declarations type-checked
 // (skipLibCheck: false). scripts/check-consumer-types.mjs installs the packed
 // package next to it and runs tsc.
-import type { GzipHeader } from '@derodero24/comprs';
+import type { GzipHeader, StreamContextOptions } from '@derodero24/comprs';
 import {
   CompressionFormat,
   createGzipDecompressStream,
@@ -10,6 +10,7 @@ import {
   GzipCompressContext,
   gzipCompress,
   gzipReadHeader,
+  Lz4DecompressContext,
   zstdCompress,
   zstdCompressAsync,
 } from '@derodero24/comprs';
@@ -48,6 +49,14 @@ function label(detected: CompressionFormat): string {
 const context = new GzipCompressContext();
 const chunks: Buffer[] = [context.transform(input), context.finish()];
 
+// The options of the stream contexts take `undefined` for a property under
+// exactOptionalPropertyTypes, as the contexts do at run time.
+const lz4Options: StreamContextOptions = { incremental: undefined };
+const lz4Contexts = [
+  new Lz4DecompressContext(undefined, { incremental: true }),
+  new Lz4DecompressContext(1024, lz4Options),
+];
+
 const zstd: Buffer = await zstdCompressAsync(input);
 const transform = createZstdCompressTransform(3);
 transform.end(input);
@@ -82,6 +91,7 @@ export {
   isGzip,
   isZstd,
   label,
+  lz4Contexts,
   mtime,
   narrow,
   roundTrip,

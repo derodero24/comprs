@@ -267,3 +267,125 @@ describe('lz4 frames', () => {
     ).rejects.toThrow('lz4 stream decompress failed: unexpected data after the end of a frame');
   });
 });
+
+/** About `length` bytes of text records, which compress into many blocks. */
+function records(length: number): Buffer {
+  const lines: string[] = [];
+  let size = 0;
+  for (let i = 0; size < length; i++) {
+    const line = `record ${i}: ${(i * 7919) % 10007} ${(i * 31) % 977}\n`;
+    lines.push(line);
+    size += line.length;
+  }
+  return Buffer.from(lines.join('')).subarray(0, length);
+}
+
+/** `data` in `count` chunks of about the same size. */
+function split(data: Uint8Array, count: number): Uint8Array[] {
+  const size = Math.ceil(data.length / count);
+  return Array.from({ length: count }, (_, i) => data.subarray(i * size, (i + 1) * size));
+}
+
+/** The error that `call` throws. */
+function thrown(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('did not throw');
+}
+
+describe('Lz4DecompressContext', () => {
+  // 1 MiB in blocks of 256 KiB.
+  const data = records(1024 * 1024);
+  const frame = lz4Compress(data);
+  const hello = lz4Compress(Buffer.from('Hello '));
+
+  describe('by default', () => {
+    it('should keep the input until flush()', () => {
+      const ctx = new Lz4DecompressContext();
+      for (const chunk of split(frame, 8)) {
+        expect(ctx.transform(chunk).length).toBe(0);
+      }
+      expect(ctx.flush().equals(data)).toBe(true);
+      expect(ctx.finish().length).toBe(0);
+    });
+
+    it('should apply maxOutputSize to each flush() on its own', () => {
+      const ctx = new Lz4DecompressContext(1_000_000);
+      for (let i = 0; i < 2; i++) {
+        expect(ctx.transform(lz4Compress(Buffer.alloc(800_000, i))).length).toBe(0);
+        expect(ctx.flush().length).toBe(800_000);
+      }
+      ctx.transform(lz4Compress(Buffer.alloc(1_000_001)));
+      expect(() => ctx.flush()).toThrow(
+        'lz4 stream decompress exceeded maximum size of 1000000 bytes',
+      );
+    });
+  });
+
+  describe('with { incremental: true }', () => {
+    it('should return each block once all of it has arrived', () => {
+      const ctx = new Lz4DecompressContext(undefined, { incremental: true });
+      const output = split(frame, 8).map((chunk) => ctx.transform(chunk));
+      // Every block but the last ends before the last chunk.
+      expect(Buffer.concat(output.slice(0, -1)).length).toBeGreaterThanOrEqual(768 * 1024);
+      expect(ctx.flush().length).toBe(0);
+      output.push(ctx.finish());
+      expect(Buffer.concat(output).equals(data)).toBe(true);
+    });
+
+    it('should apply maxOutputSize to the whole stream', () => {
+      const ctx = new Lz4DecompressContext(1_000_000, { incremental: true });
+      expect(ctx.transform(lz4Compress(Buffer.alloc(800_000))).length).toBe(800_000);
+      expect(() => ctx.transform(lz4Compress(Buffer.alloc(800_000)))).toThrow(
+        'lz4 stream decompress exceeded maximum size of 1000000 bytes',
+      );
+    });
+
+    it('should throw as soon as the input is invalid, and again on later calls', () => {
+      const ctx = new Lz4DecompressContext(undefined, { incremental: true });
+      const message = 'lz4 stream decompress failed: unexpected data after the end of a frame';
+      expect(ctx.transform(hello).toString()).toBe('Hello ');
+      expect(() => ctx.transform(Buffer.from('garbage'))).toThrow(message);
+      expect(() => ctx.flush()).toThrow(message);
+      expect(() => ctx.finish()).toThrow(message);
+      expect(() => ctx.finish()).toThrow('lz4 stream already finished');
+    });
+
+    it('should throw in finish(), not flush(), for a frame cut short', () => {
+      const ctx = new Lz4DecompressContext(undefined, { incremental: true });
+      ctx.transform(frame.subarray(0, frame.length - 1));
+      expect(ctx.flush().length).toBe(0);
+      expect(() => ctx.finish()).toThrow('lz4 stream is truncated: unexpected end of input');
+      expect(() => new Lz4DecompressContext(undefined, { incremental: true }).finish()).toThrow(
+        'lz4 stream is truncated: unexpected end of input',
+      );
+    });
+  });
+
+  // The modes that options select, by what transform() returns for a whole
+  // frame, and the errors for invalid options.
+  it.each<[string, unknown, number | string]>([
+    ['undefined', undefined, 0],
+    ['null', null, 0],
+    ['{}', {}, 0],
+    ['{ incremental: false }', { incremental: false }, 0],
+    ['{ incremental: null }', { incremental: null }, 0],
+    ['{ incremental: true }', { incremental: true }, 'Hello '.length],
+    ['true', true, 'options must be an object'],
+    ["'x'", 'x', 'options must be an object'],
+    ['a function', () => ({ incremental: true }), 'options must be an object'],
+    ['{ incremental: 1 }', { incremental: 1 }, 'incremental must be a boolean'],
+    ["{ incremental: 'true' }", { incremental: 'true' }, 'incremental must be a boolean'],
+  ])('should take options %s', (_label, options, expected) => {
+    const create = () => Reflect.construct(Lz4DecompressContext, [undefined, options]);
+    if (typeof expected === 'string') {
+      expect(thrown(create)).toMatchObject({ code: 'InvalidArg', message: expected });
+      return;
+    }
+    const ctx: Lz4DecompressContext = create();
+    expect(ctx.transform(hello).length).toBe(expected);
+  });
+});

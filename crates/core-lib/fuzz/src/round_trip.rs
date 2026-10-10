@@ -7,7 +7,7 @@ use comprs_core::{ComprsError, gzip, zstd};
 use libfuzzer_sys::arbitrary::{Error, Result, Unstructured};
 
 use crate::format::{Format, unsigned};
-use crate::plan::{self, ChunkPlan};
+use crate::plan::{self, ChunkPlan, Lz4Frame};
 
 /// Largest data that [`fuzz_round_trip`] compresses: enough for several
 /// blocks of every format.
@@ -15,7 +15,9 @@ const MAX_DATA_LEN: usize = 256 * 1024;
 
 /// Compress the rest of `input`, repeated a fuzzer-chosen number of times,
 /// with a fuzzer-chosen format, level and dictionary, either in one call or
-/// in chunks. Checks that:
+/// in chunks; LZ4 data may also be compressed by lz4_flex into a frame with
+/// fuzzer-chosen settings ([`Lz4Frame`]), such as linked blocks of up to
+/// 4 MiB. Checks that:
 ///
 /// - compression with valid parameters succeeds, unless zstd reads the
 ///   dictionary as a formatted one ([`Format::may_reject_dict`]);
@@ -43,19 +45,25 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
         None
     };
     let mut decompress_chunks = ChunkPlan::arbitrary(&mut u)?;
-    if format == Format::Lz4 {
+    let incremental = format == Format::Lz4 && u.arbitrary::<bool>()?;
+    if format == Format::Lz4 && !incremental {
         decompress_chunks = decompress_chunks.without_flushes();
     }
+    let lz4_frame = match compress_chunks {
+        None => Lz4Frame::arbitrary(&mut u, format)?,
+        Some(_) => None,
+    };
     let repeat = plan::repeat_count(&mut u)?;
     let data = plan::repeat(u.take_rest(), repeat, MAX_DATA_LEN);
     let level = plan::affordable_level(format, level, data.len(), compress_chunks.is_some());
 
-    let compressed = match (&header, &compress_chunks) {
-        (Some(header), _) => gzip::compress_with_header(&data, header, unsigned(level)),
-        (None, Some(chunks)) => format
+    let compressed = match (&header, &compress_chunks, &lz4_frame) {
+        (Some(header), _, _) => gzip::compress_with_header(&data, header, unsigned(level)),
+        (None, Some(chunks), _) => format
             .compressor(dict, level)
             .and_then(|mut stream| chunks.run(stream.as_mut(), &data, usize::MAX, false)),
-        (None, None) => format.compress(&data, dict, level),
+        (None, None, Some(frame)) => Ok(frame.compress(&data)),
+        (None, None, None) => format.compress(&data, dict, level),
     };
     let compressed = match compressed {
         Ok(compressed) => compressed,
@@ -85,7 +93,7 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
         exact.err()
     );
     let streamed = format
-        .decompressor(dict, Some(limit as f64))
+        .decompressor(dict, Some(limit as f64), incremental)
         .and_then(|mut stream| decompress_chunks.run(stream.as_mut(), &compressed, limit, false));
     assert!(
         streamed.as_deref().is_ok_and(|output| output == data),
@@ -100,7 +108,7 @@ pub fn fuzz_round_trip(input: &[u8]) -> Result<()> {
             data.len()
         );
         let streamed = format
-            .decompressor(dict, Some(limit as f64))
+            .decompressor(dict, Some(limit as f64), incremental)
             .and_then(|mut stream| {
                 decompress_chunks.run(stream.as_mut(), &compressed, limit, false)
             });

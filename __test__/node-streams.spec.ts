@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { Transform } from 'node:stream';
 import { Readable, Writable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { finished, pipeline } from 'node:stream/promises';
 import { isArrayBuffer } from 'node:util/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -450,6 +451,60 @@ describe('lz4 node stream round-trip', () => {
   });
 });
 
+describe('LZ4 decompression transforms', () => {
+  // About 730 KiB of text records, in three blocks of up to 256 KiB.
+  const lines = Array.from({ length: 40_000 }, (_, i) => `record ${i}: ${(i * 7919) % 10007}\n`);
+  const data = Buffer.from(lines.join(''));
+  const frame = Buffer.from(lz4Compress(data));
+
+  const TRANSFORMS: [string, () => Transform][] = [
+    ['createLz4DecompressTransform()', () => createLz4DecompressTransform()],
+    ['createDecompressTransform()', () => createDecompressTransform()],
+  ];
+
+  // They push each block once all of it has arrived, without waiting for
+  // the end of the input.
+  it.each(TRANSFORMS)('%s should push output before the input ends', async (_label, create) => {
+    const transform = create();
+    const output: Buffer[] = [];
+    transform.on('data', (chunk: Buffer) => output.push(chunk));
+    const half = frame.length >> 1;
+    const pushed = once(transform, 'data');
+    transform.write(frame.subarray(0, half));
+    await pushed;
+    expect(Buffer.concat(output).length).toBeGreaterThan(0);
+
+    transform.end(frame.subarray(half));
+    await finished(transform);
+    expect(Buffer.concat(output).equals(data)).toBe(true);
+  });
+
+  // They fail as soon as data that is not a frame follows a frame, without
+  // waiting for the end of the input.
+  it.each(TRANSFORMS)(
+    '%s should fail on data after a frame before the input ends',
+    async (_label, create) => {
+      const transform = create();
+      const output: Buffer[] = [];
+      transform.on('data', (chunk: Buffer) => output.push(chunk));
+      const content = Buffer.from('a complete LZ4 frame');
+      const pushed = once(transform, 'data');
+      transform.write(lz4Compress(content));
+      await pushed;
+      expect(Buffer.concat(output).equals(content)).toBe(true);
+
+      const failed = once(transform, 'error');
+      transform.write(Buffer.from('trailing garbage'));
+      const [error] = await failed;
+      expect(error).toHaveProperty(
+        'message',
+        'lz4 stream decompress failed: unexpected data after the end of a frame',
+      );
+      expect(transform.writableEnded).toBe(false);
+    },
+  );
+});
+
 describe('zstd dict node stream round-trip', () => {
   const samples = Array.from({ length: 100 }, (_, i) =>
     Buffer.from(
@@ -639,14 +694,36 @@ describe('Node transform output chunk size', () => {
 });
 
 describe('Node transform output chunk transfer', () => {
-  // A stream context returns 1 MiB in memory that V8 owns, from transform()
-  // for zstd and from flush() for LZ4, and the transform pushes it in chunks
-  // of readableHighWaterMark bytes that share its ArrayBuffer. Transferring
-  // one of them would detach the others before the stream emits them.
+  // A stream context returns about 1 MiB in memory that V8 owns, from
+  // transform() for zstd and LZ4 decompression and from finish() for brotli
+  // dictionary compression, and the transform pushes it in chunks of
+  // readableHighWaterMark bytes that share its ArrayBuffer. Transferring one
+  // of them would detach the others before the stream emits them.
   const plain = Buffer.alloc(1024 * 1024, 'transferred chunks of comprs ');
-  const CASES: [string, (data: Buffer) => Buffer, () => Transform][] = [
-    ['transform() (zstd)', zstdCompress, () => createZstdDecompressTransform()],
-    ['flush() (LZ4)', lz4Compress, () => createLz4DecompressTransform()],
+  // brotli stores data that does not compress as it is: finish() returns a
+  // little more than 1 MiB, within the 2 MiB that V8 holds.
+  const noise = randomBytes(1024 * 1024);
+  const dict = Buffer.from('a dictionary that the data does not use');
+  /** The name of the call, its input, the transform, and its result. */
+  const CASES: [string, () => Buffer, () => Transform, () => Uint8Array][] = [
+    [
+      'transform() (zstd)',
+      () => zstdCompress(plain),
+      () => createZstdDecompressTransform(),
+      () => plain,
+    ],
+    [
+      'transform() (LZ4)',
+      () => lz4Compress(plain),
+      () => createLz4DecompressTransform(),
+      () => plain,
+    ],
+    [
+      'finish() (brotli dictionary)',
+      () => noise,
+      () => createBrotliCompressDictTransform(dict, 1),
+      () => brotliCompressWithDict(noise, dict, 1),
+    ],
   ];
   const DETACHED = 'an output chunk was transferred, which detached the other chunks';
 
@@ -673,18 +750,14 @@ describe('Node transform output chunk transfer', () => {
 
   it.each(CASES)(
     'should refuse to transfer one of several chunks of a result from %s',
-    async (_name, compress, createTransform) => {
+    async (_name, input, createTransform, result) => {
       const seen: Buffer[] = [];
       const moved: Uint8Array[] = [];
       await expect(
-        pipeline(
-          Readable.from([compress(plain)]),
-          createTransform(),
-          transferringSink(seen, moved),
-        ),
+        pipeline(Readable.from([input()]), createTransform(), transferringSink(seen, moved)),
       ).rejects.toThrow(expect.objectContaining({ name: 'DataCloneError' }));
       // The first chunk was a view of the whole result, and none was moved.
-      expect(seen[0]?.buffer.byteLength).toBe(plain.byteLength);
+      expect(seen[0]?.buffer.byteLength).toBe(result().byteLength);
       expect(moved).toEqual([]);
     },
   );
@@ -694,21 +767,17 @@ describe('Node transform output chunk transfer', () => {
   // must then fail instead of ending without it.
   it.each(CASES)(
     'should fail instead of ending short if a runtime lets it transfer a chunk of a result from %s',
-    async (_name, compress, createTransform) => {
+    async (_name, input, createTransform, result) => {
       const mark = vi.spyOn(workerThreads, 'markAsUntransferable').mockImplementation(() => {});
       try {
         const seen: Buffer[] = [];
         const moved: Uint8Array[] = [];
         await expect(
-          pipeline(
-            Readable.from([compress(plain)]),
-            createTransform(),
-            transferringSink(seen, moved),
-          ),
+          pipeline(Readable.from([input()]), createTransform(), transferringSink(seen, moved)),
         ).rejects.toThrow(DETACHED);
         expect(mark).toHaveBeenCalledOnce();
         // The one transfer took the whole result along.
-        expect(moved.map((chunk) => chunk.buffer.byteLength)).toEqual([plain.byteLength]);
+        expect(moved.map((chunk) => chunk.buffer.byteLength)).toEqual([result().byteLength]);
       } finally {
         mark.mockRestore();
       }

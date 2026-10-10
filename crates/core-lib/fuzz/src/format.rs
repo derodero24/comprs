@@ -71,10 +71,11 @@ impl Format {
             // context maps. RFC 7932 caps the window at 16 MiB; the 1 GiB
             // windows of the Large Window Brotli extension exceed the bound.
             Format::Brotli => 18 * MIB,
-            // lz4_flex reserves room for a compressed and a decompressed
-            // block as soon as it reads a frame header: 8 MiB each for the
-            // legacy frame format, and 4 MiB and 8 MiB plus a 64 KiB window
-            // for linked 4 MiB blocks.
+            // The decoder decodes each block into a buffer of up to the
+            // block maximum size, 8 MiB for a legacy frame. In incremental
+            // mode, the context also keeps a block that has not fully
+            // arrived, up to the 8 MiB of a legacy block, and 128 KiB of the
+            // content of linked blocks.
             Format::Lz4 => 17 * MIB,
         }
     }
@@ -122,11 +123,13 @@ impl Format {
         }
     }
 
-    /// Create a streaming decompression context.
+    /// Create a streaming decompression context. `incremental` selects the
+    /// incremental mode of the LZ4 context; the other formats ignore it.
     pub fn decompressor(
         self,
         dict: Option<&[u8]>,
         max_output_size: Option<f64>,
+        incremental: bool,
     ) -> Result<Box<dyn Stream>, ComprsError> {
         Ok(match (self, dict) {
             (Format::Zstd, None) => Box::new(zstd_stream::DecompressContext::new(max_output_size)?),
@@ -147,6 +150,9 @@ impl Format {
                 dict,
                 max_output_size,
             )?),
+            (Format::Lz4, _) if incremental => Box::new(Lz4Incremental(
+                lz4_stream::DecompressContext::incremental(max_output_size)?,
+            )),
             (Format::Lz4, _) => Box::new(lz4_stream::DecompressContext::new(max_output_size)?),
         })
     }
@@ -208,8 +214,8 @@ pub(crate) fn unsigned(level: Option<i32>) -> Option<u32> {
 pub trait Stream {
     fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError>;
     fn flush(&mut self) -> Result<Vec<u8>, ComprsError>;
-    /// `None` for a context without `finish`: the LZ4 decompression context,
-    /// whose `flush` decodes the buffered input.
+    /// `None` for a context without `finish`: the buffered LZ4 decompression
+    /// context, whose `flush` decodes the buffered input.
     fn finish(&mut self) -> Option<Result<Vec<u8>, ComprsError>>;
 }
 
@@ -259,5 +265,23 @@ impl Stream for lz4_stream::DecompressContext {
 
     fn finish(&mut self) -> Option<Result<Vec<u8>, ComprsError>> {
         None
+    }
+}
+
+/// An LZ4 decompression context in incremental mode, whose `finish`, unlike
+/// that of the buffered context, checks that the input ended between frames.
+pub struct Lz4Incremental(lz4_stream::DecompressContext);
+
+impl Stream for Lz4Incremental {
+    fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+        self.0.transform(chunk)
+    }
+
+    fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+        self.0.flush()
+    }
+
+    fn finish(&mut self) -> Option<Result<Vec<u8>, ComprsError>> {
+        Some(self.0.finish())
     }
 }

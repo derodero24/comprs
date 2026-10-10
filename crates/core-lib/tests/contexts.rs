@@ -62,8 +62,8 @@ struct Codec {
     decompress: OneShot,
     /// Whether the output of the compressor's `flush` decodes, without the
     /// rest of the stream, to all the input so far. The brotli dictionary
-    /// context buffers its input until `finish`, and the lz4 decompression
-    /// context decodes only complete frames.
+    /// context buffers its input until `finish`, and the buffered lz4
+    /// decompression context decodes only complete frames.
     flush_emits_input: bool,
 }
 
@@ -259,6 +259,14 @@ const CODECS: &[Codec] = &[
         decompress: lz4::decompress,
         flush_emits_input: false,
     },
+    Codec {
+        name: "lz4 incremental",
+        compressor: || boxed(Ok(lz4_stream::CompressContext::new())),
+        decompressor: |limit| boxed(lz4_stream::DecompressContext::incremental(limit)),
+        compress: lz4::compress,
+        decompress: lz4::decompress,
+        flush_emits_input: true,
+    },
     unified_codec!(
         "unified zstd dict workers",
         Format::Zstd,
@@ -341,7 +349,7 @@ const CODECS: &[Codec] = &[
         decode_as: None,
         dictionary: None,
         workers: None,
-        flush_emits_input: false,
+        flush_emits_input: true,
     ),
 ];
 
