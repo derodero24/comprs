@@ -193,6 +193,57 @@ describe('createCompressTransform', () => {
       expect(stream.readableLength).toBe(0);
       stream.destroy();
     });
+
+    it.each(['gzip', 'deflate'] as const)(
+      'should send nothing for an empty write once input pauses (%s)',
+      async (encoding) => {
+        const flush = vi.spyOn(CONTEXTS[encoding].prototype, 'flush');
+        const stream = createCompressTransform(encoding);
+        const input = randomBytes(1024);
+        stream.write(input);
+        await nextTurn();
+        const output: unknown = stream.read();
+        if (!Buffer.isBuffer(output)) throw new Error('expected output once input paused');
+        expect(decodeReceived(encoding, output)).toEqual(input);
+        // Empty writes add no input, so no empty block follows them.
+        stream.write(Buffer.alloc(0));
+        stream.write('');
+        await nextTurn();
+        await nextTurn();
+        expect(stream.readableLength).toBe(0);
+        expect(flush).toHaveBeenCalledOnce();
+        stream.destroy();
+      },
+    );
+
+    it('should include the chunk in a flush made while its output is emitted', async () => {
+      const flush = vi.spyOn(GzipCompressContext.prototype, 'flush');
+      const stream = createCompressTransform('gzip');
+      const output: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => {
+        output.push(chunk);
+        stream.flush();
+      });
+      // Once the stream flows, each output is emitted as it is pushed.
+      await nextTurn();
+      // The first output is the gzip header: the flush made while it is
+      // emitted covers the chunk that produced it.
+      const input = randomBytes(1024);
+      stream.write(input);
+      expect(flush).toHaveBeenCalledOnce();
+      expect(decodeReceived('gzip', Buffer.concat(output))).toEqual(input);
+      // This chunk fills the encoder's buffer, so it gives output of its own,
+      // and the flush made while that is emitted covers the whole chunk: no
+      // flush without new input, which would send an empty block, follows.
+      stream.write(randomBytes(256 * 1024));
+      expect(flush).toHaveBeenCalledTimes(2);
+      const emitted = output.length;
+      await nextTurn();
+      await nextTurn();
+      expect(flush).toHaveBeenCalledTimes(2);
+      expect(output).toHaveLength(emitted);
+      stream.destroy();
+    });
   });
 
   describe('deflate', () => {

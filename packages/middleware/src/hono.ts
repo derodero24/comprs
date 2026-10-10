@@ -106,15 +106,22 @@ function compressStream(
   let unflushed = false;
   let cancelled = false;
 
+  /**
+   * Compress a chunk of the body. An empty chunk adds no input, so it must
+   * not lead to a flush, which would send an empty block.
+   */
+  const transform = (controller: Controller, chunk: Uint8Array): boolean => {
+    if (chunk.byteLength === 0) return false;
+    unflushed = true;
+    return enqueue(controller, encoder.transform(chunk));
+  };
+
   /** Compress the next chunk; returns whether the stream got output or ended. */
   const step = async (controller: Controller): Promise<boolean> => {
     // Once cancel() has closed the encoder, it must not be used.
     if (cancelled) return true;
     const chunk = queued.pop();
-    if (chunk) {
-      unflushed = true;
-      return enqueue(controller, encoder.transform(chunk));
-    }
+    if (chunk) return transform(controller, chunk);
     pending ??= reader.read();
     if (unflushed && (await Promise.race([pending, nextTurn()])) === null) {
       // The body has nothing ready: send what it gave so far.
@@ -129,8 +136,7 @@ function compressStream(
       controller.close();
       return true;
     }
-    unflushed = true;
-    return enqueue(controller, encoder.transform(result.value));
+    return transform(controller, result.value);
   };
 
   return new ReadableStream<Uint8Array>({

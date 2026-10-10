@@ -164,8 +164,16 @@ class EncoderTransform extends Transform implements CompressTransform {
 
   override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
     try {
-      this.#push(this.#encoder.transform(chunk));
-      this.#unflushed = true;
+      // An empty write adds no input, so it must not lead to a flush, which
+      // would send an empty block.
+      if (chunk.byteLength > 0) {
+        const output = this.#encoder.transform(chunk);
+        // Set before the output is pushed: a 'data' listener that flushes
+        // during push() then flushes this chunk too, and no flush without
+        // new input follows.
+        this.#unflushed = true;
+        this.#push(output);
+      }
       this.#scheduleIdleCheck();
       callback();
     } catch (err) {

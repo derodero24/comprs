@@ -321,6 +321,41 @@ describe('comprs hono middleware', () => {
       },
     );
 
+    it.each(['gzip', 'deflate'] as const)(
+      'sends nothing for an empty chunk while the stream waits (%s)',
+      async (encoding) => {
+        const flush = vi.spyOn(CONTEXTS[encoding].prototype, 'flush');
+        let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+        const app = new Hono();
+        app.use(comprs());
+        app.get(
+          '/',
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  source = controller;
+                  controller.enqueue(encoder.encode(TEST_BODY));
+                },
+              }),
+              { headers: TEXT },
+            ),
+        );
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': encoding } }));
+        expect(res.headers.get('content-encoding')).toBe(encoding);
+        const reader = bodyReader(res);
+        await within(readUntil(reader, encoding, TEST_BODY));
+        expect(flush).toHaveBeenCalledOnce();
+        // An empty chunk adds no input, so no empty block follows it.
+        source?.enqueue(new Uint8Array(0));
+        const next = reader.read();
+        expect(await Promise.race([next, sleep(50).then(() => 'waiting')])).toBe('waiting');
+        expect(flush).toHaveBeenCalledOnce();
+        await reader.cancel();
+      },
+    );
+
     it('cancels the body when the context has no close()', () =>
       withoutClose(CONTEXTS.gzip, async () => {
         let cancelled = false;
