@@ -824,10 +824,13 @@ jobs:
           fail_ci_if_error: false
 
   # Posts the report of build-wasm-bindgen, also when the binary is over its
-  # budget, and updates the same comment on later pushes.
+  # budget, and updates the same comment on later pushes. Pull requests from
+  # forks are skipped: their GITHUB_TOKEN is read-only whatever the job asks
+  # for, so the comment would fail with 403. They still get the report in
+  # build-wasm-bindgen's step summary and in the wasm-size-report artifact.
   report-wasm-size:
     name: Report WASM Size
-    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 5
