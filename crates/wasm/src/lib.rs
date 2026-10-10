@@ -7,6 +7,11 @@ use wasm_bindgen::prelude::*;
 
 use comprs_core::ComprsError;
 
+// The functions of the unified API, `@derodero24/comprs/next`, whose errors
+// carry codes, unlike those of the functions below, which keep the errors of
+// comprs 2.x.
+mod next;
+
 fn to_js_error(e: ComprsError) -> JsError {
     JsError::new(&e.to_string())
 }

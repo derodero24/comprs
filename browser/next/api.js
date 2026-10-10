@@ -1,11 +1,3 @@
-"use strict";
-exports.compress = compress;
-exports.compressSync = compressSync;
-exports.decompress = decompress;
-exports.decompressSync = decompressSync;
-exports.detectFormat = detectFormat;
-exports.trainDictionary = trainDictionary;
-exports.trainDictionarySync = trainDictionarySync;
 // The unified API of comprs (#577), which the entry point of each build
 // re-exports with its backend: one function per direction for every format,
 // with an options object. This module checks the shapes and the types of the
@@ -13,7 +5,7 @@ exports.trainDictionarySync = trainDictionarySync;
 // nothing of a particular runtime, so that the browser build compiles it
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
-const backend_js_1 = require("./backend.js");
+import { backend } from './backend.js';
 /** The code of the errors that this module throws itself. */
 const INVALID_ARG = 'ERR_COMPRS_INVALID_ARG';
 /** The formats, in the order of their names in error messages. */
@@ -323,10 +315,10 @@ function trainDictionaryArgs(samples, options) {
  * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
  * itself never throws.
  */
-function compress(data, options) {
+export function compress(data, options) {
     try {
         const args = compressArgs(data, options);
-        return (0, backend_js_1.backend)().compressAsync(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers);
+        return backend().compressAsync(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers);
     }
     catch (error) {
         return Promise.reject(error);
@@ -339,9 +331,9 @@ function compress(data, options) {
  * @returns The compressed data.
  * @throws An error with an {@link ErrorCode} as `code`.
  */
-function compressSync(data, options) {
+export function compressSync(data, options) {
     const args = compressArgs(data, options);
-    return (0, backend_js_1.backend)().compress(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers);
+    return backend().compress(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers);
 }
 /**
  * Decompress `data`, in `options.format` or the format that detection finds
@@ -365,10 +357,10 @@ function compressSync(data, options) {
  * invalid arguments included, with an {@link ErrorCode} as `code`.
  * decompress() itself never throws.
  */
-function decompress(data, options) {
+export function decompress(data, options) {
     try {
         const args = decompressArgs(data, options);
-        return (0, backend_js_1.backend)().decompressAsync(args.data, args.format, args.maxOutputSize, args.dictionary);
+        return backend().decompressAsync(args.data, args.format, args.maxOutputSize, args.dictionary);
     }
     catch (error) {
         return Promise.reject(error);
@@ -381,9 +373,9 @@ function decompress(data, options) {
  * @returns The decompressed data.
  * @throws An error with an {@link ErrorCode} as `code`.
  */
-function decompressSync(data, options) {
+export function decompressSync(data, options) {
     const args = decompressArgs(data, options);
-    return (0, backend_js_1.backend)().decompress(args.data, args.format, args.maxOutputSize, args.dictionary);
+    return backend().decompress(args.data, args.format, args.maxOutputSize, args.dictionary);
 }
 /**
  * The format of `data`, as {@link decompress} detects it, or `undefined` if
@@ -394,8 +386,8 @@ function decompressSync(data, options) {
  * @throws A TypeError with the code `ERR_COMPRS_INVALID_ARG` if `data` is
  * not an {@link Input}.
  */
-function detectFormat(data) {
-    return (0, backend_js_1.backend)().detectFormat(toBytes(data, 'data')) ?? undefined;
+export function detectFormat(data) {
+    return backend().detectFormat(toBytes(data, 'data')) ?? undefined;
 }
 /**
  * Train a zstd dictionary from `samples`, small pieces of data like those
@@ -412,10 +404,10 @@ function detectFormat(data) {
  * with `ERR_COMPRS_OPERATION_FAILED` without samples or from too little
  * data. trainDictionary() itself never throws.
  */
-function trainDictionary(samples, options) {
+export function trainDictionary(samples, options) {
     try {
         const args = trainDictionaryArgs(samples, options);
-        return (0, backend_js_1.backend)().trainDictionaryAsync(args.samples, args.maxSize);
+        return backend().trainDictionaryAsync(args.samples, args.maxSize);
     }
     catch (error) {
         return Promise.reject(error);
@@ -428,7 +420,7 @@ function trainDictionary(samples, options) {
  * @returns The dictionary.
  * @throws An error with an {@link ErrorCode} as `code`.
  */
-function trainDictionarySync(samples, options) {
+export function trainDictionarySync(samples, options) {
     const args = trainDictionaryArgs(samples, options);
-    return (0, backend_js_1.backend)().trainDictionary(args.samples, args.maxSize);
+    return backend().trainDictionary(args.samples, args.maxSize);
 }

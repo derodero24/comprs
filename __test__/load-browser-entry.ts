@@ -60,8 +60,20 @@ export function importBrowserStreams() {
   return withFileFetch(() => import('../browser/streams.js'));
 }
 
+/**
+ * Import the browser build of `@derodero24/comprs/next`, which package.json
+ * does not export yet: browser/next/browser.js, which loads the WebAssembly
+ * module through browser/wasm.js, as the browser entry does.
+ */
+export function importBrowserNext() {
+  return withFileFetch(() => import('../browser/next/browser.js'));
+}
+
 /** The exports of the browser entry, as browser/index.d.ts declares them. */
 export type BrowserEntry = Awaited<ReturnType<typeof importBrowserEntry>>;
+
+/** The exports of browser/next/browser.js, as its declarations declare them. */
+export type BrowserNext = Awaited<ReturnType<typeof importBrowserNext>>;
 
 /** The exports of browser/streams.js, as browser/streams.d.ts declares them. */
 export type BrowserStreams = Awaited<ReturnType<typeof importBrowserStreams>>;
@@ -99,8 +111,8 @@ function isWasmMemory(value: unknown): value is WasmMemory {
 
 /**
  * Return the memory of the WebAssembly instance that the browser entry
- * created when {@link importBrowserEntry} or {@link importBrowserStreams}
- * loaded it.
+ * created when {@link importBrowserEntry}, {@link importBrowserStreams} or
+ * {@link importBrowserNext} loaded it.
  */
 export function wasmMemory(): WasmMemory {
   if (entryMemory === undefined) {

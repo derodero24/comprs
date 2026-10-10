@@ -3,10 +3,11 @@
 /**
  * Compile the JavaScript modules of the package from their TypeScript sources
  * in src/: the stream helpers (streams.js, node.js and browser/streams.js),
- * the ES module entry (index.mjs), the unified API (next/), and the
- * declaration files of each. npm publishes the outputs, so they are tracked;
- * CI runs this script and fails if they change. next/ is tracked too, but
- * npm publishes it only once package.json lists it.
+ * the ES module entry (index.mjs), the unified API (next/ and browser/next/),
+ * and the declaration files of each. npm publishes the outputs, so they are
+ * tracked; CI runs this script and fails if they change. next/ and
+ * browser/next/ are tracked too, but npm publishes them only once
+ * package.json lists them.
  *
  * Each TypeScript project in PROJECTS is compiled with tsc, which TypeScript
  * 7 provides as a command only. The CommonJS outputs, every file that tsc
@@ -25,9 +26,10 @@ const ROOT = resolve(import.meta.dirname, '..');
 
 /**
  * The tsconfig files of the projects to compile: the modules for Node.js,
- * then the browser module.
+ * the browser module of the streams, then the browser build of the unified
+ * API.
  */
-const PROJECTS = ['tsconfig.build.json', 'tsconfig.browser.json'];
+const PROJECTS = ['tsconfig.build.json', 'tsconfig.browser.json', 'tsconfig.next-browser.json'];
 
 /**
  * The line by which tsc marks a CommonJS module that it compiled from an ES

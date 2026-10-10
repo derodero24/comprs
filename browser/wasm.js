@@ -1,5 +1,8 @@
 // The WebAssembly module of the browser build, which the browser entry
-// (index.js) imports first.
+// (index.js) imports first, and the functions of the wasm-bindgen glue that
+// the browser backend of the unified API (next/wasm.js, compiled from
+// src/next/wasm.ts) calls. wasm.d.ts declares them as that backend uses
+// them; the entry does not re-export them.
 //
 // The module is fetched and instantiated here, with top-level await, so
 // every function of the glue works as soon as an import of this module
@@ -23,3 +26,10 @@ try {
     { cause },
   );
 }
+
+export {
+  nextCompress,
+  nextDecompress,
+  nextDetectFormat,
+  nextTrainDictionary,
+} from './comprs-wasm.js';

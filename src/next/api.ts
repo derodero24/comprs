@@ -73,7 +73,9 @@ export type Bytes = ReturnType<Uint8Array['slice']>;
  * Every error but `ERR_COMPRS_INVALID_ARG` is a plain `Error`. New codes may
  * be added in minor releases. An error thrown by the caller's own code, such
  * as a getter of an options object or the iterator of the samples, is passed
- * on unchanged, without a code.
+ * on unchanged, without a code. In the browser build, a panic, or an
+ * allocation that the WebAssembly memory cannot grow for, fails with a
+ * `WebAssembly.RuntimeError` instead, without a code.
  */
 export type ErrorCode =
   | 'ERR_COMPRS_INVALID_ARG'
@@ -560,7 +562,9 @@ function trainDictionaryArgs(samples: unknown, options: unknown): TrainDictionar
  *
  * The data and the dictionary are copied when compress() is called, so
  * changing them afterwards does not change the result. In Node.js, the data
- * is compressed on a thread of the libuv pool.
+ * is compressed on a thread of the libuv pool. The browser build has no
+ * such pool: it compresses the data on the calling thread, which it blocks,
+ * before compress() returns.
  *
  * @returns A Promise of the compressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
@@ -619,7 +623,9 @@ export function compressSync(data: Input, options: CompressOptions): Bytes {
  *
  * The data and the dictionary are copied when decompress() is called, so
  * changing them afterwards does not change the result. In Node.js, the data
- * is decompressed on a thread of the libuv pool.
+ * is decompressed on a thread of the libuv pool. The browser build
+ * decompresses it on the calling thread, which it blocks, before
+ * decompress() returns.
  *
  * @returns A Promise of the decompressed data, which rejects on every error,
  * invalid arguments included, with an {@link ErrorCode} as `code`.
@@ -665,7 +671,9 @@ export function detectFormat(data: Input): Format | undefined {
  * samples as the size of the dictionary.
  *
  * The samples are copied when trainDictionary() is called. In Node.js, the
- * dictionary is trained on a thread of the libuv pool.
+ * dictionary is trained on a thread of the libuv pool. The browser build
+ * trains it on the calling thread, which it blocks, before trainDictionary()
+ * returns.
  *
  * @returns A Promise of the dictionary, which rejects on every error, invalid
  * arguments included, with an {@link ErrorCode} as `code`: training fails
