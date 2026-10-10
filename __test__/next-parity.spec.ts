@@ -23,11 +23,17 @@ import {
 // The unified API, @derodero24/comprs/next (#577), in the browser build,
 // against the native build: the functions of src/next/api.ts over the
 // WebAssembly backend (src/next/wasm.ts and crates/wasm/src/next.rs) must
-// give what they give over the native addon, the same bytes and errors of
-// the same code, message and class (#555), but for zstd workers, which the
-// browser build does not support. package.json does not export ./next yet,
-// so the tests load browser/next/browser.js by path. The declarations of
-// both builds are compared without the WebAssembly build.
+// give what they give over the native addon (#555): errors of the same
+// code, message and class, and the same bytes in every format but lz4, but
+// for zstd workers, which the browser build does not support. The lz4
+// encoder, lz4_flex, hashes 5 bytes at a time on 64-bit targets and 4 on
+// wasm32, so the builds write different lz4 frames for most inputs of more
+// than a few hundred bytes: each build decodes those of the other instead.
+// The data is text of words that a seeded generator draws, which, unlike a
+// repeated phrase, makes the encoders choose as on real data.
+// package.json does not export ./next yet, so the tests load
+// browser/next/browser.js by path. The declarations of both builds are
+// compared without the WebAssembly build.
 
 const require = createRequire(__filename);
 
@@ -63,8 +69,11 @@ const LEVELS: Record<Format, readonly (number | undefined)[]> = {
   lz4: [undefined],
 };
 
-/** Every format at each of its levels. */
-const FORMAT_LEVELS = FORMATS.flatMap((format) =>
+/**
+ * Every format but lz4 at each of its levels, in which the builds write the
+ * same bytes.
+ */
+const FORMAT_LEVELS = FORMATS.filter((format) => format !== 'lz4').flatMap((format) =>
   LEVELS[format].map((level): [Format, number | undefined] => [format, level]),
 );
 
@@ -73,13 +82,82 @@ function compressOptions(format: Format, level: number | undefined): CompressOpt
   return level === undefined ? { format } : { format, level };
 }
 
+/**
+ * A generator of pseudo-random numbers from 0 to 1, excluded, seeded with
+ * `seed`: mulberry32.
+ */
+function random(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32;
+  };
+}
+
+/** The words of {@link prose}, the more frequent first. */
+const WORDS = (
+  'the of and to a in is it that for on was with as be by this are at from or not ' +
+  'have an they which one you were all we her she there been if more when will ' +
+  'would who so no data stream format level frame block window buffer bytes ' +
+  'output input dictionary header checksum encoder decoder build native browser ' +
+  'memory module function option error value number string array thread worker ' +
+  'promise result limit size length offset view copy read write first last next ' +
+  'each other same new old small large fast slow open close time day year people ' +
+  'way world life hand part place case week company system program question work ' +
+  'government night point home water room mother area money story fact month lot'
+).split(' ');
+
 const encoder = new TextEncoder();
-const text = encoder.encode(
-  'The native addon and the WebAssembly build agree on ./next. '.repeat(300),
-);
-const dictionary = encoder.encode('agree on ./next The native addon WebAssembly build '.repeat(8));
+
+/**
+ * Bytes of `text`, an ASCII string, with a line feed at the end if that
+ * makes their length even, so that a Uint16Array can hold them.
+ */
+function evenBytes(text: string): Uint8Array {
+  return encoder.encode(text.length % 2 === 0 ? text : `${text}\n`);
+}
+
+/**
+ * `count` words of English-like text, which a generator seeded with `seed`
+ * draws, the more frequent ones more often, in sentences and paragraphs of
+ * varying length, with a number here and there.
+ */
+function prose(count: number, seed: number): string {
+  const next = random(seed);
+  const word = (): string => {
+    if (next() < 0.03) return String(Math.floor(next() * 100_000));
+    const found = WORDS[Math.floor(next() ** 2 * WORDS.length)];
+    if (found === undefined) throw new Error('expected a word');
+    return found;
+  };
+  let text = '';
+  let left = 0;
+  for (let i = 0; i < count; i++) {
+    let current = word();
+    if (left === 0) {
+      left = 3 + Math.floor(next() * 16);
+      current = current.charAt(0).toUpperCase() + current.slice(1);
+    }
+    left -= 1;
+    text += current;
+    if (left > 0) {
+      text += next() < 0.08 ? ', ' : ' ';
+    } else {
+      text += next() < 0.85 ? '.' : '?';
+      text += next() < 0.2 ? '\n\n' : ' ';
+    }
+  }
+  return text;
+}
+
+// About 30 KB of text, a dictionary of about 3.5 KB of the same words, and 200
+// samples of JSON records.
+const text = evenBytes(prose(6000, 0x5eed));
+const dictionary = evenBytes(prose(700, 0xd1c7));
 const samples = Array.from({ length: 200 }, (_, i) =>
-  encoder.encode(JSON.stringify({ id: i, name: `item ${i}`, tags: ['a', 'b'] })),
+  evenBytes(JSON.stringify({ id: i, name: prose(2 + (i % 5), i), tags: ['a', 'b'] })),
 );
 
 /** An error, by what the API promises of it: its class, code and message. */
@@ -355,6 +433,19 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
         expect(await settle(() => wasm.compress(text, options))).toEqual(expected);
       },
     );
+
+    // lz4_flex looks for matches by hashes of 5 bytes on 64-bit targets and
+    // of 4 on wasm32, so the frames that the builds write differ. Each build
+    // decodes those of the other: the same frames.
+    it('writes lz4 frames that the native build reads, and reads its frames', async () => {
+      const options: CompressOptions = { format: 'lz4' };
+      const frame = wasm.compressSync(text, options);
+      expect(await wasm.compress(text, options)).toEqual(frame);
+      expect(frame).not.toEqual(compressed.lz4);
+      expect(native.decompressSync(frame, options)).toEqual(text);
+      expect(wasm.decompressSync(compressed.lz4, options)).toEqual(text);
+      expect(wasm.decompressSync(frame)).toEqual(text);
+    });
 
     it.each([
       ['zstd', 7],
