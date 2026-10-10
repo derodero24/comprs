@@ -3,8 +3,10 @@ name: CI
 # CI runs when a file changes that it builds, tests, checks or installs with
 # (pushes to develop leave out some that only the lint jobs check; see
 # pull_request). That includes .gitignore, whose files Biome skips
-# (vcs.useIgnoreFile), and lefthook.yml, which every pnpm install reads
-# through its prepare script (lefthook install).
+# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
+# its prepare script (lefthook install), and README.md, which the package
+# includes and the benchmark smoke test parses (scripts/bench-report.mjs
+# fails when its bench markers are missing or duplicated).
 on:
   push:
     branches: [develop]
@@ -13,6 +15,7 @@ on:
       - '__test__/**'
       - 'e2e/**'
       - 'package.json'
+      - 'README.md'
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -59,6 +62,7 @@ on:
       - '__test__/**'
       - 'e2e/**'
       - 'package.json'
+      - 'README.md'
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
