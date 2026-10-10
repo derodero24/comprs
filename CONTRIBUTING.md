@@ -219,14 +219,16 @@ npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Releas
 1. Add a trusted publisher to each of the 10 packages shortly before a release that publishes it: a new trusted publisher expires unless a publish through it succeeds within 2 days, and an expired one has to be deleted and added again. A release publishes the middleware only when its version changes, so its trusted publisher may have to wait for a later release than the others.
    - Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
    - Settings: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`. Allow `npm publish`, not only `npm stage publish`: the release publishes directly.
-   - On npmjs.com, they are under each package's **Settings** → **Trusted publishing** → **GitHub Actions**. npm 11.15.0 and later can also add them from a terminal, logged in to an account with two-factor authentication:
+   - On npmjs.com, they are under each package's **Settings** → **Trusted publishing** → **GitHub Actions**. npm 11.15.0 and later can also add them from a terminal, logged in to an account with two-factor authentication. This adds them to the core package and the platform packages, which every release publishes:
 
      ```bash
-     for pkg in comprs comprs-middleware comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}; do
+     for pkg in comprs comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}; do
        npm trust github "@derodero24/$pkg" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
        sleep 2
      done
      ```
+
+     Add the middleware's only before a release that changes its version: `npm trust github @derodero24/comprs-middleware --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes`. A package has at most one trusted publisher, so replacing an expired one takes `npm trust list` and `npm trust revoke --id` first.
 2. In the repository settings, limit the deployment branches of the `npm-publish` environment to `main`.
 3. After the release, check how each package was published: `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish, and `derodero24` for a token publish. Once all 10 packages have published as `GitHub Actions`, a follow-up pull request removes `NODE_AUTH_TOKEN` from both publish steps; then delete the `NPM_TOKEN` secret and revoke the token on npmjs.com. Each package's **Publishing access** can then be set to "Require two-factor authentication and disallow tokens".
 
