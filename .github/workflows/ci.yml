@@ -857,6 +857,24 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # The publish jobs of release.yml set up Node.js from .nvmrc like this
+      # job. npm uses trusted publishing (OIDC) from version 11.5.1 on; with
+      # an older npm, they would keep publishing with NODE_AUTH_TOKEN without
+      # a word. The check runs here rather than in the publish jobs, where it
+      # would block the token publishes that work today, or in
+      # check-release.mjs, which contributors run with npm 10.
+      - name: Check that npm supports trusted publishing
+        run: |
+          node -e '
+            const version = process.argv[1];
+            const [, major, minor, patch] = (/^(\d+)\.(\d+)\.(\d+)/.exec(version) ?? []).map(Number);
+            if (!(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))))) {
+              console.log("::error::npm " + version + " cannot use trusted publishing, which needs " +
+                "npm 11.5.1 or later; choose a Node.js version in .nvmrc that bundles one");
+              process.exit(1);
+            }
+            console.log("npm " + version + " supports trusted publishing.");
+          ' "$(npm --version)"
       - run: pnpm install --frozen-lockfile
       - name: Download build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
