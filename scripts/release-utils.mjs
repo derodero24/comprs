@@ -1,6 +1,6 @@
 /**
  * Helpers shared by the release packaging scripts, prepare-release.mjs,
- * check-release.mjs and third-party-licenses.mjs, and by
+ * check-release.mjs, third-party-licenses.mjs and github-release.mjs, and by
  * check-consumer-types.mjs and e2e/install-package.mjs, which pack the
  * package. The checks of check-release.mjs that
  * __test__/release-utils.spec.ts tests are here too, as importing that
@@ -8,7 +8,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, matchesGlob, posix, resolve } from 'node:path';
 import { readNapiConfig } from '@napi-rs/cli';
@@ -175,7 +182,7 @@ function describeRepositoryUrl(url) {
  * @param {Record<string, unknown>} manifest
  * @returns {string | undefined}
  */
-function repositoryUrl(manifest) {
+export function repositoryUrl(manifest) {
   const { repository } = manifest;
   const url = isRecord(repository) ? repository['url'] : repository;
   if (typeof url !== 'string') {
@@ -232,6 +239,40 @@ export function platformNoticeProblems({ path, json }, notices) {
         `${path} does not list ${notice} in "files"; add it there (napi create-npm-dirs ` +
         'writes "files" with the binary alone for a new target)',
     );
+}
+
+/**
+ * Check that the root package's prepublishOnly script, which `npm publish`
+ * runs in the release, is `napi prepublish` with --no-gh-release. napi would
+ * otherwise create the GitHub release itself: on the default branch,
+ * develop, rather than on the commit that the release publishes, and with
+ * the platform binaries alone (#709). The GitHub Release job of release.yml
+ * creates it instead, with the files that github-release.mjs stages.
+ *
+ * @param {Record<string, unknown>} packageJson The root package.json.
+ * @returns {string[]} The problems found.
+ */
+export function prepublishProblems(packageJson) {
+  const { scripts } = packageJson;
+  const script = isRecord(scripts) ? scripts['prepublishOnly'] : undefined;
+  if (typeof script !== 'string' || !/^napi\s+prepublish(\s|$)/.test(script.trim())) {
+    const found =
+      typeof script === 'string'
+        ? `the prepublishOnly script ${script}`
+        : 'no prepublishOnly script';
+    return [
+      'package.json must run napi prepublish in its prepublishOnly script, which publishes the ' +
+        `platform packages, but has ${found}`,
+    ];
+  }
+  if (!script.trim().split(/\s+/).includes('--no-gh-release')) {
+    return [
+      'The prepublishOnly script of package.json must pass --no-gh-release to napi prepublish: ' +
+        'the GitHub Release job of release.yml creates the GitHub release, on the published ' +
+        'commit and with the license notices next to the binaries',
+    ];
+  }
+  return [];
 }
 
 /**
@@ -327,6 +368,18 @@ export function annotate(level, message) {
   } else {
     console.log(`${level}: ${message}`);
   }
+}
+
+/**
+ * Whether Node.js runs the module at `filename` (its `import.meta.filename`),
+ * rather than another module that imports it.
+ *
+ * @param {string} filename
+ * @returns {boolean}
+ */
+export function isEntryPoint(filename) {
+  const [, entry] = process.argv;
+  return entry !== undefined && existsSync(entry) && realpathSync(entry) === filename;
 }
 
 /**

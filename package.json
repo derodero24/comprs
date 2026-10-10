@@ -154,7 +154,7 @@
     "build:wasm-bindgen": "node scripts/build-wasm-bindgen.js",
     "size:wasm": "node scripts/wasm-size.mjs",
     "changeset:version": "changeset version && node scripts/sync-cargo-version.js && napi version && pnpm run build && pnpm run format",
-    "prepublishOnly": "napi prepublish -t npm",
+    "prepublishOnly": "napi prepublish -t npm --no-gh-release",
     "version": "napi version",
     "check": "biome ci --error-on-warnings",
     "format": "biome format --write",

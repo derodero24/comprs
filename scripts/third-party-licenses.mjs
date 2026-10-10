@@ -34,17 +34,10 @@
  *   --output   File to write the notice to, instead of standard output.
  */
 
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { capture, isRecord, ROOT, readRelease, runMain } from './release-utils.mjs';
+import { capture, isEntryPoint, isRecord, ROOT, readRelease, runMain } from './release-utils.mjs';
 
 /** @typedef {import('./release-utils.mjs').ReleaseTarget} ReleaseTarget */
 
@@ -695,17 +688,6 @@ export function indexedCrates(notice) {
 }
 
 /**
- * Whether Node.js runs this file, rather than another module that imports
- * it.
- *
- * @returns {boolean}
- */
-function isEntryPoint() {
-  const [, entry] = process.argv;
-  return entry !== undefined && existsSync(entry) && realpathSync(entry) === import.meta.filename;
-}
-
-/**
  * The notice that the release writes for a build: that of the root package
  * for the WebAssembly build, or that of the platform package of a napi
  * target.
@@ -735,7 +717,7 @@ function packageNotice(release, cargoPackage, triple) {
   return platformNotice(target);
 }
 
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.filename)) {
   await runMain(async () => {
     const { values } = parseArgs({
       options: {

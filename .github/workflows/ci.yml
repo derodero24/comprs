@@ -961,6 +961,13 @@ jobs:
         run: >-
           node scripts/prepare-release.mjs --artifacts-dir artifacts
           ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
+      # The files and the notes that release.yml's github-release job would
+      # attach to the GitHub release: each binary needs its license notices,
+      # and every asset a name of its own.
+      - name: Check the GitHub release files
+        run: >-
+          node scripts/github-release.mjs --dry-run
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
       - name: Check the packages
         run: >-
           node scripts/check-release.mjs
