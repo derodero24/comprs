@@ -151,7 +151,11 @@ function isResizable(buffer) {
 }
 /**
  * {@link toBytes} for a view. Its buffer and its bounds are read with the
- * getters of built-in prototypes, which no property of the view shadows.
+ * getters of built-in prototypes, which no property of the view shadows,
+ * and the backend gets a new Uint8Array over them, never the view itself,
+ * not even a Uint8Array: the wasm-bindgen glue sizes its copies by the
+ * `length` property, which a subclass or an own property of the view can
+ * make disagree with its bytes.
  *
  * A view is out of bounds once its buffer, a resizable ArrayBuffer, shrank
  * below its end: a SharedArrayBuffer only grows, and other buffers keep
@@ -173,8 +177,6 @@ function viewBytes(view, name) {
         if (unshared && type !== undefined && isResizable(buffer)) {
             Reflect.apply(TYPED_ARRAY_KEYS, view, []);
         }
-        if (unshared && type === 'Uint8Array' && view instanceof Uint8Array)
-            return view;
         byteOffset = callGetter(getters.byteOffset, view);
         byteLength = callGetter(getters.byteLength, view);
     }
@@ -193,9 +195,9 @@ function viewBytes(view, name) {
 }
 /**
  * The bytes of `value`, an {@link Input} that the error messages call
- * `name`, as a Uint8Array that the backend may read: a Uint8Array over an
- * ArrayBuffer as it is, any other view of an ArrayBuffer as a Uint8Array of
- * the same bytes, and the bytes in a SharedArrayBuffer as a copy.
+ * `name`, as a new Uint8Array that the backend may read: over the same bytes
+ * for an ArrayBuffer and a view of one, and over a copy of the bytes in a
+ * SharedArrayBuffer.
  *
  * A detached buffer and a view out of bounds fail here with a code, before
  * `new Uint8Array()` fails on them without one, or reads them as empty.
