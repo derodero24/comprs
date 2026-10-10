@@ -29,7 +29,10 @@ function toChunkedReadable(data: Buffer, chunkSize: number): Readable {
   });
 }
 
-/** Pipe data in 16KB chunks through the transforms, and return the output. */
+/**
+ * Pipe data in 16KB chunks through the transforms, and return the output, for
+ * the setup of a test. The timed runs use {@link drainChunks}.
+ */
 async function pipeChunks(data: Buffer, ...transforms: Transform[]): Promise<Buffer> {
   const chunks: Buffer[] = [];
   const sink = new Writable({
@@ -40,6 +43,20 @@ async function pipeChunks(data: Buffer, ...transforms: Transform[]): Promise<Buf
   });
   await pipeline([toChunkedReadable(data, CHUNK_SIZE), ...transforms, sink]);
   return Buffer.concat(chunks);
+}
+
+/**
+ * Pipe data in 16KB chunks through the transforms, and discard the output.
+ * Keeping the chunks and concatenating them would add the same cost to every
+ * library on each call, and narrow the gap between them.
+ */
+async function drainChunks(data: Buffer, ...transforms: Transform[]): Promise<void> {
+  const sink = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+  await pipeline([toChunkedReadable(data, CHUNK_SIZE), ...transforms, sink]);
 }
 
 /** A library's streams for one format, at the settings of a comparison. */
@@ -82,7 +99,7 @@ function compareStreams(
       bench,
       libraries.map((library) =>
         bench(library.name, async () => {
-          await pipeChunks(LARGE, library.compress());
+          await drainChunks(LARGE, library.compress());
         }),
       ),
     );
@@ -105,7 +122,7 @@ function compareStreams(
       bench,
       libraries.map((library) =>
         bench(library.name, async () => {
-          await pipeChunks(compressed, library.decompress());
+          await drainChunks(compressed, library.decompress());
         }),
       ),
     );
@@ -116,7 +133,7 @@ function compareStreams(
       bench,
       libraries.map((library) =>
         bench(library.name, async () => {
-          await pipeChunks(LARGE, library.compress(), library.decompress());
+          await drainChunks(LARGE, library.compress(), library.decompress());
         }),
       ),
     );
