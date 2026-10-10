@@ -420,12 +420,12 @@ macro_rules! stream_context_methods {
             ///
             /// At most one asynchronous call may be in flight per context: until
             /// its Promise settles, another asynchronous call rejects and a
-            /// synchronous call throws "<name> is busy: an asynchronous call has
-            /// not finished", such as "zstd stream is busy: an asynchronous call
-            /// has not finished". `close()` while a call is in flight releases
+            /// synchronous call throws `<name> is busy: an asynchronous call has
+            /// not finished`, such as `zstd stream is busy: an asynchronous call
+            /// has not finished`. `close()` while a call is in flight releases
             /// the native state once the call settles, and its Promise still
-            /// settles. After `close()`, calls reject with "<name> already
-            /// closed".
+            /// settles. After `close()`, calls reject with `<name> already
+            /// closed`.
             #[napi(
                 ts_args_type = "chunk: Buffer | Uint8Array",
                 ts_return_type = "Promise<Buffer>"
@@ -453,9 +453,9 @@ macro_rules! stream_context_methods {
             ///
             /// At most one asynchronous call may be in flight per context: until
             /// its Promise settles, another asynchronous call rejects and a
-            /// synchronous call throws "<name> is busy: an asynchronous call has
-            /// not finished". After `close()`, calls reject with "<name> already
-            /// closed".
+            /// synchronous call throws `<name> is busy: an asynchronous call has
+            /// not finished`. After `close()`, calls reject with `<name> already
+            /// closed`.
             #[napi(ts_return_type = "Promise<Buffer>")]
             pub fn flush_async(
                 &self,
@@ -475,9 +475,9 @@ macro_rules! stream_context_methods {
             ///
             /// At most one asynchronous call may be in flight per context: until
             /// its Promise settles, another asynchronous call rejects and a
-            /// synchronous call throws "<name> is busy: an asynchronous call has
-            /// not finished". After `close()`, calls reject with "<name> already
-            /// closed".
+            /// synchronous call throws `<name> is busy: an asynchronous call has
+            /// not finished`. After `close()`, calls reject with `<name> already
+            /// closed`.
             #[napi(ts_return_type = "Promise<Buffer>")]
             pub fn finish_async(
                 &self,

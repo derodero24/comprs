@@ -359,6 +359,13 @@ jobs:
       # Rust can bring new lints, so the job can fail without a change to the
       # code: fix what it reports.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The same for rustdoc: a doc comment that links to an item that the
+      # documentation does not show, or that reads as HTML, such as `<name>`
+      # outside a code span, which the doc comments of napi-rs functions also
+      # bring into index.d.ts.
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   rust-test:
     name: Rust Test

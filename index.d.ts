@@ -121,12 +121,12 @@ export declare class BrotliCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -136,9 +136,9 @@ export declare class BrotliCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -150,9 +150,9 @@ export declare class BrotliCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -218,12 +218,12 @@ export declare class BrotliCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -233,9 +233,9 @@ export declare class BrotliCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -247,9 +247,9 @@ export declare class BrotliCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -292,12 +292,12 @@ export declare class BrotliDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -307,9 +307,9 @@ export declare class BrotliDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -321,9 +321,9 @@ export declare class BrotliDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -366,12 +366,12 @@ export declare class BrotliDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -381,9 +381,9 @@ export declare class BrotliDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -395,9 +395,9 @@ export declare class BrotliDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -439,12 +439,12 @@ export declare class DeflateCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -454,9 +454,9 @@ export declare class DeflateCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -468,9 +468,9 @@ export declare class DeflateCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -513,12 +513,12 @@ export declare class DeflateDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -528,9 +528,9 @@ export declare class DeflateDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -542,9 +542,9 @@ export declare class DeflateDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -586,12 +586,12 @@ export declare class GzipCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -601,9 +601,9 @@ export declare class GzipCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -615,9 +615,9 @@ export declare class GzipCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -660,12 +660,12 @@ export declare class GzipDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -675,9 +675,9 @@ export declare class GzipDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -689,9 +689,9 @@ export declare class GzipDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -732,12 +732,12 @@ export declare class Lz4CompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -747,9 +747,9 @@ export declare class Lz4CompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -761,9 +761,9 @@ export declare class Lz4CompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -831,12 +831,12 @@ export declare class Lz4DecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -846,9 +846,9 @@ export declare class Lz4DecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -860,9 +860,9 @@ export declare class Lz4DecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -904,12 +904,12 @@ export declare class ZstdCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -919,9 +919,9 @@ export declare class ZstdCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -933,9 +933,9 @@ export declare class ZstdCompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -977,12 +977,12 @@ export declare class ZstdCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -992,9 +992,9 @@ export declare class ZstdCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -1006,9 +1006,9 @@ export declare class ZstdCompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -1057,12 +1057,12 @@ export declare class ZstdDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -1072,9 +1072,9 @@ export declare class ZstdDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -1086,9 +1086,9 @@ export declare class ZstdDecompressContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
@@ -1137,12 +1137,12 @@ export declare class ZstdDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished", such as "zstd stream is busy: an asynchronous call
-   * has not finished". `close()` while a call is in flight releases
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`, such as `zstd stream is busy: an asynchronous call
+   * has not finished`. `close()` while a call is in flight releases
    * the native state once the call settles, and its Promise still
-   * settles. After `close()`, calls reject with "<name> already
-   * closed".
+   * settles. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   transformAsync(chunk: Buffer | Uint8Array): Promise<Buffer>
   /**
@@ -1152,9 +1152,9 @@ export declare class ZstdDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   flushAsync(): Promise<Buffer>
   /**
@@ -1166,9 +1166,9 @@ export declare class ZstdDecompressDictContext {
    *
    * At most one asynchronous call may be in flight per context: until
    * its Promise settles, another asynchronous call rejects and a
-   * synchronous call throws "<name> is busy: an asynchronous call has
-   * not finished". After `close()`, calls reject with "<name> already
-   * closed".
+   * synchronous call throws `<name> is busy: an asynchronous call has
+   * not finished`. After `close()`, calls reject with `<name> already
+   * closed`.
    */
   finishAsync(): Promise<Buffer>
 }
