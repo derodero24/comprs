@@ -17,7 +17,4 @@ all frames together.
 The LZ4-specific functions, context and streams also skip skippable frames,
 which used to fail with `SkippableFrame`, and accept a legacy frame
 (`lz4 -l`) followed by further frames, or with blocks of data that does not
-compress, which used to fail with `BlockTooBig`. `decompress()` and the
-auto-detecting streams still recognise LZ4 input only by the standard frame
-magic number, so input that starts with a skippable or legacy frame needs
-`lz4Decompress()`.
+compress, which used to fail with `BlockTooBig`.
