@@ -9,3 +9,7 @@ allowBuilds:
 # is strict: pnpm asks before it installs a younger version, or fails when it
 # cannot ask, instead of adding it to minimumReleaseAgeExclude on its own.
 minimumReleaseAge: 4320
+# Fail the install when a dependency's engines field excludes the running
+# Node.js. pnpm 12 keeps only auth and registry keys from .npmrc, so the
+# setting lives here.
+engineStrict: true

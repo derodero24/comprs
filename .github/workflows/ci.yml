@@ -3,8 +3,8 @@ name: CI
 # CI runs when a file changes that it builds, tests, checks or installs with
 # (pushes to develop leave out some that only the lint jobs check; see
 # pull_request). That includes .gitignore, whose files Biome skips
-# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
-# its prepare script (lefthook install), and .npmrc, which pnpm reads.
+# (vcs.useIgnoreFile), and lefthook.yml, which every pnpm install reads
+# through its prepare script (lefthook install).
 on:
   push:
     branches: [develop]
@@ -21,7 +21,6 @@ on:
       - '.gitignore'
       - 'commitlint.config.ts'
       - 'lefthook.yml'
-      - '.npmrc'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
@@ -68,7 +67,6 @@ on:
       - '.gitignore'
       - 'commitlint.config.ts'
       - 'lefthook.yml'
-      - '.npmrc'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
