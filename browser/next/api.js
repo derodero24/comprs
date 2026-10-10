@@ -467,9 +467,13 @@ const CONSTRUCT = Symbol('Dictionary');
 /**
  * The handle of `value` if it is a {@link Dictionary} that is not closed,
  * or `undefined` if it is no Dictionary. A closed Dictionary fails with
- * `ERR_COMPRS_INVALID_ARG`. The class sets this in its static block, since
- * only its own code reads its private field; until then, no value is a
- * Dictionary.
+ * `ERR_COMPRS_INVALID_ARG`. Only the code of the class reads its private
+ * field, so its constructor sets this to a private method of the class;
+ * until a Dictionary is constructed, no value is one. A class static block
+ * could set it when the class is defined, but would raise the browsers that
+ * the browser build runs in from Safari 15 and Firefox 90, which its private
+ * methods, `#field in` checks and top-level await need, to Safari 16.4 and
+ * Firefox 93.
  */
 let handleOf = () => undefined;
 /**
@@ -513,6 +517,7 @@ export class Dictionary {
         this.#handle = handle;
         this.format = format;
         this.byteLength = byteLength;
+        handleOf = Dictionary.#handleOf;
     }
     /**
      * Prepare a dictionary for `options.format` from `bytes`, which may be any
@@ -564,8 +569,9 @@ export class Dictionary {
             throw invalidArg('this Dictionary is closed');
         return this.#handle;
     }
-    static {
-        handleOf = (value) => #handle in value ? value.#open() : undefined;
+    /** {@link handleOf}, for the code outside the class. */
+    static #handleOf(value) {
+        return #handle in value ? value.#open() : undefined;
     }
 }
 // [Symbol.dispose]() is close(), as for the stream contexts of the package
