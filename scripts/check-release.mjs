@@ -14,7 +14,9 @@
  *      optionalDependencies with that version, and any optionalDependencies
  *      already in package.json must agree;
  *   2. `napi prepublish --dry-run` accepts the platform packages, as the real
- *      publish (the prepublishOnly script) must;
+ *      publish (the prepublishOnly script) must, and that script passes
+ *      --no-gh-release: the GitHub Release job of release.yml creates the
+ *      GitHub release instead (prepublishProblems() in release-utils.mjs);
  *   3. `npm pack --dry-run` of each platform package includes its binary,
  *      LICENSE and THIRD_PARTY_LICENSES, whatever its manifest says, and
  *      every file its manifest names;
@@ -72,6 +74,7 @@ import {
   npmPack,
   packedFileProblems,
   platformNoticeProblems,
+  prepublishProblems,
   ROOT,
   readJson,
   readRelease,
@@ -135,6 +138,7 @@ await runMain(async () => {
 
   await step('Platform package manifests', () => checkManifests(release));
   await step('napi prepublish --dry-run', () => {
+    problems.push(...prepublishProblems(release.packageJson));
     runTool('napi', [
       'prepublish',
       '--tag-style',

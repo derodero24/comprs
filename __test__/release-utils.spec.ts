@@ -13,6 +13,7 @@ interface ReleaseUtils {
   repositoryUrlProblems(manifests: Manifest[]): string[];
   packedFileProblems(name: string, packed: string[], required: string[]): string[];
   platformNoticeProblems(manifest: Manifest, notices: string[]): string[];
+  prepublishProblems(packageJson: Record<string, unknown>): string[];
   browserEntryProblems(
     packageDir: string,
     packed: string[],
@@ -30,11 +31,17 @@ const REPOSITORY = 'https://github.com/derodero24/comprs';
 let repositoryUrlProblems: ReleaseUtils['repositoryUrlProblems'];
 let packedFileProblems: ReleaseUtils['packedFileProblems'];
 let platformNoticeProblems: ReleaseUtils['platformNoticeProblems'];
+let prepublishProblems: ReleaseUtils['prepublishProblems'];
 let browserEntryProblems: ReleaseUtils['browserEntryProblems'];
 
 beforeAll(async () => {
-  ({ repositoryUrlProblems, packedFileProblems, platformNoticeProblems, browserEntryProblems } =
-    (await import(RELEASE_UTILS)) as ReleaseUtils);
+  ({
+    repositoryUrlProblems,
+    packedFileProblems,
+    platformNoticeProblems,
+    prepublishProblems,
+    browserEntryProblems,
+  } = (await import(RELEASE_UTILS)) as ReleaseUtils);
 });
 
 function manifest(path: string, repository: unknown): Manifest {
@@ -196,6 +203,43 @@ describe('platformNoticeProblems', () => {
     for (const path of dirs) {
       expect(platformNoticeProblems({ path, json: readManifest(path) }, LICENSE_FILES)).toEqual([]);
     }
+  });
+});
+
+describe('prepublishProblems', () => {
+  function scripts(prepublishOnly: unknown): Record<string, unknown> {
+    return { scripts: prepublishOnly === undefined ? {} : { prepublishOnly } };
+  }
+
+  it('accepts napi prepublish with --no-gh-release, as the root package.json has it', () => {
+    expect(prepublishProblems(scripts('napi prepublish -t npm --no-gh-release'))).toEqual([]);
+    expect(prepublishProblems(readManifest('package.json'))).toEqual([]);
+  });
+
+  it('reports napi prepublish without --no-gh-release, which creates the GitHub release', () => {
+    expect(prepublishProblems(scripts('napi prepublish -t npm'))).toEqual([
+      'The prepublishOnly script of package.json must pass --no-gh-release to napi prepublish: ' +
+        'the GitHub Release job of release.yml creates the GitHub release, on the published ' +
+        'commit and with the license notices next to the binaries',
+    ]);
+  });
+
+  it.each([
+    ['no prepublishOnly script', undefined, 'no prepublishOnly script'],
+    ['another command', 'npm run build', 'the prepublishOnly script npm run build'],
+    ['a script that is not a string', ['napi', 'prepublish'], 'no prepublishOnly script'],
+  ])('reports %s', (_, script, found) => {
+    expect(prepublishProblems(scripts(script))).toEqual([
+      'package.json must run napi prepublish in its prepublishOnly script, which publishes the ' +
+        `platform packages, but has ${found}`,
+    ]);
+  });
+
+  it('reports a package.json without scripts', () => {
+    expect(prepublishProblems({})).toEqual([
+      'package.json must run napi prepublish in its prepublishOnly script, which publishes the ' +
+        'platform packages, but has no prepublishOnly script',
+    ]);
   });
 });
 

@@ -31,8 +31,8 @@ jobs:
   # step of the version job instead: a process that one step starts can
   # outlive it and read the environment of later steps, and changesets/action
   # resets the working tree before it runs the version script. Both jobs run
-  # only on develop, so the patch never reaches the publish job's "Download
-  # all artifacts" on main.
+  # only on develop, so the patch never reaches the publish job on main,
+  # which downloads only the build artifacts anyway.
   version-prepare:
     name: Prepare Version
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -220,6 +220,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       should_publish: ${{ steps.check.outputs.should_publish }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -232,6 +233,7 @@ jobs:
         id: check
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           # Check publish status (distinguish E404 "not found" from other errors)
           if err=$(npm view "@derodero24/comprs@${VERSION}" version 2>&1); then
             echo "Version ${VERSION} already published, skipping"
@@ -306,7 +308,7 @@ jobs:
     timeout-minutes: 30
     environment: npm-publish
     permissions:
-      contents: write # napi prepublish creates the GitHub release
+      contents: read
       id-token: write # npm provenance and trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -320,9 +322,13 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Download all artifacts
+      # Only the builds: a re-run of this job would otherwise also download
+      # the github-release artifact that an earlier attempt uploaded, whose
+      # copies of the binaries prepare-release.mjs would take for builds.
+      - name: Download the build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          pattern: bindings-*
           path: artifacts
 
       # prepare-release.mjs writes the license notices of the crates that
@@ -342,6 +348,22 @@ jobs:
       - name: Assemble the npm packages
         run: node scripts/prepare-release.mjs --artifacts-dir artifacts
 
+      # The files that the github-release job attaches to the GitHub release
+      # (LICENSE, and each platform binary with its THIRD_PARTY_LICENSES),
+      # and the release notes from CHANGELOG.md. They are staged before
+      # anything is published, so that a missing file stops the release
+      # before npm has any of it. A re-run of this job replaces the artifact
+      # of an earlier attempt, which would otherwise fail the upload.
+      - name: Stage the GitHub release
+        run: node scripts/github-release.mjs --out-dir "$RUNNER_TEMP/github-release"
+      - name: Upload the GitHub release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: github-release
+          path: ${{ runner.temp }}/github-release
+          if-no-files-found: error
+          overwrite: true
+
       # npm 11.5.1 and later publish through trusted publishing (OIDC) when
       # the package has a trusted publisher for this workflow file
       # (release.yml) and the npm-publish environment, and with
@@ -353,11 +375,70 @@ jobs:
       # environment, because the trusted publishers name them.
       # NODE_AUTH_TOKEN and the NPM_TOKEN secret go once every package has
       # published through OIDC (#584; see Releases in CONTRIBUTING.md).
+      # napi prepublish leaves the GitHub release to the github-release job
+      # (--no-gh-release), so it needs no GitHub token.
       - name: Publish core to npm
         run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ──── Create the GitHub release of the published version ────
+  # napi prepublish used to create it, with the tag on the default branch,
+  # develop, instead of the commit that the release published, and with the
+  # platform binaries alone (#709). This job creates the release v<version>
+  # on that commit, with the files and the notes that the publish job staged
+  # (scripts/github-release.mjs). The job can write to the repository, so it
+  # runs none of its code: only gh, on the downloaded files, without a
+  # checkout. A re-run finds the release that an earlier attempt created,
+  # and uploads the files to it again.
+  github-release:
+    name: GitHub Release
+    needs: [check, publish]
+    if: github.ref == 'refs/heads/main' && needs.check.outputs.should_publish == 'true'
+    permissions:
+      contents: write # create the release and its tag, and upload the assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the GitHub release files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: github-release
+          path: ${{ runner.temp }}/github-release
+      # gh looks a release up among the drafts too. It creates a release with
+      # assets as a draft and publishes it once they are uploaded, and
+      # deletes the draft if an upload fails; a cancelled run can still
+      # leave it behind, so a draft found here is published after the
+      # upload. A version with a pre-release part, such as 3.0.0-beta.0,
+      # makes a pre-release, which GitHub does not mark as the latest one.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.check.outputs.version }}
+          TARGET: ${{ github.sha }}
+          RELEASE_DIR: ${{ runner.temp }}/github-release
+        run: |
+          tag="v${VERSION}"
+          assets=("$RELEASE_DIR"/assets/*)
+          if draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> "$RUNNER_TEMP/gh-error"); then
+            echo "The release ${tag} exists already; uploading its files again"
+            gh release upload "$tag" "${assets[@]}" --clobber
+            if [ "$draft" = "true" ]; then
+              gh release edit "$tag" --draft=false
+            fi
+          elif grep -q "release not found" "$RUNNER_TEMP/gh-error"; then
+            prerelease=()
+            if [[ "$VERSION" == *-* ]]; then
+              prerelease=(--prerelease)
+            fi
+            gh release create "$tag" "${assets[@]}" --target "$TARGET" --title "$tag" \
+              --notes-file "$RELEASE_DIR/notes.md" "${prerelease[@]}"
+          else
+            echo "Error looking up the release ${tag}:" >&2
+            cat "$RUNNER_TEMP/gh-error" >&2
+            exit 1
+          fi
 
   # ──── Publish the middleware after the core package ────
   # The middleware's peer range on @derodero24/comprs must be satisfiable
