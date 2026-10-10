@@ -51,14 +51,20 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # Every file that changesets/action can take as a changeset, including
-      # those that pre mode moves to .changeset/pre/, which it reads once pre
-      # mode ends. Without any, it runs no version script, so the steps below
-      # are skipped.
+      # Every file that changesets/action takes as a changeset, as
+      # @changesets/read finds them: the .md files in .changeset/ and in
+      # .changeset/pre/, where pre mode moves them and which it reads once
+      # pre mode ends, but not hidden files, README.md in any case, AGENTS.md,
+      # CLAUDE.md and GEMINI.md. Without any, it runs no version script, so
+      # the steps below are skipped. They must match: with no changesets,
+      # `changeset version` fails.
       - name: Look for changesets
         id: pending
         run: |
-          if find .changeset -maxdepth 2 -name '*.md' ! -name README.md -print -quit | grep -q .; then
+          dirs=(.changeset)
+          if [ -d .changeset/pre ]; then dirs+=(.changeset/pre); fi
+          if find "${dirs[@]}" -maxdepth 1 ! -type d -name '*.md' ! -name '.*' ! -iname README.md \
+            ! -name AGENTS.md ! -name CLAUDE.md ! -name GEMINI.md -print -quit | grep -q .; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
