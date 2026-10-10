@@ -181,6 +181,72 @@ describe('bench report', () => {
     expect(render.renderCompressChart(report(timings), METHOD)).toContain('>2.0x vs pako</text>');
   });
 
+  it('draws the fastest library first, whatever order the benchmarks ran in', () => {
+    const timings = {
+      ...TIMINGS,
+      'gzip compress level 6 - JSON 84KB': { comprs: 1, pako: 0.5 },
+    };
+    const compress = render.renderCompressChart(report(timings), METHOD);
+    const labels = [...compress.matchAll(/class="bar-label" text-anchor="end">([^<]+)</g)];
+    expect(labels.map(([, library]) => library)).toEqual(['pako', 'comprs']);
+    expect(compress).toContain('<rect x="120" y="60" width="360" height="28"');
+  });
+
+  it('rounds before it chooses the precision', () => {
+    // 1 ms per call of the JSON input, and 1.5 µs of the text input, is 100 MB/s.
+    const timings = {
+      ...TIMINGS,
+      'gzip compress level 6 - JSON 84KB': { comprs: 1 / 0.9997, pako: 1 / 0.09996 },
+      'gzip compress level 6 - text 150B': { comprs: 0.0015 / 0.9994, pako: 0.0015 / 0.09994 },
+    };
+    expect(render.renderMarkdown(report(timings), METHOD)).toContain(
+      '| JSON 84KB | 100 | 10.0 |\n| text 150B | 99.9 | 9.99 |',
+    );
+  });
+
+  it('shows no speed for a median time of 0 or NaN', () => {
+    const timings = {
+      ...TIMINGS,
+      // A median of 0 gives an infinite speed, and NaN no speed at all.
+      'gzip compress level 6 - JSON 84KB': { comprs: 0, pako: 1 },
+      'comprs decompress default levels - JSON 84KB': {
+        zstd: Number.NaN,
+        lz4: 0.1,
+        gzip: 0.5,
+        brotli: 1,
+      },
+    };
+    const markdown = render.renderMarkdown(report(timings), METHOD);
+    expect(markdown).toContain('| JSON 84KB | — | 100 |\n| text 150B | 150 | — |');
+    expect(markdown).toContain('| JSON 84KB | — | 200 | 100 | 1,000 |');
+    const compress = render.renderCompressChart(report(timings), METHOD);
+    const cross = render.renderCrossAlgorithmChart(report(timings), METHOD);
+    for (const output of [markdown, compress, cross]) {
+      expect(output).not.toMatch(/NaN|Infinity|∞/);
+    }
+    // comprs has no bar, and no multiplier against pako.
+    expect(compress).not.toContain('>comprs</text>');
+    expect(compress).not.toContain('x vs pako');
+    expect(cross).toContain('>1,000 MB/s</text>');
+  });
+
+  it('rejects a test that ran no benchmark, and a report without tests', () => {
+    expect(() =>
+      render.parseVitestReport({
+        testResults: [
+          {
+            assertionResults: [
+              { fullName: 'a test', status: 'passed', benchmarks: [{ tasks: [] }] },
+            ],
+          },
+        ],
+      }),
+    ).toThrow('a test ran no benchmark');
+    expect(() => render.parseVitestReport({ testResults: [{ assertionResults: [] }] })).toThrow(
+      'the Vitest report has no test',
+    );
+  });
+
   it('rejects results that it cannot place', () => {
     expect(() => report({ ...TIMINGS, 'lz4 compress - JSON 84KB': { comprs: 1 } })).toThrow(
       'not a benchmark that the report knows',

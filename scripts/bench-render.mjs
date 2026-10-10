@@ -153,6 +153,9 @@ export function parseVitestReport(report) {
       timings.set(test['fullName'], parseBenchmarks(test['fullName'], test));
     }
   }
+  if (timings.size === 0) {
+    throw new Error('the Vitest report has no test');
+  }
   return timings;
 }
 
@@ -363,7 +366,9 @@ function addOneShot(report, sizes, match, medians) {
 }
 
 /**
- * Formats a speed or a ratio with three significant digits or more.
+ * Formats a speed or a ratio with three significant digits or more. The
+ * precision follows the rounded value, so that 99.97 gives 100, not 100.0,
+ * and 9.996 gives 10.0, not 10.00.
  *
  * @param {number | undefined} value
  * @returns {string}
@@ -372,10 +377,10 @@ function formatNumber(value) {
   if (value === undefined || !Number.isFinite(value)) {
     return '—';
   }
-  if (value >= 100) {
+  if (Number(value.toFixed(1)) >= 100) {
     return Math.round(value).toLocaleString('en-US');
   }
-  return value.toFixed(value >= 10 ? 1 : 2);
+  return value.toFixed(Number(value.toFixed(2)) >= 10 ? 1 : 2);
 }
 
 /**
@@ -729,10 +734,12 @@ export function renderCompressChart(report, method) {
       `<rect x="${BAR_X}" y="${y}" width="${width}" height="28" rx="4" ${fill} />`,
       `<text x="${px(BAR_X + width + 8)}" y="${y + 18}" class="bar-value">${value}</text>`,
     );
-    // How many times faster comprs is, on the libraries that it beats.
-    if (library !== 'comprs' && comprs > speed) {
+    // How many times faster comprs is, on the libraries that it beats. A speed
+    // that is not finite, which has no bar, gets no multiplier either.
+    const multiplier = comprs / speed;
+    if (library !== 'comprs' && multiplier > 1 && Number.isFinite(multiplier)) {
       lines.push(
-        `<text x="${px(BAR_X + width + 20 + textWidth(value))}" y="${y + 18}" class="multiplier">${(comprs / speed).toFixed(1)}x vs ${escapeXml(library)}</text>`,
+        `<text x="${px(BAR_X + width + 20 + textWidth(value))}" y="${y + 18}" class="multiplier">${multiplier.toFixed(1)}x vs ${escapeXml(library)}</text>`,
       );
     }
   }
