@@ -45,17 +45,88 @@ type Emit = (result: Uint8Array) => undefined;
 /** A step of a stream: done, or a Promise of being done. */
 type Step = Promise<void> | undefined;
 
+/** A getter of a built-in prototype, if the runtime has it. */
+type Getter = (() => unknown) | undefined;
+
+/** The getter of `key` on `prototype`, a built-in prototype. */
+function getterOf(prototype: object | null, key: PropertyKey): Getter {
+  return prototype ? Object.getOwnPropertyDescriptor(prototype, key)?.get : undefined;
+}
+
+/** `getter`, called on `value`. A getter that the runtime lacks throws. */
+function callGetter(getter: Getter, value: unknown): unknown {
+  if (getter === undefined) throw new TypeError('the runtime lacks a getter of a built-in');
+  return Reflect.apply(getter, value, []);
+}
+
+/** The getters of the buffer and the bounds of a view. */
+interface ViewGetters {
+  readonly buffer: Getter;
+  readonly byteOffset: Getter;
+  readonly byteLength: Getter;
+}
+
+function viewGetters(prototype: object | null): ViewGetters {
+  return {
+    buffer: getterOf(prototype, 'buffer'),
+    byteOffset: getterOf(prototype, 'byteOffset'),
+    byteLength: getterOf(prototype, 'byteLength'),
+  };
+}
+
+/** %TypedArray%.prototype, which every typed array inherits from. */
+const TYPED_ARRAY_PROTOTYPE = Reflect.getPrototypeOf(Uint8Array.prototype);
+const TYPED_ARRAY_GETTERS = viewGetters(TYPED_ARRAY_PROTOTYPE);
+const DATA_VIEW_GETTERS = viewGetters(DataView.prototype);
+
+/**
+ * The getter of the name of the type of a typed array, which returns
+ * `undefined` for any other value, a DataView included.
+ */
+const TYPED_ARRAY_NAME = getterOf(TYPED_ARRAY_PROTOTYPE, Symbol.toStringTag);
+
+/**
+ * `view` as a new Uint8Array over the bytes that it holds. Its buffer and
+ * its bounds are read with the getters of built-in prototypes, which read
+ * the internal slots of the view, as the native addon and the WebAssembly
+ * build do: a subclass or an own property of the view can make its
+ * `byteLength`, `byteOffset` or `buffer` property disagree with them
+ * (#711). A view whose buffer is detached, or out of the bounds of a
+ * resizable buffer that shrank, holds no bytes, as the functions of the
+ * package root read it: the getters of a typed array then return 0, and
+ * those of a DataView throw.
+ */
+function viewBytes(view: ArrayBufferView): Uint8Array {
+  const getters =
+    callGetter(TYPED_ARRAY_NAME, view) === undefined ? DATA_VIEW_GETTERS : TYPED_ARRAY_GETTERS;
+  try {
+    const buffer = callGetter(getters.buffer, view);
+    const byteOffset = callGetter(getters.byteOffset, view);
+    const byteLength = callGetter(getters.byteLength, view);
+    if (
+      types.isAnyArrayBuffer(buffer) &&
+      typeof byteOffset === 'number' &&
+      typeof byteLength === 'number'
+    ) {
+      return new Uint8Array(buffer, byteOffset, byteLength);
+    }
+  } catch {
+    // A DataView whose buffer is detached or shrank, or a typed array whose
+    // buffer is detached, for which new Uint8Array() throws.
+  }
+  return new Uint8Array(0);
+}
+
 /**
  * View `chunk`, a chunk written to a stream, as bytes. The streams accept
  * what `CompressionStream` accepts, any ArrayBuffer or ArrayBufferView, as
  * well as a SharedArrayBuffer, and read it byte for byte: a typed array is
- * not converted element by element.
+ * not converted element by element. A view becomes a new Uint8Array over its
+ * bytes (see viewBytes), whose properties the stream may then trust, as it
+ * does when it buffers a copy of the chunk.
  */
 function toUint8Array(chunk: unknown): Uint8Array {
-  if (chunk instanceof Uint8Array) return chunk;
-  if (ArrayBuffer.isView(chunk)) {
-    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-  }
+  if (ArrayBuffer.isView(chunk)) return viewBytes(chunk);
   // Unlike instanceof, this also recognizes an ArrayBuffer or a
   // SharedArrayBuffer from another realm, such as a vm context.
   if (types.isAnyArrayBuffer(chunk)) return new Uint8Array(chunk);
