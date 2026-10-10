@@ -1,16 +1,23 @@
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { resolve } from 'node:path';
+import { finished } from 'node:stream/promises';
 import { describe, expect, it } from 'vitest';
 import {
   BrotliCompressDictContext,
+  BrotliDecompressDictContext,
   brotliCompressWithDict,
   brotliCompressWithDictAsync,
+  brotliDecompress,
   brotliDecompressWithDict,
   brotliDecompressWithDictAsync,
   brotliDecompressWithDictWithCapacity,
   brotliDecompressWithDictWithCapacityAsync,
+  type StreamContextOptions,
 } from '../index.js';
+import { createBrotliCompressDictTransform } from '../node.js';
 import { createBrotliCompressDictStream, createBrotliDecompressDictStream } from '../streams.js';
+import { HAS_WASM_BUILD, importBrowserEntry, importBrowserStreams } from './load-browser-entry.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
 async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -50,6 +57,12 @@ function buildDict(): Buffer {
     ).join(''),
   );
 }
+
+/**
+ * The input that an incremental context holds at most: 4 MiB less 16 bytes,
+ * as far back as brotli's encoder reaches into the dictionary.
+ */
+const DICT_REACH = 4 * 1024 * 1024 - 16;
 
 describe('brotli dictionary compression', () => {
   const dict = buildDict();
@@ -420,5 +433,239 @@ describe('brotli dictionary encoder defects (#623)', () => {
     const ctx = new BrotliCompressDictContext(dict, quality);
     const output = Buffer.concat([ctx.transform(withText), ctx.finish()]);
     expect(brotliDecompressWithDict(output, dict)).toEqual(withText);
+  });
+});
+
+/** About `length` bytes of JSON lines, like the records of the dictionary. */
+function records(length: number): Buffer {
+  const lines: string[] = [];
+  let size = 0;
+  for (let i = 0; size < length; i++) {
+    const line = `${JSON.stringify({
+      id: i,
+      name: `user_${(i * 7919) % 10007}`,
+      email: `user${i}@example.com`,
+      active: i % 2 === 0,
+    })}\n`;
+    lines.push(line);
+    size += line.length;
+  }
+  return Buffer.from(lines.join('')).subarray(0, length);
+}
+
+/** `data` in chunks of `size` bytes. */
+function chunks(data: Uint8Array, size: number): Uint8Array[] {
+  return Array.from({ length: Math.ceil(data.length / size) }, (_, i) =>
+    data.subarray(i * size, (i + 1) * size),
+  );
+}
+
+/** The error that `call` throws. */
+function thrown(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('did not throw');
+}
+
+/**
+ * What the start of a brotli stream, which goes on, decodes to with `dict`.
+ * Waiting for input, the decoder returns the output that it holds a buffer
+ * at a time.
+ */
+function decodeSoFar(compressed: Uint8Array, dict: Uint8Array): Buffer {
+  const decoder = new BrotliDecompressDictContext(dict);
+  const parts = [decoder.transform(compressed)];
+  for (let part = decoder.flush(); part.length > 0; part = decoder.flush()) {
+    parts.push(part);
+  }
+  return Buffer.concat(parts);
+}
+
+/** A brotli dictionary compression context of either build. */
+interface DictContext {
+  transform(chunk: Uint8Array): Uint8Array;
+  flush(): Uint8Array;
+  finish(): Uint8Array;
+}
+
+/** The BrotliCompressDictContext class of either build. */
+type DictContextClass = new (
+  dict: Uint8Array,
+  quality?: number | null,
+  options?: StreamContextOptions | null,
+) => DictContext;
+
+/**
+ * Compress `data` in chunks of `size` bytes, and return what each
+ * transform() returned, then what finish() did.
+ */
+function compress(ctx: DictContext, data: Uint8Array, size: number): Uint8Array[] {
+  const outputs = chunks(data, size).map((chunk) => ctx.transform(chunk));
+  outputs.push(ctx.finish());
+  return outputs;
+}
+
+/** The tests of the incremental mode of the BrotliCompressDictContext of `load`. */
+function incrementalTests(load: () => Promise<DictContextClass>): void {
+  const dict = buildDict();
+  // Two chunks of 256 KiB past the 4 MiB, at a quality that uses the
+  // dictionary within them.
+  const quality = 2;
+  const data = records(DICT_REACH + 512 * 1024);
+
+  it('should hold the first 4 MiB, then stream', async () => {
+    const Context = await load();
+    const ctx = new Context(dict, quality, { incremental: true });
+    const outputs = compress(ctx, data, 256 * 1024);
+    // The chunks within the first 4 MiB, and the one that passes them.
+    const held = Math.ceil(DICT_REACH / (256 * 1024));
+    for (const output of outputs.slice(0, held - 1)) {
+      expect(output.length).toBe(0);
+    }
+    expect(outputs[held - 1]?.length).toBeGreaterThan(0);
+    const all = Buffer.concat(outputs);
+    expect(all.length - (outputs.at(-1)?.length ?? 0)).toBeGreaterThan(all.length / 2);
+    expect(brotliDecompressWithDict(all, Buffer.from(dict)).equals(data)).toBe(true);
+    // Past the first 4 MiB, the stream does not use the dictionary.
+    expect(brotliDecompress(all).equals(data)).toBe(true);
+  });
+
+  it('should flush all the output of the input so far once it streams', async () => {
+    const Context = await load();
+    const ctx = new Context(dict, quality, { incremental: true });
+    const start = data.subarray(0, DICT_REACH + 1);
+    const next = data.subarray(start.length, start.length + 100_000);
+    const outputs = [ctx.transform(start), ctx.transform(next), ctx.flush()];
+    expect(
+      decodeSoFar(Buffer.concat(outputs), dict).equals(
+        data.subarray(0, start.length + next.length),
+      ),
+    ).toBe(true);
+    outputs.push(ctx.transform(data.subarray(start.length + next.length)), ctx.finish());
+    expect(brotliDecompressWithDict(Buffer.concat(outputs), dict).equals(data)).toBe(true);
+  });
+
+  it('should give the output of brotliCompressWithDict() up to 4 MiB', async () => {
+    const Context = await load();
+    for (const input of [data.subarray(0, 0), data.subarray(0, 100_000)]) {
+      const ctx = new Context(dict, quality, { incremental: true });
+      const outputs = compress(ctx, input, 30_000);
+      expect(outputs.slice(0, -1).every((output) => output.length === 0)).toBe(true);
+      expect(Buffer.concat(outputs).equals(brotliCompressWithDict(input, dict, quality))).toBe(
+        true,
+      );
+    }
+  });
+
+  it('should keep the input until finish() without the option', async () => {
+    const Context = await load();
+    const ctx = new Context(dict, 0);
+    for (const chunk of chunks(data, 1024 * 1024)) {
+      expect(ctx.transform(chunk).length).toBe(0);
+      expect(ctx.flush().length).toBe(0);
+    }
+    expect(Buffer.from(ctx.finish()).equals(brotliCompressWithDict(data, dict, 0))).toBe(true);
+  });
+
+  // The modes that options select, by what transform() returns for more
+  // than 4 MiB, and the errors for invalid options.
+  it.each<[string, unknown, boolean | string]>([
+    ['undefined', undefined, false],
+    ['null', null, false],
+    ['{}', {}, false],
+    ['{ incremental: false }', { incremental: false }, false],
+    ['{ incremental: null }', { incremental: null }, false],
+    ['{ incremental: true }', { incremental: true }, true],
+    ['true', true, 'options must be an object'],
+    ["'x'", 'x', 'options must be an object'],
+    ['a function', () => ({ incremental: true }), 'options must be an object'],
+    ['{ incremental: 1 }', { incremental: 1 }, 'incremental must be a boolean'],
+    ["{ incremental: 'true' }", { incremental: 'true' }, 'incremental must be a boolean'],
+  ])('should take options %s', async (_label, options, expected) => {
+    const Context = await load();
+    const create = (): DictContext => Reflect.construct(Context, [dict, 0, options]);
+    if (typeof expected === 'string') {
+      expect(thrown(create)).toMatchObject({ message: expected });
+      return;
+    }
+    const zeros = new Uint8Array(DICT_REACH + 1);
+    expect(create().transform(zeros).length > 0).toBe(expected);
+  });
+
+  it('should check the quality before the options', async () => {
+    const Context = await load();
+    expect(thrown(() => Reflect.construct(Context, [dict, 12, 'x']))).toMatchObject({
+      message: 'brotli quality must be an integer between 0 and 11',
+    });
+  });
+}
+
+describe('BrotliCompressDictContext with { incremental: true }', () => {
+  describe('in the native addon', () => {
+    incrementalTests(async () => BrotliCompressDictContext);
+
+    it('should report the code of invalid options', () => {
+      const error = thrown(() => Reflect.construct(BrotliCompressDictContext, [buildDict(), 0, 1]));
+      expect(error).toMatchObject({ code: 'InvalidArg', message: 'options must be an object' });
+    });
+  });
+
+  describe.skipIf(!HAS_WASM_BUILD)('in the WebAssembly build', () => {
+    incrementalTests(async () => (await importBrowserEntry()).BrotliCompressDictContext);
+  });
+});
+
+describe('brotli dictionary compression streams', () => {
+  const dict = buildDict();
+  const data = records(DICT_REACH + 512 * 1024);
+
+  /** Write `data` to `stream`, and check that it emits output before the end. */
+  async function checkWebStream(stream: TransformStream<Uint8Array, Uint8Array>): Promise<void> {
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const written = writer.write(data);
+    const first = await reader.read();
+    await written;
+    if (first.done) throw new Error('the stream ended early');
+    expect(first.value.byteLength).toBeGreaterThan(0);
+
+    const ended = writer.close();
+    const output = [first.value];
+    for (let result = await reader.read(); !result.done; result = await reader.read()) {
+      output.push(result.value);
+    }
+    await ended;
+    expect(brotliDecompressWithDict(Buffer.concat(output), dict).equals(data)).toBe(true);
+  }
+
+  // They emit the output of the first 4 MiB as soon as the input passes
+  // them, without waiting for the end of the input.
+  it('createBrotliCompressDictStream() should emit output before the input ends', async () => {
+    await checkWebStream(createBrotliCompressDictStream(dict, 2));
+  });
+
+  it.skipIf(!HAS_WASM_BUILD)(
+    'createBrotliCompressDictStream() of the WebAssembly build should too',
+    async () => {
+      const { createBrotliCompressDictStream: create } = await importBrowserStreams();
+      await checkWebStream(create(dict, 2));
+    },
+  );
+
+  it('createBrotliCompressDictTransform() should push output before the input ends', async () => {
+    const transform = createBrotliCompressDictTransform(dict, 2);
+    const output: Buffer[] = [];
+    transform.on('data', (chunk: Buffer) => output.push(chunk));
+    const pushed = once(transform, 'data');
+    transform.write(data);
+    await pushed;
+    expect(Buffer.concat(output).length).toBeGreaterThan(0);
+
+    transform.end();
+    await finished(transform);
+    expect(brotliDecompressWithDict(Buffer.concat(output), dict).equals(data)).toBe(true);
   });
 });

@@ -877,6 +877,11 @@ impl BrotliDecompressContext {
 
 stream_context_methods!(BrotliDecompressContext);
 
+/// Streaming brotli compression context with custom dictionary, in the
+/// modes of the native addon's: by default, `transform()` and `flush()`
+/// return nothing and `finish()` compresses all of the input; with
+/// `{ incremental: true }`, it holds at most the first 4 MiB of input, then
+/// compresses each chunk as it arrives, without the dictionary.
 #[wasm_bindgen]
 pub struct BrotliCompressDictContext {
     inner: StreamState<comprs_core::brotli_stream::CompressDictContext>,
@@ -885,17 +890,22 @@ pub struct BrotliCompressDictContext {
 #[wasm_bindgen]
 impl BrotliCompressDictContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(dict: &Bytes, quality: Option<f64>) -> Result<BrotliCompressDictContext, JsError> {
+    pub fn new(
+        dict: &Bytes,
+        quality: Option<f64>,
+        #[wasm_bindgen(unchecked_param_type = "StreamContextOptions | null")] options: JsValue,
+    ) -> Result<BrotliCompressDictContext, JsValue> {
         let dict = dict.to_vec("dict")?;
         let quality = comprs_core::brotli::QUALITY
             .check_optional_f64(quality)
             .map_err(to_js_error)?;
+        let context = if stream_context_options(&options)? {
+            comprs_core::brotli_stream::CompressDictContext::incremental(&dict, quality)
+        } else {
+            comprs_core::brotli_stream::CompressDictContext::new(&dict, quality)
+        };
         Ok(Self {
-            inner: StreamState::new(
-                comprs_core::brotli_stream::CompressDictContext::new(&dict, quality)
-                    .map_err(to_js_error)?,
-                "brotli dict stream",
-            ),
+            inner: StreamState::new(context.map_err(to_js_error)?, "brotli dict stream"),
         })
     }
 }

@@ -230,7 +230,11 @@ function createDeflateDecompressStream(maxOutputSize) {
  * Create a streaming brotli compression TransformStream with a custom dictionary.
  *
  * Uses the Web Streams API (`TransformStream`) to provide chunked compression
- * with a custom dictionary for improved compression of similar data.
+ * with a custom dictionary for improved compression of similar data. It
+ * holds up to the first 4 MiB of the input, and compresses an input that
+ * ends there with the dictionary. A longer input is compressed without the
+ * dictionary, which only helps the start of a stream, and the stream emits
+ * compressed output as the input arrives.
  *
  * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
  * read byte for byte: a `Uint16Array` is not converted element by element.
@@ -239,7 +243,7 @@ function createDeflateDecompressStream(maxOutputSize) {
  * @param quality Compression quality (0-11). Default is 6.
  */
 function createBrotliCompressDictStream(dict, quality) {
-    return contextStream(new index_js_1.BrotliCompressDictContext(dict, quality));
+    return contextStream(new index_js_1.BrotliCompressDictContext(dict, quality, { incremental: true }));
 }
 /**
  * Create a streaming brotli decompression TransformStream with a custom dictionary.

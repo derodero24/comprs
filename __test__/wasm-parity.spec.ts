@@ -141,8 +141,36 @@ function halves(data: Uint8Array): [Uint8Array, Uint8Array] {
   return [data.subarray(0, data.length >> 1), data.subarray(data.length >> 1)];
 }
 
-/** The options that make an LZ4 decompression context decode incrementally. */
+/** The options that make a stream context work incrementally. */
 const INCREMENTAL = { incremental: true };
+
+/**
+ * Zeros past the first 4 MiB, which an incremental brotli dictionary
+ * compression context holds before it streams.
+ */
+const PAST_THE_DICT_REACH = new Uint8Array(4 * 1024 * 1024 - 15);
+
+/**
+ * Options of the stream contexts, valid and not, by label. A function is an
+ * object, but not to typeof: both builds reject it, even one with an
+ * incremental property.
+ */
+const CONTEXT_OPTIONS: [string, unknown][] = [
+  ['undefined', undefined],
+  ['null', null],
+  ['{}', {}],
+  ['{ incremental: true }', { incremental: true }],
+  ['{ incremental: false }', { incremental: false }],
+  ['true', true],
+  ["'x'", 'x'],
+  ['{ incremental: 1 }', { incremental: 1 }],
+  ["{ incremental: 'true' }", { incremental: 'true' }],
+  ['() => ({ incremental: true })', () => ({ incremental: true })],
+  [
+    'a function whose incremental property is true',
+    Object.assign(() => ({ incremental: true }), { incremental: true }),
+  ],
+];
 
 interface StreamContext {
   transform(chunk: Uint8Array): Uint8Array;
@@ -420,6 +448,10 @@ const CALLS: [string, Call][] = [
       ),
   ],
   [
+    'BrotliCompressDictContext({ incremental: true })',
+    (api) => drain(new api.BrotliCompressDictContext(dict, undefined, INCREMENTAL), halves(text)),
+  ],
+  [
     'BrotliDecompressDictContext',
     (api) => drain(new api.BrotliDecompressDictContext(dict), halves(fixtures.brotliWithDict)),
   ],
@@ -434,26 +466,8 @@ const CALLS: [string, Call][] = [
   ],
   // Both read the options of the stream contexts by hand, and reject the
   // same values with the same messages. What transform() returns for a whole
-  // frame tells the mode that they select. A function is an object, but
-  // not to typeof: both reject it, even one with an incremental property.
-  ...(
-    [
-      ['undefined', undefined],
-      ['null', null],
-      ['{}', {}],
-      ['{ incremental: true }', { incremental: true }],
-      ['{ incremental: false }', { incremental: false }],
-      ['true', true],
-      ["'x'", 'x'],
-      ['{ incremental: 1 }', { incremental: 1 }],
-      ["{ incremental: 'true' }", { incremental: 'true' }],
-      ['() => ({ incremental: true })', () => ({ incremental: true })],
-      [
-        'a function whose incremental property is true',
-        Object.assign(() => ({ incremental: true }), { incremental: true }),
-      ],
-    ] satisfies [string, unknown][]
-  ).map(([label, options]): [string, Call] => [
+  // frame tells the mode that they select.
+  ...CONTEXT_OPTIONS.map(([label, options]): [string, Call] => [
     `new Lz4DecompressContext(undefined, ${label})`,
     (api) => {
       const context: StreamContext = Reflect.construct(api.Lz4DecompressContext, [
@@ -461,6 +475,19 @@ const CALLS: [string, Call][] = [
         options,
       ]);
       return [context.transform(fixtures.lz4), context.finish()];
+    },
+  ]),
+  // The brotli dictionary compression context too, which streams only past
+  // the first 4 MiB of input.
+  ...CONTEXT_OPTIONS.map(([label, options]): [string, Call] => [
+    `new BrotliCompressDictContext(dict, 0, ${label})`,
+    (api) => {
+      const context: StreamContext = Reflect.construct(api.BrotliCompressDictContext, [
+        dict,
+        0,
+        options,
+      ]);
+      return [context.transform(PAST_THE_DICT_REACH), context.finish()];
     },
   ]),
 ];
@@ -496,6 +523,11 @@ const COMPRESSION_CONTEXTS: [
   [
     'BrotliCompressDictContext',
     (api) => new api.BrotliCompressDictContext(dict),
+    (output) => native.brotliDecompressWithDict(output, dict),
+  ],
+  [
+    'BrotliCompressDictContext({ incremental: true })',
+    (api) => new api.BrotliCompressDictContext(dict, undefined, INCREMENTAL),
     (output) => native.brotliDecompressWithDict(output, dict),
   ],
   ['Lz4CompressContext', (api) => new api.Lz4CompressContext(), native.lz4Decompress],

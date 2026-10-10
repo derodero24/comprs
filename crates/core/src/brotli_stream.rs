@@ -5,6 +5,7 @@ use napi_derive::napi;
 
 use crate::context::{NativeState, stream_context_methods};
 use crate::error::to_napi_error;
+use crate::options::stream_context_options;
 
 /// Streaming brotli compression context.
 ///
@@ -103,11 +104,23 @@ impl BrotliDecompressContext {
 
 stream_context_methods!(BrotliDecompressContext);
 
-/// Streaming brotli compression context with custom dictionary.
+/// Streaming brotli compression context with custom dictionary, in one of
+/// two modes:
 ///
-/// Buffers all input and compresses with the dictionary on `finish`.
-/// This is necessary because the brotli CompressorWriter does not expose
-/// a dictionary API; dictionary compression requires the low-level encoder.
+/// - By default, it buffers its input: `transform()` and `flush()` return
+///   an empty buffer, and `finish()` compresses all of the input with the
+///   dictionary, into the output of `brotliCompressWithDict()`.
+/// - With `{ incremental: true }`, it holds at most the first 4 MiB of input
+///   (4,194,288 bytes, as far as brotli refers back to the dictionary),
+///   which compress with the dictionary into the output of
+///   `brotliCompressWithDict()` if the input ends there. A longer input is
+///   compressed without the dictionary, which only helps the start of a
+///   stream, into a stream that decodes with or without it: the
+///   `transform()` that takes the input past 4 MiB returns the output of
+///   the first 4 MiB, and from then on, `transform()` returns the output
+///   that the encoder has emitted, `flush()` all the output of the input so
+///   far, and `finish()` the rest of the stream. The stream helpers use this
+///   mode.
 #[napi(custom_finalize)]
 pub struct BrotliCompressDictContext {
     inner: NativeState<comprs_core::brotli_stream::CompressDictContext>,
@@ -115,40 +128,54 @@ pub struct BrotliCompressDictContext {
 
 #[napi]
 impl BrotliCompressDictContext {
-    #[napi(constructor)]
-    pub fn new(env: Env, dict: Either<Buffer, Uint8Array>, quality: Option<f64>) -> Result<Self> {
+    /// `quality` defaults to 6. `options.incremental` selects the
+    /// incremental mode; `options` must be an object, `undefined` or `null`.
+    #[napi(
+        constructor,
+        ts_args_type = "dict: Buffer | Uint8Array, quality?: number | undefined | null, options?: StreamContextOptions | undefined | null"
+    )]
+    pub fn new(
+        env: Env,
+        dict: Either<Buffer, Uint8Array>,
+        quality: Option<f64>,
+        options: Option<Unknown>,
+    ) -> Result<Self> {
         let quality = comprs_core::brotli::QUALITY
             .check_optional_f64(quality)
             .map_err(to_napi_error)?;
+        let dict = crate::as_bytes(&dict);
+        let context = if stream_context_options(options)? {
+            comprs_core::brotli_stream::CompressDictContext::incremental(dict, quality)
+        } else {
+            comprs_core::brotli_stream::CompressDictContext::new(dict, quality)
+        };
         Ok(Self {
-            inner: NativeState::new(
-                &env,
-                comprs_core::brotli_stream::CompressDictContext::new(
-                    crate::as_bytes(&dict),
-                    quality,
-                )
-                .map_err(to_napi_error)?,
-                "brotli dict stream",
-            ),
+            inner: NativeState::new(&env, context.map_err(to_napi_error)?, "brotli dict stream"),
         })
     }
 
-    /// Buffer a chunk of data for compression. Returns an empty Buffer because
-    /// all compression is deferred to `finish` (dictionary requires one-shot).
+    /// Take a chunk of data. By default, keep it and return an empty
+    /// buffer: the output comes from `finish()`. Incremental, return the
+    /// output that is ready, which is empty while the context holds its
+    /// input.
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
-    /// Flush returns empty Buffer because all data is buffered until finish.
+    /// Return an empty buffer while the context holds its input, as it
+    /// always does by default. Incremental, once the input has passed the
+    /// first 4 MiB, flush the encoder and return all the output of the input
+    /// so far.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
-    /// Finalize the compression. Compresses all buffered data with the dictionary.
-    /// Must be called once after all data has been transformed.
+    /// Finalize the compression and return the rest of the output: all of
+    /// it, compressed from the input that the context holds, if it holds the
+    /// input. Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())

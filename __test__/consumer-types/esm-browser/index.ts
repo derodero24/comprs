@@ -7,6 +7,7 @@
 // and runs tsc.
 import type { GzipHeader, StreamContextOptions } from '@derodero24/comprs';
 import {
+  BrotliCompressDictContext,
   CompressionFormat,
   detectFormat,
   GzipCompressContext,
@@ -53,10 +54,12 @@ const chunks: Uint8Array[] = [context.transform(input), context.finish()];
 
 // The options of the stream contexts take `undefined` for a property under
 // exactOptionalPropertyTypes, as the contexts do at run time.
-const lz4Options: StreamContextOptions = { incremental: undefined };
-const lz4Contexts = [
+const contextOptions: StreamContextOptions = { incremental: undefined };
+const incrementalContexts = [
   new Lz4DecompressContext(undefined, { incremental: true }),
-  new Lz4DecompressContext(1024, lz4Options),
+  new Lz4DecompressContext(1024, contextOptions),
+  new BrotliCompressDictContext(input, undefined, { incremental: true }),
+  new BrotliCompressDictContext(input, 5, contextOptions),
 ];
 
 const compressed: Uint8Array = await gzipCompressAsync(input);
@@ -88,10 +91,10 @@ export {
   digest,
   filename,
   format,
+  incrementalContexts,
   isGzip,
   isZstd,
   label,
-  lz4Contexts,
   mtime,
   restored,
   roundTrip,

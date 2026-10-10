@@ -324,7 +324,11 @@ export function createZstdDecompressDictTransform(
  * Create a Node.js stream.Transform for brotli compression with a custom dictionary.
  *
  * Uses Node.js `stream.Transform` to provide chunked compression with a custom
- * dictionary, compatible with `stream.pipeline()` and pipe-based workflows.
+ * dictionary, compatible with `stream.pipeline()` and pipe-based workflows. It
+ * holds up to the first 4 MiB of the input, and compresses an input that
+ * ends there with the dictionary. A longer input is compressed without the
+ * dictionary, which only helps the start of a stream, and the Transform
+ * pushes compressed output as the input arrives.
  *
  * Output chunks hold at most `readableHighWaterMark` bytes (64 KiB by
  * default, 16 KiB on Windows).
@@ -336,7 +340,7 @@ export function createBrotliCompressDictTransform(
   dict: Buffer | Uint8Array,
   quality?: number,
 ): Transform {
-  return contextTransform(new BrotliCompressDictContext(dict, quality));
+  return contextTransform(new BrotliCompressDictContext(dict, quality, { incremental: true }));
 }
 
 /**

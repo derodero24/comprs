@@ -367,8 +367,58 @@ export declare class BrotliDecompressContext extends StreamContext {
   constructor(maxOutputSize?: number | null);
 }
 
+/**
+ * Options of a stream context, as the native declarations define them.
+ *
+ * `Lz4DecompressContext` and `BrotliCompressDictContext` take them.
+ */
+export interface StreamContextOptions {
+  /**
+   * Process the input as it arrives rather than hold it. With
+   * `incremental: true`, `Lz4DecompressContext.transform()` returns each LZ4
+   * block once all of it has arrived, `flush()` returns nothing more, and
+   * `maxOutputSize` limits the output of the whole stream;
+   * `BrotliCompressDictContext` holds at most the first 4 MiB of input, then
+   * compresses each chunk as it arrives, without the dictionary. Without it,
+   * the context keeps the behaviour that it has always had. The stream
+   * helpers of `@derodero24/comprs/streams` set it.
+   */
+  incremental?: boolean | undefined;
+}
+
+/**
+ * Streaming brotli compression context with custom dictionary, in one of two
+ * modes. By default, it buffers its input: transform() and flush() return an
+ * empty array, and finish() compresses all of the input, into the output of
+ * brotliCompressWithDict(). With `{ incremental: true }`, it holds at most
+ * the first 4 MiB of input (4,194,288 bytes), which compress with the
+ * dictionary into the output of brotliCompressWithDict() if the input ends
+ * there. A longer input is compressed without the dictionary, which only
+ * helps the start of a stream, into a stream that decodes with or without
+ * it: the transform() that takes the input past 4 MiB returns the output of
+ * the first 4 MiB, and from then on transform() returns the output that is
+ * ready, flush() all the output of the input so far, and finish() the rest
+ * of the stream.
+ */
 export declare class BrotliCompressDictContext extends StreamContext {
-  constructor(dict: Uint8Array, quality?: number | null);
+  constructor(dict: Uint8Array, quality?: number | null, options?: StreamContextOptions | null);
+  /**
+   * By default, keep `chunk` and return an empty array. Incremental, return
+   * the output that is ready, which is empty while the context holds its
+   * input.
+   */
+  transform(chunk: Uint8Array): Uint8Array;
+  /**
+   * Return an empty array while the context holds its input, as it always
+   * does by default. Incremental, once the input has passed the first 4 MiB,
+   * return all the output of the input so far.
+   */
+  flush(): Uint8Array;
+  /**
+   * End the stream, and return the rest of the output: all of it, from the
+   * input that the context holds, if it holds the input.
+   */
+  finish(): Uint8Array;
 }
 
 export declare class BrotliDecompressDictContext extends StreamContext {
@@ -377,23 +427,6 @@ export declare class BrotliDecompressDictContext extends StreamContext {
 
 export declare class Lz4CompressContext extends StreamContext {
   constructor();
-}
-
-/**
- * Options of a stream context, as the native declarations define them.
- *
- * Only `Lz4DecompressContext` takes them so far.
- */
-export interface StreamContextOptions {
-  /**
-   * Decode the input as it arrives. With `incremental: true`,
-   * `transform()` returns the output of the input as soon as it is
-   * available (each LZ4 block once all of it has arrived), `flush()`
-   * returns nothing more, and `maxOutputSize` limits the output of the
-   * whole stream. Without it, the context keeps the behaviour that it has
-   * always had. The stream helpers of `@derodero24/comprs/streams` set it.
-   */
-  incremental?: boolean | undefined;
 }
 
 /**
