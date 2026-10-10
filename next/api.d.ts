@@ -93,7 +93,9 @@ export interface CompressOptions {
      *
      * - zstd: -131072 to 22, 3 by default, which 0 also selects. With a
      *   {@link Dictionary}, the default is the level that it was prepared
-     *   for. Negative levels trade compression ratio for speed;
+     *   for, while 0 still selects 3, which a Dictionary prepared for another
+     *   level digests on its first use, as any other level. Negative levels
+     *   trade compression ratio for speed;
      * - gzip, deflate and deflate-raw: 0 (no compression) to 9, 6 by default;
      * - brotli: 0 to 11 (the quality of brotli), 6 by default.
      *

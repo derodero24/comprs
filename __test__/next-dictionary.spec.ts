@@ -244,6 +244,13 @@ describe('compression with a Dictionary', () => {
     const at1 = Dictionary.from(trained, { format: 'zstd', level: 1 });
     const default19 = compressSync(input, { format: 'zstd', dictionary: at19 });
     expect(compressSync(input, { format: 'zstd', dictionary: at19, level: 19 })).toEqual(default19);
+    // Level 0 selects 3, as without a dictionary, not the level of the
+    // Dictionary, which digests level 3 on its first use.
+    const at3 = Dictionary.from(trained, { format: 'zstd', level: 3 });
+    const default3 = compressSync(input, { format: 'zstd', dictionary: at3 });
+    expect(default3).not.toEqual(default19);
+    expect(compressSync(input, { format: 'zstd', dictionary: at19, level: 0 })).toEqual(default3);
+    at3.close();
     // A level other than the prepared one compresses as a dictionary
     // prepared for that level does.
     for (const dictionary of [at19, at1]) {
