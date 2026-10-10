@@ -14,7 +14,9 @@
  * GitHub-hosted runner; see "Regenerating the README benchmarks" in
  * CONTRIBUTING.md. A local run checks the output: with BENCH_SMOKE=1, every
  * benchmark runs once, and the whole run takes under a minute. Revert its
- * changes afterwards (`git checkout README.md .github/assets`).
+ * changes afterwards (`git checkout README.md .github/assets`). CI runs it
+ * this way in its benchmark smoke test, so that a change to Vitest's JSON
+ * report or to the recorded sizes fails CI, not the next Bench Report run.
  *
  * Usage:
  *   node scripts/bench-report.mjs [--raw-dir <dir>]
@@ -27,7 +29,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { cpus, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -161,14 +163,25 @@ function runBenchmarks(reportFile, sizesFile) {
 }
 
 const { values } = parseArgs({ options: { 'raw-dir': { type: 'string' } } });
+
+// Fail before the benchmarks run, not after, when the markers are missing.
+replaceSection(readFileSync(README, 'utf8'), '');
+
+// CI runs the comparisons through this script alone, so a comparison that
+// BENCH_FILES leaves out would run nowhere, and be missing from the README.
+const unlisted = readdirSync(join(ROOT, '__test__'))
+  .filter((file) => file.endsWith('.compare.bench.ts'))
+  .map((file) => `__test__/${file}`)
+  .filter((file) => !BENCH_FILES.includes(file));
+if (unlisted.length > 0) {
+  throw new Error(`BENCH_FILES in scripts/bench-report.mjs leaves out ${unlisted.join(', ')}`);
+}
+
 const keepRaw = values['raw-dir'] !== undefined;
 const rawDir =
   values['raw-dir'] === undefined
     ? mkdtempSync(join(tmpdir(), 'comprs-bench-report-'))
     : resolve(values['raw-dir']);
-
-// Fail before the benchmarks run, not after, when the markers are missing.
-replaceSection(readFileSync(README, 'utf8'), '');
 
 try {
   mkdirSync(rawDir, { recursive: true });

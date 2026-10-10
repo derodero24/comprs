@@ -531,12 +531,20 @@ jobs:
         run: node __test__/esm-import.mjs
       # Runs every JS benchmark once, without warmup (BENCH_SMOKE in
       # __test__/bench-fixtures.ts), so a change that breaks the benchmarks
-      # fails CI instead of the next `pnpm run bench`.
+      # fails CI instead of the next `pnpm run bench`. bench:ci runs the
+      # benchmarks of comprs alone; scripts/bench-report.mjs runs the
+      # comparisons as the Bench Report workflow does, through Vitest's JSON
+      # reporter and the sizes that the benchmarks record, and renders them
+      # into README.md and the charts of this checkout. A Vitest release that
+      # changes the JSON report, or a comparison that records no sizes, then
+      # fails here instead of in the next Bench Report run.
       - name: Benchmark smoke test
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         env:
           BENCH_SMOKE: '1'
-        run: pnpm run bench --run
+        run: |
+          pnpm run bench:ci --run
+          node scripts/bench-report.mjs
       # GitHub runs JavaScript actions in Alpine containers on x64 runners
       # only, so the musl legs set up on the runner and run just the tests in
       # a node:<version>-alpine container. The workspace keeps its path, so
