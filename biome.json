@@ -6,6 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
+    "ignoreUnknown": true,
     "includes": [
       "**",
       "!index.js",
@@ -55,7 +56,7 @@
         "noForEach": "error",
         "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
-          "level": "warn",
+          "level": "error",
           "options": { "maxAllowedComplexity": 15 }
         }
       },
