@@ -14,6 +14,7 @@ import {
   type Format,
 } from '../next/index.js';
 import { CHUNK_KINDS, streamOf, toChunks } from './chunk-fixtures.js';
+import { describeTicks, eventLoopTicks } from './event-loop.js';
 import { MISLEADING_VIEWS } from './misleading-length.js';
 import { backendModule } from './next-backend.js';
 
@@ -686,59 +687,22 @@ describe('the hidden binding of the streams', () => {
 });
 
 describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
-  /**
-   * Run `run` while a 1 ms interval timer counts how often the event loop
-   * gets to it: the number of ticks, and the median and the longest gap
-   * between them, in milliseconds.
-   */
-  async function timerTicks(
-    run: () => Promise<void>,
-  ): Promise<{ ticks: number; median: number; longest: number }> {
-    const gaps: number[] = [];
-    let last = performance.now();
-    const timer = setInterval(() => {
-      const now = performance.now();
-      gaps.push(now - last);
-      last = now;
-    }, 1);
-    try {
-      await run();
-    } finally {
-      clearInterval(timer);
-    }
-    const ticks = gaps.length;
-    gaps.push(performance.now() - last);
-    gaps.sort((a, b) => a - b);
-    return { ticks, median: gaps[gaps.length >> 1] ?? 0, longest: gaps.at(-1) ?? 0 };
-  }
-
-  /**
-   * The largest median gap between the ticks of the timer that a test
-   * accepts: 10 ms, or twice the median gap of the timer on an idle event
-   * loop where timers are coarser than that.
-   */
-  async function medianGapBound(): Promise<number> {
-    const idle = await timerTicks(() => new Promise((done) => setTimeout(done, 100)));
-    return Math.max(10, 2 * idle.median);
-  }
-
   // The longest gap is only reported, as shared CI runners stall now and
   // then.
   it('turns while a CompressionStream compresses with brotli at quality 9', async ({
     annotate,
   }) => {
     const data = text(MiB);
-    const bound = await medianGapBound();
     let output: Uint8Array = new Uint8Array();
-    const result = await timerTicks(async () => {
+    const result = await eventLoopTicks(async () => {
       output = await through(
         chunked(data, 64 * KiB),
         new CompressionStream('brotli', { level: 9 }),
       );
     });
-    await annotate(`${result.ticks} ticks, longest gap ${result.longest.toFixed(1)} ms`);
+    await annotate(describeTicks(result));
     expect(result.ticks).toBeGreaterThanOrEqual(10);
-    expect(result.median).toBeLessThanOrEqual(bound);
+    expect(result.median).toBeLessThanOrEqual(result.bound);
     expect(decompressSync(output, { format: 'brotli' })).toStrictEqual(data);
   });
 
@@ -751,18 +715,17 @@ describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
     // the debug build.
     const data = text(32 * MiB);
     const compressed = compressSync(data, { format: 'brotli', level: 1 });
-    const bound = await medianGapBound();
     let output: Uint8Array = new Uint8Array();
     const options: DecompressionStreamOptions = { maxOutputSize: 64 * MiB };
-    const result = await timerTicks(async () => {
+    const result = await eventLoopTicks(async () => {
       output = await through(
         chunked(compressed, 64 * KiB),
         new DecompressionStream('auto', options),
       );
     });
-    await annotate(`${result.ticks} ticks, longest gap ${result.longest.toFixed(1)} ms`);
+    await annotate(describeTicks(result));
     expect(result.ticks).toBeGreaterThanOrEqual(10);
-    expect(result.median).toBeLessThanOrEqual(bound);
+    expect(result.median).toBeLessThanOrEqual(result.bound);
     expect(output).toStrictEqual(data);
   });
 });
