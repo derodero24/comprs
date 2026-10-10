@@ -3,8 +3,10 @@
 mod common;
 
 use common::{BoxedContext, boxed, drive, noise, text};
+use comprs_core::gzip::{FlateWrapper, GzipHeaderOptions};
 use comprs_core::{
-    ComprsError, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
+    ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
+    zstd, zstd_stream,
 };
 
 const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary";
@@ -12,6 +14,27 @@ const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary
 /// Workers for the zstd contexts that take them. Builds without the zstdmt
 /// feature accept only 0.
 const ZSTD_WORKERS: u32 = if cfg!(feature = "zstdmt") { 2 } else { 0 };
+
+/// The gzip header that the "gzip with header" contexts write.
+fn header() -> GzipHeaderOptions {
+    GzipHeaderOptions {
+        filename: Some("contexts.txt".to_string()),
+        mtime: Some(1_700_000_000),
+    }
+}
+
+/// A strict decompression context for the format of `wrapper`.
+fn strict(
+    wrapper: FlateWrapper,
+    limit: Option<f64>,
+) -> Result<gzip_stream::StrictDecompressContext, ComprsError> {
+    gzip_stream::StrictDecompressContext::new(wrapper, limit)
+}
+
+/// The one-shot strict decoder of the format of `wrapper`.
+fn strict_one_shot(data: &[u8], wrapper: FlateWrapper) -> Result<Vec<u8>, ComprsError> {
+    gzip::decompress_strict(data, wrapper, MAX_DECOMPRESSED_SIZE)
+}
 
 /// A one-shot function of the same format, for comparison.
 type OneShot = fn(&[u8]) -> Result<Vec<u8>, ComprsError>;
@@ -47,6 +70,43 @@ const CODECS: &[Codec] = &[
         decompressor: |limit| boxed(gzip_stream::DeflateDecompressContext::new(limit)),
         compress: |data| gzip::deflate_compress(data, None),
         decompress: gzip::deflate_decompress,
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "gzip with header",
+        compressor: || {
+            boxed(gzip_stream::GzipCompressContext::with_header(
+                None,
+                &header(),
+            ))
+        },
+        decompressor: |limit| boxed(gzip_stream::GzipDecompressContext::new(limit)),
+        compress: |data| gzip::compress_with_header(data, &header(), None),
+        decompress: gzip::decompress,
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "gzip strict",
+        compressor: || boxed(gzip_stream::GzipCompressContext::new(None)),
+        decompressor: |limit| boxed(strict(FlateWrapper::Gzip, limit)),
+        compress: |data| gzip::compress(data, None),
+        decompress: |data| strict_one_shot(data, FlateWrapper::Gzip),
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "zlib",
+        compressor: || boxed(gzip_stream::ZlibCompressContext::new(None)),
+        decompressor: |limit| boxed(strict(FlateWrapper::Zlib, limit)),
+        compress: |data| gzip::zlib_compress(data, None),
+        decompress: |data| strict_one_shot(data, FlateWrapper::Zlib),
+        flush_emits_input: true,
+    },
+    Codec {
+        name: "deflate-raw strict",
+        compressor: || boxed(gzip_stream::DeflateCompressContext::new(None)),
+        decompressor: |limit| boxed(strict(FlateWrapper::Raw, limit)),
+        compress: |data| gzip::deflate_compress(data, None),
+        decompress: |data| strict_one_shot(data, FlateWrapper::Raw),
         flush_emits_input: true,
     },
     Codec {
@@ -217,6 +277,55 @@ fn contexts_cannot_be_used_after_finish() {
     }
 }
 
+/// Check that `ctx` holds less memory after `finish` than `during`, the
+/// memory that it held while the stream ran: it releases its codec state.
+fn assert_released(ctx: &BoxedContext, during: usize, case: &str) {
+    let after = ctx.memory_usage();
+    assert!(
+        after < during,
+        "{case}: {after} bytes after finish, {during} before"
+    );
+}
+
+#[test]
+fn contexts_release_their_state_on_finish() {
+    let input = text(10_000);
+    for codec in CODECS {
+        let mut compressor = (codec.compressor)().unwrap();
+        let mut compressed = compressor.transform(&input).unwrap();
+        let during = compressor.memory_usage();
+        compressed.extend(compressor.finish().unwrap());
+        assert_released(&compressor, during, &format!("{} compressor", codec.name));
+
+        let (head, tail) = compressed.split_at(compressed.len() / 2);
+        let mut decompressor = (codec.decompressor)(None).unwrap();
+        decompressor.transform(head).unwrap();
+        let during = decompressor.memory_usage();
+        decompressor.transform(tail).unwrap();
+        decompressor.finish().unwrap();
+        assert_released(
+            &decompressor,
+            during,
+            &format!("{} decompressor", codec.name),
+        );
+
+        // Also when finish fails.
+        let mut decompressor = (codec.decompressor)(None).unwrap();
+        decompressor.transform(head).unwrap();
+        let during = decompressor.memory_usage();
+        assert!(
+            decompressor.finish().is_err(),
+            "{} decompressor",
+            codec.name
+        );
+        assert_released(
+            &decompressor,
+            during,
+            &format!("truncated {} decompressor", codec.name),
+        );
+    }
+}
+
 /// A compression context at a level, or at the default level for `None`.
 type NewCompressor<T> = fn(Option<T>) -> Result<BoxedContext, ComprsError>;
 
@@ -244,15 +353,30 @@ fn check_levels<T: Copy + std::fmt::Display>(
 
 #[test]
 fn compress_contexts_validate_the_level() {
-    let unsigned: [(&str, NewCompressor<u32>, u32); 4] = [
+    let unsigned: [(&str, NewCompressor<u32>, u32); 6] = [
         (
             "gzip",
             |level| boxed(gzip_stream::GzipCompressContext::new(level)),
             9,
         ),
         (
+            "gzip with header",
+            |level| {
+                boxed(gzip_stream::GzipCompressContext::with_header(
+                    level,
+                    &header(),
+                ))
+            },
+            9,
+        ),
+        (
             "deflate",
             |level| boxed(gzip_stream::DeflateCompressContext::new(level)),
+            9,
+        ),
+        (
+            "zlib",
+            |level| boxed(gzip_stream::ZlibCompressContext::new(level)),
             9,
         ),
         (

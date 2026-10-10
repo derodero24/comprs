@@ -1,11 +1,14 @@
-//! Gzip and raw deflate streaming compression and decompression.
+//! gzip, zlib and raw deflate streaming compression and decompression.
 
 use std::io::{self, Write};
 
 use flate2::Compression;
-use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder};
+use flate2::write::{DeflateEncoder, GzEncoder, MultiGzDecoder, ZlibEncoder};
 
-use crate::gzip::{DEFAULT_LEVEL, DEFLATE_LEVEL, Inflater, LEVEL};
+use crate::gzip::{
+    self, DEFAULT_LEVEL, DEFLATE_LEVEL, FlateWrapper, GzipHeaderOptions, Inflater, LEVEL,
+    StrictDecoder,
+};
 use crate::limited::LimitedVec;
 use crate::{ComprsError, MemoryUsage};
 
@@ -23,6 +26,31 @@ const INFLATE_STATE_SIZE: usize = 47_552;
 /// Buffer that flate2's `write` encoders and decoders keep.
 const WRITER_BUFFER_SIZE: usize = 32 * 1024;
 
+/// What the errors of a stream context call the stream and its operations.
+struct Labels {
+    /// The stream, for [`ComprsError::StreamFinished`].
+    stream: &'static str,
+    /// The error context of `transform`.
+    transform: &'static str,
+    flush: &'static str,
+    finish: &'static str,
+}
+
+/// The [`Labels`] of the streams of the format named `$format`, whose
+/// `transform` does `$operation`: "gzip stream", "gzip stream compress",
+/// "gzip stream flush" and "gzip stream finish" for `labels!("gzip",
+/// "compress")`.
+macro_rules! labels {
+    ($format:literal, $operation:literal) => {
+        Labels {
+            stream: concat!($format, " stream"),
+            transform: concat!($format, " stream ", $operation),
+            flush: concat!($format, " stream flush"),
+            finish: concat!($format, " stream finish"),
+        }
+    };
+}
+
 /// Streaming gzip compression context.
 pub struct GzipCompressContext {
     inner: FlateEncoder<GzEncoder<Vec<u8>>>,
@@ -30,18 +58,19 @@ pub struct GzipCompressContext {
 
 impl GzipCompressContext {
     pub fn new(level: Option<u32>) -> Result<Self, ComprsError> {
+        Self::with_header(level, &GzipHeaderOptions::default())
+    }
+
+    /// A context whose gzip header holds the fields of `header`, as
+    /// [`gzip::compress_with_header`] writes them.
+    pub fn with_header(
+        level: Option<u32>,
+        header: &GzipHeaderOptions,
+    ) -> Result<Self, ComprsError> {
         let level = LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
-        let encoder = GzEncoder::new(Vec::new(), Compression::new(level));
+        let encoder = gzip::header_builder(header)?.write(Vec::new(), Compression::new(level));
         Ok(Self {
-            inner: FlateEncoder::new(
-                encoder,
-                "gzip stream",
-                Labels {
-                    compress: "gzip stream compress",
-                    flush: "gzip stream flush",
-                    finish: "gzip stream finish",
-                },
-            ),
+            inner: FlateEncoder::new(encoder, labels!("gzip", "compress")),
         })
     }
 
@@ -154,15 +183,7 @@ impl DeflateCompressContext {
         let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
         let encoder = DeflateEncoder::new(Vec::new(), Compression::new(level));
         Ok(Self {
-            inner: FlateEncoder::new(
-                encoder,
-                "deflate stream",
-                Labels {
-                    compress: "deflate stream compress",
-                    flush: "deflate stream flush",
-                    finish: "deflate stream finish",
-                },
-            ),
+            inner: FlateEncoder::new(encoder, labels!("deflate", "compress")),
         })
     }
 
@@ -196,7 +217,7 @@ impl DeflateDecompressContext {
     pub fn new(max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         Ok(Self {
-            inflater: Some(Inflater::new()),
+            inflater: Some(Inflater::new(FlateWrapper::Raw)),
             output: LimitedVec::new(max_size, "deflate stream decompress"),
         })
     }
@@ -252,6 +273,145 @@ impl MemoryUsage for DeflateDecompressContext {
     }
 }
 
+/// Streaming zlib compression context: the format that the Compression
+/// Streams standard calls `deflate`, as [`gzip::zlib_compress`] writes it.
+pub struct ZlibCompressContext {
+    inner: FlateEncoder<ZlibEncoder<Vec<u8>>>,
+}
+
+impl ZlibCompressContext {
+    pub fn new(level: Option<u32>) -> Result<Self, ComprsError> {
+        let level = DEFLATE_LEVEL.check(level.unwrap_or(DEFAULT_LEVEL))?;
+        let encoder = ZlibEncoder::new(Vec::new(), Compression::new(level));
+        Ok(Self {
+            inner: FlateEncoder::new(encoder, labels!("deflate", "compress")),
+        })
+    }
+
+    pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+        self.inner.transform(chunk)
+    }
+
+    pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+        self.inner.flush()
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        self.inner.finish()
+    }
+}
+
+impl MemoryUsage for ZlibCompressContext {
+    fn memory_usage(&self) -> usize {
+        self.inner.memory_usage()
+    }
+}
+
+/// Streaming decompression context for raw deflate, zlib or gzip, with the
+/// rules of [`gzip::decompress_strict`]: data after the end of the stream
+/// fails with [`ComprsError::Corrupt`], and [`StrictDecompressContext::finish`]
+/// fails with [`ComprsError::Truncated`] unless the input ended at the end of
+/// the stream. gzip input may hold several members.
+///
+/// Its errors name the format as [`FlateWrapper::format_name`] does.
+///
+/// An error leaves the context failed, as an error leaves a stream of the
+/// Compression Streams standard errored: the context drops its decoder and
+/// the output that the failed call decoded, and every later call fails with
+/// the same error. A `finish` after the error for junk after the stream
+/// would otherwise succeed, with the output decoded before the junk.
+/// `finish` ends the stream, whether it succeeds or not: every later call
+/// fails with [`ComprsError::StreamFinished`].
+pub struct StrictDecompressContext {
+    stream: StrictStream,
+    output: LimitedVec,
+    labels: Labels,
+}
+
+/// The state of a [`StrictDecompressContext`].
+enum StrictStream {
+    Decoding(StrictDecoder),
+    /// A `transform` or `flush` call failed with this error, which the later
+    /// calls report again.
+    Failed(ComprsError),
+    /// `finish` was called.
+    Finished,
+}
+
+impl StrictDecompressContext {
+    pub fn new(wrapper: FlateWrapper, max_output_size: Option<f64>) -> Result<Self, ComprsError> {
+        let max_size = crate::validate_max_output_size(max_output_size)?;
+        let labels = match wrapper {
+            FlateWrapper::Raw => labels!("deflate-raw", "decompress"),
+            FlateWrapper::Zlib => labels!("deflate", "decompress"),
+            FlateWrapper::Gzip => labels!("gzip", "decompress"),
+        };
+        Ok(Self {
+            stream: StrictStream::Decoding(StrictDecoder::new(wrapper)),
+            output: LimitedVec::new(max_size, labels.transform),
+            labels,
+        })
+    }
+
+    pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
+        self.inflate(chunk, self.labels.transform)
+    }
+
+    pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
+        self.inflate(&[], self.labels.flush)
+    }
+
+    /// Finalize the decompression stream, returning any remaining output.
+    ///
+    /// Fails with [`ComprsError::Truncated`] unless the input ended at the
+    /// end of the stream, or of a gzip member, and with the error of an
+    /// earlier call that failed.
+    pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
+        // A finish that fails ends the stream as well.
+        match std::mem::replace(&mut self.stream, StrictStream::Finished) {
+            StrictStream::Decoding(mut decoder) => {
+                let result = decoder
+                    .inflate(&[], &mut self.output, self.labels.finish)
+                    .and_then(|()| decoder.finish());
+                // Taken whether or not the stream ended cleanly, so that a
+                // failed finish drops the output.
+                let output = self.output.take();
+                result.map(|()| output)
+            }
+            StrictStream::Failed(error) => Err(error),
+            StrictStream::Finished => Err(ComprsError::StreamFinished(self.labels.stream)),
+        }
+    }
+
+    fn inflate(&mut self, input: &[u8], context: &'static str) -> Result<Vec<u8>, ComprsError> {
+        let decoder = match &mut self.stream {
+            StrictStream::Decoding(decoder) => decoder,
+            StrictStream::Failed(error) => return Err(error.duplicate()),
+            StrictStream::Finished => return Err(ComprsError::StreamFinished(self.labels.stream)),
+        };
+        let result = decoder.inflate(input, &mut self.output, context);
+        // A failed call drops its output and returns only the error.
+        let output = self.output.take();
+        match result {
+            Ok(()) => Ok(output),
+            Err(error) => {
+                self.stream = StrictStream::Failed(error.duplicate());
+                Err(error)
+            }
+        }
+    }
+}
+
+impl MemoryUsage for StrictDecompressContext {
+    fn memory_usage(&self) -> usize {
+        let state = match &self.stream {
+            StrictStream::Decoding(decoder) if decoder.is_inflating() => INFLATE_STATE_SIZE,
+            _ => 0,
+        };
+        state + self.output.capacity()
+    }
+}
+
 /// A flate2 `write` encoder into a `Vec<u8>`. flate2 gives each encoder
 /// these methods but no trait for them, so [`FlateEncoder`] calls them
 /// through this one.
@@ -281,30 +441,20 @@ macro_rules! impl_encoder {
     )+};
 }
 
-impl_encoder!(GzEncoder, DeflateEncoder);
+impl_encoder!(GzEncoder, DeflateEncoder, ZlibEncoder);
 
-/// The error contexts of the operations of a [`FlateEncoder`].
-struct Labels {
-    compress: &'static str,
-    flush: &'static str,
-    finish: &'static str,
-}
-
-/// Encoder state shared by [`GzipCompressContext`] and
-/// [`DeflateCompressContext`].
+/// Encoder state shared by [`GzipCompressContext`],
+/// [`DeflateCompressContext`] and [`ZlibCompressContext`].
 struct FlateEncoder<E> {
     /// `None` once the stream is finished.
     encoder: Option<E>,
-    /// What [`ComprsError::StreamFinished`] calls the stream.
-    name: &'static str,
     labels: Labels,
 }
 
 impl<E: Encoder> FlateEncoder<E> {
-    fn new(encoder: E, name: &'static str, labels: Labels) -> Self {
+    fn new(encoder: E, labels: Labels) -> Self {
         Self {
             encoder: Some(encoder),
-            name,
             labels,
         }
     }
@@ -315,12 +465,12 @@ impl<E: Encoder> FlateEncoder<E> {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or(ComprsError::StreamFinished(self.name))?;
+            .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
         encoder
             .write_all(chunk)
             .map_err(|e| ComprsError::Operation {
-                context: self.labels.compress,
+                context: self.labels.transform,
                 source: e.into(),
             })?;
 
@@ -332,7 +482,7 @@ impl<E: Encoder> FlateEncoder<E> {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or(ComprsError::StreamFinished(self.name))?;
+            .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
         encoder.flush().map_err(|e| ComprsError::Operation {
             context: self.labels.flush,
@@ -347,7 +497,7 @@ impl<E: Encoder> FlateEncoder<E> {
         let encoder = self
             .encoder
             .take()
-            .ok_or(ComprsError::StreamFinished(self.name))?;
+            .ok_or(ComprsError::StreamFinished(self.labels.stream))?;
 
         encoder.finish().map_err(|e| ComprsError::Operation {
             context: self.labels.finish,
@@ -373,9 +523,9 @@ mod tests {
 
     use super::{
         DEFLATE_STATE_SIZE, DeflateCompressContext, DeflateDecompressContext, GzipCompressContext,
-        GzipDecompressContext, INFLATE_STATE_SIZE,
+        GzipDecompressContext, INFLATE_STATE_SIZE, StrictDecompressContext,
     };
-    use crate::gzip::DEFAULT_LEVEL;
+    use crate::gzip::{DEFAULT_LEVEL, FlateWrapper};
     use crate::{ComprsError, MemoryUsage};
 
     /// Decompression limit used by the size-limit tests.
@@ -536,6 +686,25 @@ mod tests {
         inflate.finish().unwrap();
         assert_eq!(gunzip.memory_usage(), 0);
         assert_eq!(inflate.memory_usage(), inflate.output.capacity());
+    }
+
+    #[test]
+    fn strict_decompress_context_reports_the_inflate_state_inside_a_member() {
+        let member = gzip(b"member");
+        let mut ctx = StrictDecompressContext::new(FlateWrapper::Gzip, None).unwrap();
+        assert!(ctx.memory_usage() >= INFLATE_STATE_SIZE);
+        assert_eq!(ctx.transform(&member).unwrap(), b"member");
+        // The state of a member is freed when the member ends, and the next
+        // one starts with its second byte.
+        assert_eq!(ctx.memory_usage(), 0);
+        ctx.transform(&member[..1]).unwrap();
+        assert_eq!(ctx.memory_usage(), 0);
+        ctx.transform(&member[1..2]).unwrap();
+        assert!(ctx.memory_usage() >= INFLATE_STATE_SIZE);
+        assert_eq!(ctx.transform(&member[2..]).unwrap(), b"member");
+        assert_eq!(ctx.memory_usage(), 0);
+        ctx.finish().unwrap();
+        assert_eq!(ctx.memory_usage(), 0);
     }
 
     #[test]

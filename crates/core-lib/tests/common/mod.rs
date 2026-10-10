@@ -4,11 +4,11 @@
 // Each test binary uses a different subset of the helpers.
 #![allow(dead_code)]
 
-use comprs_core::{ComprsError, brotli_stream, gzip_stream, lz4_stream, zstd_stream};
+use comprs_core::{ComprsError, MemoryUsage, brotli_stream, gzip_stream, lz4_stream, zstd_stream};
 
 /// The methods that every stream context has, so that tests can drive any
 /// of them.
-pub trait Context {
+pub trait Context: MemoryUsage {
     fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError>;
     fn flush(&mut self) -> Result<Vec<u8>, ComprsError>;
     fn finish(&mut self) -> Result<Vec<u8>, ComprsError>;
@@ -37,6 +37,8 @@ impl_context!(
     gzip_stream::GzipDecompressContext,
     gzip_stream::DeflateCompressContext,
     gzip_stream::DeflateDecompressContext,
+    gzip_stream::ZlibCompressContext,
+    gzip_stream::StrictDecompressContext,
     brotli_stream::CompressContext,
     brotli_stream::DecompressContext,
     brotli_stream::CompressDictContext,

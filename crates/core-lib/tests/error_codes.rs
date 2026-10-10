@@ -3,9 +3,10 @@
 mod common;
 
 use common::{BoxedContext, boxed, text};
+use comprs_core::gzip::{FlateWrapper, GzipHeaderOptions};
 use comprs_core::{
-    ComprsError, ERROR_CODES, brotli, brotli_stream, detect, gzip, gzip_stream, lz4, lz4_stream,
-    zstd, zstd_stream,
+    ComprsError, ERROR_CODES, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, detect, gzip,
+    gzip_stream, lz4, lz4_stream, zstd, zstd_stream,
 };
 
 const INVALID_ARG: &str = "ERR_COMPRS_INVALID_ARG";
@@ -79,6 +80,19 @@ const CORRUPT_ZSTD_WITH_SIZE: &[u8] = &[
     b'h', b'e', b'l', b'l', b'o',
 ];
 
+/// The gzip header that the compressor of the "gzip strict" codec writes.
+fn header() -> GzipHeaderOptions {
+    GzipHeaderOptions {
+        filename: Some("data.txt".to_string()),
+        mtime: Some(1_700_000_000),
+    }
+}
+
+/// A strict decompression context for the format of `wrapper`.
+fn strict(wrapper: FlateWrapper, limit: Option<f64>) -> Result<BoxedContext, ComprsError> {
+    boxed(gzip_stream::StrictDecompressContext::new(wrapper, limit))
+}
+
 /// `compressed` with the byte at `index` changed so that the deflate block
 /// that starts there has the reserved block type.
 fn reserved_deflate_block(compressed: &[u8], index: usize) -> Vec<u8> {
@@ -150,6 +164,60 @@ const CODECS: &[Codec] = &[
             || gzip::deflate_compress(b"data", Some(10)).map(drop),
             || gzip_stream::DeflateCompressContext::new(Some(10)).map(drop),
         ],
+        cut: TRUNCATED,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "gzip strict",
+        compress: |data| gzip::compress(data, None),
+        decoders: &[
+            |data, _| gzip::decompress_strict(data, FlateWrapper::Gzip, MAX_DECOMPRESSED_SIZE),
+            |data, limit| gzip::decompress_strict(data, FlateWrapper::Gzip, limit),
+        ],
+        compressor: || {
+            boxed(gzip_stream::GzipCompressContext::with_header(
+                None,
+                &header(),
+            ))
+        },
+        decompressor: |limit| strict(FlateWrapper::Gzip, limit),
+        corrupt: &[|compressed| reserved_deflate_block(compressed, 10)],
+        invalid_levels: &[|| {
+            gzip_stream::GzipCompressContext::with_header(Some(10), &header()).map(drop)
+        }],
+        cut: TRUNCATED,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "zlib",
+        compress: |data| gzip::zlib_compress(data, None),
+        decoders: &[
+            |data, _| gzip::decompress_strict(data, FlateWrapper::Zlib, MAX_DECOMPRESSED_SIZE),
+            |data, limit| gzip::decompress_strict(data, FlateWrapper::Zlib, limit),
+        ],
+        compressor: || boxed(gzip_stream::ZlibCompressContext::new(None)),
+        decompressor: |limit| strict(FlateWrapper::Zlib, limit),
+        // The deflate data follows the 2-byte header.
+        corrupt: &[|compressed| reserved_deflate_block(compressed, 2)],
+        invalid_levels: &[
+            || gzip::zlib_compress(b"data", Some(10)).map(drop),
+            || gzip_stream::ZlibCompressContext::new(Some(10)).map(drop),
+        ],
+        cut: TRUNCATED,
+        cut_stream: TRUNCATED,
+    },
+    Codec {
+        name: "deflate-raw strict",
+        compress: |data| gzip::deflate_compress(data, None),
+        decoders: &[
+            |data, _| gzip::decompress_strict(data, FlateWrapper::Raw, MAX_DECOMPRESSED_SIZE),
+            |data, limit| gzip::decompress_strict(data, FlateWrapper::Raw, limit),
+        ],
+        compressor: || boxed(gzip_stream::DeflateCompressContext::new(None)),
+        decompressor: |limit| strict(FlateWrapper::Raw, limit),
+        corrupt: &[|compressed| reserved_deflate_block(compressed, 0)],
+        // The "deflate" codec checks the levels of the raw deflate encoders.
+        invalid_levels: &[],
         cut: TRUNCATED,
         cut_stream: TRUNCATED,
     },
@@ -325,6 +393,36 @@ fn unknown_format() {
     assert_eq!(code(detect::decompress(cut)), UNKNOWN_FORMAT);
     let result = detect::decompress_with_capacity(cut, lines.len());
     assert_eq!(code(result), UNKNOWN_FORMAT);
+}
+
+#[test]
+fn strict_contexts_keep_the_code_of_their_error() {
+    let input = text(20_000);
+    for name in ["gzip strict", "zlib", "deflate-raw strict"] {
+        let Some(codec) = CODECS.iter().find(|codec| codec.name == name) else {
+            panic!("no codec named {name}");
+        };
+        let compressed = (codec.compress)(&input).unwrap();
+        let cases = [
+            (
+                [&compressed[..], b"trailing garbage"].concat(),
+                None,
+                CORRUPT_DATA,
+            ),
+            ((codec.corrupt[0])(&compressed), None, CORRUPT_DATA),
+            (compressed, Some((input.len() - 1) as f64), SIZE_LIMIT),
+        ];
+        for (data, limit, expected) in cases {
+            let mut ctx = (codec.decompressor)(limit).unwrap();
+            assert_eq!(code(ctx.transform(&data)), expected, "{name}");
+            // The later calls report the error again, until finish() ends
+            // the stream.
+            assert_eq!(code(ctx.transform(b"x")), expected, "{name}");
+            assert_eq!(code(ctx.flush()), expected, "{name}");
+            assert_eq!(code(ctx.finish()), expected, "{name}");
+            assert_eq!(code(ctx.transform(b"x")), STREAM_FINISHED, "{name}");
+        }
+    }
 }
 
 #[test]
