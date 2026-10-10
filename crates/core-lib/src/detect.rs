@@ -10,13 +10,13 @@ use crate::ComprsError;
 use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
 
 /// Zstd magic number: 0xFD2FB528.
-const ZSTD_MAGIC: u32 = 0xFD2F_B528;
+pub(crate) const ZSTD_MAGIC: u32 = 0xFD2F_B528;
 
 /// Gzip magic number: 0x1F 0x8B.
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
 /// How much of the input [`detect`] decodes to recognize brotli: 64 KiB.
-const BROTLI_PROBE_SIZE: usize = 64 * 1024;
+pub(crate) const BROTLI_PROBE_SIZE: usize = 64 * 1024;
 
 /// Compression format detected from input data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +73,7 @@ pub fn detect(data: &[u8]) -> Format {
 
 /// The data after the skippable frames at the start of `data`, or `None` if
 /// it ends inside one.
-fn skip_skippable_frames(mut data: &[u8]) -> Option<&[u8]> {
+pub(crate) fn skip_skippable_frames(mut data: &[u8]) -> Option<&[u8]> {
     while let Some(magic) = data.first_chunk() {
         if !SKIPPABLE_MAGIC.contains(&u32::from_le_bytes(*magic)) {
             break;
@@ -87,10 +87,42 @@ fn skip_skippable_frames(mut data: &[u8]) -> Option<&[u8]> {
 }
 
 /// Whether `data` looks like a brotli stream, as described for [`detect`].
-///
-/// Only compressed meta-blocks decode to more bytes than they hold, and data
-/// that is not brotli practically never decodes as one.
 fn is_brotli(data: &[u8]) -> bool {
+    match probe_brotli(data, false) {
+        BrotliProbe::Invalid => false,
+        BrotliProbe::Ended(len) => len == data.len(),
+        BrotliProbe::Expands => true,
+        BrotliProbe::NeedsMoreInput => data.len() >= BROTLI_PROBE_SIZE,
+    }
+}
+
+/// What decoding the first 64 KiB of some data as brotli found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrotliProbe {
+    /// The data is not a brotli stream.
+    Invalid,
+    /// A brotli stream ends after this many bytes.
+    Ended(usize),
+    /// The data decoded to more bytes than it holds. Only compressed
+    /// meta-blocks do, and data that is not brotli practically never
+    /// decodes as one.
+    Expands,
+    /// The first 64 KiB, or all of the data if it is shorter, decoded
+    /// without error as the start of a brotli stream that does not expand.
+    NeedsMoreInput,
+}
+
+/// Decode up to the first 64 KiB of `data` as a brotli stream, until it
+/// fails, ends, expands or needs more input.
+///
+/// When the decoder runs out of input, it writes as much of the output that
+/// it holds as the 4 KiB buffer takes, so a stream that the first 4 KiB of
+/// output do not show to expand may expand once the decoder writes the
+/// rest. With `drain`, the probe takes all of it before it gives up:
+/// [`detect`] decides without, as it always has, while
+/// [`crate::unified::detect_prefix`] needs a probe whose answer for a brotli
+/// stream that compresses does not change as more of the stream arrives.
+pub(crate) fn probe_brotli(data: &[u8], drain: bool) -> BrotliProbe {
     let input = &data[..data.len().min(BROTLI_PROBE_SIZE)];
     let mut state = BrotliState::new(
         StandardAlloc::default(),
@@ -117,11 +149,12 @@ fn is_brotli(data: &[u8]) -> bool {
             &mut state,
         );
         match result {
-            BrotliResult::ResultFailure => return false,
-            BrotliResult::ResultSuccess => return input_offset == data.len(),
-            _ if total_out > input_offset => return true,
+            BrotliResult::ResultFailure => return BrotliProbe::Invalid,
+            BrotliResult::ResultSuccess => return BrotliProbe::Ended(input_offset),
+            _ if total_out > input_offset => return BrotliProbe::Expands,
             BrotliResult::NeedsMoreOutput => {}
-            BrotliResult::NeedsMoreInput => return input.len() == BROTLI_PROBE_SIZE,
+            BrotliResult::NeedsMoreInput if drain && output_offset > 0 => {}
+            BrotliResult::NeedsMoreInput => return BrotliProbe::NeedsMoreInput,
         }
     }
 }

@@ -18,6 +18,7 @@ mod limited;
 pub mod lz4;
 pub mod lz4_stream;
 pub mod panic_guard;
+pub mod unified;
 pub mod zstd;
 pub mod zstd_stream;
 

@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use common::{BoxedContext, boxed, drive, noise, text};
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::gzip::{FlateWrapper, GzipHeaderOptions};
+use comprs_core::unified::{self, CompressOptions, DecompressOptions, DictionaryRef, Format};
 use comprs_core::{
     ComprsError, MAX_DECOMPRESSED_SIZE, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
     zstd, zstd_stream,
@@ -17,6 +18,10 @@ const DICT: &[u8] = b"stream chunk frame block window level output, a dictionary
 /// [`DICT`], prepared for zstd.
 static PREPARED: LazyLock<Dictionary> =
     LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap());
+
+/// [`DICT`], prepared for brotli.
+static BROTLI_PREPARED: LazyLock<Dictionary> =
+    LazyLock::new(|| Dictionary::new(DICT, DictionaryFormat::Brotli, None).unwrap());
 
 /// Workers for the zstd contexts that take them. Builds without the zstdmt
 /// feature accept only 0.
@@ -60,6 +65,57 @@ struct Codec {
     /// context buffers its input until `finish`, and the lz4 decompression
     /// context decodes only complete frames.
     flush_emits_input: bool,
+}
+
+/// The [`Codec`] of the unified contexts that compress in `$format` with
+/// `$dictionary` and `$workers`, and decompress as `$decode_as` (`None` to
+/// detect the format) with the same dictionary.
+macro_rules! unified_codec {
+    (
+        $name:literal,
+        $format:expr,
+        decode_as: $decode_as:expr,
+        dictionary: $dictionary:expr,
+        workers: $workers:expr,
+        flush_emits_input: $flush_emits_input:literal $(,)?
+    ) => {
+        Codec {
+            name: $name,
+            compressor: || {
+                let options = CompressOptions {
+                    dictionary: $dictionary,
+                    workers: $workers,
+                    ..CompressOptions::default()
+                };
+                boxed(unified::CompressContext::new($format, &options))
+            },
+            decompressor: |limit| {
+                let options = DecompressOptions {
+                    format: $decode_as,
+                    max_output_size: limit,
+                    dictionary: $dictionary,
+                };
+                boxed(unified::DecompressContext::new(&options))
+            },
+            compress: |data| {
+                let options = CompressOptions {
+                    dictionary: $dictionary,
+                    workers: $workers,
+                    ..CompressOptions::default()
+                };
+                unified::compress(data, $format, &options)
+            },
+            decompress: |data| {
+                let options = DecompressOptions {
+                    format: $decode_as,
+                    max_output_size: None,
+                    dictionary: $dictionary,
+                };
+                unified::decompress(data, &options)
+            },
+            flush_emits_input: $flush_emits_input,
+        }
+    };
 }
 
 const CODECS: &[Codec] = &[
@@ -203,6 +259,90 @@ const CODECS: &[Codec] = &[
         decompress: lz4::decompress,
         flush_emits_input: false,
     },
+    unified_codec!(
+        "unified zstd dict workers",
+        Format::Zstd,
+        decode_as: Some(Format::Zstd),
+        dictionary: Some(DictionaryRef::Raw(DICT)),
+        workers: Some(f64::from(ZSTD_WORKERS)),
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified zstd prepared dict",
+        Format::Zstd,
+        // The format of the dictionary.
+        decode_as: None,
+        dictionary: Some(DictionaryRef::Prepared(&PREPARED)),
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified deflate",
+        Format::Deflate,
+        decode_as: Some(Format::Deflate),
+        dictionary: None,
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified deflate-raw",
+        Format::DeflateRaw,
+        decode_as: Some(Format::DeflateRaw),
+        dictionary: None,
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified brotli prepared dict",
+        Format::Brotli,
+        decode_as: Some(Format::Brotli),
+        dictionary: Some(DictionaryRef::Prepared(&BROTLI_PREPARED)),
+        workers: None,
+        flush_emits_input: false,
+    ),
+    // Detection, which holds the input until it knows the format: zlib only
+    // once the stream ends. These also cover the contexts that the unified
+    // layer creates for zstd, gzip, brotli and lz4.
+    unified_codec!(
+        "unified auto zstd",
+        Format::Zstd,
+        decode_as: None,
+        dictionary: None,
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified auto gzip",
+        Format::Gzip,
+        decode_as: None,
+        dictionary: None,
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified auto deflate",
+        Format::Deflate,
+        decode_as: None,
+        dictionary: None,
+        workers: None,
+        flush_emits_input: false,
+    ),
+    unified_codec!(
+        "unified auto brotli",
+        Format::Brotli,
+        decode_as: None,
+        dictionary: None,
+        workers: None,
+        flush_emits_input: true,
+    ),
+    unified_codec!(
+        "unified auto lz4",
+        Format::Lz4,
+        decode_as: None,
+        dictionary: None,
+        workers: None,
+        flush_emits_input: false,
+    ),
 ];
 
 /// Inputs for the round trips: empty, compressible and incompressible data,
