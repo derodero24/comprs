@@ -9,6 +9,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [Node.js](https://nodejs.org/) ≥ 22.13
 - [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
+- [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (`cargo install cargo-deny --locked`), which the pre-push hook runs
 
 `rust-version` in `Cargo.toml` is the minimum supported Rust version. The `Rust MSRV` CI job checks the workspace with exactly that version, so a dependency update that needs a newer Rust fails there. Such an update raises `rust-version`, and the Rust version in this section, in the same pull request. To run the check locally:
 
@@ -172,7 +173,7 @@ cargo update --workspace --manifest-path crates/core-lib/fuzz/Cargo.toml
 
 ## Commit messages
 
-Conventional Commits format: `type(scope): description`. The commit-msg hook checks the message with [commitlint](https://commitlint.js.org/) and `@commitlint/config-conventional` (`commitlint.config.ts`). Pull request titles follow the same format: squash-merging a pull request makes its title the subject of the commit.
+Conventional Commits format: `type(scope): description`. The commit-msg hook checks the message with [commitlint](https://commitlint.js.org/) and `@commitlint/config-conventional` (`commitlint.config.ts`). Pull request titles follow the same format: squash-merging a pull request with several commits makes its title the subject of the commit (with one commit, the subject is that commit's).
 
 **Types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`
 
@@ -180,11 +181,11 @@ Conventional Commits format: `type(scope): description`. The commit-msg hook che
 
 ## Changesets
 
-A pull request that changes a published package in a way its users can notice adds a changeset; changes to tests, CI or documentation alone need none. The published files of each package come from these paths:
+A pull request that changes a published package in a way its users can notice adds a changeset; changes to tests, benchmarks, fuzz targets, CI or documentation alone need none. The published files of each package come from these paths:
 
 | Package | Paths |
 | ------- | ----- |
-| `@derodero24/comprs` | `crates/`, `src/`, `browser/`, `index.js`, `index.d.ts` |
+| `@derodero24/comprs` | `crates/core-lib/src/`, `crates/core/`, `crates/wasm/`, `src/`, `browser/`, `index.js`, `index.d.ts` |
 | `@derodero24/comprs-middleware` | `packages/middleware/src/` |
 
 A change elsewhere can reach users too, such as a dependency update in `Cargo.lock`, the `exports` of a `package.json`, or a build setting of the native binaries. To add a changeset:
@@ -331,7 +332,7 @@ pnpm run build
 
 ## Code style
 
-- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`). Unsafe code is limited to the bindings, the napi-rs addon at the Node-API boundary (`crates/core/src/async_args.rs`) and the WebAssembly build in its global allocator (`crates/wasm/src/lib.rs`), and to the allocators that record allocations in the tests and the fuzz crate. Each unsafe block or implementation has a `SAFETY` comment that says why it is sound.
+- **Rust:** rustfmt + clippy, whose warnings fail CI. `comprs-core` forbids unsafe code (`#![forbid(unsafe_code)]`). Unsafe code is limited to the bindings, the napi-rs addon at the Node-API boundary (`crates/core/src/async_args.rs`) and the WebAssembly build in its global allocator (`crates/wasm/src/lib.rs`), and to test allocators: the counting allocators of comprs-core's integration tests and fuzz crate, and the allocator stubs in the unit tests of `crates/wasm`. Explain each unsafe block or implementation in a `SAFETY` comment that says why it is sound.
 - **TypeScript/JavaScript:** Biome.
 
 ## Questions?

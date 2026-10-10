@@ -671,6 +671,7 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 
 - **zstd is the fastest** all-round: highest throughput for both compression and decompression across most data sizes
 - **gzip/deflate decompression**: performance varies by format and data; comprs leads on patterned deflate data, while fflate or `node:zlib` is faster on gzip and on small random payloads
+- **Native addon only**: these numbers are from the native (napi-rs) addon; the WebAssembly build was not measured
 
 ## Notes
 
