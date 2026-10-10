@@ -159,6 +159,32 @@ export async function checkPackage(comprs) {
       .pipeThrough(comprs.createDecompressStream());
     assertBytes(new Uint8Array(await new Response(stream).arrayBuffer()), data);
   });
+  await run('stream chunk transfer', async () => {
+    // A reader may transfer a chunk to a worker, which detaches the
+    // ArrayBuffer of the chunk. The other chunks must keep their bytes, so
+    // each chunk needs an ArrayBuffer of its own.
+    const reader = new Blob([data])
+      .stream()
+      .pipeThrough(comprs.createZstdCompressStream())
+      .getReader();
+    /** @type {Uint8Array[]} */
+    const chunks = [];
+    for (let result = await reader.read(); !result.done; result = await reader.read()) {
+      chunks.push(result.value);
+    }
+    const [first, ...others] = chunks;
+    assert(first !== undefined && others.length > 0, `the stream emitted ${chunks.length} chunks`);
+    const { buffer } = first;
+    assert(buffer instanceof ArrayBuffer, 'the chunk is not backed by an ArrayBuffer');
+    const bytes = first.slice();
+    const expected = others.map((chunk) => chunk.slice());
+    const moved = structuredClone(first, { transfer: [buffer] });
+    assert(first.byteLength === 0, 'the transfer did not detach the chunk');
+    assertBytes(moved, bytes);
+    for (const [i, chunk] of others.entries()) {
+      assertBytes(chunk, expected[i] ?? new Uint8Array());
+    }
+  });
   return passed;
 }
 

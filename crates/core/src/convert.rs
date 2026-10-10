@@ -25,6 +25,9 @@ use crate::error::to_napi_error;
 /// it, though, so for it the copy is mostly extra work: it costs nothing
 /// for results of up to 2 MiB, while calls that return 4 MiB take 30%
 /// longer, 8 MiB 70% and 16 MiB 2.7 times as long.
+///
+/// `src/streams.ts` mirrors this value: the Web streams enqueue the results
+/// of the stream contexts up to this size without copying them again.
 pub(crate) const SYNC_COPY_LIMIT: usize = 2 << 20;
 
 /// Return `data` as a `Buffer`: a copy in memory that V8 allocates if `data`
