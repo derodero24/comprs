@@ -7,19 +7,23 @@
  * The `release-dry-run` job of .github/workflows/ci.yml runs this after
  * prepare-release.mjs on every CI run. It checks that:
  *
- *   1. every npm/<platform> package belongs to a napi target and has the root
- *      package's version. `napi prepublish` adds the native ones to the root
- *      package's optionalDependencies with that version, and any
- *      optionalDependencies already in package.json must agree;
+ *   1. every npm/<platform> package belongs to a napi target, has the root
+ *      package's version and lists LICENSE and THIRD_PARTY_LICENSES in its
+ *      `files`, which `napi create-npm-dirs` leaves out for a new target.
+ *      `napi prepublish` adds the native ones to the root package's
+ *      optionalDependencies with that version, and any optionalDependencies
+ *      already in package.json must agree;
  *   2. `napi prepublish --dry-run` accepts the platform packages, as the real
  *      publish (the prepublishOnly script) must;
- *   3. `npm pack --dry-run` of each platform package includes its binary and
+ *   3. `npm pack --dry-run` of each platform package includes its binary,
+ *      LICENSE and THIRD_PARTY_LICENSES, whatever its manifest says, and
  *      every file its manifest names;
  *   4. no platform binary needs more from the system than its package
  *      promises: the glibc builds need at most glibc 2.17, the musl builds
  *      no glibc, and the Windows builds link the C runtime statically
  *      instead of needing the Visual C++ Redistributable;
- *   5. the root package, packed into a temporary tarball, includes every file
+ *   5. the root package, packed into a temporary tarball, includes LICENSE
+ *      and THIRD_PARTY_LICENSES, whatever its package.json says, every file
  *      and entry point its package.json names and no platform binary, and
  *      its browser entry points (those of `.`, `./streams` and `./next`)
  *      work with bundlers (#564): each one only loads files from the package
@@ -66,6 +70,8 @@ import {
   napiTargetArgs,
   normalizePath,
   npmPack,
+  packedFileProblems,
+  platformNoticeProblems,
   ROOT,
   readJson,
   readRelease,
@@ -102,6 +108,13 @@ const DYNAMIC_CRT_DLL = /\b(?:vcruntime\d+|msvcp\d+|ucrtbased?|api-ms-win-crt-[a
  * in case the generator starts to leave crates out.
  */
 const NOTICE_CRATES = ['zstd-sys', 'brotli'];
+
+/**
+ * The license files that the root package and every platform package must
+ * ship: comprs's LICENSE, and the notices of the code that their binaries
+ * link.
+ */
+const LICENSE_FILES = ['LICENSE', NOTICE_FILE];
 
 /**
  * Problems found so far; any of them fails the run at the end.
@@ -264,6 +277,7 @@ function checkPlatformManifest(release, target) {
         `${release.version}; run napi version`,
     );
   }
+  problems.push(...platformNoticeProblems({ path: shownPath, json: manifest }, LICENSE_FILES));
 }
 
 /**
@@ -297,16 +311,13 @@ function checkPlatformPackage(target) {
   const required = [
     'package.json',
     target.artifact,
+    ...LICENSE_FILES,
     ...stringList(manifest['files']),
     ...[manifest['main'], manifest['types'], manifest['browser']].filter(
       (entry) => typeof entry === 'string',
     ),
   ];
-  for (const file of new Set(required.map(normalizePath))) {
-    if (!packed.includes(file)) {
-      problems.push(`${target.packageName} would be published without ${file}`);
-    }
-  }
+  problems.push(...packedFileProblems(target.packageName, packed, required));
   console.log(packed.join('\n'));
 }
 
@@ -447,15 +458,20 @@ function checkRootPackage(release, workDir) {
 }
 
 /**
- * Check that the root package holds every file and entry point its
- * package.json names, and no platform binary.
+ * Check that the root package holds its license files, every file and entry
+ * point its package.json names, and no platform binary.
  *
  * @param {Release} release
  * @param {string[]} packed
  */
 function checkRootFiles(release, packed) {
   const { packageJson } = release;
-  for (const entry of stringList(packageJson['files'])) {
+  const listed = stringList(packageJson['files']);
+  const listedPaths = listed.map(normalizePath);
+  // The loop below reports the license files that `files` lists.
+  const unlisted = LICENSE_FILES.filter((file) => !listedPaths.includes(file));
+  problems.push(...packedFileProblems('The root package', packed, unlisted));
+  for (const entry of listed) {
     const file = normalizePath(entry);
     if (/[*?[\]{}!]/.test(file)) {
       problems.push(
