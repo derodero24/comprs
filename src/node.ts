@@ -28,9 +28,17 @@ interface StreamContext {
 }
 
 /**
+ * Largest result that the stream contexts return in memory that V8 owns. It
+ * mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs, as VIEW_LIMIT in
+ * src/streams.ts does: larger results stay in the memory of the addon, as
+ * external buffers.
+ */
+const COPY_LIMIT = 2 * 1024 * 1024;
+
+/**
  * Whether markAsUntransferable() from node:worker_threads works in this
- * runtime. Node.js implements it; Bun before 1.4 and Deno before 2.7.6
- * export a function that throws that it is not implemented.
+ * runtime. Node.js implements it; Bun 1.3 and Deno before 2.7.6 export a
+ * function that throws that it is not implemented.
  */
 const canMarkUntransferable: boolean = probeMarkAsUntransferable();
 
@@ -53,13 +61,18 @@ function probeMarkAsUntransferable(): boolean {
  * chunks, as the stream calls transform() again only once readers catch up.
  *
  * The chunks of a result that is pushed in several chunks share its
- * ArrayBuffer, which V8 owns for results of up to 2 MiB, so transferring one
- * chunk to a worker would detach the others. That ArrayBuffer is therefore
- * marked as untransferable, so that postMessage() and structuredClone() throw
- * a DataCloneError instead. Where the runtime cannot mark it, a reader that
- * transfers a chunk while push() emits it, as push() does in flowing mode,
- * makes the stream fail instead of end without the rest of the result. A
- * result that is pushed in one chunk stays transferable.
+ * ArrayBuffer, which V8 owns for results of up to COPY_LIMIT, so
+ * transferring one chunk to a worker would detach the others. That
+ * ArrayBuffer is therefore marked as untransferable, so that postMessage()
+ * and structuredClone() throw a DataCloneError instead. A larger result is
+ * an external buffer, which Node.js already marks as untransferable, and is
+ * left alone: on Node.js 24, the mark also sets a detach key, and Node.js
+ * aborts the process when it detaches such a buffer, without the key, as
+ * the process or the Worker that holds it exits. Where the runtime cannot
+ * mark a result, a reader that transfers a chunk while push() emits it, as
+ * push() does in flowing mode, makes the stream fail instead of end without
+ * the rest of the result. A result that is pushed in one chunk stays
+ * transferable.
  */
 function pushSliced(stream: Transform, buf: Uint8Array): void {
   const length = buf.byteLength;
@@ -69,7 +82,7 @@ function pushSliced(stream: Transform, buf: Uint8Array): void {
     stream.push(buf);
     return;
   }
-  if (canMarkUntransferable) markAsUntransferable(buf.buffer);
+  if (canMarkUntransferable && length <= COPY_LIMIT) markAsUntransferable(buf.buffer);
   for (let i = 0; i < length; i += size) {
     stream.push(buf.subarray(i, i + size));
     if (buf.byteLength !== length) {

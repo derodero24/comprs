@@ -45,6 +45,11 @@ import { BOMB_FORMATS, type BombFormat, makeBomb, peakRssKiB } from './bomb-fixt
 
 const ROOT = resolve(__dirname, '..');
 
+// How long a Node.js process that a test starts may run. Vitest fails a test
+// that outlasts its own timeout (5 s by default) even while it waits in
+// execFileSync, so such a test gets twice this.
+const PROCESS_TIMEOUT = 30_000;
+
 /**
  * The exports of node:worker_threads that node.js calls, which a test
  * replaces. Its ES module namespace cannot be changed.
@@ -636,8 +641,8 @@ describe('Node transform output chunk size', () => {
 describe('Node transform output chunk transfer', () => {
   // A stream context returns 1 MiB in memory that V8 owns, from transform()
   // for zstd and from flush() for LZ4, and the transform pushes it in chunks
-  // of 64 KiB that share its ArrayBuffer. Transferring one of them would
-  // detach the others before the stream emits them.
+  // of readableHighWaterMark bytes that share its ArrayBuffer. Transferring
+  // one of them would detach the others before the stream emits them.
   const plain = Buffer.alloc(1024 * 1024, 'transferred chunks of comprs ');
   const CASES: [string, (data: Buffer) => Buffer, () => Transform][] = [
     ['transform() (zstd)', zstdCompress, () => createZstdDecompressTransform()],
@@ -715,10 +720,13 @@ describe('Node transform output chunk transfer', () => {
   // loads node.js, in a process of its own, as loading node.js a second
   // time here would spoil its coverage.
   it('should work where markAsUntransferable() is not implemented', {
-    timeout: 60_000,
+    timeout: 2 * PROCESS_TIMEOUT,
   }, () => {
     const script = resolve(__dirname, 'fixtures/unmarked-transfer.cjs');
-    const stdout = execFileSync(process.execPath, [script], { encoding: 'utf8', timeout: 30_000 });
+    const stdout = execFileSync(process.execPath, [script], {
+      encoding: 'utf8',
+      timeout: PROCESS_TIMEOUT,
+    });
     const result: unknown = JSON.parse(stdout);
     expect(result).toEqual({
       kept: plain.byteLength,
@@ -728,8 +736,9 @@ describe('Node transform output chunk transfer', () => {
 
   it('should push a result that fits in one chunk as a chunk that can be transferred', async () => {
     const transform = createZstdDecompressTransform();
-    // Node.js's default highWaterMark is 64 KiB, but 16 KiB on Windows.
-    const data = plain.subarray(0, transform.readableHighWaterMark / 2);
+    // The largest result that the transform pushes as one chunk. Node.js's
+    // default highWaterMark is 64 KiB, but 16 KiB on Windows.
+    const data = plain.subarray(0, transform.readableHighWaterMark);
     const seen: Buffer[] = [];
     const moved: Uint8Array[] = [];
     await pipeline(Readable.from([zstdCompress(data)]), transform, transferringSink(seen, moved));
@@ -737,13 +746,58 @@ describe('Node transform output chunk transfer', () => {
     expect(seen.every((chunk) => chunk.byteLength === 0)).toBe(true);
     expect(Buffer.concat(moved).equals(data)).toBe(true);
   });
+
+  // A result larger than 2 MiB, here by one byte, stays in the memory of
+  // the addon, as an external buffer that Node.js marks as untransferable
+  // itself. The transform must not mark it: on Node.js 24,
+  // markAsUntransferable() also sets a detach key, and Node.js aborts the
+  // process when it detaches the buffer without the key as it frees it at
+  // exit.
+  it('should leave the buffer of a result larger than 2 MiB unmarked', async () => {
+    const mark = vi.spyOn(workerThreads, 'markAsUntransferable');
+    try {
+      const data = Buffer.alloc(2 * 1024 * 1024 + 1, 'transferred chunks of comprs ');
+      const seen: Buffer[] = [];
+      const moved: Uint8Array[] = [];
+      await expect(
+        pipeline(
+          Readable.from([zstdCompress(data)]),
+          createZstdDecompressTransform(),
+          transferringSink(seen, moved),
+        ),
+      ).rejects.toThrow(expect.objectContaining({ name: 'DataCloneError' }));
+      expect(seen[0]?.buffer.byteLength).toBe(data.byteLength);
+      expect(mark).not.toHaveBeenCalled();
+    } finally {
+      mark.mockRestore();
+    }
+  });
+
+  // See the script: it runs the transform in a process, or a Worker, that
+  // exits while it holds a chunk of a result in the memory of the addon.
+  it.each([
+    ['a process', []],
+    ['a Worker', ['worker']],
+  ])(
+    'should let %s that holds a chunk of a result larger than 2 MiB exit',
+    { timeout: 2 * PROCESS_TIMEOUT },
+    (_name, args) => {
+      const script = resolve(__dirname, 'fixtures/external-chunk-exit.cjs');
+      const stdout = execFileSync(process.execPath, [script, ...args], {
+        encoding: 'utf8',
+        timeout: PROCESS_TIMEOUT,
+      });
+      const result: unknown = JSON.parse(stdout);
+      expect(result).toEqual(
+        args.length === 0
+          ? { received: 4 * 1024 * 1024 }
+          : { received: 4 * 1024 * 1024, exitCode: 0 },
+      );
+    },
+  );
 });
 
 describe('Node transform errors from another realm', () => {
-  // How long the Node.js process may run. Vitest fails a test that outlasts
-  // its own timeout (5 s by default) even while it waits in execFileSync.
-  const PROCESS_TIMEOUT = 30_000;
-
   // Jest runs the code of a package in a vm context, but loads native addons
   // and Node.js modules in the main realm, so the errors that the stream
   // contexts throw are not instances of the Error that node.js sees. The test

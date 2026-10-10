@@ -1,10 +1,10 @@
 // Run by node-streams.spec.ts in a Node.js process of its own. Before it
 // loads node.js, makes markAsUntransferable() of node:worker_threads throw
 // that it is not implemented, as it does in Bun 1.3 and Deno before 2.7.6.
-// Then decompresses 1 MiB through the zstd transform, which pushes it in 16
-// chunks, once into a sink that keeps every chunk and once into a sink that
-// transfers every chunk, and prints, as JSON, how many bytes the first sink
-// got and the error of the second pipeline.
+// Then decompresses 1 MiB through the zstd transform, which pushes it in
+// several chunks, once into a sink that keeps every chunk and once into a
+// sink that transfers every chunk, and prints, as JSON, how many bytes the
+// first sink got and the error of the second pipeline.
 'use strict';
 
 const { Readable, Writable } = require('node:stream');
