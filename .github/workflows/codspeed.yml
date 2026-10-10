@@ -58,7 +58,12 @@ jobs:
       - name: Install cargo-codspeed
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
-          tool: cargo-codspeed
+          tool: cargo-codspeed@5.0.2
+          # install-action has no manifest for cargo-codspeed. Build it from
+          # crates.io with its lockfile rather than fetch a third-party
+          # binary through cargo-binstall. Keep it at the version of the
+          # codspeed crates in Cargo.lock.
+          fallback: cargo-install
 
       - name: Build benchmarks
         run: cargo codspeed build -p comprs-bench
