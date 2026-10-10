@@ -3,9 +3,10 @@
 /**
  * Build the wasm-bindgen WASM package for browser usage.
  * Uses wasm-pack to build crates/wasm targeting wasm32-unknown-unknown, with
- * wasm-bindgen's `web` target: the glue exports an init function that the
- * browser entry (browser/index.js) awaits, instead of importing the .wasm
- * file as an ES module, which esbuild cannot bundle.
+ * wasm-bindgen's `web` target: the glue exports an init function that
+ * browser/wasm.js awaits, for the browser entry (browser/index.js) and the
+ * browser build of ./next, instead of importing the .wasm file as an ES
+ * module, which esbuild cannot bundle.
  *
  * The build uses the wasm-release profile of the workspace Cargo.toml, which
  * optimizes for size, and does not run wasm-opt (see that profile).
