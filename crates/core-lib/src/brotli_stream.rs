@@ -219,11 +219,11 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 ///   holds the first [`DICT_REACH`] bytes of input in the same way, and a
 ///   stream of at most that many bytes gets the same output on `finish`.
 ///   The `transform` that takes the input past [`DICT_REACH`] bytes
-///   compresses the input held so far, flushes it and drops it, then
-///   compresses the rest of its chunk. From then on, the encoder takes each
-///   chunk as it arrives: `transform` returns the output that the encoder
-///   has emitted, `flush` all the output of the input so far, and `finish`
-///   ends the stream.
+///   compresses the input held so far, flushes it and drops it, then passes
+///   the rest of its chunk on. From then on, the encoder takes the input as
+///   it arrives, 64 KiB at a time: `transform` returns the output that the
+///   encoder has emitted, `flush` all the output of the input so far, and
+///   `finish` ends the stream.
 ///
 /// The stream of a longer input is compressed with neither the custom
 /// dictionary nor brotli's built-in one, as the fallback of
@@ -418,8 +418,9 @@ fn catch_encoder_panic<T>(
 
 type EncoderState = BrotliEncoderStateStruct<CountingAlloc>;
 
-/// Most input that [`StreamEncoder::run`] passes to one call of the
-/// encoder.
+/// Input that [`StreamEncoder`] passes to each call of the encoder: it
+/// holds smaller chunks until they make this much, and passes what is left
+/// to the call that flushes or ends the stream.
 ///
 /// The encoder takes the input of its first block, with what the call
 /// holds past it, as a hint of the size of the stream, and tries a more
@@ -437,6 +438,10 @@ const FEED: usize = 64 * 1024;
 /// streaming [`CompressDictContext`].
 struct StreamEncoder {
     state: EncoderState,
+    /// Input that the encoder has not taken yet: less than [`FEED`] bytes,
+    /// which [`Self::run`] passes on once they make [`FEED`] bytes, or to
+    /// flush or end the stream.
+    pending: Vec<u8>,
 }
 
 impl StreamEncoder {
@@ -445,6 +450,7 @@ impl StreamEncoder {
     fn new(params: &BrotliEncoderParams) -> Box<Self> {
         let mut encoder = Box::new(Self {
             state: EncoderState::new(CountingAlloc::default()),
+            pending: Vec::new(),
         });
         encoder.state.params = params.clone();
         encoder
@@ -462,25 +468,42 @@ impl StreamEncoder {
     /// has emitted so far for `BROTLI_OPERATION_PROCESS`, all the output of
     /// the input so far for `BROTLI_OPERATION_FLUSH`, and the rest of the
     /// stream for `BROTLI_OPERATION_FINISH`.
-    fn run(&mut self, op: BrotliEncoderOperation, input: &[u8]) -> std::io::Result<Vec<u8>> {
+    ///
+    /// The encoder takes the input [`FEED`] bytes at a time, whatever the
+    /// chunks it arrives in: the input short of that waits in
+    /// [`Self::pending`] for more, a flush or the end of the stream.
+    fn run(&mut self, op: BrotliEncoderOperation, mut input: &[u8]) -> std::io::Result<Vec<u8>> {
+        let process = BrotliEncoderOperation::BROTLI_OPERATION_PROCESS;
         let mut output = Vec::new();
-        for piece in input.chunks(FEED) {
-            self.call(
-                BrotliEncoderOperation::BROTLI_OPERATION_PROCESS,
-                piece,
-                &mut output,
-            )?;
+        if !self.pending.is_empty() {
+            let (head, rest) = input.split_at(input.len().min(FEED - self.pending.len()));
+            self.pending.extend_from_slice(head);
+            input = rest;
+            if self.pending.len() == FEED {
+                Self::call(&mut self.state, process, &self.pending, &mut output)?;
+                self.pending.clear();
+            }
         }
-        if op != BrotliEncoderOperation::BROTLI_OPERATION_PROCESS {
-            self.call(op, &[], &mut output)?;
+        // Either `pending` is empty now, or so is `input`.
+        let mut pieces = input.chunks_exact(FEED);
+        for piece in &mut pieces {
+            Self::call(&mut self.state, process, piece, &mut output)?;
+        }
+        if !pieces.remainder().is_empty() {
+            self.pending.reserve_exact(FEED);
+            self.pending.extend_from_slice(pieces.remainder());
+        }
+        if op != process {
+            Self::call(&mut self.state, op, &self.pending, &mut output)?;
+            self.pending.clear();
         }
         Ok(output)
     }
 
     /// Run `op` on `input`, which is at most [`FEED`] bytes, in one call of
-    /// the encoder, and append its output to `output`.
+    /// the encoder `state`, and append its output to `output`.
     fn call(
-        &mut self,
+        state: &mut EncoderState,
         op: BrotliEncoderOperation,
         input: &[u8],
         output: &mut Vec<u8>,
@@ -495,7 +518,7 @@ impl StreamEncoder {
         loop {
             let mut available_out = buffer.len();
             let mut output_offset = 0;
-            let ok = self.state.compress_stream(
+            let ok = state.compress_stream(
                 op,
                 &mut available_in,
                 input,
@@ -514,9 +537,8 @@ impl StreamEncoder {
                 ));
             }
             if available_in == 0
-                && !self.state.has_more_output()
-                && (op != BrotliEncoderOperation::BROTLI_OPERATION_FINISH
-                    || self.state.is_finished())
+                && !state.has_more_output()
+                && (op != BrotliEncoderOperation::BROTLI_OPERATION_FINISH || state.is_finished())
             {
                 return Ok(());
             }
@@ -524,9 +546,9 @@ impl StreamEncoder {
     }
 
     /// The memory of the encoder state, including its window and its hash
-    /// tables.
+    /// tables, and of the input that waits for it.
     fn memory_usage(&self) -> usize {
-        self.state.m8.allocated()
+        self.state.m8.allocated() + self.pending.capacity()
     }
 }
 
@@ -1302,6 +1324,37 @@ mod tests {
         assert!(before_finish.len() * 10 >= output.len() * 4, "{sizes}");
         assert!(output.len() * 1000 <= one_shot.len() * 1005, "{sizes}");
         assert!(decompress_with_dict(&output, &dict).unwrap() == input);
+    }
+
+    /// The encoder takes the input [`super::FEED`] bytes at a time, whatever
+    /// the chunks that it arrives in, so small chunks give the stream of
+    /// large ones. At qualities 0 and 1, brotli compresses the input of each
+    /// call of the encoder on its own: chunks of 4 KiB, passed on one by
+    /// one, made a stream half again as large.
+    #[test]
+    fn incremental_dict_context_streams_small_chunks_like_large_ones() {
+        let dict = records(2 * KIB);
+        let input = records(DICT_REACH + MIB);
+        for quality in [0, 1] {
+            let one_shot = compress_with_dict(&input, &dict, Some(quality)).unwrap();
+            let (_, large) = compress_incremental(&dict, quality, &input, 64 * KIB);
+            for chunk_size in [4 * KIB, 1000] {
+                let (_, small) = compress_incremental(&dict, quality, &input, chunk_size);
+                let sizes = format!(
+                    "quality {quality}, chunks of {chunk_size}: {} bytes, {} in chunks of \
+                     64 KiB, {} in one call",
+                    small.len(),
+                    large.len(),
+                    one_shot.len()
+                );
+                assert!(small == large, "{sizes}");
+                assert!(small.len() * 100 <= one_shot.len() * 103, "{sizes}");
+                assert!(
+                    decompress_with_dict(&small, &dict).unwrap() == input,
+                    "{sizes}"
+                );
+            }
+        }
     }
 
     /// Streams of at most [`DICT_REACH`] bytes compress into the output of
