@@ -20,3 +20,7 @@ the compressed body is cancelled or its stream fails.
 
 The `@derodero24/comprs` peer range is now `^2.1.0` (it was `^2.0.2`), as
 the middleware now calls the `close()` that 2.1 adds to the stream contexts.
+The optional `hono` peer range is now `^4.7.7` (it was `^4.0.0`): up to Hono
+4.7.6, setting a header on a finished response changes it in place, so the
+Hono middleware turned a response from `fetch()`, whose headers cannot
+change, into a 500.

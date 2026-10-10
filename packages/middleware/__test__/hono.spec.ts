@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { brotliDecompressSync, constants, gunzipSync, inflateSync } from 'node:zlib';
 import {
@@ -212,6 +214,37 @@ describe('comprs hono middleware', () => {
     it('should set Vary even when not compressing', async () => {
       const res = await rawGet(app, '/small', 'gzip');
       expect(res.headers.vary).toContain('Accept-Encoding');
+    });
+
+    // Up to Hono 4.7.6, setting a header after next() changed the response
+    // in place, which throws for the immutable headers of fetch().
+    it('should compress a response from fetch(), whose headers are immutable', async () => {
+      const message = { message: TEST_BODY };
+      const upstream = createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(message));
+      });
+      upstream.listen(0, '127.0.0.1');
+      await once(upstream, 'listening');
+      try {
+        const address = upstream.address();
+        if (address === null || typeof address === 'string') {
+          throw new Error('expected a TCP address');
+        }
+        const app = new Hono();
+        app.use(comprs());
+        app.get('/', () => fetch(`http://127.0.0.1:${address.port}/`));
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+        expect(res.status).toBe(200);
+        expect(res.headers.get('vary')).toBe('Accept-Encoding');
+        expect(res.headers.get('content-encoding')).toBe('gzip');
+        const body = gzipDecompress(Buffer.from(await within(res.arrayBuffer())));
+        expect(JSON.parse(body.toString())).toEqual(message);
+      } finally {
+        upstream.closeAllConnections();
+        upstream.close();
+      }
     });
   });
 
