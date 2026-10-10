@@ -103,7 +103,7 @@
       }
     },
     {
-      "includes": ["src/index.mts", "browser/index.js"],
+      "includes": ["src/index.mts", "src/next/index.ts", "src/next/index.mts", "browser/index.js"],
       "linter": {
         "rules": {
           "performance": {
@@ -209,7 +209,7 @@
       }
     },
     {
-      "includes": ["src/index.mts"],
+      "includes": ["src/index.mts", "src/next/index.mts"],
       "linter": {
         "rules": {
           "performance": {

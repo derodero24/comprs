@@ -41,7 +41,7 @@ comprs/
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
-├── src/             ← TypeScript sources of the stream helpers and the ES module entry
+├── src/             ← TypeScript sources of the stream helpers, the ES module entry and the unified API
 ├── browser/         ← Browser entry, and the wasm-bindgen build it loads
 ├── __test__/        ← Vitest tests and JS benchmarks
 ├── e2e/             ← Tests of the packed package in Node.js, Deno, Bun and browsers
@@ -57,7 +57,7 @@ comprs/
 
 ### JavaScript sources
 
-The stream helpers and the ES module entry are written in TypeScript, in `src/`, and compiled into the files that npm publishes:
+The stream helpers, the ES module entry and the unified API are written in TypeScript, in `src/`, and compiled into the files that npm publishes:
 
 | Source | Output |
 | ------ | ------ |
@@ -65,8 +65,9 @@ The stream helpers and the ES module entry are written in TypeScript, in `src/`,
 | `src/node.ts` | `node.js` and `node.d.ts`: the Node.js transforms (`@derodero24/comprs/node`) |
 | `src/index.mts` | `index.mjs` and `index.d.mts`: the ES module entry |
 | `src/browser/streams.ts` | `browser/streams.js` and `browser/streams.d.ts`: the Web Streams helpers for browsers |
+| `src/next/` | `next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)), which `package.json` does not export yet. `api.ts` holds the functions and checks the types of their arguments, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) their backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries |
 
-The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json` and `tsconfig.browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Editors check the sources with `src/tsconfig.json` and `src/browser/tsconfig.json`, which take the options and files of those two projects. The two projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and its declarations are written by hand.
+The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json` and `tsconfig.browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Each project lists its entries in `files`, and compiles the modules that they import as well. Editors check the sources with `src/tsconfig.json` and `src/browser/tsconfig.json`, which take the options and files of those two projects. The two projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and its declarations are written by hand.
 
 ## Workflow
 

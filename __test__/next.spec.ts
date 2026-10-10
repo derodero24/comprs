@@ -1,0 +1,930 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  deflateRawSync,
+  deflateSync,
+  gunzipSync,
+  gzipSync,
+  inflateRawSync,
+  inflateSync,
+} from 'node:zlib';
+import { describe, expect, it } from 'vitest';
+import {
+  brotliCompress,
+  brotliCompressWithDict,
+  CompressionFormat,
+  deflateCompress,
+  gzipCompress,
+  gzipCompressWithHeader,
+  lz4Compress,
+  decompress as rootDecompress,
+  detectFormat as rootDetectFormat,
+  zstdCompress,
+  zstdCompressWithDict,
+  zstdTrainDictionary,
+} from '../index.js';
+import type { Bytes, CompressOptions, Format, Input } from '../next/index.js';
+import * as next from '../next/index.js';
+
+// The unified API, @derodero24/comprs/next (#577), as the native build
+// compiles it from src/next: the functions of api.ts over the hidden binding
+// of the native addon. package.json does not export it yet, so the tests
+// import the outputs by path.
+
+const require = createRequire(__filename);
+
+/** The formats of the unified API. */
+const FORMATS: readonly Format[] = ['zstd', 'gzip', 'deflate', 'deflate-raw', 'brotli', 'lz4'];
+
+/** The formats that decompression detects: all but raw deflate. */
+const DETECTED: readonly Format[] = FORMATS.filter((format) => format !== 'deflate-raw');
+
+/** Levels of each format, `undefined` for the default. lz4 takes none. */
+const LEVELS: Record<Format, readonly (number | undefined)[]> = {
+  zstd: [undefined, -5, 0, 1, 19],
+  gzip: [undefined, 0, 1, 9],
+  deflate: [undefined, 0, 1, 9],
+  'deflate-raw': [undefined, 0, 1, 9],
+  brotli: [undefined, 0, 11],
+  lz4: [undefined],
+};
+
+/** `bytes`, a Buffer of the root entry, as a plain Uint8Array to compare. */
+function plain(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(bytes);
+}
+
+/**
+ * The output of the root entry's function for `format` at `level`, as a
+ * plain Uint8Array.
+ */
+function rootCompress(data: Uint8Array, format: Format, level: number | undefined): Uint8Array {
+  return plain(rootOutput(data, format, level));
+}
+
+/**
+ * The output of the root entry's function for `format` at `level`. The root
+ * entry writes no zlib: its output is taken as the raw deflate of
+ * deflateCompress() between the header and the Adler-32 checksum of the
+ * zlib output, which the node:zlib tests check.
+ */
+function rootOutput(data: Uint8Array, format: Format, level: number | undefined): Uint8Array {
+  switch (format) {
+    case 'zstd':
+      return zstdCompress(data, level);
+    case 'gzip':
+      return gzipCompress(data, level);
+    case 'deflate': {
+      const zlib = next.compressSync(data, { format, level });
+      return Buffer.concat([zlib.subarray(0, 2), deflateCompress(data, level), zlib.subarray(-4)]);
+    }
+    case 'deflate-raw':
+      return deflateCompress(data, level);
+    case 'brotli':
+      return brotliCompress(data, level);
+    case 'lz4':
+      return lz4Compress(data);
+  }
+}
+
+/** The options of compressSync() for `format` at `level`. */
+function compressOptions(format: Format, level: number | undefined): CompressOptions {
+  return level === undefined ? { format } : { format, level };
+}
+
+const encoder = new TextEncoder();
+const text = encoder.encode('comprs unifies its codecs behind one API. '.repeat(400));
+const dictionary = encoder.encode('unifies its codecs behind one API comprs '.repeat(8));
+const samples = Array.from({ length: 200 }, (_, i) =>
+  encoder.encode(JSON.stringify({ id: i, name: `item ${i}`, tags: ['a', 'b'] })),
+);
+
+/** The error that `call` throws. */
+function thrown(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected the call to throw');
+}
+
+/** The error that `promise` rejects with. */
+async function rejection(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected the Promise to reject');
+}
+
+/**
+ * The Promise that `call` returns, which it must return rather than throw.
+ */
+function promiseOf(call: () => Promise<unknown>): Promise<unknown> {
+  let promise: Promise<unknown> | undefined;
+  expect(() => {
+    promise = call();
+  }).not.toThrow();
+  expect(promise).toBeInstanceOf(Promise);
+  return promise ?? Promise.resolve();
+}
+
+/** Check that `error` carries `code`, and is a TypeError exactly for ERR_COMPRS_INVALID_ARG. */
+function expectCoded(error: unknown, code: string, message?: string | RegExp): void {
+  expect(error).toMatchObject(message === undefined ? { code } : { code, message });
+  const prototype = code === 'ERR_COMPRS_INVALID_ARG' ? TypeError : Error;
+  expect(Object.getPrototypeOf(error)).toBe(prototype.prototype);
+}
+
+function expectPlainUint8Array(result: Bytes): void {
+  expect(Object.getPrototypeOf(result)).toBe(Uint8Array.prototype);
+}
+
+describe.each(FORMATS)('%s', (format) => {
+  it.each(LEVELS[format])('compresses as the root entry does at level %s', async (level) => {
+    const expected = rootCompress(text, format, level);
+    const options = compressOptions(format, level);
+    const compressed = next.compressSync(text, options);
+    expect(compressed).toEqual(expected);
+    expect(await next.compress(text, options)).toEqual(expected);
+    expect(next.decompressSync(compressed, { format })).toEqual(text);
+    expect(await next.decompress(compressed, { format })).toEqual(text);
+  });
+
+  it('round-trips empty data', async () => {
+    const compressed = next.compressSync(new Uint8Array(0), { format });
+    expect(next.decompressSync(compressed, { format })).toEqual(new Uint8Array(0));
+    expect(
+      await next.decompress(await next.compress(new Uint8Array(0), { format }), { format }),
+    ).toEqual(new Uint8Array(0));
+  });
+
+  it('limits the output to maxOutputSize', async () => {
+    const compressed = next.compressSync(text, { format });
+    const exact = { format, maxOutputSize: text.byteLength };
+    expect(next.decompressSync(compressed, exact)).toEqual(text);
+    expect(await next.decompress(compressed, exact)).toEqual(text);
+    const below = { format, maxOutputSize: text.byteLength - 1 };
+    expectCoded(
+      thrown(() => next.decompressSync(compressed, below)),
+      'ERR_COMPRS_SIZE_LIMIT',
+    );
+    expectCoded(await rejection(next.decompress(compressed, below)), 'ERR_COMPRS_SIZE_LIMIT');
+  });
+
+  it('returns plain Uint8Arrays', async () => {
+    const compressed = next.compressSync(text, { format });
+    for (const result of [
+      compressed,
+      await next.compress(text, { format }),
+      next.decompressSync(compressed, { format }),
+      await next.decompress(compressed, { format }),
+      next.compressSync(new Uint8Array(0), { format }),
+    ]) {
+      expectPlainUint8Array(result);
+    }
+  });
+});
+
+describe('detection', () => {
+  it.each(DETECTED)('finds %s', async (format) => {
+    const compressed = next.compressSync(text, { format });
+    expect(next.detectFormat(compressed)).toBe(format);
+    expect(next.decompressSync(compressed)).toEqual(text);
+    expect(next.decompressSync(compressed, { format: 'auto' })).toEqual(text);
+    expect(await next.decompress(compressed)).toEqual(text);
+    expect(await next.decompress(compressed, {})).toEqual(text);
+  });
+
+  it('finds zlib written by node:zlib', () => {
+    const zlib = deflateSync(text);
+    expect(next.detectFormat(zlib)).toBe('deflate');
+    expect(next.decompressSync(zlib)).toEqual(text);
+  });
+
+  it('never finds raw deflate, which has no header', () => {
+    const raw = next.compressSync(text, { format: 'deflate-raw' });
+    expect(next.detectFormat(raw)).toBeUndefined();
+    expectCoded(
+      thrown(() => next.decompressSync(raw)),
+      'ERR_COMPRS_UNKNOWN_FORMAT',
+    );
+  });
+
+  it('finds nothing in empty data or text', () => {
+    expect(next.detectFormat(new Uint8Array(0))).toBeUndefined();
+    expect(next.detectFormat(text)).toBeUndefined();
+  });
+
+  it('throws TypeErrors for data of the wrong type', () => {
+    expectCoded(
+      thrown(() => Reflect.apply(next.detectFormat, undefined, ['data'])),
+      'ERR_COMPRS_INVALID_ARG',
+      'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+    );
+    expectCoded(
+      thrown(() => next.detectFormat(detachedView())),
+      'ERR_COMPRS_INVALID_ARG',
+      'data is backed by a detached ArrayBuffer',
+    );
+  });
+});
+
+describe('node:zlib interoperability', () => {
+  it("writes zlib as 'deflate' and raw deflate as 'deflate-raw'", async () => {
+    expect(inflateSync(next.compressSync(text, { format: 'deflate' }))).toEqual(Buffer.from(text));
+    expect(inflateSync(await next.compress(text, { format: 'deflate', level: 9 }))).toEqual(
+      Buffer.from(text),
+    );
+    expect(inflateRawSync(next.compressSync(text, { format: 'deflate-raw' }))).toEqual(
+      Buffer.from(text),
+    );
+    expect(gunzipSync(next.compressSync(text, { format: 'gzip' }))).toEqual(Buffer.from(text));
+  });
+
+  it("reads zlib as 'deflate' and raw deflate as 'deflate-raw'", async () => {
+    expect(next.decompressSync(deflateSync(text), { format: 'deflate' })).toEqual(text);
+    expect(await next.decompress(deflateSync(text, { level: 1 }), { format: 'deflate' })).toEqual(
+      text,
+    );
+    expect(next.decompressSync(deflateRawSync(text), { format: 'deflate-raw' })).toEqual(text);
+    expect(next.decompressSync(gzipSync(text), { format: 'gzip' })).toEqual(text);
+  });
+
+  it('reads concatenated gzip members', () => {
+    const members = Buffer.concat([gzipSync(text), gzipSync(dictionary)]);
+    expect(next.decompressSync(members)).toEqual(plain(Buffer.concat([text, dictionary])));
+  });
+
+  it("does not mix up 'deflate' and 'deflate-raw'", () => {
+    expectCoded(
+      thrown(() => next.decompressSync(deflateRawSync(text), { format: 'deflate' })),
+      'ERR_COMPRS_CORRUPT_DATA',
+    );
+    expectCoded(
+      thrown(() => next.decompressSync(deflateSync(text), { format: 'deflate-raw' })),
+      'ERR_COMPRS_CORRUPT_DATA',
+    );
+  });
+});
+
+describe('dictionaries', () => {
+  it.each([
+    ['zstd', zstdCompressWithDict],
+    ['brotli', brotliCompressWithDict],
+  ] as const)('compress %s as the root entry does', async (format, rootWithDict) => {
+    for (const level of [undefined, 1]) {
+      const expected = plain(rootWithDict(text, dictionary, level));
+      const options = { ...compressOptions(format, level), dictionary };
+      expect(next.compressSync(text, options)).toEqual(expected);
+      expect(await next.compress(text, options)).toEqual(expected);
+      expect(next.decompressSync(expected, { format, dictionary })).toEqual(text);
+      expect(await next.decompress(expected, { format, dictionary })).toEqual(text);
+    }
+  });
+
+  it('are trained for zstd', async () => {
+    const trained = next.trainDictionarySync(samples, { maxSize: 4096 });
+    expectPlainUint8Array(trained);
+    expect(trained.byteLength).toBeGreaterThan(0);
+    expect(trained.byteLength).toBeLessThanOrEqual(4096);
+    expect(trained).toEqual(plain(zstdTrainDictionary(samples, 4096)));
+    const fromAsync = await next.trainDictionary(samples, { maxSize: 4096 });
+    expectPlainUint8Array(fromAsync);
+    expect(fromAsync).toEqual(trained);
+
+    const message = encoder.encode(JSON.stringify({ id: 1000, name: 'item 1000', tags: ['a'] }));
+    const compressed = next.compressSync(message, { format: 'zstd', dictionary: trained });
+    expect(next.decompressSync(compressed, { format: 'zstd', dictionary: trained })).toEqual(
+      message,
+    );
+  });
+
+  it('are trained from any iterable, at the default size', () => {
+    function* generate(): Generator<Uint8Array> {
+      yield* samples;
+    }
+    const expected = plain(zstdTrainDictionary(samples));
+    expect(next.trainDictionarySync(generate())).toEqual(expected);
+    expect(next.trainDictionarySync(new Set(samples))).toEqual(expected);
+  });
+});
+
+describe('the gzip header', () => {
+  it('holds the filename and the modification time', async () => {
+    const header = { filename: 'data.txt', mtime: 1_700_000_000 };
+    const options = { format: 'gzip', level: 9, gzipHeader: header } as const;
+    const expected = plain(gzipCompressWithHeader(text, header, 9));
+    expect(next.compressSync(text, options)).toEqual(expected);
+    expect(await next.compress(text, options)).toEqual(expected);
+    expect(next.decompressSync(expected)).toEqual(text);
+  });
+
+  it('is the default one without fields', async () => {
+    const expected = plain(gzipCompress(text));
+    expect(next.compressSync(text, { format: 'gzip', gzipHeader: {} })).toEqual(expected);
+    expect(await next.compress(text, { format: 'gzip', gzipHeader: {} })).toEqual(expected);
+  });
+});
+
+describe('zstd workers', () => {
+  // More than the 512 KiB that zstd compresses without its workers.
+  const large = encoder.encode('zstd compresses this input with worker threads. '.repeat(24_000));
+
+  it('compress with 2 workers', async () => {
+    const options = { format: 'zstd', workers: 2 } as const;
+    const compressed = next.compressSync(large, options);
+    expect(next.decompressSync(compressed, { format: 'zstd' })).toEqual(large);
+    expect(next.decompressSync(await next.compress(large, options))).toEqual(large);
+  });
+
+  it('compress with 0 workers as without them', async () => {
+    const expected = plain(zstdCompress(large));
+    expect(next.compressSync(large, { format: 'zstd', workers: 0 })).toEqual(expected);
+    expect(await next.compress(large, { format: 'zstd', workers: 0 })).toEqual(expected);
+  });
+});
+
+describe('inputs', () => {
+  /**
+   * `bytes` as each kind of input, in buffers of their own at an offset of 2
+   * bytes, which a Uint16Array allows. A Uint16Array holds whole elements, so
+   * it is left out for an odd number of bytes.
+   */
+  function inputs(bytes: Uint8Array): [string, Input][] {
+    const buffer = new ArrayBuffer(bytes.byteLength + 2);
+    new Uint8Array(buffer, 2).set(bytes);
+    const shared = new SharedArrayBuffer(bytes.byteLength + 2);
+    new Uint8Array(shared, 2).set(bytes);
+    const kinds: [string, Input][] = [
+      ['an ArrayBuffer', buffer.slice(2)],
+      ['a SharedArrayBuffer', shared.slice(2)],
+      ['a view of a SharedArrayBuffer', new Uint8Array(shared, 2)],
+      ['a DataView', new DataView(buffer, 2)],
+      ['a Buffer', Buffer.from(bytes)],
+    ];
+    if (bytes.byteLength % 2 === 0) {
+      kinds.push(['a Uint16Array at an offset', new Uint16Array(buffer, 2, bytes.byteLength / 2)]);
+    }
+    return kinds;
+  }
+
+  it.each(inputs(text))('reads data from %s byte for byte', async (_, input) => {
+    const expected = next.compressSync(text, { format: 'zstd' });
+    expect(next.compressSync(input, { format: 'zstd' })).toEqual(expected);
+    expect(await next.compress(input, { format: 'zstd' })).toEqual(expected);
+    expect(next.detectFormat(input)).toBeUndefined();
+  });
+
+  it.each(inputs(next.compressSync(text, { format: 'gzip' })))(
+    'reads compressed data from %s',
+    async (_, input) => {
+      expect(next.detectFormat(input)).toBe('gzip');
+      expect(next.decompressSync(input)).toEqual(text);
+      expect(await next.decompress(input, { format: 'gzip' })).toEqual(text);
+    },
+  );
+
+  it.each(inputs(dictionary))('reads a dictionary from %s', async (_, input) => {
+    const compressed = next.compressSync(text, { format: 'zstd', dictionary });
+    expect(next.compressSync(text, { format: 'zstd', dictionary: input })).toEqual(compressed);
+    expect(next.decompressSync(compressed, { format: 'zstd', dictionary: input })).toEqual(text);
+    expect(await next.decompress(compressed, { format: 'zstd', dictionary: input })).toEqual(text);
+  });
+
+  it('reads samples of every kind', async () => {
+    const expected = next.trainDictionarySync(samples, { maxSize: 4096 });
+    const mixed = samples.map((sample, i) => {
+      const kinds = inputs(sample);
+      const kind = kinds[i % kinds.length];
+      if (kind === undefined) throw new Error('expected an input');
+      return kind[1];
+    });
+    expect(next.trainDictionarySync(mixed, { maxSize: 4096 })).toEqual(expected);
+    expect(await next.trainDictionary(mixed, { maxSize: 4096 })).toEqual(expected);
+  });
+
+  it('are copied when the async functions are called', async () => {
+    const data = Uint8Array.from(text);
+    const compressing = next.compress(data, { format: 'zstd' });
+    data.fill(0);
+    const compressed = await compressing;
+    expect(next.decompressSync(compressed)).toEqual(text);
+    const decompressing = next.decompress(compressed);
+    compressed.fill(0);
+    expect(await decompressing).toEqual(text);
+  });
+
+  it('ignore unknown options', () => {
+    // Names of the root entry's arguments, which the options do not take.
+    const options = { format: 'zstd', quality: 9, capacity: 1 } as const;
+    expect(next.compressSync(text, options)).toEqual(plain(zstdCompress(text)));
+  });
+});
+
+/** A case of every code that the functions can give. */
+interface ErrorCase {
+  name: string;
+  code: next.ErrorCode;
+  message: string | RegExp;
+  sync(): unknown;
+  async(): Promise<unknown>;
+}
+
+const zstdText = next.compressSync(text, { format: 'zstd' });
+const gzipText = next.compressSync(text, { format: 'gzip' });
+
+const ERROR_CASES: ErrorCase[] = [
+  {
+    name: 'a level out of range, which the backend checks',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'zstd compression level must be an integer between -131072 and 22',
+    sync: () => next.compressSync(text, { format: 'zstd', level: 23 }),
+    async: () => next.compress(text, { format: 'zstd', level: 23 }),
+  },
+  {
+    name: 'a level for lz4',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'lz4 does not take a compression level',
+    sync: () => next.compressSync(text, { format: 'lz4', level: 1 }),
+    async: () => next.compress(text, { format: 'lz4', level: 1 }),
+  },
+  {
+    name: 'a dictionary for gzip',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzip does not support dictionaries',
+    sync: () => next.compressSync(text, { format: 'gzip', dictionary }),
+    async: () => next.compress(text, { format: 'gzip', dictionary }),
+  },
+  {
+    name: 'a gzip header for zstd',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'gzipHeader applies to gzip compression only',
+    sync: () => next.compressSync(text, { format: 'zstd', gzipHeader: {} }),
+    async: () => next.compress(text, { format: 'zstd', gzipHeader: {} }),
+  },
+  {
+    name: 'workers for gzip',
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'workers applies to zstd compression only',
+    sync: () => next.compressSync(text, { format: 'gzip', workers: 2 }),
+    async: () => next.compress(text, { format: 'gzip', workers: 2 }),
+  },
+  {
+    name: "a dictionary with 'auto'",
+    code: 'ERR_COMPRS_INVALID_ARG',
+    message: 'pass `format` to decompress with a dictionary',
+    sync: () => next.decompressSync(zstdText, { dictionary }),
+    async: () => next.decompress(zstdText, { format: 'auto', dictionary }),
+  },
+  {
+    name: 'data of unknown format',
+    code: 'ERR_COMPRS_UNKNOWN_FORMAT',
+    message: 'unable to detect the compression format; pass `format`',
+    sync: () => next.decompressSync(text),
+    async: () => next.decompress(text),
+  },
+  {
+    name: 'empty data without a format',
+    code: 'ERR_COMPRS_UNKNOWN_FORMAT',
+    message: 'unable to detect the compression format; pass `format`',
+    sync: () => next.decompressSync(new Uint8Array(0)),
+    async: () => next.decompress(new Uint8Array(0), { format: 'auto' }),
+  },
+  {
+    name: 'data after the end of the stream',
+    code: 'ERR_COMPRS_CORRUPT_DATA',
+    message: 'gzip decompress failed: unexpected data after the end of the compressed stream',
+    sync: () => next.decompressSync(Buffer.concat([gzipText, Buffer.from([0])])),
+    async: () => next.decompress(Buffer.concat([gzipText, Buffer.from([0])]), { format: 'gzip' }),
+  },
+  {
+    name: 'a cut stream',
+    code: 'ERR_COMPRS_TRUNCATED',
+    message: 'zstd stream is truncated: unexpected end of input',
+    sync: () => next.decompressSync(zstdText.subarray(0, 8)),
+    async: () => next.decompress(zstdText.subarray(0, 8)),
+  },
+  {
+    name: 'empty data in a format',
+    code: 'ERR_COMPRS_TRUNCATED',
+    message: /truncated/,
+    sync: () => next.decompressSync(new Uint8Array(0), { format: 'gzip' }),
+    async: () => next.decompress(new Uint8Array(0), { format: 'gzip' }),
+  },
+  {
+    name: 'output above maxOutputSize',
+    code: 'ERR_COMPRS_SIZE_LIMIT',
+    message: 'zstd decompress exceeded maximum size of 10 bytes',
+    sync: () => next.decompressSync(zstdText, { maxOutputSize: 10 }),
+    async: () => next.decompress(zstdText, { maxOutputSize: 10 }),
+  },
+  {
+    name: 'training without samples',
+    code: 'ERR_COMPRS_OPERATION_FAILED',
+    message: /^zstd dictionary training failed: /,
+    sync: () => next.trainDictionarySync([]),
+    async: () => next.trainDictionary([]),
+  },
+];
+
+/** The string literals of `export type ErrorCode = …` in next/api.d.ts. */
+function declaredErrorCodes(): string[] {
+  const source = readFileSync(resolve(__dirname, '../next/api.d.ts'), 'utf8');
+  const declaration = /^export type ErrorCode =([^;]*);/m.exec(source)?.[1];
+  if (declaration === undefined) throw new Error('next/api.d.ts declares no ErrorCode');
+  return [...declaration.matchAll(/'([^']*)'/g)].flatMap((match) => match[1] ?? []);
+}
+
+/** The hidden binding's errorCodes(): comprs-core's ERROR_CODES. */
+function bindingErrorCodes(): unknown {
+  const binding: unknown = Reflect.get(
+    require('../index.js'),
+    Symbol.for('@derodero24/comprs/internal'),
+  );
+  if (typeof binding !== 'object' || binding === null) {
+    throw new Error('the native addon has no hidden binding');
+  }
+  const errorCodes: unknown = Reflect.get(binding, 'errorCodes');
+  if (typeof errorCodes !== 'function') throw new Error('the binding has no errorCodes()');
+  return Reflect.apply(errorCodes, binding, []);
+}
+
+describe('errors', () => {
+  it('ErrorCode holds the codes of the backend', () => {
+    expect(declaredErrorCodes()).toEqual(bindingErrorCodes());
+  });
+
+  it('cover every code that the functions can give', () => {
+    const reached = new Set(ERROR_CASES.map((errorCase) => errorCase.code));
+    // Errors of streams, which the API does not have yet.
+    const unreachable = ['ERR_COMPRS_STREAM_FINISHED', 'ERR_COMPRS_STREAM_CLOSED'];
+    expect([...reached, ...unreachable].sort()).toEqual(declaredErrorCodes().sort());
+  });
+
+  it.each(ERROR_CASES)('are thrown with their code and class for $name', (errorCase) => {
+    expectCoded(thrown(errorCase.sync), errorCase.code, errorCase.message);
+  });
+
+  it.each(ERROR_CASES)('reject with their code and class for $name', async (errorCase) => {
+    expectCoded(await rejection(promiseOf(errorCase.async)), errorCase.code, errorCase.message);
+  });
+});
+
+/** A synchronous function of the API and its asynchronous variant. */
+type Pair = readonly [(...args: never[]) => unknown, (...args: never[]) => Promise<unknown>];
+
+const PAIRS = {
+  compress: [next.compressSync, next.compress],
+  decompress: [next.decompressSync, next.decompress],
+  trainDictionary: [next.trainDictionarySync, next.trainDictionary],
+} as const satisfies Record<string, Pair>;
+
+/** Arguments that the API rejects as of the wrong type, with their message. */
+interface BadArguments {
+  name: string;
+  pair: keyof typeof PAIRS;
+  /** The arguments, which make a fresh detached buffer for each call. */
+  args(): unknown[];
+  message: string;
+}
+
+/** `view`, after its buffer is detached. */
+function detached<T extends ArrayBufferView<ArrayBuffer>>(view: T): T {
+  structuredClone(view.buffer, { transfer: [view.buffer] });
+  return view;
+}
+
+/** A Uint8Array of the bytes of `text`, whose buffer is detached. */
+function detachedView(): Uint8Array {
+  return detached(Uint8Array.from(text));
+}
+
+const BAD_ARGUMENTS: BadArguments[] = [
+  {
+    name: 'a missing format',
+    pair: 'compress',
+    args: () => [text, {}],
+    message: 'format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4',
+  },
+  {
+    name: 'missing options',
+    pair: 'compress',
+    args: () => [text],
+    message: 'options must be an object',
+  },
+  {
+    name: 'an unknown format',
+    pair: 'compress',
+    args: () => [text, { format: 'zip' }],
+    message: 'format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4',
+  },
+  {
+    name: "'auto' for compression",
+    pair: 'compress',
+    args: () => [text, { format: 'auto' }],
+    message: 'format must be one of zstd, gzip, deflate, deflate-raw, brotli, lz4',
+  },
+  {
+    name: 'an unknown format for decompression',
+    pair: 'decompress',
+    args: () => [zstdText, { format: 'ZSTD' }],
+    message: 'format must be one of auto, zstd, gzip, deflate, deflate-raw, brotli, lz4',
+  },
+  {
+    name: 'a level as a string',
+    pair: 'compress',
+    args: () => [text, { format: 'zstd', level: '3' }],
+    message: 'level must be a number',
+  },
+  {
+    name: 'a NaN level',
+    pair: 'compress',
+    args: () => [text, { format: 'gzip', level: Number.NaN }],
+    message: 'gzip compression level must be an integer between 0 and 9',
+  },
+  {
+    name: 'a level of 2 ** 53',
+    pair: 'compress',
+    args: () => [text, { format: 'brotli', level: 2 ** 53 }],
+    message: 'brotli compression level must be an integer between 0 and 11',
+  },
+  {
+    name: 'null options',
+    pair: 'decompress',
+    args: () => [zstdText, null],
+    message: 'options must be an object',
+  },
+  {
+    name: 'a dictionary of the wrong type',
+    pair: 'compress',
+    args: () => [text, { format: 'zstd', dictionary: 'dictionary' }],
+    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a dictionary of the wrong type for decompression',
+    pair: 'decompress',
+    args: () => [zstdText, { format: 'zstd', dictionary: [1, 2, 3] }],
+    message: 'dictionary must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a gzip header that is no object',
+    pair: 'compress',
+    args: () => [text, { format: 'gzip', gzipHeader: 'data.txt' }],
+    message: 'gzipHeader must be an object',
+  },
+  {
+    name: 'a gzip filename that is no string',
+    pair: 'compress',
+    args: () => [text, { format: 'gzip', gzipHeader: { filename: 1 } }],
+    message: 'gzipHeader.filename must be a string',
+  },
+  {
+    name: 'a gzip mtime that is no number',
+    pair: 'compress',
+    args: () => [text, { format: 'gzip', gzipHeader: { mtime: new Date(0) } }],
+    message: 'gzipHeader.mtime must be a number',
+  },
+  {
+    name: 'workers as a string',
+    pair: 'compress',
+    args: () => [text, { format: 'zstd', workers: '2' }],
+    message: 'workers must be a number',
+  },
+  {
+    name: 'a maxOutputSize of -1',
+    pair: 'decompress',
+    args: () => [zstdText, { maxOutputSize: -1 }],
+    message: 'maxOutputSize must be an integer between 0 and 9007199254740991',
+  },
+  {
+    name: 'a maxOutputSize as a bigint',
+    pair: 'decompress',
+    args: () => [zstdText, { maxOutputSize: 10n }],
+    message: 'maxOutputSize must be a number',
+  },
+  {
+    name: 'data of the wrong type',
+    pair: 'decompress',
+    args: () => ['data'],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'data as an array of numbers',
+    pair: 'compress',
+    args: () => [[1, 2, 3], { format: 'zstd' }],
+    message: 'data must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a view of a detached buffer',
+    pair: 'compress',
+    args: () => [detachedView(), { format: 'zstd' }],
+    message: 'data is backed by a detached ArrayBuffer',
+  },
+  {
+    name: 'a DataView of a detached buffer',
+    pair: 'decompress',
+    args: () => [detached(new DataView(new ArrayBuffer(8)))],
+    message: 'data is backed by a detached ArrayBuffer',
+  },
+  {
+    name: 'a detached ArrayBuffer',
+    pair: 'decompress',
+    args: () => [detachedView().buffer],
+    message: 'data is a detached ArrayBuffer',
+  },
+  {
+    name: 'a dictionary of a detached buffer',
+    pair: 'decompress',
+    args: () => [zstdText, { format: 'zstd', dictionary: detachedView() }],
+    message: 'dictionary is backed by a detached ArrayBuffer',
+  },
+  {
+    name: 'non-iterable samples',
+    pair: 'trainDictionary',
+    args: () => [{ length: 1, 0: text }],
+    message: 'samples must be an iterable of ArrayBuffers, SharedArrayBuffers or ArrayBufferViews',
+  },
+  {
+    name: 'samples that yield a string',
+    pair: 'trainDictionary',
+    args: () => [[...samples.slice(0, 3), 'sample']],
+    message: 'samples[3] must be an ArrayBuffer, SharedArrayBuffer or ArrayBufferView',
+  },
+  {
+    name: 'a sample of a detached buffer',
+    pair: 'trainDictionary',
+    args: () => [[text, detachedView()]],
+    message: 'samples[1] is backed by a detached ArrayBuffer',
+  },
+  {
+    // The second argument of the root entry's zstdTrainDictionary().
+    name: 'a maxSize in place of the options',
+    pair: 'trainDictionary',
+    args: () => [samples, 4096],
+    message: 'options must be an object',
+  },
+  {
+    name: 'a maxSize as a string',
+    pair: 'trainDictionary',
+    args: () => [samples, { maxSize: '4096' }],
+    message: 'maxSize must be a number',
+  },
+];
+
+describe('arguments of the wrong type', () => {
+  it.each(BAD_ARGUMENTS)('are thrown as TypeErrors for $name', ({ pair, args, message }) => {
+    const [sync] = PAIRS[pair];
+    expectCoded(
+      thrown(() => Reflect.apply(sync, undefined, args())),
+      'ERR_COMPRS_INVALID_ARG',
+      message,
+    );
+  });
+
+  it.each(BAD_ARGUMENTS)('reject with TypeErrors for $name', async ({ pair, args, message }) => {
+    const [, async] = PAIRS[pair];
+    const promise = promiseOf(() => Reflect.apply(async, undefined, args()));
+    expectCoded(await rejection(promise), 'ERR_COMPRS_INVALID_ARG', message);
+  });
+});
+
+describe('errors of the caller', () => {
+  class CallerError extends Error {}
+
+  /** Options whose `format` getter throws `error`. */
+  function throwingOptions(error: Error): CompressOptions {
+    return {
+      get format(): Format {
+        throw error;
+      },
+    };
+  }
+
+  /** Samples whose iterator throws `error` after a sample. */
+  function* throwingSamples(error: Error): Generator<Uint8Array> {
+    yield text;
+    throw error;
+  }
+
+  it('pass through unchanged from a getter of the options', async () => {
+    const error = new CallerError('getter');
+    expect(thrown(() => next.compressSync(text, throwingOptions(error)))).toBe(error);
+    expect(await rejection(promiseOf(() => next.compress(text, throwingOptions(error))))).toBe(
+      error,
+    );
+    expect(error).not.toHaveProperty('code');
+  });
+
+  it('pass through unchanged from the iterator of the samples', async () => {
+    const error = new CallerError('iterator');
+    expect(thrown(() => next.trainDictionarySync(throwingSamples(error)))).toBe(error);
+    expect(await rejection(promiseOf(() => next.trainDictionary(throwingSamples(error))))).toBe(
+      error,
+    );
+    expect(error).not.toHaveProperty('code');
+  });
+
+  it('fail the call with a code when a getter detaches the data', () => {
+    // The options are read before the data, so a getter that detaches the
+    // buffer of the data makes the call fail rather than compress nothing.
+    const data = Uint8Array.from(text);
+    const options = {
+      get format(): Format {
+        structuredClone(data.buffer, { transfer: [data.buffer] });
+        return 'zstd';
+      },
+    };
+    expectCoded(
+      thrown(() => next.compressSync(data, options)),
+      'ERR_COMPRS_INVALID_ARG',
+      'data is backed by a detached ArrayBuffer',
+    );
+  });
+});
+
+/**
+ * Names that a module namespace of a CommonJS module has besides its exports:
+ * `default`, and from Node.js 23 also `module.exports`.
+ */
+const CJS_NAMESPACE_KEYS = new Set(['default', 'module.exports']);
+
+/** The names that a module namespace exports, sorted. */
+function exportedNames(namespace: object): string[] {
+  return Object.keys(namespace)
+    .filter((key) => !CJS_NAMESPACE_KEYS.has(key))
+    .sort();
+}
+
+describe('the ES module entry', () => {
+  /** The functions of the API. */
+  const NAMES = [
+    'compress',
+    'compressSync',
+    'decompress',
+    'decompressSync',
+    'detectFormat',
+    'trainDictionary',
+    'trainDictionarySync',
+  ];
+  // How long the Node.js process may run. Vitest fails a test that outlasts
+  // its own timeout (5 s by default) even while it waits in execFileSync, so
+  // the test gets twice this.
+  const PROCESS_TIMEOUT = 30_000;
+
+  it('exports the functions of the CommonJS entry', async () => {
+    const namespace: Record<string, unknown> = await import('../next/index.mjs');
+    expect(exportedNames(next)).toEqual(NAMES);
+    expect(exportedNames(namespace)).toEqual(NAMES);
+    for (const name of NAMES) {
+      expect(namespace[name]).toBe(Reflect.get(next, name));
+    }
+  });
+
+  // Node.js finds the names of a CommonJS module that an ES module imports
+  // with its lexer, without running the module, and only in the forms that
+  // the lexer recognizes. Vitest's module runner does not use it.
+  it('exports them in Node.js', { timeout: 2 * PROCESS_TIMEOUT }, () => {
+    const entry = pathToFileURL(resolve(__dirname, '../next/index.mjs')).href;
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        [
+          `const next = await import(${JSON.stringify(entry)});`,
+          `const skipped = new Set(${JSON.stringify([...CJS_NAMESPACE_KEYS])});`,
+          "const data = next.compressSync(new Uint8Array(8), { format: 'zstd' });",
+          'process.stdout.write(JSON.stringify({',
+          '  names: Object.keys(next).filter((key) => !skipped.has(key)).sort(),',
+          '  restored: next.decompressSync(data).byteLength,',
+          '}));',
+        ].join('\n'),
+      ],
+      { encoding: 'utf8', timeout: PROCESS_TIMEOUT },
+    );
+    expect(JSON.parse(output)).toEqual({ names: NAMES, restored: 8 });
+  });
+});
+
+describe('the root entry', () => {
+  const DECLARED_VALUE = /^export declare (?:function|class|(?:const )?enum|const) (\w+)/gm;
+
+  it('is unchanged', () => {
+    const source = readFileSync(resolve(__dirname, '../index.d.ts'), 'utf8');
+    const declared = [...source.matchAll(DECLARED_VALUE)].flatMap((match) => match[1] ?? []);
+    const exports: object = require('../index.js');
+    expect(Object.keys(exports).sort()).toEqual(declared.sort());
+    // Its decompress() and detectFormat() keep their 2.x signatures.
+    expect(rootDecompress).not.toBe(next.decompress);
+    const restored = rootDecompress(zstdText);
+    expect(Buffer.isBuffer(restored)).toBe(true);
+    expect(plain(restored)).toEqual(text);
+    expect(rootDetectFormat(new Uint8Array(0))).toBe(CompressionFormat.Unknown);
+  });
+});
