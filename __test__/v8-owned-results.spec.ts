@@ -46,9 +46,10 @@ import { JSON_DATA } from './bench-fixtures.js';
 
 // The synchronous functions and the stream contexts copy results of up to
 // 2 MiB into memory that V8 allocates (SYNC_COPY_LIMIT in
-// crates/core/src/convert.rs). Unlike the memory of the addon, which V8
-// cannot detach, such a result can be transferred to a worker, and V8 frees
-// it as soon as it collects the result, without waiting for the event loop.
+// crates/core/src/convert.rs). Unlike the memory of the addon, which Node.js
+// marks as untransferable, such a result can be transferred to a worker, and
+// V8 frees it as soon as it collects the result, without waiting for the
+// event loop.
 
 const data = Buffer.from('comprs returns results in memory that V8 owns. '.repeat(2000));
 const dict = Buffer.from('a dictionary for the results of comprs '.repeat(20));
@@ -116,6 +117,8 @@ describe('synchronous one-shot functions', () => {
     expectTransferable(call());
   });
 
+  // This test and the next pin SYNC_COPY_LIMIT from both sides: the largest
+  // result that is copied, and one byte more, which is not.
   it('returns a result of 2 MiB that can be transferred', () => {
     const size = 2 * 1024 * 1024;
     const out = zstdDecompress(zstdCompress(Buffer.alloc(size, 7)));
@@ -123,10 +126,18 @@ describe('synchronous one-shot functions', () => {
     expectTransferable(out);
   });
 
-  it('returns a larger result as a Buffer', () => {
+  // A larger result stays in the memory of the addon, which Node.js marks as
+  // untransferable, so that the transfer throws and leaves it intact.
+  it('returns a larger result as a Buffer that cannot be transferred', () => {
     const size = 2 * 1024 * 1024 + 1;
     const out = zstdDecompress(zstdCompress(Buffer.alloc(size, 7)));
     expect(Buffer.isBuffer(out)).toBe(true);
+    const { buffer } = out;
+    if (!isArrayBuffer(buffer)) throw new Error('expected an ArrayBuffer');
+    expect(() => structuredClone(out, { transfer: [buffer] })).toThrow(
+      expect.objectContaining({ name: 'DataCloneError' }),
+    );
+    expect(out.byteLength).toBe(size);
     expect(out.equals(Buffer.alloc(size, 7))).toBe(true);
   });
 
