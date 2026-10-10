@@ -198,6 +198,40 @@ node scripts/check-release.mjs
 
 Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
 
+## Releases
+
+This section is for maintainers. Releases go through `.github/workflows/release.yml`:
+
+1. Pull requests into `develop` add [changesets](#changesets).
+2. On each push to `develop`, the Version job (changesets/action) opens or updates the Version Packages pull request, which applies the changesets: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`.
+3. Once it is merged, no changeset is left, and the Version job opens or updates the release pull request from `develop` into `main`, which lists the versions to publish.
+4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish`, first publishes the platform packages and creates the GitHub release. The Publish Middleware job then publishes the middleware, if its version is new.
+5. The Merge Back job merges `main` into `develop`, or opens a pull request for that when it cannot.
+
+The Version job opens and updates both pull requests with `GITHUB_TOKEN`, whose pushes and pull requests start no workflow. CI therefore never runs on the Version Packages pull request on its own: before merging it, run the CI workflow on its branch, `changeset-release/develop`, from the Actions tab (**CI** → **Run workflow**). The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
+
+Both publish jobs run in the `npm-publish` environment and authenticate with the `NPM_TOKEN` secret (`NODE_AUTH_TOKEN`), a granular access token. npm lets a token that can publish live for at most 90 days: renew it before it expires, or the next release fails.
+
+### Trusted publishing
+
+npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), try [trusted publishing](https://docs.npmjs.com/trusted-publishers) on every `npm publish` in GitHub Actions: when the package has a trusted publisher that matches the workflow, npm exchanges the job's OIDC token for a short-lived token that can publish that package, and uses it instead of `NODE_AUTH_TOKEN`. Otherwise it silently keeps `NODE_AUTH_TOKEN`. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages work the same way. To move the release to trusted publishing ([#584](https://github.com/derodero24/comprs/issues/584)):
+
+1. Add a trusted publisher to each of the 10 packages shortly before a release that publishes it: a new trusted publisher expires unless a publish through it succeeds within 2 days, and an expired one has to be deleted and added again. A release publishes the middleware only when its version changes, so its trusted publisher may have to wait for a later release than the others.
+   - Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
+   - Settings: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`. Allow `npm publish`, not only `npm stage publish`: the release publishes directly.
+   - On npmjs.com, they are under each package's **Settings** → **Trusted publishing** → **GitHub Actions**. npm 11.15.0 and later can also add them from a terminal, logged in to an account with two-factor authentication:
+
+     ```bash
+     for pkg in comprs comprs-middleware comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}; do
+       npm trust github "@derodero24/$pkg" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
+       sleep 2
+     done
+     ```
+2. In the repository settings, limit the deployment branches of the `npm-publish` environment to `main`.
+3. After the release, check how each package was published: `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish, and `derodero24` for a token publish. Once all 10 packages have published as `GitHub Actions`, a follow-up pull request removes `NODE_AUTH_TOKEN` from both publish steps; then delete the `NPM_TOKEN` secret and revoke the token on npmjs.com. Each package's **Publishing access** can then be set to "Require two-factor authentication and disallow tokens".
+
+The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. A new package name, such as the platform package of a new napi target, needs a first publish with a token before it can have a trusted publisher: npm adds trusted publishers only to packages that it already has ([`npm trust`](https://docs.npmjs.com/cli/v11/commands/npm-trust)). `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
+
 ## Package tests
 
 The `Package E2E` CI job installs the packages that the release would publish into the fixtures in `e2e/`, which import `@derodero24/comprs` by name, as applications do: in Node.js (with `import` and `require()`), Deno and Bun, which load the native addon, and in browser builds made with esbuild, webpack, Vite (`vite build` and `vite dev`) and an import map, which load the WebAssembly build in Chromium, Firefox and WebKit. `e2e/` is a pnpm project of its own, with its own lockfile, which pins the bundlers.
