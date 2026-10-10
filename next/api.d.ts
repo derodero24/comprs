@@ -48,7 +48,10 @@ export type Bytes = ReturnType<Uint8Array['slice']>;
  *   data after the end of the compressed stream;
  * - `ERR_COMPRS_TRUNCATED`: the data ends before the end of the compressed
  *   stream, as empty data in a given `format` does;
- * - `ERR_COMPRS_SIZE_LIMIT`: the output would exceed `maxOutputSize`;
+ * - `ERR_COMPRS_SIZE_LIMIT`: the output would exceed `maxOutputSize`, or,
+ *   under a `maxOutputSize` of 64 MiB or less, a zstd frame declares a
+ *   window larger than the limit allows, as
+ *   {@link DecompressOptions.maxOutputSize} describes;
  * - `ERR_COMPRS_STREAM_FINISHED` and `ERR_COMPRS_STREAM_CLOSED`: a stream
  *   was used after it finished or was closed. The functions of this module
  *   do not give them;
@@ -140,6 +143,13 @@ export interface DecompressOptions {
      * The largest output, in bytes: an integer from 0 to
      * `Number.MAX_SAFE_INTEGER`, 268435456 (256 MiB) by default. Output that
      * would be larger fails with `ERR_COMPRS_SIZE_LIMIT`.
+     *
+     * The limit also bounds the memory of the zstd decoder: under a limit of
+     * 64 MiB or less, a zstd frame that declares a window larger than the
+     * limit, rounded up to a power of two and never less than 8 MiB, fails
+     * with `ERR_COMPRS_SIZE_LIMIT` too. zstd writes no larger window at
+     * levels up to 19, so the frames that {@link compress} writes at those
+     * levels decode under any limit that their output fits in.
      */
     maxOutputSize?: number | undefined;
     /**
