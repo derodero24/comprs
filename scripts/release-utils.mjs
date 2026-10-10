@@ -1,9 +1,10 @@
 /**
- * Helpers shared by the release packaging scripts, prepare-release.mjs and
- * check-release.mjs, and by check-consumer-types.mjs and
- * e2e/install-package.mjs, which pack the package. The checks of
- * check-release.mjs that __test__/release-utils.spec.ts tests are here too,
- * as importing that script runs it.
+ * Helpers shared by the release packaging scripts, prepare-release.mjs,
+ * check-release.mjs and third-party-licenses.mjs, and by
+ * check-consumer-types.mjs and e2e/install-package.mjs, which pack the
+ * package. The checks of check-release.mjs that
+ * __test__/release-utils.spec.ts tests are here too, as importing that
+ * script runs it.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -229,17 +230,19 @@ export function runTool(name, args) {
 
 /**
  * Run a command and return its standard output. Its standard error is passed
- * through. Throws if it exits with a non-zero status.
+ * through. Throws if it exits with a non-zero status, or prints more than
+ * `maxBuffer` bytes (1 MiB unless given).
  *
  * @param {string} command
  * @param {string[]} args
- * @param {{ cwd?: string }} [options]
+ * @param {{ cwd?: string, maxBuffer?: number }} [options]
  * @returns {string}
  */
-export function capture(command, args, { cwd = ROOT } = {}) {
+export function capture(command, args, { cwd = ROOT, maxBuffer = 1024 * 1024 } = {}) {
   return execFileSync(command, args, {
     cwd,
     encoding: 'utf8',
+    maxBuffer,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 }
