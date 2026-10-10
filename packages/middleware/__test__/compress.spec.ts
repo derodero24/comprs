@@ -88,6 +88,26 @@ function readUntil(
   });
 }
 
+/**
+ * Run `test` with `close()` removed from a context class, as in the cores
+ * before 2.1, which some package managers install with only a warning about
+ * the peer range.
+ */
+async function withoutClose(
+  context: { prototype: Encoder },
+  test: () => Promise<void>,
+): Promise<void> {
+  const { prototype } = context;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'close');
+  if (!descriptor) throw new Error('expected close() on the prototype');
+  Reflect.deleteProperty(prototype, 'close');
+  try {
+    await test();
+  } finally {
+    Object.defineProperty(prototype, 'close', descriptor);
+  }
+}
+
 /** The window size a zstd frame header declares (RFC 8878, section 3.1.1.1). */
 function zstdWindowSize(frame: Buffer): number {
   expect(frame.readUInt32LE(0)).toBe(0xfd2fb528);
@@ -107,6 +127,20 @@ describe('createCompressTransform', () => {
     await once(stream, 'close');
     expect(close).toHaveBeenCalledOnce();
   });
+
+  it.each(ENCODINGS)('should end cleanly when the context has no close() (%s)', (encoding) =>
+    withoutClose(CONTEXTS[encoding], async () => {
+      const stream = createCompressTransform(encoding);
+      const errors: Error[] = [];
+      stream.on('error', (err) => errors.push(err));
+      const closed = once(stream, 'close');
+      const input = randomBytes(1024);
+      const output = await compress(stream, [input]);
+      await within(closed);
+      expect(errors).toEqual([]);
+      expect(decodeReceived(encoding, output)).toEqual(input);
+    }),
+  );
 
   describe('flushing', () => {
     it.each(ENCODINGS)('should send what was written once input pauses (%s)', async (encoding) => {

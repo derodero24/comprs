@@ -87,6 +87,26 @@ async function within<T>(promise: T | Promise<T>, ms = 2000): Promise<T> {
   }
 }
 
+/**
+ * Run `test` with `close()` removed from a context class, as in the cores
+ * before 2.1, which some package managers install with only a warning about
+ * the peer range.
+ */
+async function withoutClose(
+  context: { prototype: Encoder },
+  test: () => Promise<void>,
+): Promise<void> {
+  const { prototype } = context;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'close');
+  if (!descriptor) throw new Error('expected close() on the prototype');
+  Reflect.deleteProperty(prototype, 'close');
+  try {
+    await test();
+  } finally {
+    Object.defineProperty(prototype, 'close', descriptor);
+  }
+}
+
 function bodyReader(res: Response): ReadableStreamDefaultReader<Uint8Array> {
   if (!res.body) throw new Error('expected a response body');
   return res.body.getReader();
@@ -300,6 +320,34 @@ describe('comprs hono middleware', () => {
         expect(close).toHaveBeenCalledOnce();
       },
     );
+
+    it('cancels the body when the context has no close()', () =>
+      withoutClose(CONTEXTS.gzip, async () => {
+        let cancelled = false;
+        const app = new Hono();
+        app.use(comprs());
+        app.get(
+          '/',
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(encoder.encode(TEST_BODY));
+                },
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+              { headers: TEXT },
+            ),
+        );
+
+        const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+        const reader = bodyReader(res);
+        expect(await within(readUntil(reader, 'gzip', TEST_BODY))).toBe(TEST_BODY);
+        await reader.cancel();
+        expect(cancelled).toBe(true);
+      }));
 
     it('sends each write of an endless streamText() as it happens', async () => {
       const app = new Hono();

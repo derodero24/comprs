@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 
-import { compressBufferAsync, createEncoder, type Encoder } from './compress.js';
+import { closeEncoder, compressBufferAsync, createEncoder, type Encoder } from './compress.js';
 import { negotiate } from './negotiate.js';
 import { resolveOptions, type Settings } from './options.js';
 import { appendVary, canCompressBody, isCandidate, meetsThreshold, weakenEtag } from './shared.js';
@@ -141,14 +141,14 @@ function compressStream(
       } catch (err) {
         // Release the encoder, and stop the body, which nothing reads any
         // more; a body that failed by itself refuses to be cancelled.
-        encoder.close();
+        closeEncoder(encoder);
         reader.cancel(err).catch(() => {});
         throw err;
       }
     },
     cancel(reason: unknown): Promise<void> {
       cancelled = true;
-      encoder.close();
+      closeEncoder(encoder);
       return reader.cancel(reason);
     },
   });

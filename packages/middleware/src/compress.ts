@@ -40,6 +40,21 @@ function toError(err: unknown): Error {
 }
 
 /**
+ * Close an encoder, ignoring a failure to do so. The contexts of comprs have
+ * `close()` since 2.1, which the peer range asks for, but pnpm and Yarn only
+ * warn about an unmet peer. With an older core, `close()` is missing, and
+ * calling it would fail a response that is otherwise complete; the native
+ * state of its encoder is released when it is garbage-collected instead.
+ */
+export function closeEncoder(encoder: Encoder): void {
+  try {
+    encoder.close();
+  } catch {
+    // Left to the garbage collector.
+  }
+}
+
+/**
  * Create an encoder for the zlib format (RFC 1950), which is what the
  * `deflate` content coding means. The header goes in front of the first
  * output, and the Adler-32 checksum of the input after the raw DEFLATE
@@ -177,7 +192,7 @@ class EncoderTransform extends Transform implements CompressTransform {
 
   override _destroy(err: Error | null, callback: (error?: Error | null) => void): void {
     this.#cancelIdleCheck();
-    this.#encoder.close();
+    closeEncoder(this.#encoder);
     callback(err);
   }
 
