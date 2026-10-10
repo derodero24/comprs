@@ -59,6 +59,12 @@ stream_context_methods!(ZstdCompressContext);
 ///
 /// Maintains internal decompression state across multiple `transform` calls,
 /// enabling chunked decompression of a zstd frame.
+///
+/// `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+/// It also bounds the window that a frame makes the decoder allocate before
+/// it writes any output: to `maxOutputSize` rounded up to a power of two, at
+/// least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+/// declares a larger window throws an error instead.
 #[napi(custom_finalize)]
 pub struct ZstdDecompressContext {
     inner: NativeState<comprs_core::zstd_stream::DecompressContext>,
@@ -157,6 +163,12 @@ stream_context_methods!(ZstdCompressDictContext);
 ///
 /// Maintains internal decompression state across multiple `transform` calls,
 /// using a pre-trained dictionary that matches the one used for compression.
+///
+/// `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+/// It also bounds the window that a frame makes the decoder allocate before
+/// it writes any output: to `maxOutputSize` rounded up to a power of two, at
+/// least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+/// declares a larger window throws an error instead.
 #[napi(custom_finalize)]
 pub struct ZstdDecompressDictContext {
     inner: NativeState<comprs_core::zstd_stream::DecompressDictContext>,

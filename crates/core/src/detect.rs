@@ -67,6 +67,8 @@ pub fn detect_format(data: Either<Buffer, Uint8Array>) -> CompressionFormat {
 /// `maxOutputSize` limits the decompressed size in bytes, like the
 /// `maxOutputSize` of `createDecompressStream`. It defaults to 256 MB for all
 /// formats. It is only a limit: a large value reserves no memory up front.
+/// For zstd input, it also bounds the window of a frame, as the `capacity` of
+/// `zstdDecompressWithCapacity` does.
 ///
 /// Supported formats: zstd, gzip, brotli, lz4.
 /// Raw deflate is not supported (no magic bytes to distinguish it).

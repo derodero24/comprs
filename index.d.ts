@@ -461,6 +461,12 @@ export declare class ZstdCompressDictContext {
  *
  * Maintains internal decompression state across multiple `transform` calls,
  * enabling chunked decompression of a zstd frame.
+ *
+ * `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+ * It also bounds the window that a frame makes the decoder allocate before
+ * it writes any output: to `maxOutputSize` rounded up to a power of two, at
+ * least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+ * declares a larger window throws an error instead.
  */
 export declare class ZstdDecompressContext {
   constructor(maxOutputSize?: number | undefined | null)
@@ -492,6 +498,12 @@ export declare class ZstdDecompressContext {
  *
  * Maintains internal decompression state across multiple `transform` calls,
  * using a pre-trained dictionary that matches the one used for compression.
+ *
+ * `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+ * It also bounds the window that a frame makes the decoder allocate before
+ * it writes any output: to `maxOutputSize` rounded up to a power of two, at
+ * least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+ * declares a larger window throws an error instead.
  */
 export declare class ZstdDecompressDictContext {
   constructor(dict: Buffer | Uint8Array, maxOutputSize?: number | undefined | null)
@@ -654,6 +666,8 @@ export declare function crc32(data: Buffer | Uint8Array, initialValue?: number |
  * `maxOutputSize` limits the decompressed size in bytes, like the
  * `maxOutputSize` of `createDecompressStream`. It defaults to 256 MB for all
  * formats. It is only a limit: a large value reserves no memory up front.
+ * For zstd input, it also bounds the window of a frame, as the `capacity` of
+ * `zstdDecompressWithCapacity` does.
  *
  * Supported formats: zstd, gzip, brotli, lz4.
  * Raw deflate is not supported (no magic bytes to distinguish it).
@@ -971,7 +985,11 @@ export declare function zstdDecompressAsync(data: Buffer | Uint8Array): Promise<
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  * It is only a limit: the output buffer grows with the decompressed data, so
- * a large `capacity` reserves no memory up front.
+ * a large `capacity` reserves no memory up front. `capacity` also bounds the
+ * window that a frame makes the decoder allocate before it writes any
+ * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
+ * most zstd's default of 128 MiB, so a frame that declares a larger window
+ * throws an error instead.
  */
 export declare function zstdDecompressWithCapacity(data: Buffer | Uint8Array, capacity: number): Buffer
 
@@ -981,7 +999,11 @@ export declare function zstdDecompressWithCapacity(data: Buffer | Uint8Array, ca
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  * It is only a limit: the output buffer grows with the decompressed data, so
- * a large `capacity` reserves no memory up front.
+ * a large `capacity` reserves no memory up front. `capacity` also bounds the
+ * window that a frame makes the decoder allocate before it writes any
+ * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
+ * most zstd's default of 128 MiB, so a frame that declares a larger window
+ * throws an error instead.
  */
 export declare function zstdDecompressWithCapacityAsync(data: Buffer | Uint8Array, capacity: number): Promise<Buffer>
 
@@ -1006,7 +1028,11 @@ export declare function zstdDecompressWithDictAsync(data: Buffer | Uint8Array, d
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  * It is only a limit: the output buffer grows with the decompressed data, so
- * a large `capacity` reserves no memory up front.
+ * a large `capacity` reserves no memory up front. `capacity` also bounds the
+ * window that a frame makes the decoder allocate before it writes any
+ * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
+ * most zstd's default of 128 MiB, so a frame that declares a larger window
+ * throws an error instead.
  * The same dictionary used for compression must be provided.
  */
 export declare function zstdDecompressWithDictWithCapacity(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Buffer
@@ -1018,7 +1044,11 @@ export declare function zstdDecompressWithDictWithCapacity(data: Buffer | Uint8A
  * Use this when the decompressed size exceeds the default 256 MB limit.
  * The `capacity` parameter specifies the maximum decompressed size in bytes.
  * It is only a limit: the output buffer grows with the decompressed data, so
- * a large `capacity` reserves no memory up front.
+ * a large `capacity` reserves no memory up front. `capacity` also bounds the
+ * window that a frame makes the decoder allocate before it writes any
+ * output: to `capacity` rounded up to a power of two, at least 8 MiB and at
+ * most zstd's default of 128 MiB, so a frame that declares a larger window
+ * throws an error instead.
  * The same dictionary used for compression must be provided.
  */
 export declare function zstdDecompressWithDictWithCapacityAsync(data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number): Promise<Buffer>

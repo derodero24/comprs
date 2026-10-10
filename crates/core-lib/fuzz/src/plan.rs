@@ -11,6 +11,13 @@ use crate::heap;
 /// keep the targets fast and make overshooting them easy to detect.
 pub const MAX_LIMIT: usize = 1024 * 1024;
 
+// The zstd decoders bound the window of a frame by their output limit, but
+// accept windows of up to 8 MiB under any limit (#676). Under the limits of
+// the targets, which stay within 8 MiB, a frame's window therefore never
+// makes a smaller limit fail where a larger one succeeds: only its output
+// does, as the targets check.
+const _: () = assert!(MAX_LIMIT <= 8 * 1024 * 1024);
+
 /// Largest dictionary that the targets build from the input.
 pub const MAX_DICT_LEN: usize = 4096;
 
@@ -38,7 +45,9 @@ pub fn dict<'a>(u: &mut Unstructured<'a>, format: Format) -> Result<Option<&'a [
 
 /// Read a compression level for `format` (`None` for the default level),
 /// within the range that [`Format::compress`] accepts. The zstd range stops
-/// at 12: higher levels only make the compressor slower.
+/// at 12: higher levels only make the compressor slower, and above 19 a
+/// stream context writes windows over 8 MiB, which the decoders reject under
+/// the limits of `round_trip`.
 pub fn level(u: &mut Unstructured, format: Format) -> Result<Option<i32>> {
     if !u.arbitrary::<bool>()? {
         return Ok(None);

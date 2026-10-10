@@ -96,6 +96,13 @@ const fixtures = {
 };
 
 /**
+ * A zstd frame without a content size that declares a window of 128 MiB and
+ * holds "A", which a capacity of 1024 bytes rejects before the decoder
+ * allocates the window.
+ */
+const largeWindowZstd = Uint8Array.from([0x28, 0xb5, 0x2f, 0xfd, 0, 0x88, 0x09, 0, 0, 0x41]);
+
+/**
  * A gzip member with an extra field, a file name and a comment in its
  * header, which gzipCompressWithHeader() cannot write.
  */
@@ -208,6 +215,10 @@ const CALLS: [string, Call][] = [
   [
     'zstdDecompressWithCapacity(data, -1)',
     (api) => api.zstdDecompressWithCapacity(fixtures.zstd, -1),
+  ],
+  [
+    'zstdDecompressWithCapacity(window of 128 MiB, 1024)',
+    (api) => api.zstdDecompressWithCapacity(largeWindowZstd, 1024),
   ],
   ['zstdTrainDictionary(samples, 2048)', (api) => api.zstdTrainDictionary(samples, 2048)],
   ['zstdTrainDictionary([])', (api) => api.zstdTrainDictionary([])],
@@ -363,6 +374,10 @@ const CALLS: [string, Call][] = [
     (api) => api.zstdDecompress(drain(new api.ZstdCompressContext(5), halves(text))),
   ],
   ['ZstdDecompressContext', (api) => drain(new api.ZstdDecompressContext(), halves(fixtures.zstd))],
+  [
+    'ZstdDecompressContext(1024), window of 128 MiB',
+    (api) => drain(new api.ZstdDecompressContext(1024), [largeWindowZstd]),
+  ],
   [
     'ZstdCompressDictContext',
     (api) =>
