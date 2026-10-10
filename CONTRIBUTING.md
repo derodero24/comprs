@@ -220,7 +220,7 @@ Pass `--allow-missing-targets` to both scripts when the run built only some targ
 This section is for maintainers. Releases go through `.github/workflows/release.yml`:
 
 1. Pull requests into `develop` add [changesets](#changesets).
-2. On each push to `develop`, the Version job (changesets/action) opens or updates the Version Packages pull request, which applies the changesets: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`.
+2. On each push to `develop`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
 3. Once it is merged, no changeset is left, and the Version job opens or updates the release pull request from `develop` into `main`, which lists the versions to publish.
 4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish`, first publishes the platform packages and creates the GitHub release. The Publish Middleware job then publishes the middleware, if its version is new.
 5. The Merge Back job merges `main` into `develop`, or opens a pull request for that when it cannot.
@@ -285,6 +285,8 @@ pnpm --dir playground run dev         # or build, into playground/dist
 ```
 
 Without the WebAssembly build, the dev server and the build fail. To work on the UI without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
+
+CI builds the playground with these commands in its `Build playground` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Playground workflow deploys it from `develop`.
 
 ## Pull request checklist
 

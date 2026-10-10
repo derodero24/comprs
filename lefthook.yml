@@ -1,3 +1,5 @@
+# Git clients may start hooks without the shell profile that puts rustup's
+# cargo on PATH, so the cargo commands put ${CARGO_HOME:-~/.cargo}/bin first.
 commit-msg:
   commands:
     commitlint:
@@ -8,7 +10,7 @@ pre-commit:
     biome:
       run: pnpm exec biome check --staged --no-errors-on-unmatched --error-on-warnings
     rustfmt:
-      run: $HOME/.cargo/bin/cargo fmt -- --check
+      run: PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" cargo fmt -- --check
       glob: "*.rs"
 
 pre-push:
@@ -21,8 +23,8 @@ pre-push:
     test:
       run: pnpm test
     clippy:
-      run: $HOME/.cargo/bin/cargo clippy --workspace --all-targets -- -D warnings
+      run: PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" cargo clippy --workspace --all-targets -- -D warnings
     cargo-test:
-      run: $HOME/.cargo/bin/cargo test
+      run: PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" cargo test
     cargo-deny:
-      run: PATH="$HOME/.cargo/bin:$PATH" $HOME/.cargo/bin/cargo-deny check
+      run: PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" cargo deny check
