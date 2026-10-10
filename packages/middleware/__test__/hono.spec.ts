@@ -460,7 +460,7 @@ describe('comprs hono middleware', () => {
       );
 
       const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
-      // Server-Sent Events are not compressed, so that none is held back.
+      // Server-Sent Events are not compressed.
       expect(res.headers.get('content-encoding')).toBeNull();
       const reader = bodyReader(res);
       await within(readUntil(reader, null, 'data: event 1 '));

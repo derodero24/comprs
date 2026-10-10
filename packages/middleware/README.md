@@ -153,7 +153,7 @@ All adapters automatically:
 - Skip compression when:
   - Response already has `Content-Encoding`
   - `Cache-Control: no-transform` is set
-  - Content-Type is not compressible (images, etc.) or is `text/event-stream`, whose events would otherwise be held back by the compressor
+  - Content-Type is not compressible (images, etc.) or is `text/event-stream`, as with Hono's `compress()`: each Server-Sent Event should reach the client as soon as it is written, so compressing the stream would cost a flush per event
   - Content-Type is not set
   - Response has no content: status 1xx, 204 or 304, or an empty body
   - Response is a range: status 206 or a `Content-Range` header, whose offsets count uncompressed bytes

@@ -6,8 +6,9 @@ export const DEFAULT_ENCODINGS: readonly Encoding[] = ['zstd', 'br', 'gzip', 'de
 /**
  * Check if a Content-Type is compressible. Returns false for missing Content-Type.
  *
- * `text/event-stream` is excluded: a compressor holds output back until it has
- * enough of it, so Server-Sent Events would reach the client late.
+ * `text/event-stream` is excluded, as in Hono's `compress()`: each Server-Sent
+ * Event should reach the client as soon as it is written, so compressing the
+ * stream would cost a flush per event.
  */
 export function isCompressibleType(contentType: string | undefined): boolean {
   if (!contentType) return false;
