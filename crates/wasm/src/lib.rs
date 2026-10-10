@@ -695,7 +695,7 @@ pub fn crc32(data: &Bytes, initial_value: Option<f64>) -> Result<u32, JsError> {
 /// The codec state of a stream context, kept as the native addon keeps it
 /// (`NativeState` in crates/core/src/context.rs), without the report of its
 /// memory to the engine: `finish()` and `close()` drop the state, and later
-/// calls throw "<name> already finished" or "<name> already closed".
+/// calls throw `<name> already finished` or `<name> already closed`.
 struct StreamState<T> {
     state: State<T>,
     /// Name of the stream in errors, such as "zstd stream".

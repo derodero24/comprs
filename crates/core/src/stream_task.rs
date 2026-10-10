@@ -166,8 +166,8 @@ enum Call<T: StreamCodec> {
 
 impl<T: StreamCodec, S: Settle> StreamTask<T, S> {
     /// A task that calls `op` on the state of `state`, or rejects with
-    /// "<name> already closed" or "<name> is busy: an asynchronous call has
-    /// not finished" (see [`NativeState::begin_async`]).
+    /// `<name> already closed` or `<name> is busy: an asynchronous call has
+    /// not finished` (see [`NativeState::begin_async`]).
     pub(crate) fn new(state: &NativeState<T>, op: Op) -> Self {
         let call = match state.begin_async() {
             Ok(shared) => Call::Run {

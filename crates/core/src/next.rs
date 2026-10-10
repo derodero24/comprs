@@ -9,17 +9,17 @@
 //! checks the ranges and the combinations of the values.
 //!
 //! The functions are registered in the `next` namespace without
-//! declarations, and [`hide`] moves the namespace off the exports, to the
+//! declarations, and `hide` moves the namespace off the exports, to the
 //! property `Symbol.for("@derodero24/comprs/internal")`: neither
 //! `index.d.ts`, `index.js` nor the keys of the binding list it.
 //!
 //! Every error carries the code of its category ([`ComprsError::code`]) as
-//! `code`, as [`coded_error`] describes, except that of a withdrawn task,
+//! `code`, as `coded_error` describes, except that of a withdrawn task,
 //! below. Results are plain `Uint8Array`s: the synchronous functions copy
-//! results of up to [`SYNC_COPY_LIMIT`] into memory that V8 allocates, as
-//! [`to_uint8array`] does. The `*Async` functions copy their inputs when
+//! results of up to `SYNC_COPY_LIMIT` into memory that V8 allocates, as
+//! `to_uint8array` does. The `*Async` functions copy their inputs when
 //! they are called (#548), run on the libuv thread pool and settle as
-//! [`NextBytes`] does.
+//! `NextBytes` does.
 //!
 //! The `*Async` functions take, last, a handle from [`create_withdrawal`] or
 //! `undefined`. Through the handle, [`withdraw`] withdraws the task of the
@@ -28,7 +28,7 @@
 //! reason of the signal itself. The withdrawn task fails with the
 //! `Cancelled` status of napi-rs when a thread reaches it, which the
 //! TypeScript layer never passes on, since it has settled the call by then.
-//! [`Withdrawable`] tells why the functions take no `AbortSignal`.
+//! `Withdrawable` tells why the functions take no `AbortSignal`.
 //!
 //! The `Dictionary` class of the TypeScript layer holds a prepared
 //! dictionary as the handle that [`create_dictionary`] returns (#557), which
@@ -112,7 +112,7 @@ fn sample_bytes(samples: Vec<CopiedBytes>) -> Vec<Vec<u8>> {
 }
 
 /// Return the result of a synchronous call as a `Uint8Array`, as
-/// [`to_uint8array`] does, or its error as the error to throw.
+/// `to_uint8array` does, or its error as the error to throw.
 fn sync_output(env: &Env, result: Result<Vec<u8>, ComprsError>) -> napi::Result<Uint8Array> {
     let output = result.map_err(|err| coded_error(env, &err))?;
     to_uint8array(env, output, SYNC_COPY_LIMIT)
@@ -406,13 +406,13 @@ impl StreamCodec for NextCodec {
 /// take it.
 ///
 /// The state reports its memory to V8 as the state of the stream context
-/// classes does (see [`NativeState`]): after every call, and down to zero
+/// classes does (see `NativeState`): after every call, and down to zero
 /// once [`context_finish`] or [`context_close`] drops the state. The
 /// `External` closes the state when the garbage collector collects it, as
 /// the finalizer of those classes does, so an abandoned stream frees its
 /// memory too. A call in flight then drops the state when it settles. The
 /// TypeScript layer makes at most one call at a time, so the "is busy"
-/// error of [`NativeState`] does not reach it.
+/// error of `NativeState` does not reach it.
 pub struct NextContext {
     state: NativeState<NextCodec>,
     /// The environment that created the stream, whose account of external
@@ -501,7 +501,7 @@ pub fn create_decompress_context(
 }
 
 /// Pass `chunk` to the stream of `context`, and return the output that is
-/// ready, as [`sync_output`] returns it.
+/// ready, as `sync_output` returns it.
 #[napi(namespace = "next", skip_typescript)]
 pub fn context_transform(
     env: Env,
@@ -537,7 +537,7 @@ pub fn context_close(env: Env, context: &External<NextContext>) {
 }
 
 /// [`context_transform`] on the libuv thread pool, with a copy of `chunk`
-/// taken when it is called, which settles as [`NextStreamBytes`] does.
+/// taken when it is called, which settles as `NextStreamBytes` does.
 #[napi(namespace = "next", skip_typescript)]
 pub fn context_transform_async(
     context: AsyncArg<&External<NextContext>>,
