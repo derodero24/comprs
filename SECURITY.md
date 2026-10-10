@@ -22,6 +22,8 @@ As a compression library with a native Rust core, the following are considered s
 - **Integer overflows**: Arithmetic overflows that could lead to incorrect buffer sizes, unexpected behavior, or exploitable conditions.
 - **Unsafe FFI boundary issues**: Vulnerabilities arising from data crossing the JavaScript/Rust boundary via napi-rs or WASM.
 
+Output limits (`capacity` and `maxOutputSize`, 256 MB by default) bound the output, not every allocation of a decoder. In particular, a zstd frame header can declare a window, or for a single-segment frame a content size, of up to 128 MiB, which the streaming decoder allocates as soon as it has read the header, before it writes any output. Stream contexts decode every frame this way; the one-shot functions decode frames that declare their content size in one pass into a buffer of that size, which the limit bounds, and only other input, such as frames without a content size, this way. A `capacity` or `maxOutputSize` of 64 MiB or less lowers that bound to the limit rounded up to a power of two, but not below 8 MiB, so set one when you decode untrusted zstd data, especially with stream contexts that stay open.
+
 Issues related to compression ratio, performance, or API usability are **not** considered security vulnerabilities and should be reported as regular issues.
 
 ## Reporting a Vulnerability

@@ -6,6 +6,8 @@ import {
   decompressAsync,
   ZstdCompressContext,
   ZstdCompressDictContext,
+  ZstdDecompressContext,
+  ZstdDecompressDictContext,
   zstdCompress,
   zstdCompressWithDict,
   zstdDecompress,
@@ -205,6 +207,66 @@ describe('zstd one-shot decompression limits', () => {
         dictMessage,
       );
     });
+  });
+});
+
+describe('zstd frame windows', () => {
+  // A frame without a content size whose window descriptor, 0x88, declares a
+  // window of 128 MiB, then a raw block that holds "A". Its first 6 bytes are
+  // the frame header, after which the decoder allocates the window.
+  const frame = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x88, 0x09, 0x00, 0x00, 0x41]);
+  const header = frame.subarray(0, 6);
+  const MiB = 2 ** 20;
+  // The size-limit error, with a context that names the window.
+  const windowMessage = 'zstd frame window exceeded maximum size of 1024 bytes';
+
+  const contexts: [
+    string,
+    (maxOutputSize?: number) => ZstdDecompressContext | ZstdDecompressDictContext,
+  ][] = [
+    ['ZstdDecompressContext', (maxOutputSize) => new ZstdDecompressContext(maxOutputSize)],
+    [
+      'ZstdDecompressDictContext',
+      (maxOutputSize) => new ZstdDecompressDictContext(dict, maxOutputSize),
+    ],
+  ];
+
+  it('should be decoded under the default limit', async () => {
+    expect(zstdDecompress(frame).toString()).toBe('A');
+    expect((await zstdDecompressAsync(frame)).toString()).toBe('A');
+    expect(zstdDecompressWithCapacity(frame, 256 * MiB).toString()).toBe('A');
+    expect(zstdDecompressWithDict(frame, dict).toString()).toBe('A');
+    expect(decompress(frame).toString()).toBe('A');
+  });
+
+  it('should be rejected under a small capacity', async () => {
+    expect(() => zstdDecompressWithCapacity(frame, 1024)).toThrow(windowMessage);
+    await expect(zstdDecompressWithCapacityAsync(frame, 1024)).rejects.toThrow(windowMessage);
+    expect(() => decompress(frame, 1024)).toThrow(windowMessage);
+    await expect(decompressAsync(frame, 1024)).rejects.toThrow(windowMessage);
+    expect(() => zstdDecompressWithDictWithCapacity(frame, dict, 1024)).toThrow(windowMessage);
+    await expect(zstdDecompressWithDictWithCapacityAsync(frame, dict, 1024)).rejects.toThrow(
+      windowMessage,
+    );
+  });
+
+  it.each(contexts)('%s should decode the frame under the default limit', (_name, create) => {
+    const ctx = create();
+    expect(ctx.transform(header).length).toBe(0);
+    expect(ctx.transform(frame.subarray(header.length)).toString()).toBe('A');
+    expect(ctx.finish().length).toBe(0);
+  });
+
+  it.each(contexts)('%s should reject the header under a small maxOutputSize', (_name, create) => {
+    // The decoder rejects the header before it allocates the window, also
+    // that of a single-segment frame, whose window is its content size of
+    // 128 MiB.
+    const singleSegment = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xa0, 0, 0, 0, 0x08]);
+    for (const input of [header, singleSegment]) {
+      const ctx = create(1024);
+      expect(() => ctx.transform(input)).toThrow(windowMessage);
+      ctx.close();
+    }
   });
 });
 

@@ -144,7 +144,11 @@ pub struct DecompressOptions<'a> {
     /// the dictionary instead.
     pub format: Option<Format>,
     /// The output limit, [`crate::MAX_DECOMPRESSED_SIZE`] by default, which
-    /// [`crate::validate_max_output_size`] checks.
+    /// [`crate::validate_max_output_size`] checks. For zstd, it also bounds
+    /// the window of a frame: under a limit of 64 MiB or less, a frame whose
+    /// window is larger than the limit allows fails with
+    /// [`ComprsError::SizeLimit`] as well, as
+    /// [`zstd_stream::DecompressContext::new`] describes.
     pub max_output_size: Option<f64>,
     /// The dictionary that the input was compressed with, for zstd and
     /// brotli. Raw bytes need a `format`.
@@ -394,7 +398,9 @@ fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, C
 /// - invalid data and data after the end of the stream fail with
 ///   [`ComprsError::Corrupt`];
 /// - output that would exceed the limit fails with
-///   [`ComprsError::SizeLimit`].
+///   [`ComprsError::SizeLimit`], as does, under a limit of 64 MiB or
+///   less, a zstd frame whose window is larger than the limit allows (see
+///   [`zstd_stream::DecompressContext::new`]).
 ///
 /// The input of zstd and lz4 may hold several frames, and that of gzip
 /// several members. The output is the same as that of the per-format

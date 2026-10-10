@@ -133,7 +133,12 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 /// Decompress Zstandard-compressed data with explicit capacity.
 ///
 /// `capacity` limits the output size; the output buffer grows with the
-/// decompressed data instead of being allocated at that size.
+/// decompressed data instead of being allocated at that size. It also
+/// bounds the window of a frame, as for
+/// [`crate::zstd_stream::DecompressContext::new`]: input whose frames
+/// declare their content size decodes in one pass into a buffer of that
+/// size, without a window, and other input, such as a frame without a
+/// content size, with the streaming decoder, which allocates the window.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     decompress_with_limit(data, &[], capacity, "zstd decompress")
 }
@@ -278,7 +283,8 @@ pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsE
 
 /// Decompress Zstandard-compressed data with a dictionary and explicit capacity.
 ///
-/// `capacity` limits the output size, as in [`decompress_with_capacity`].
+/// `capacity` limits the output size and the window of a frame, as in
+/// [`decompress_with_capacity`].
 pub fn decompress_with_dict_with_capacity(
     data: &[u8],
     dict: &[u8],
@@ -304,14 +310,14 @@ fn decompress_with_limit(
     let Some(size) = declared_output_size(data, limit, context)? else {
         // Start at the input size: incompressible data then fits as is, and
         // compressible data grows the buffer geometrically.
-        return with_dctx(dict, |dctx| {
+        return with_dctx(dict, limit, |dctx| {
             crate::zstd_stream::decompress_all(dctx, data, limit, data.len(), context)
         })
         .map(crate::finish_output);
     };
 
     let mut output = output_buffer(size, context)?;
-    with_dctx(dict, |dctx| {
+    with_dctx(dict, limit, |dctx| {
         dctx.decompress(&mut output, data)
             .map_err(|code| decode_error(code, context))
     })?;
@@ -385,7 +391,8 @@ pub fn compress_prepared(
 /// at most `limit` bytes.
 ///
 /// This is [`decompress_with_dict_with_capacity`] with the decompression
-/// dictionary that `dict` prepared, instead of one digested for the call.
+/// dictionary that `dict` prepared, instead of one digested for the call:
+/// `limit` bounds the window of a frame as `capacity` does there.
 /// The input may hold several frames, including skippable ones and frames
 /// compressed without a dictionary.
 ///
@@ -404,7 +411,8 @@ pub fn decompress_prepared(
         // the context then borrows: the context that the thread caches
         // outlives any dictionary, so this one is created for the call.
         let mut dctx = DCtx::create();
-        dctx.ref_ddict(ddict)
+        crate::zstd_stream::limit_window(&mut dctx, limit)
+            .and_then(|()| dctx.ref_ddict(ddict))
             .map_err(|code| ComprsError::Operation {
                 context: "zstd decompressor init",
                 source: zstd_error(code),
@@ -414,7 +422,7 @@ pub fn decompress_prepared(
     };
 
     let mut output = output_buffer(size, CONTEXT)?;
-    with_dctx(&[], |dctx| {
+    with_dctx(&[], limit, |dctx| {
         dctx.decompress_using_ddict(&mut output, data, ddict)
             .map_err(|code| decode_error(code, CONTEXT))
     })?;
@@ -471,15 +479,19 @@ fn with_cctx<T>(
     Ok(result)
 }
 
-/// Run `f` with a decompression context for `dict` (empty for none).
+/// Run `f` with a decompression context for `dict` (empty for none), whose
+/// window is bounded for an output limit of `limit` bytes (see
+/// [`crate::zstd_stream::limit_window`]).
 ///
 /// Without a dictionary, this is the thread's cached context, reused as in
-/// [`with_cctx`]. A dictionary is loaded into a new context, so that the
-/// cached one never holds a dictionary. `f` may decompress with a prepared
-/// dictionary through `decompress_using_ddict`, which applies it to that
-/// call's frames only.
+/// [`with_cctx`]. Its reset restores zstd's default window bound, so every
+/// call bounds the window for its own limit again. A dictionary is loaded
+/// into a new context, so that the cached one never holds a dictionary. `f`
+/// may decompress with a prepared dictionary through
+/// `decompress_using_ddict`, which applies it to that call's frames only.
 fn with_dctx<T>(
     dict: &[u8],
+    limit: usize,
     f: impl FnOnce(&mut DCtx<'static>) -> Result<T, ComprsError>,
 ) -> Result<T, ComprsError> {
     let init_error = |code| ComprsError::Operation {
@@ -487,7 +499,7 @@ fn with_dctx<T>(
         source: zstd_error(code),
     };
     if !dict.is_empty() {
-        let mut dctx = crate::zstd_stream::decoder(dict).map_err(init_error)?;
+        let mut dctx = crate::zstd_stream::decoder(dict, limit).map_err(init_error)?;
         return f(&mut dctx);
     }
 
@@ -495,10 +507,11 @@ fn with_dctx<T>(
     let mut dctx = match cached {
         Some(mut dctx) => {
             dctx.reset(ResetDirective::SessionAndParameters)
+                .and_then(|_| crate::zstd_stream::limit_window(&mut dctx, limit))
                 .map_err(init_error)?;
             dctx
         }
-        None => crate::zstd_stream::decoder(&[]).map_err(init_error)?,
+        None => crate::zstd_stream::decoder(&[], limit).map_err(init_error)?,
     };
     let result = f(&mut dctx)?;
     if dctx.sizeof() <= MAX_CACHED_CONTEXT_SIZE {
@@ -1015,6 +1028,126 @@ mod tests {
         assert_eq!(decompress(&frame).unwrap(), original);
         assert!(cached_dctx_size().is_some());
         assert!(decompress(&with_size).is_err());
+    }
+
+    /// A frame without a content size that declares a window of
+    /// 2^`window_log` bytes, then a raw block that holds `content`.
+    fn frame_with_window(window_log: u8, content: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0x00, (window_log - 10) << 3];
+        let block_header = 1 | ((content.len() as u32) << 3);
+        frame.extend(&block_header.to_le_bytes()[..3]);
+        frame.extend(content);
+        frame
+    }
+
+    #[test]
+    fn decompress_bounds_the_window_by_the_capacity() {
+        use crate::dictionary::DictionaryFormat;
+
+        // The window of 128 MiB is zstd's default limit, which a capacity of
+        // more than 64 MiB keeps.
+        let frame = frame_with_window(27, b"A");
+        assert_eq!(
+            frame,
+            [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x88, 0x09, 0x00, 0x00, 0x41]
+        );
+        let dict = Dictionary::new(DICT, DictionaryFormat::Zstd, None).unwrap();
+        let limit = crate::MAX_DECOMPRESSED_SIZE;
+        for output in [
+            decompress(&frame),
+            decompress_with_capacity(&frame, 64 * 1024 * 1024 + 1),
+            decompress_with_dict(&frame, DICT),
+            decompress_with_dict_with_capacity(&frame, DICT, limit),
+            decompress_prepared(&frame, &dict, limit),
+            crate::detect::decompress(&frame),
+            crate::detect::decompress_with_capacity(&frame, limit),
+        ] {
+            assert_eq!(output.unwrap(), b"A");
+        }
+
+        let small = [
+            (
+                "decompress_with_capacity",
+                decompress_with_capacity(&frame, 1024),
+            ),
+            (
+                "decompress_with_dict_with_capacity",
+                decompress_with_dict_with_capacity(&frame, DICT, 1024),
+            ),
+            (
+                "decompress_prepared",
+                decompress_prepared(&frame, &dict, 1024),
+            ),
+            (
+                "detect::decompress_with_capacity",
+                crate::detect::decompress_with_capacity(&frame, 1024),
+            ),
+        ];
+        for (name, result) in small {
+            let err = result.unwrap_err();
+            assert!(
+                matches!(err, ComprsError::SizeLimit { limit: 1024, .. }),
+                "{name}: {err:?}"
+            );
+            assert_eq!(
+                err.to_string(),
+                "zstd frame window exceeded maximum size of 1024 bytes",
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_rejects_windows_over_128_mib_under_any_limit() {
+        // No limit accepts a window over zstd's default of 128 MiB. Limits
+        // that keep that bound report it as corrupt data.
+        const MIB: usize = 1024 * 1024;
+        let frame = frame_with_window(28, b"A");
+        for result in [
+            decompress(&frame),
+            decompress_with_capacity(&frame, 64 * MIB + 1),
+            decompress_with_capacity(&frame, usize::MAX),
+        ] {
+            let err = result.unwrap_err();
+            assert!(matches!(err, ComprsError::Corrupt { .. }), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                "zstd decompress failed: Frame requires too much memory for decoding"
+            );
+        }
+        // A limit that lowers the bound reports any larger window as
+        // exceeding the limit, although no limit decodes this one.
+        for limit in [1024, 64 * MIB] {
+            let err = decompress_with_capacity(&frame, limit).unwrap_err();
+            assert!(matches!(err, ComprsError::SizeLimit { .. }), "{err:?}");
+            assert_eq!(
+                err.to_string(),
+                format!("zstd frame window exceeded maximum size of {limit} bytes")
+            );
+        }
+    }
+
+    #[test]
+    fn cached_context_bounds_the_window_on_every_call() {
+        let small = compress_without_content_size(b"hello");
+        let frame = frame_with_window(27, b"A");
+        let large = crate::MAX_DECOMPRESSED_SIZE;
+        // The first call of each pair leaves the thread a context, which
+        // the second one resets to zstd's defaults.
+        for (first, second) in [(1024, 1024), (large, 1024), (1024, large)] {
+            assert_eq!(decompress_with_capacity(&small, first).unwrap(), b"hello");
+            assert!(cached_dctx_size().is_some());
+            let result = decompress_with_capacity(&frame, second);
+            if second == large {
+                assert_eq!(result.unwrap(), b"A");
+            } else {
+                let err = result.unwrap_err();
+                assert!(
+                    matches!(err, ComprsError::SizeLimit { limit: 1024, .. }),
+                    "capacities {first} and {second}: {err:?}"
+                );
+            }
+        }
     }
 
     #[test]
