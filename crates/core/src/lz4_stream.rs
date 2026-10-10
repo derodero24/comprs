@@ -8,10 +8,10 @@ use crate::error::to_napi_error;
 
 /// Streaming LZ4 frame compression context.
 ///
-/// Uses `FrameEncoder` internally to produce incremental compressed output
-/// on each `transform()` call. A cursor tracks already-returned bytes, and
-/// old bytes are drained periodically to bound memory usage. The frame
-/// carries a content checksum, as the `lz4` CLI writes by default.
+/// Compresses into independent blocks of up to 64 KiB and returns the
+/// output of each block once the block is complete; `flush()` completes the
+/// current block early. The frame carries a content checksum, as the `lz4`
+/// CLI writes by default.
 #[napi(custom_finalize)]
 pub struct Lz4CompressContext {
     inner: NativeState<comprs_core::lz4_stream::CompressContext>,

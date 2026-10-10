@@ -1,9 +1,9 @@
-use std::io::Read;
+use std::io::{Read, Write};
 
 use comprs_bench::{inputs, json_84kb, run_stream, stream_inputs};
 use comprs_core::{lz4, lz4_stream};
 use criterion::{Criterion, criterion_group, criterion_main};
-use lz4_flex::frame::FrameDecoder;
+use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 
 fn bench_lz4(c: &mut Criterion) {
     for (name, data) in inputs() {
@@ -39,6 +39,22 @@ fn bench_lz4(c: &mut Criterion) {
                     lz4_stream::DecompressContext::flush,
                 )
             })
+        });
+    }
+
+    // Frames from other encoders, with other block sizes than lz4::compress
+    // writes: the `lz4` CLI declares 4 MB blocks by default, the reference
+    // LZ4 frame library 64 KB.
+    let json = json_84kb();
+    for (name, block_size) in [("4 MB", BlockSize::Max4MB), ("64 KB", BlockSize::Max64KB)] {
+        let frame_info = FrameInfo::new()
+            .block_size(block_size)
+            .content_checksum(true);
+        let mut encoder = FrameEncoder::with_frame_info(frame_info, Vec::new());
+        encoder.write_all(&json).unwrap();
+        let compressed = encoder.finish().unwrap();
+        c.bench_function(&format!("lz4 decompress json 84KB ({name} blocks)"), |b| {
+            b.iter(|| lz4::decompress(&compressed).unwrap())
         });
     }
 

@@ -2,22 +2,31 @@
 
 use std::io::Write;
 
-use lz4_flex::frame::FrameEncoder;
+use lz4_flex::frame::{BlockSize, FrameEncoder};
 
 use crate::{ComprsError, MemoryUsage};
 
-/// Heap memory of a frame encoder with the default 64 KiB blocks: a 16 KiB
-/// hash table, and an input block and an output block that it allocates
-/// with the first data.
+/// Block maximum size of the stream encoder: 64 KiB, the default of the
+/// reference LZ4 frame library.
+///
+/// A block is written once it is full, so the smallest block size has the
+/// lowest latency and the smallest encoder state. Left to choose, lz4_flex
+/// would size the blocks from the first chunk: 4 MiB for a chunk of more
+/// than 256 KiB.
+const BLOCK_SIZE: BlockSize = BlockSize::Max64KB;
+
+/// Heap memory of a frame encoder, whose blocks are always [`BLOCK_SIZE`]
+/// (64 KiB): a 16 KiB hash table, and an input block and an output block
+/// that it allocates with the first data.
 const ENCODER_STATE_SIZE: usize =
     16 * 1024 + 64 * 1024 + lz4_flex::block::get_maximum_output_size(64 * 1024);
 
 /// Streaming LZ4 frame compression context.
 ///
-/// Uses `FrameEncoder` internally to produce incremental compressed output
-/// on each `transform()` call: each call takes the bytes that the encoder
-/// has written to its output Vec so far. The frame carries a content
-/// checksum, like the output of [`crate::lz4::compress`].
+/// Uses `FrameEncoder` internally to compress into independent blocks of up
+/// to 64 KiB: each `transform()` call takes the bytes that the encoder has
+/// written to its output Vec so far, the blocks completed by then. The frame
+/// carries a content checksum, like the output of [`crate::lz4::compress`].
 pub struct CompressContext {
     encoder: Option<FrameEncoder<Vec<u8>>>,
 }
@@ -25,7 +34,7 @@ pub struct CompressContext {
 impl CompressContext {
     pub fn new() -> Self {
         Self {
-            encoder: Some(crate::lz4::frame_encoder(Vec::new())),
+            encoder: Some(crate::lz4::frame_encoder(Vec::new(), BLOCK_SIZE)),
         }
     }
 
@@ -165,6 +174,11 @@ impl MemoryUsage for DecompressContext {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
+    use lz4_flex::frame::FrameDecoder;
+    use twox_hash::XxHash32;
+
     use super::*;
 
     #[test]
@@ -210,6 +224,36 @@ mod tests {
     }
 
     #[test]
+    fn compress_context_writes_64_kib_blocks() {
+        // Left to choose, lz4_flex would size the blocks from the first
+        // chunk: 4 MB for a chunk of 1 MiB and a byte.
+        let data = b"lz4 stream in 64 KiB blocks. ".repeat(40_000);
+        let (first, rest) = data.split_at(1024 * 1024 + 1);
+        let mut ctx = CompressContext::new();
+        let mut compressed = ctx.transform(first).unwrap();
+        // The blocks that the chunk fills come out right away: all of it but
+        // its last byte, as the output closed with an end mark and the
+        // content checksum shows. With 4 MB blocks, the encoder would keep
+        // the whole chunk and return the frame header alone.
+        let filled = &data[..1024 * 1024];
+        let checksum = XxHash32::oneshot(0, filled).to_le_bytes();
+        let closed = [&compressed[..], &[0; 4], &checksum].concat();
+        assert_eq!(crate::lz4::decompress(&closed).unwrap(), filled);
+        compressed.extend(ctx.transform(rest).unwrap());
+        compressed.extend(ctx.finish().unwrap());
+        // BD: blocks of up to 64 KB.
+        assert_eq!(compressed[5], 0x40);
+        assert_eq!(crate::lz4::decompress(&compressed).unwrap(), data);
+        // A frame decoder other than crate::lz4's reads it too, and checks
+        // every block against the block maximum size.
+        let mut decoded = Vec::new();
+        FrameDecoder::new(&compressed[..])
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
     fn compress_context_returns_everything_the_encoder_writes() {
         // Several 64 KiB blocks, some of them stored uncompressed.
         let mut state = 0x2545_f491_4f6c_dd1du64;
@@ -227,7 +271,7 @@ mod tests {
             .collect();
         for chunk_size in [1, 1000, 64 * 1024] {
             let mut ctx = CompressContext::new();
-            let mut encoder = crate::lz4::frame_encoder(Vec::new());
+            let mut encoder = crate::lz4::frame_encoder(Vec::new(), BLOCK_SIZE);
             let mut compressed = Vec::new();
             for chunk in data.chunks(chunk_size) {
                 compressed.extend(ctx.transform(chunk).unwrap());

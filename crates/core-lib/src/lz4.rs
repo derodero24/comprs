@@ -1,11 +1,12 @@
 //! LZ4 frame compression and decompression.
 
+use std::cell::Cell;
 use std::hash::Hasher;
 use std::io::Write;
 use std::ops::RangeInclusive;
 
 use lz4_flex::block::{decompress_into, decompress_into_with_dict};
-use lz4_flex::frame::{Error as FrameError, FrameEncoder, FrameInfo};
+use lz4_flex::frame::{BlockSize, Error as FrameError, FrameEncoder, FrameInfo};
 use twox_hash::XxHash32;
 
 use crate::ComprsError;
@@ -49,18 +50,56 @@ const LEGACY_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 /// frame's magic number.
 const LEGACY_MAX_BLOCK_SIZE: u32 = (LEGACY_BLOCK_SIZE + LEGACY_BLOCK_SIZE / 255 + 16) as u32;
 
-/// Create a frame encoder writing to `writer`.
+/// Largest block maximum size of an LZ4 frame: 4 MiB.
+const MAX_BLOCK_SIZE: usize = 4 * 1024 * 1024;
+
+/// Create a frame encoder writing to `writer`, in independent blocks of up
+/// to `block_size` bytes.
 ///
 /// The frames carry a content checksum, as the `lz4` CLI writes by default,
 /// so decoders detect corrupted data.
-pub(crate) fn frame_encoder<W: Write>(writer: W) -> FrameEncoder<W> {
-    FrameEncoder::with_frame_info(FrameInfo::new().content_checksum(true), writer)
+pub(crate) fn frame_encoder<W: Write>(writer: W, block_size: BlockSize) -> FrameEncoder<W> {
+    FrameEncoder::with_frame_info(
+        FrameInfo::new()
+            .block_size(block_size)
+            .content_checksum(true),
+        writer,
+    )
 }
 
-/// Compress data using LZ4 frame format.
+/// Block maximum size of the frame that [`compress`] writes for `len` bytes:
+/// 64 KiB for up to 64 KiB, 256 KiB for more.
+///
+/// The encoder needs two buffers of the block maximum size, and a decoder
+/// one, so small input gets small blocks. Left to choose, lz4_flex would
+/// pick the same sizes up to 256 KiB, but 4 MiB, the default of the `lz4`
+/// CLI, for more. Against 4 MiB, 256 KiB blocks make 1 MB of text about
+/// 0.3% larger, but need 16 times less memory, which makes compressing 1 MB
+/// of repetitive data about 3 times faster.
+fn compress_block_size(len: usize) -> BlockSize {
+    if len <= 64 * 1024 {
+        BlockSize::Max64KB
+    } else {
+        BlockSize::Max256KB
+    }
+}
+
+/// The most bytes that [`compress`] writes for `len` bytes of input.
+///
+/// The encoder stores a block that does not compress as it is, behind its
+/// 4-byte size, and every block but the last holds at least 64 KiB. The
+/// frame adds 15 bytes: the magic number and the descriptor, the end mark
+/// and the content checksum.
+fn compress_bound(len: usize) -> usize {
+    len + len.div_ceil(64 * 1024) * 4 + 15
+}
+
+/// Compress data using LZ4 frame format, in blocks of up to 256 KiB.
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    let mut output = Vec::with_capacity(data.len());
-    let mut encoder = frame_encoder(&mut output);
+    // Room for the whole frame, so the output is not reallocated, and
+    // copied, before the last block.
+    let mut output = Vec::with_capacity(compress_bound(data.len()));
+    let mut encoder = frame_encoder(&mut output, compress_block_size(data.len()));
     encoder
         .write_all(data)
         .map_err(|e| ComprsError::Operation {
@@ -92,6 +131,12 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
     decompress_frames(data, capacity, "lz4 decompress")
 }
 
+thread_local! {
+    /// The scratch space of the last [`Decoder`] on the thread, kept for the
+    /// next one if it holds at most [`MAX_BLOCK_SIZE`] bytes.
+    static SCRATCH: Cell<Vec<u8>> = const { Cell::new(Vec::new()) };
+}
+
 /// Decompress every frame in `data`, LZ4 and legacy frames alike, into one
 /// output of at most `max_size` bytes, skipping skippable frames.
 ///
@@ -104,52 +149,72 @@ pub(crate) fn decompress_frames(
     max_size: usize,
     context: &'static str,
 ) -> Result<Vec<u8>, ComprsError> {
+    // The thread's scratch, initialised as far as earlier calls have grown
+    // it. It holds what they decoded, which never reaches this call's
+    // output: the block decoder rejects match offsets before the start of
+    // the block or its dictionary, and only the bytes that a block decodes
+    // to are copied out. Taking it leaves an empty one for a nested call.
     let mut decoder = Decoder {
         output: Vec::new(),
-        scratch: Vec::new(),
+        scratch: SCRATCH.try_with(Cell::take).unwrap_or_default(),
         max_size,
         context,
     };
-    decoder
-        .output
-        .try_reserve_exact(data.len().saturating_mul(4).min(max_size))
-        .map_err(|e| decoder.operation_error(e.into()))?;
-    let mut input = data;
-    while !input.is_empty() {
-        let at_start = input.len() == data.len();
-        let magic = match input.first_chunk() {
-            Some(bytes) => u32::from_le_bytes(*bytes),
-            None if is_magic_prefix(input) => return Err(ComprsError::Truncated("lz4")),
-            None => return Err(not_a_frame(at_start, context)),
-        };
-        input = &input[4..];
-        match magic {
-            FRAME_MAGIC => decoder.frame(&mut input)?,
-            LEGACY_MAGIC => decoder.legacy_frame(&mut input)?,
-            magic if SKIPPABLE_MAGIC.contains(&magic) => {
-                // The size of the user data, then the user data.
-                let len = take_u32(&mut input)?;
-                take(&mut input, len as usize)?;
-            }
-            _ => return Err(not_a_frame(at_start, context)),
-        }
+    let result = decoder.frames(data);
+    // Put back after an error too, as it holds no state, but not the 8 MiB
+    // scratch of a legacy frame, which is too much to keep around.
+    if decoder.scratch.capacity() <= MAX_BLOCK_SIZE {
+        // A thread that is exiting has no cache left; the scratch is dropped.
+        let _ = SCRATCH.try_with(|cached| cached.set(decoder.scratch));
     }
-    Ok(crate::finish_output(decoder.output))
+    result.map(|()| crate::finish_output(decoder.output))
 }
 
 /// Decodes the frames of one input into one output.
 struct Decoder {
     output: Vec<u8>,
     /// Space that compressed blocks are decoded into before they are appended
-    /// to `output`. It is zeroed once and reused for every block of every
-    /// frame, so a block costs time in proportion to its content, not to the
-    /// block maximum size that its frame declares.
+    /// to `output`. Only its growth is zero-filled: it is reused for every
+    /// block of every frame, and by the next call on the thread through
+    /// [`SCRATCH`], so a block costs time in proportion to its content, not to
+    /// the block maximum size that its frame declares. The `lz4` CLI declares
+    /// 4 MiB blocks by default, even for small content. The rest holds what
+    /// earlier blocks decoded; [`decompress_frames`] says why that never
+    /// reaches the output.
     scratch: Vec<u8>,
     max_size: usize,
     context: &'static str,
 }
 
 impl Decoder {
+    /// Decode every frame in `data`, as [`decompress_frames`] describes.
+    fn frames(&mut self, data: &[u8]) -> Result<(), ComprsError> {
+        self.output
+            .try_reserve_exact(data.len().saturating_mul(4).min(self.max_size))
+            .map_err(|e| self.operation_error(e.into()))?;
+        let mut input = data;
+        while !input.is_empty() {
+            let at_start = input.len() == data.len();
+            let magic = match input.first_chunk() {
+                Some(bytes) => u32::from_le_bytes(*bytes),
+                None if is_magic_prefix(input) => return Err(ComprsError::Truncated("lz4")),
+                None => return Err(not_a_frame(at_start, self.context)),
+            };
+            input = &input[4..];
+            match magic {
+                FRAME_MAGIC => self.frame(&mut input)?,
+                LEGACY_MAGIC => self.legacy_frame(&mut input)?,
+                magic if SKIPPABLE_MAGIC.contains(&magic) => {
+                    // The size of the user data, then the user data.
+                    let len = take_u32(&mut input)?;
+                    take(&mut input, len as usize)?;
+                }
+                _ => return Err(not_a_frame(at_start, self.context)),
+            }
+        }
+        Ok(())
+    }
+
     /// Decode the LZ4 frame that follows its magic number at the start of
     /// `input`, and advance `input` past the frame.
     fn frame(&mut self, input: &mut &[u8]) -> Result<(), ComprsError> {
@@ -369,9 +434,10 @@ fn not_a_frame(at_start: bool, context: &'static str) -> ComprsError {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
     use std::time::{Duration, Instant};
 
-    use lz4_flex::frame::{BlockMode, BlockSize};
+    use lz4_flex::frame::{BlockMode, FrameDecoder};
 
     use super::*;
 
@@ -473,6 +539,90 @@ mod tests {
         // FLG: version 01, independent blocks, content checksum.
         assert_eq!(compress(b"test").unwrap()[4], 0x64);
         assert_eq!(decompress(&compress(b"test").unwrap()).unwrap(), b"test");
+    }
+
+    #[test]
+    fn compress_writes_blocks_of_at_most_256_kib() {
+        // BD: blocks of up to 64 KB (0x40) or 256 KB (0x50). Left to choose,
+        // lz4_flex would write 4 MB blocks for more than 256 KiB.
+        for (len, bd) in [
+            (0, 0x40),
+            (64 * 1024, 0x40),
+            (64 * 1024 + 1, 0x50),
+            (1_000_000, 0x50),
+        ] {
+            let compressed = compress(&text(len)).unwrap();
+            assert_eq!(compressed[5], bd, "{len} bytes");
+            assert_eq!(decompress(&compressed).unwrap(), text(len));
+            // A frame decoder other than this module's reads them too, and
+            // checks every block against the block maximum size.
+            let mut decoded = Vec::new();
+            FrameDecoder::new(&compressed[..])
+                .read_to_end(&mut decoded)
+                .unwrap();
+            assert_eq!(decoded, text(len), "{len} bytes");
+        }
+    }
+
+    #[test]
+    fn compress_bound_holds_data_that_does_not_compress() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let random: Vec<u8> = (0..300_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 32) as u8
+            })
+            .collect();
+        for len in [0, 1, 64 * 1024, 64 * 1024 + 1, 300_000] {
+            let compressed = compress(&random[..len]).unwrap();
+            // Every block is stored as it is.
+            assert!(compressed.len() > len, "{len} bytes");
+            assert!(compressed.len() <= compress_bound(len), "{len} bytes");
+            assert_eq!(decompress(&compressed).unwrap(), &random[..len]);
+        }
+    }
+
+    /// The length and the capacity of the scratch space that the thread
+    /// keeps.
+    fn kept_scratch() -> (usize, usize) {
+        let scratch = SCRATCH.take();
+        let size = (scratch.len(), scratch.capacity());
+        SCRATCH.set(scratch);
+        size
+    }
+
+    #[test]
+    fn decompress_keeps_the_scratch_space_of_lz4_frames_only() {
+        // Whatever the thread has decoded before.
+        SCRATCH.take();
+        let original = text(10_000);
+        let mut frame = compress_with(
+            &original,
+            FrameInfo::new()
+                .block_size(BlockSize::Max4MB)
+                .content_checksum(true),
+        );
+        assert_eq!(decompress(&frame).unwrap(), original);
+        // Kept at its length, not only its capacity: the next call
+        // zero-fills the scratch space up to the block maximum size, so one
+        // that was put back empty would cost every call 4 MiB of writes.
+        let (len, _) = kept_scratch();
+        assert!(len >= MAX_BLOCK_SIZE, "{len} bytes");
+
+        // A legacy frame needs 8 MiB, which the thread does not keep.
+        assert_eq!(decompress(CLI_LEGACY_FRAME).unwrap(), CLI_TEXT);
+        let (_, capacity) = kept_scratch();
+        assert!(capacity <= MAX_BLOCK_SIZE, "{capacity} bytes");
+
+        // The scratch space of a frame that fails to decode is kept as well.
+        let last = frame.len() - 1;
+        frame[last] ^= 0x01;
+        let err = decompress(&frame).unwrap_err();
+        assert!(err.to_string().contains("ContentChecksumError"), "{err}");
+        let (len, _) = kept_scratch();
+        assert!(len >= MAX_BLOCK_SIZE, "{len} bytes");
     }
 
     #[test]
