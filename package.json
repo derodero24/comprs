@@ -161,7 +161,7 @@
     "lint:fix": "biome check --write",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.next-browser.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run",
-    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts __test__/next-parity.spec.ts __test__/esm-bundle.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts __test__/next-parity.spec.ts __test__/esm-bundle.spec.ts __test__/brotli-dict.spec.ts",
     "test:types": "node scripts/check-consumer-types.mjs",
     "test:watch": "vitest watch",
     "bench": "vitest bench",

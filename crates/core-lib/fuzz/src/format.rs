@@ -177,11 +177,13 @@ impl Format {
     }
 
     /// Create a streaming compression context, with `level` as in
-    /// [`Format::compress`].
+    /// [`Format::compress`]. `incremental` selects the incremental mode of
+    /// the brotli dictionary context; the other contexts ignore it.
     pub fn compressor(
         self,
         dict: Option<&[u8]>,
         level: Option<i32>,
+        incremental: bool,
     ) -> Result<Box<dyn Stream>, ComprsError> {
         Ok(match (self, dict) {
             (Format::Zstd, None) => Box::new(zstd_stream::CompressContext::new(level)?),
@@ -195,6 +197,9 @@ impl Format {
             (Format::Brotli, None) => {
                 Box::new(brotli_stream::CompressContext::new(unsigned(level))?)
             }
+            (Format::Brotli, Some(dict)) if incremental => Box::new(
+                brotli_stream::CompressDictContext::incremental(dict, unsigned(level))?,
+            ),
             (Format::Brotli, Some(dict)) => Box::new(brotli_stream::CompressDictContext::new(
                 dict,
                 unsigned(level),

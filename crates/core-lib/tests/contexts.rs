@@ -65,8 +65,9 @@ struct Codec {
     decompress: OneShot,
     /// Whether the output of the compressor's `flush` decodes, without the
     /// rest of the stream, to all the input so far. The brotli dictionary
-    /// context buffers its input until `finish`, and the buffered lz4
-    /// decompression context decodes only complete frames.
+    /// contexts hold their input until `finish`, the incremental one its
+    /// first 4 MiB, and the buffered lz4 decompression context decodes only
+    /// complete frames.
     flush_emits_input: bool,
 }
 
@@ -186,6 +187,14 @@ const CODECS: &[Codec] = &[
     Codec {
         name: "brotli dict",
         compressor: || boxed(brotli_stream::CompressDictContext::new(DICT, None)),
+        decompressor: |limit| boxed(brotli_stream::DecompressDictContext::new(DICT, limit)),
+        compress: |data| brotli::compress_with_dict(data, DICT, None),
+        decompress: |data| brotli::decompress_with_dict(data, DICT),
+        flush_emits_input: false,
+    },
+    Codec {
+        name: "brotli dict incremental",
+        compressor: || boxed(brotli_stream::CompressDictContext::incremental(DICT, None)),
         decompressor: |limit| boxed(brotli_stream::DecompressDictContext::new(DICT, limit)),
         compress: |data| brotli::compress_with_dict(data, DICT, None),
         decompress: |data| brotli::decompress_with_dict(data, DICT),
@@ -654,7 +663,7 @@ fn check_levels<T: Copy + std::fmt::Display>(
 
 #[test]
 fn compress_contexts_validate_the_level() {
-    let unsigned: [(&str, NewCompressor<u32>, u32); 6] = [
+    let unsigned: [(&str, NewCompressor<u32>, u32); 7] = [
         (
             "gzip",
             |level| boxed(gzip_stream::GzipCompressContext::new(level)),
@@ -688,6 +697,11 @@ fn compress_contexts_validate_the_level() {
         (
             "brotli dict",
             |level| boxed(brotli_stream::CompressDictContext::new(DICT, level)),
+            11,
+        ),
+        (
+            "brotli dict incremental",
+            |level| boxed(brotli_stream::CompressDictContext::incremental(DICT, level)),
             11,
         ),
     ];

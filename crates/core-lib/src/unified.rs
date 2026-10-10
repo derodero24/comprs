@@ -823,8 +823,9 @@ fn inflate_zlib(prefix: &[u8]) -> Option<ZlibPrefix> {
 /// bytes of a prepared dictionary once for the stream,
 /// [`gzip_stream::GzipCompressContext`], [`gzip_stream::ZlibCompressContext`],
 /// [`gzip_stream::DeflateCompressContext`], [`brotli_stream::CompressContext`]
-/// or [`brotli_stream::CompressDictContext`], which compresses on
-/// `finish`, and [`lz4_stream::CompressContext`].
+/// or [`brotli_stream::CompressDictContext`] in its incremental mode, which
+/// holds at most the first [`brotli_stream::DICT_REACH`] bytes of input and
+/// then streams, and [`lz4_stream::CompressContext`].
 pub enum CompressContext {
     Zstd(zstd_stream::CompressContext),
     ZstdDict(zstd_stream::CompressDictContext),
@@ -900,7 +901,9 @@ impl CompressContext {
             Encoder::Brotli {
                 level,
                 dictionary: Some(dict),
-            } => Self::BrotliDict(brotli_stream::CompressDictContext::new(dict, level)?),
+            } => Self::BrotliDict(brotli_stream::CompressDictContext::incremental(
+                dict, level,
+            )?),
             Encoder::Lz4 => Self::Lz4(lz4_stream::CompressContext::new()),
         })
     }

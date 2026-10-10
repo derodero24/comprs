@@ -284,7 +284,8 @@ pub(crate) fn compress_large_window(data: &[u8], lgwin: i32) -> Vec<u8> {
 /// English text, which brotli encodes with words of its built-in
 /// dictionary, for the tests.
 #[cfg(test)]
-const TEXT: &[u8] = b"The quick brown fox jumps over the lazy dog. However, the government \
+pub(crate) const TEXT: &[u8] =
+    b"The quick brown fox jumps over the lazy dog. However, the government \
     and the people of the world have been working together in order to provide information \
     about something important. ";
 
