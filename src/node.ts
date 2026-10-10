@@ -18,18 +18,29 @@ import {
   ZstdDecompressContext,
   ZstdDecompressDictContext,
 } from './index.js';
+import {
+  type AsyncCapableContext,
+  afterOutput,
+  BROTLI_DICT_REACH,
+  type ChunkScheduler,
+  type CodecOp,
+  type ContextModel,
+  codecScheduler,
+  zstdSetupMs,
+} from './stream-schedule.js';
 
 /** The methods of the stream contexts that the transforms call. */
-interface StreamContext {
-  transform(chunk: Uint8Array): Uint8Array;
-  flush(): Uint8Array;
-  finish(): Uint8Array;
+interface StreamContext extends AsyncCapableContext {
   close(): void;
 }
 
+/** A step of a transform: done, or a Promise of being done. */
+type Step = Promise<void> | undefined;
+
 /**
  * Largest result that the stream contexts return in memory that V8 owns. It
- * mirrors SYNC_COPY_LIMIT in crates/core/src/convert.rs, as VIEW_LIMIT in
+ * mirrors SYNC_COPY_LIMIT and ASYNC_STREAM_COPY_LIMIT in
+ * crates/core/src/convert.rs, which are equal, as VIEW_LIMIT in
  * src/streams.ts does: larger results stay in the memory of the addon, as
  * external buffers.
  */
@@ -94,38 +105,64 @@ function pushSliced(stream: Transform, buf: Uint8Array): void {
 }
 
 /**
+ * Push `output`, which a stream context returned, as pushSliced() does,
+ * unless the stream has been destroyed meanwhile: a call on the thread pool
+ * may settle after destroy(), and its result is dropped.
+ */
+function pushOutput(stream: Transform, output: Uint8Array): undefined {
+  if (!stream.destroyed) pushSliced(stream, output);
+}
+
+/**
+ * Run `step`, then call `callback`: at once, if the step is done, or once
+ * its Promise settles. An error that the step throws or rejects with goes to
+ * `callback`, except one of a call that settles after the stream has been
+ * destroyed, which is dropped, as node:zlib drops it: destroy() has ended
+ * the stream already. The rejection handler stays attached after destroy(),
+ * so such an error is never an unhandled rejection, which would crash
+ * Node.js by default.
+ */
+function runStep(stream: Transform, step: () => Step, callback: TransformCallback): void {
+  let pending: Step;
+  try {
+    pending = step();
+  } catch (err) {
+    // Pass on what was thrown as it is. Under Jest, which runs this module
+    // in a vm context, the errors of the native addon are not instances of
+    // that context's Error, and wrapping them would drop their code.
+    callback(err as Error);
+    return;
+  }
+  if (pending === undefined) {
+    callback();
+    return;
+  }
+  pending.then(
+    () => callback(),
+    (err: unknown) => callback(stream.destroyed ? null : (err as Error)),
+  );
+}
+
+/**
  * Create a Transform from `transform` and `flush`, which call stream
- * contexts. `close` closes the contexts once the stream is destroyed, which
+ * contexts and push their results, at once or once a call on the thread pool
+ * settles. `close` closes the contexts once the stream is destroyed, which
  * happens when it ends, fails or is destroyed early, and releases their
  * native memory right away instead of when the garbage collector gets to
- * them.
+ * them; a call still in flight then releases it once it settles.
  */
 function closingTransform(
-  transform: (stream: Transform, chunk: Buffer) => void,
-  flush: (stream: Transform) => void,
+  transform: (stream: Transform, chunk: Buffer) => Step,
+  flush: (stream: Transform) => Step,
   close: () => void,
 ): Transform {
   return new Transform({
     // Without objectMode, every chunk written is a Buffer.
     transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
-      try {
-        transform(this, chunk);
-        callback();
-      } catch (err) {
-        // Pass on what was thrown as it is. Under Jest, which runs this
-        // module in a vm context, the errors of the native addon are not
-        // instances of that context's Error, and wrapping them would drop
-        // their code.
-        callback(err as Error);
-      }
+      runStep(this, () => transform(this, chunk), callback);
     },
     flush(callback: TransformCallback): void {
-      try {
-        flush(this);
-        callback();
-      } catch (err) {
-        callback(err as Error);
-      }
+      runStep(this, () => flush(this), callback);
     },
     destroy(err: Error | null, callback: (error?: Error | null) => void): void {
       close();
@@ -134,14 +171,34 @@ function closingTransform(
   });
 }
 
-/** Create a Transform that feeds its input through `ctx`. */
-function contextTransform(ctx: StreamContext): Transform {
+/**
+ * Push the output of `flush()` and then of `finish()` of `scheduler`.
+ * finish() ends the stream, and fails if the input of a decompression
+ * transform did not hold the whole compressed stream.
+ */
+function finishTransform(stream: Transform, scheduler: ChunkScheduler): Step {
+  return afterOutput(scheduler.flush(), (flushed) => {
+    pushOutput(stream, flushed);
+    return afterOutput(scheduler.finish(), (rest) => pushOutput(stream, rest));
+  });
+}
+
+/**
+ * Create a Transform that feeds its input through `ctx`, a stream context
+ * of `op` at `level`, which processes it as `model` adds (see
+ * codecScheduler).
+ */
+function contextTransform(
+  ctx: StreamContext,
+  op: CodecOp,
+  level: number | undefined,
+  model?: ContextModel,
+): Transform {
+  const scheduler = codecScheduler(ctx, op, level, model);
   return closingTransform(
-    (stream, chunk) => pushSliced(stream, ctx.transform(chunk)),
-    (stream) => {
-      pushSliced(stream, ctx.flush());
-      pushSliced(stream, ctx.finish());
-    },
+    (stream, chunk) =>
+      afterOutput(scheduler.transform(chunk), (output) => pushOutput(stream, output)),
+    (stream) => finishTransform(stream, scheduler),
     () => ctx.close(),
   );
 }
@@ -158,7 +215,9 @@ function contextTransform(ctx: StreamContext): Transform {
  * @param level Compression level (1-22, or negative for fast mode). Default is 3.
  */
 export function createZstdCompressTransform(level?: number): Transform {
-  return contextTransform(new ZstdCompressContext(level));
+  return contextTransform(new ZstdCompressContext(level), 'zstd-compress', level, {
+    setupMs: zstdSetupMs(level),
+  });
 }
 
 /**
@@ -176,7 +235,7 @@ export function createZstdCompressTransform(level?: number): Transform {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export function createZstdDecompressTransform(maxOutputSize?: number): Transform {
-  return contextTransform(new ZstdDecompressContext(maxOutputSize));
+  return contextTransform(new ZstdDecompressContext(maxOutputSize), 'zstd-decompress', undefined);
 }
 
 /**
@@ -192,7 +251,7 @@ export function createZstdDecompressTransform(maxOutputSize?: number): Transform
  * @param level Compression level (0-9). Default is 6.
  */
 export function createGzipCompressTransform(level?: number): Transform {
-  return contextTransform(new GzipCompressContext(level));
+  return contextTransform(new GzipCompressContext(level), 'gzip-compress', level);
 }
 
 /**
@@ -211,7 +270,7 @@ export function createGzipCompressTransform(level?: number): Transform {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export function createGzipDecompressTransform(maxOutputSize?: number): Transform {
-  return contextTransform(new GzipDecompressContext(maxOutputSize));
+  return contextTransform(new GzipDecompressContext(maxOutputSize), 'gzip-decompress', undefined);
 }
 
 /**
@@ -226,7 +285,7 @@ export function createGzipDecompressTransform(maxOutputSize?: number): Transform
  * @param level Compression level (0-9). Default is 6.
  */
 export function createDeflateCompressTransform(level?: number): Transform {
-  return contextTransform(new DeflateCompressContext(level));
+  return contextTransform(new DeflateCompressContext(level), 'gzip-compress', level);
 }
 
 /**
@@ -244,7 +303,11 @@ export function createDeflateCompressTransform(level?: number): Transform {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export function createDeflateDecompressTransform(maxOutputSize?: number): Transform {
-  return contextTransform(new DeflateDecompressContext(maxOutputSize));
+  return contextTransform(
+    new DeflateDecompressContext(maxOutputSize),
+    'gzip-decompress',
+    undefined,
+  );
 }
 
 /**
@@ -259,7 +322,7 @@ export function createDeflateDecompressTransform(maxOutputSize?: number): Transf
  * @param quality Compression quality (0-11). Default is 6.
  */
 export function createBrotliCompressTransform(quality?: number): Transform {
-  return contextTransform(new BrotliCompressContext(quality));
+  return contextTransform(new BrotliCompressContext(quality), 'brotli-compress', quality);
 }
 
 /**
@@ -277,7 +340,11 @@ export function createBrotliCompressTransform(quality?: number): Transform {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export function createBrotliDecompressTransform(maxOutputSize?: number): Transform {
-  return contextTransform(new BrotliDecompressContext(maxOutputSize));
+  return contextTransform(
+    new BrotliDecompressContext(maxOutputSize),
+    'brotli-decompress',
+    undefined,
+  );
 }
 
 /**
@@ -296,7 +363,7 @@ export function createZstdCompressDictTransform(
   dict: Buffer | Uint8Array,
   level?: number,
 ): Transform {
-  return contextTransform(new ZstdCompressDictContext(dict, level));
+  return contextTransform(new ZstdCompressDictContext(dict, level), 'zstd-compress', level);
 }
 
 /**
@@ -317,7 +384,11 @@ export function createZstdDecompressDictTransform(
   dict: Buffer | Uint8Array,
   maxOutputSize?: number,
 ): Transform {
-  return contextTransform(new ZstdDecompressDictContext(dict, maxOutputSize));
+  return contextTransform(
+    new ZstdDecompressDictContext(dict, maxOutputSize),
+    'zstd-decompress',
+    undefined,
+  );
 }
 
 /**
@@ -340,7 +411,12 @@ export function createBrotliCompressDictTransform(
   dict: Buffer | Uint8Array,
   quality?: number,
 ): Transform {
-  return contextTransform(new BrotliCompressDictContext(dict, quality, { incremental: true }));
+  return contextTransform(
+    new BrotliCompressDictContext(dict, quality, { incremental: true }),
+    'brotli-compress',
+    quality,
+    { holds: BROTLI_DICT_REACH },
+  );
 }
 
 /**
@@ -362,25 +438,44 @@ export function createBrotliDecompressDictTransform(
   dict: Buffer | Uint8Array,
   maxOutputSize?: number,
 ): Transform {
-  return contextTransform(new BrotliDecompressDictContext(dict, maxOutputSize));
+  return contextTransform(
+    new BrotliDecompressDictContext(dict, maxOutputSize),
+    'brotli-decompress',
+    undefined,
+  );
 }
 
-function createDecompressContext(
+/**
+ * A decompression context for `format`, and the scheduler that calls it.
+ * Throws for a format that is unknown.
+ */
+function decompressScheduler(
   format: CompressionFormat,
   maxOutputSize: number | undefined,
-): StreamContext {
+): { ctx: StreamContext; scheduler: ChunkScheduler } {
+  let ctx: StreamContext;
+  let op: CodecOp;
   switch (format) {
     case 'zstd':
-      return new ZstdDecompressContext(maxOutputSize);
+      ctx = new ZstdDecompressContext(maxOutputSize);
+      op = 'zstd-decompress';
+      break;
     case 'gzip':
-      return new GzipDecompressContext(maxOutputSize);
+      ctx = new GzipDecompressContext(maxOutputSize);
+      op = 'gzip-decompress';
+      break;
     case 'brotli':
-      return new BrotliDecompressContext(maxOutputSize);
+      ctx = new BrotliDecompressContext(maxOutputSize);
+      op = 'brotli-decompress';
+      break;
     case 'lz4':
-      return new Lz4DecompressContext(maxOutputSize, { incremental: true });
+      ctx = new Lz4DecompressContext(maxOutputSize, { incremental: true });
+      op = 'lz4-decompress';
+      break;
     default:
       throw new Error('unable to detect compression format from stream data');
   }
+  return { ctx, scheduler: codecScheduler(ctx, op, undefined) };
 }
 
 /**
@@ -415,6 +510,7 @@ const MAGIC_LENGTH = 4;
  */
 export function createDecompressTransform(maxOutputSize?: number): Transform {
   let ctx: StreamContext | null = null;
+  let scheduler: ChunkScheduler | null = null;
   // The input received before the format is detected. Emptied once the
   // format is known, or the transform has closed, to release that memory.
   let buffered: Buffer[] = [];
@@ -423,25 +519,35 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
   // input doubles, so that small chunks do not make it run on every chunk.
   let detectAt = MAGIC_LENGTH;
 
-  function start(stream: Transform, format: CompressionFormat, data: Buffer): StreamContext {
-    const context = createDecompressContext(format, maxOutputSize);
-    ctx = context;
+  /**
+   * Start decompressing `data` as `format`: return the scheduler, and the
+   * step that transforms `data`.
+   */
+  function start(
+    stream: Transform,
+    format: CompressionFormat,
+    data: Buffer,
+  ): [ChunkScheduler, Step] {
+    const started = decompressScheduler(format, maxOutputSize);
+    ctx = started.ctx;
+    scheduler = started.scheduler;
     buffered = [];
-    pushSliced(stream, context.transform(data));
-    return context;
+    const step = afterOutput(started.scheduler.transform(data), (output) =>
+      pushOutput(stream, output),
+    );
+    return [started.scheduler, step];
   }
 
   return closingTransform(
     (stream, chunk) => {
-      if (ctx) {
-        pushSliced(stream, ctx.transform(chunk));
-        return;
+      if (scheduler) {
+        return afterOutput(scheduler.transform(chunk), (output) => pushOutput(stream, output));
       }
 
       const copy = Buffer.from(chunk);
       buffered.push(copy);
       bufferedLength += copy.length;
-      if (bufferedLength < detectAt) return;
+      if (bufferedLength < detectAt) return undefined;
 
       const data = Buffer.concat(buffered, bufferedLength);
       const format = detectFormat(data);
@@ -450,22 +556,19 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
       if (format === 'unknown' && bufferedLength < DETECT_LIMIT) {
         buffered = [data];
         detectAt = Math.min(2 * bufferedLength, DETECT_LIMIT);
-        return;
+        return undefined;
       }
-      start(stream, format, data);
+      return start(stream, format, data)[1];
     },
     (stream) => {
-      let context = ctx;
-      if (!context) {
-        // The input ended before its format was detected. Empty input has
-        // no detectable format and throws.
-        const data = Buffer.concat(buffered, bufferedLength);
-        context = start(stream, detectFormat(data), data);
-      }
-
-      pushSliced(stream, context.flush());
-      // finish() verifies that the input contained the whole stream.
-      pushSliced(stream, context.finish());
+      if (scheduler) return finishTransform(stream, scheduler);
+      // The input ended before its format was detected. Empty input has
+      // no detectable format and throws.
+      const data = Buffer.concat(buffered, bufferedLength);
+      const [started, step] = start(stream, detectFormat(data), data);
+      return step === undefined
+        ? finishTransform(stream, started)
+        : step.then(() => finishTransform(stream, started));
     },
     () => {
       ctx?.close();
@@ -484,7 +587,7 @@ export function createDecompressTransform(maxOutputSize?: number): Transform {
  * default, 16 KiB on Windows).
  */
 export function createLz4CompressTransform(): Transform {
-  return contextTransform(new Lz4CompressContext());
+  return contextTransform(new Lz4CompressContext(), 'lz4-compress', undefined);
 }
 
 /**
@@ -506,5 +609,9 @@ export function createLz4CompressTransform(): Transform {
  * @param maxOutputSize Maximum decompressed output size in bytes. Default is 256 MB.
  */
 export function createLz4DecompressTransform(maxOutputSize?: number): Transform {
-  return contextTransform(new Lz4DecompressContext(maxOutputSize, { incremental: true }));
+  return contextTransform(
+    new Lz4DecompressContext(maxOutputSize, { incremental: true }),
+    'lz4-decompress',
+    undefined,
+  );
 }

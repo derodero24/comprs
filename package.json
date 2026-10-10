@@ -113,6 +113,8 @@
     "streams.d.ts",
     "node.js",
     "node.d.ts",
+    "stream-schedule.js",
+    "stream-schedule.d.ts",
     "next",
     "browser/package.json",
     "browser/index.js",
