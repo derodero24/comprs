@@ -1,14 +1,17 @@
 //! Module setup, which installs the panic hook for the panics that
 //! comprs-core recovers from and adds `[Symbol.dispose]()` to the stream
-//! context classes, and the native state of those classes.
+//! context classes, and the native state and shared methods of those
+//! classes.
 
 use std::panic;
 use std::sync::Once;
 
 use comprs_core::panic_guard::quiet_guarded_panics;
 use comprs_core::{ComprsError, MemoryUsage};
-use napi::bindgen_prelude::{Env, JsObjectValue, Object, Property, Unknown, ValueType};
+use napi::bindgen_prelude::{Buffer, Env, JsObjectValue, Object, Property, Unknown, ValueType};
 use napi_derive::napi;
+
+use crate::error::to_napi_error;
 
 /// The stream context classes, which [`init`] makes disposable.
 const CONTEXT_CLASSES: [&str; 14] = [
@@ -133,7 +136,7 @@ impl<T: MemoryUsage> NativeState<T> {
     }
 
     /// Run `op` on the state and update the memory reported for it.
-    pub(crate) fn run(
+    fn run(
         &mut self,
         memory: &impl ExternalMemory,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
@@ -145,7 +148,7 @@ impl<T: MemoryUsage> NativeState<T> {
 
     /// Run `op`, which ends the stream, then drop the state, whether `op`
     /// succeeded or not: the codecs cannot continue after either.
-    pub(crate) fn finish(
+    fn finish(
         &mut self,
         memory: &impl ExternalMemory,
         op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
@@ -163,6 +166,28 @@ impl<T: MemoryUsage> NativeState<T> {
             self.state = State::Closed;
         }
         self.report(memory);
+    }
+
+    /// [`run`](Self::run) for a method of a stream context class: return the
+    /// output as a `Buffer`, or throw the error.
+    pub(crate) fn call(
+        &mut self,
+        env: &Env,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> napi::Result<Buffer> {
+        self.run(env, op).map(|v| v.into()).map_err(to_napi_error)
+    }
+
+    /// [`finish`](Self::finish) for the `finish()` method of a stream context
+    /// class: return the output as a `Buffer`, or throw the error.
+    pub(crate) fn call_finish(
+        &mut self,
+        env: &Env,
+        op: impl FnOnce(&mut T) -> Result<Vec<u8>, ComprsError>,
+    ) -> napi::Result<Buffer> {
+        self.finish(env, op)
+            .map(|v| v.into())
+            .map_err(to_napi_error)
     }
 
     fn state(&mut self) -> Result<&mut T, ComprsError> {
@@ -185,6 +210,48 @@ impl<T: MemoryUsage> NativeState<T> {
         }
     }
 }
+
+/// Add `close()` and the finalizer, which every stream context class has in
+/// the same form, to `$class`: a `#[napi(custom_finalize)]` struct whose
+/// `inner` field is a [`NativeState`]. `close()` goes into an `impl` block of
+/// its own, which napi-rs merges into the class.
+///
+/// Each class writes its constructor, `transform(chunk)`, `flush()` and
+/// `finish()` itself, around [`NativeState::call`] and
+/// [`NativeState::call_finish`], because their doc comments differ from
+/// class to class and a macro cannot pass them on: `macro_rules!` turns a
+/// doc comment of its input into `#[doc = r"..."]`, and napi-derive 3.6
+/// takes the doc text from the source of the literal, so `index.d.ts` would
+/// get the `r"` of the raw string. Doc comments written in the macro itself,
+/// such as the one of `close()`, reach napi-derive intact.
+///
+/// The expansion names the `napi` attribute and the items of
+/// `napi::bindgen_prelude` without a path, as the stream modules import them.
+macro_rules! stream_context_methods {
+    ($class:ident) => {
+        #[napi]
+        impl $class {
+            /// Release the native state of the context now rather than when the
+            /// context is garbage-collected. Later calls throw, and `finish()`
+            /// releases the state too. Closing a finished or closed context does
+            /// nothing. `[Symbol.dispose]()` is the same method, for `using`
+            /// declarations.
+            #[napi]
+            pub fn close(&mut self, env: Env) {
+                self.inner.close(&env);
+            }
+        }
+
+        impl ObjectFinalize for $class {
+            fn finalize(mut self, env: Env) -> Result<()> {
+                self.inner.close(&env);
+                Ok(())
+            }
+        }
+    };
+}
+
+pub(crate) use stream_context_methods;
 
 #[cfg(test)]
 mod tests {

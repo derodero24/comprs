@@ -3,7 +3,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::context::NativeState;
+use crate::context::{NativeState, stream_context_methods};
 use crate::error::to_napi_error;
 
 /// Streaming LZ4 frame compression context.
@@ -34,47 +34,24 @@ impl Lz4CompressContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the LZ4 frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for Lz4CompressContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(Lz4CompressContext);
 
 /// Streaming LZ4 frame decompression context.
 ///
@@ -107,9 +84,7 @@ impl Lz4DecompressContext {
     #[napi]
     pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .run(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Decompress all buffered data and return the result.
@@ -117,10 +92,7 @@ impl Lz4DecompressContext {
     /// inside a frame, or if data that is not a frame follows a frame.
     #[napi]
     pub fn flush(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .run(&env, |ctx| ctx.flush())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the decompression stream. Decompresses the data buffered
@@ -128,26 +100,8 @@ impl Lz4DecompressContext {
     /// Throws like `flush()`, and if the stream is already finished.
     #[napi]
     pub fn finish(&mut self, env: Env) -> Result<Buffer> {
-        self.inner
-            .finish(&env, |ctx| ctx.finish())
-            .map(|v| v.into())
-            .map_err(to_napi_error)
-    }
-
-    /// Release the native state of the context now rather than when the
-    /// context is garbage-collected. Later calls throw, and `finish()`
-    /// releases the state too. Closing a finished or closed context does
-    /// nothing. `[Symbol.dispose]()` is the same method, for `using`
-    /// declarations.
-    #[napi]
-    pub fn close(&mut self, env: Env) {
-        self.inner.close(&env);
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
 
-impl ObjectFinalize for Lz4DecompressContext {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.inner.close(&env);
-        Ok(())
-    }
-}
+stream_context_methods!(Lz4DecompressContext);
