@@ -630,15 +630,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install the fixtures' dependencies
         run: pnpm --dir e2e install --frozen-lockfile
+      # Playwright downloads a WebKit build for each Ubuntu release
+      # (webkit-ubuntu-24.04.zip, webkit-ubuntu-26.04.zip) into the same
+      # webkit-<rev> directory, and skips the install when that directory
+      # exists. Each runner image must therefore restore only its own
+      # browsers, so the cache key names the image (ubuntu-24.04). It comes
+      # from /etc/os-release: the env context does not hold the runner's
+      # ImageOS variable.
       - name: Resolve Playwright version
         id: playwright
-        run: echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+          echo "image=$(. /etc/os-release && echo "${ID}-${VERSION_ID}")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
       - name: Install Playwright system dependencies
         run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
       # Headless Chromium runs the headless shell, so the full browser is not
