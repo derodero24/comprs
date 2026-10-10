@@ -5,7 +5,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { types } from 'node:util';
 import { createContext, runInContext } from 'node:vm';
+import * as zlib from 'node:zlib';
 import {
+  type BrotliOptions,
+  brotliCompressSync,
+  brotliDecompressSync,
+  constants,
   deflateRawSync,
   deflateSync,
   gunzipSync,
@@ -266,6 +271,15 @@ describe('detection', () => {
   });
 });
 
+/** Whether node:zlib has zstd, which Node.js has had since 22.15 and 23.8. */
+const zstdAvailable = 'zstdCompressSync' in zlib;
+
+/** Options of node:zlib's brotliCompressSync(), by what they set. */
+const BROTLI_OPTIONS: [string, BrotliOptions][] = [
+  ['the default settings', {}],
+  ['a 64 KiB window', { params: { [constants.BROTLI_PARAM_LGWIN]: 16 } }],
+];
+
 describe('node:zlib interoperability', () => {
   it.each(LEVELS.deflate)("writes zlib with zlib's header at level %s", (level) => {
     const compressed = next.compressSync(text, compressOptions('deflate', level));
@@ -293,6 +307,42 @@ describe('node:zlib interoperability', () => {
     );
     expect(next.decompressSync(deflateRawSync(text), { format: 'deflate-raw' })).toEqual(text);
     expect(next.decompressSync(gzipSync(text), { format: 'gzip' })).toEqual(text);
+  });
+
+  it.each(BROTLI_OPTIONS)('reads brotli that node:zlib writes with %s', async (_, options) => {
+    // Brotli has no magic number: detection recognizes it as a whole
+    // stream that ends where the data ends, which this one is.
+    const compressed = brotliCompressSync(text, options);
+    expect(next.detectFormat(compressed)).toBe('brotli');
+    expect(next.decompressSync(compressed, { format: 'brotli' })).toEqual(text);
+    expect(next.decompressSync(compressed)).toEqual(text);
+    expect(await next.decompress(compressed)).toEqual(text);
+  });
+
+  it('writes brotli that node:zlib reads', async () => {
+    expect(brotliDecompressSync(next.compressSync(text, { format: 'brotli' }))).toEqual(
+      Buffer.from(text),
+    );
+    expect(
+      brotliDecompressSync(await next.compress(text, { format: 'brotli', level: 11 })),
+    ).toEqual(Buffer.from(text));
+  });
+
+  it.skipIf(!zstdAvailable)('reads zstd that node:zlib writes', async () => {
+    const compressed = zlib.zstdCompressSync(text);
+    expect(next.detectFormat(compressed)).toBe('zstd');
+    expect(next.decompressSync(compressed, { format: 'zstd' })).toEqual(text);
+    expect(next.decompressSync(compressed)).toEqual(text);
+    expect(await next.decompress(compressed)).toEqual(text);
+  });
+
+  it.skipIf(!zstdAvailable)('writes zstd that node:zlib reads', async () => {
+    expect(zlib.zstdDecompressSync(next.compressSync(text, { format: 'zstd' }))).toEqual(
+      Buffer.from(text),
+    );
+    expect(
+      zlib.zstdDecompressSync(await next.compress(text, { format: 'zstd', level: 19 })),
+    ).toEqual(Buffer.from(text));
   });
 
   it('reads concatenated gzip members', () => {
