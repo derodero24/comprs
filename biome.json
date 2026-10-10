@@ -8,6 +8,8 @@
   "files": {
     "includes": [
       "**",
+      "!index.js",
+      "!index.d.ts",
       "!streams.js",
       "!streams.d.ts",
       "!node.js",

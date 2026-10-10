@@ -8,11 +8,6 @@ dist/
 *.node
 /artifacts/
 
-# napi-rs generated files (tracked via git add -f for npm package)
-# Biome ignores these via useIgnoreFile
-/index.js
-/index.d.ts
-
 # wasm-bindgen binary (build output)
 *.wasm
 
