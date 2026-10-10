@@ -40,17 +40,22 @@ async function idleMedian(): Promise<number> {
 }
 
 /**
+ * The default resolution of the system timer of Windows, in milliseconds,
+ * which timers fall back to whenever no program asks for a finer one.
+ */
+const WINDOWS_TIMER_MS = 15.625;
+
+/**
  * Run `run` with {@link timerTicks}, and return what the timer saw with
  * `bound`, the largest median gap that a test accepts: 10 ms, or twice the
- * median gap of the timer on an idle event loop where timers are coarser
- * than that, as on Windows unless a program raised the resolution of its
- * timers.
+ * resolution of the timers where they are coarser than that.
  *
- * The idle event loop is measured before `run` and after it, and the
- * coarser of the two counts: the resolution of the timers can change
- * meanwhile. On Windows, a check measured 1 ms ticks before a run, which
- * then saw ticks 15.6 ms apart, the default resolution of the system timer,
- * as idle event loops do there.
+ * That resolution is measured as the median gap of the timer on an idle
+ * event loop, before `run` and after it, and the coarser of the two counts.
+ * On Windows, it is at least the default resolution of the system timer,
+ * as programs raise and restore the resolution while a test runs: one run
+ * saw ticks 14.1 ms apart, and the idle event loop 1 ms ticks both before
+ * and after it.
  */
 export async function eventLoopTicks(
   run: () => Promise<void>,
@@ -58,7 +63,8 @@ export async function eventLoopTicks(
   const before = await idleMedian();
   const result = await timerTicks(run);
   const after = await idleMedian();
-  return { ...result, bound: Math.max(10, 2 * before, 2 * after) };
+  const floor = process.platform === 'win32' ? WINDOWS_TIMER_MS : 0;
+  return { ...result, bound: Math.max(10, 2 * floor, 2 * before, 2 * after) };
 }
 
 /**
