@@ -1,5 +1,7 @@
 //! Brotli streaming compression and decompression.
 
+use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::io::Write;
 use std::panic::{AssertUnwindSafe, UnwindSafe};
 use std::sync::Arc;
@@ -23,12 +25,27 @@ use crate::{ComprsError, MemoryUsage};
 /// `free_cell`, so the count follows them as they grow: the encoder holds a
 /// few kilobytes before the first block and tens of megabytes at high
 /// qualities, the decoder sizes its ring buffer from the stream's window.
+///
+/// The allocator of an encoder, [`CountingAlloc::for_encoder`], also
+/// recycles the ring buffer of the encoder, as [`RING_BUFFER`] describes.
 #[derive(Clone, Default)]
-struct CountingAlloc {
+pub(crate) struct CountingAlloc {
     allocated: Arc<AtomicUsize>,
+    /// Whether the allocator is an encoder's, which takes its ring buffer
+    /// from [`RING_BUFFER`] and gives it back there.
+    recycles: bool,
 }
 
 impl CountingAlloc {
+    /// The allocator of an encoder, which recycles the ring buffer of the
+    /// encoder through [`RING_BUFFER`].
+    pub(crate) fn for_encoder() -> Self {
+        Self {
+            recycles: true,
+            ..Self::default()
+        }
+    }
+
     /// Bytes allocated and not freed yet.
     fn allocated(&self) -> usize {
         self.allocated.load(Ordering::Relaxed)
@@ -37,13 +54,83 @@ impl CountingAlloc {
     fn add(&self, bytes: usize) {
         self.allocated.fetch_add(bytes, Ordering::Relaxed);
     }
+
+    /// Whether this allocator recycles `len` elements of `T`: an encoder's
+    /// ring buffer, the only array of bytes of at least
+    /// [`RECYCLED_BYTES`] that an encoder allocates.
+    fn recycles<T: 'static>(&self, len: usize) -> bool {
+        self.recycles && len >= RECYCLED_BYTES && TypeId::of::<T>() == TypeId::of::<u8>()
+    }
 }
 
-impl<T: Clone + Default> Allocator<T> for CountingAlloc {
+/// Size from which an encoder's array of bytes is its ring buffer, which
+/// [`RING_BUFFER`] recycles.
+///
+/// The encoder keeps 2^(1 + max(lgwin, lgblock)) bytes of input in its ring
+/// buffer, and a tail of one block and 9 bytes of slack: 8 MiB and up to
+/// 256 KiB with the window of [`LG_WINDOW_SIZE`] and its blocks of at most
+/// 2^18 bytes. Its other arrays of bytes hold the output of one block and
+/// are far smaller.
+const RECYCLED_BYTES: usize = 1 << (LG_WINDOW_SIZE + 1);
+
+thread_local! {
+    /// The ring buffer that an encoder last freed on this thread, which the
+    /// next encoder of this thread takes if it is of the size that it needs
+    /// (#707). It holds the memory of a `CountingAlloc` array of bytes, as a
+    /// `Box<dyn Any>` because the allocator is generic over the type of its
+    /// elements.
+    ///
+    /// The encoder allocates its ring buffer once the input, a custom
+    /// dictionary included, outgrows one block: on every call that
+    /// compresses with a dictionary. With glibc, a fresh allocation of
+    /// those 8 MiB comes from the heap once one has been freed, which raises
+    /// its threshold for `mmap`, and zeroing it then took 330 us: 90% of the
+    /// time of compressing a 100-byte message with a dictionary at
+    /// quality 5.
+    ///
+    /// A recycled ring buffer holds the bytes of an earlier stream, not
+    /// zeros. The encoder does not read them: brotli's C encoder allocates
+    /// its ring buffer without initializing it and writes every byte that
+    /// it reads, the input, two bytes before it and the slack after it, as
+    /// the Rust port does in `RingBufferInitBuffer` and `RingBufferWrite`.
+    /// The tests compress with a ring buffer full of other bytes and get the
+    /// same output. The ring buffer stays with the thread, at most 8.3 MiB of
+    /// memory that the bindings do not report.
+    static RING_BUFFER: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+}
+
+/// The ring buffer of [`RING_BUFFER`], if it holds `len` elements of `T`,
+/// which it then no longer holds.
+fn take_ring_buffer<T: 'static>(
+    len: usize,
+) -> Option<<StandardAlloc as Allocator<T>>::AllocatedMemory>
+where
+    StandardAlloc: Allocator<T>,
+{
+    RING_BUFFER.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        let memory = kept
+            .take()?
+            .downcast::<<StandardAlloc as Allocator<T>>::AllocatedMemory>()
+            .ok()?;
+        if memory.slice().len() == len {
+            return Some(*memory);
+        }
+        *kept = Some(memory);
+        None
+    })
+}
+
+impl<T: Clone + Default + 'static> Allocator<T> for CountingAlloc {
     type AllocatedMemory = <StandardAlloc as Allocator<T>>::AllocatedMemory;
 
     fn alloc_cell(&mut self, len: usize) -> Self::AllocatedMemory {
         self.add(len.saturating_mul(size_of::<T>()));
+        if self.recycles::<T>(len)
+            && let Some(memory) = take_ring_buffer::<T>(len)
+        {
+            return memory;
+        }
         StandardAlloc::default().alloc_cell(len)
     }
 
@@ -62,16 +149,29 @@ impl<T: Clone + Default> Allocator<T> for CountingAlloc {
         ) {
             allocated = current;
         }
+        if self.recycles::<T>(data.slice().len()) {
+            RING_BUFFER.with(|kept| *kept.borrow_mut() = Some(Box::new(data)));
+        }
     }
 }
 
 impl BrotliAlloc for CountingAlloc {}
 
-type Compressor = CompressorWriterCustomAlloc<
+/// The writer of the compressing contexts and of
+/// [`crate::brotli::compress`], whose allocator recycles the ring buffer of
+/// its encoder.
+pub(crate) type Compressor = CompressorWriterCustomAlloc<
     Vec<u8>,
     <CountingAlloc as Allocator<u8>>::AllocatedMemory,
     CountingAlloc,
 >;
+
+/// A [`Compressor`] at `quality`, which writes to `output` and allocates
+/// with `alloc`.
+pub(crate) fn compressor(output: Vec<u8>, mut alloc: CountingAlloc, quality: u32) -> Compressor {
+    let buffer = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut alloc, BUFFER_SIZE);
+    Compressor::new(output, buffer, alloc, quality, LG_WINDOW_SIZE)
+}
 
 /// Streaming brotli compression context.
 pub struct CompressContext {
@@ -83,10 +183,8 @@ pub struct CompressContext {
 impl CompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self, ComprsError> {
         let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-        let mut alloc = CountingAlloc::default();
-        let buffer = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut alloc, BUFFER_SIZE);
-        let compressor =
-            Compressor::new(Vec::new(), buffer, alloc.clone(), quality, LG_WINDOW_SIZE);
+        let alloc = CountingAlloc::for_encoder();
+        let compressor = compressor(Vec::new(), alloc.clone(), quality);
         Ok(Self {
             compressor: Some(compressor),
             alloc,
@@ -464,7 +562,7 @@ impl StreamEncoder {
     /// boxed, as it holds several kilobytes of tables itself.
     fn new(params: &BrotliEncoderParams) -> Box<Self> {
         let mut encoder = Box::new(Self {
-            state: EncoderState::new(CountingAlloc::default()),
+            state: EncoderState::new(CountingAlloc::for_encoder()),
             pending: Vec::new(),
         });
         encoder.state.params = params.clone();
@@ -892,7 +990,7 @@ mod tests {
         self, BROTLI_OPERATION_FINISH as FINISH, BROTLI_OPERATION_FLUSH as FLUSH,
         BROTLI_OPERATION_PROCESS as PROCESS,
     };
-    use brotli::enc::{Allocator, StandardAlloc};
+    use brotli::enc::{Allocator, SliceWrapper, SliceWrapperMut, StandardAlloc};
 
     use super::{
         CompressContext, CompressDictContext, CountingAlloc, DICT_REACH, DecompressContext,
@@ -903,6 +1001,75 @@ mod tests {
 
     /// Decompression limit used by the size-limit tests.
     const LIMIT: usize = 64 * 1024;
+
+    /// The length and the address of the ring buffer that [`super::RING_BUFFER`]
+    /// keeps, if any.
+    fn kept_ring_buffer() -> Option<(usize, usize)> {
+        super::RING_BUFFER.with(|kept| {
+            let kept = kept.borrow();
+            let memory = kept
+                .as_ref()?
+                .downcast_ref::<<StandardAlloc as Allocator<u8>>::AllocatedMemory>()?;
+            Some((memory.slice().len(), memory.slice().as_ptr() as usize))
+        })
+    }
+
+    /// Fill the ring buffer that [`super::RING_BUFFER`] keeps with bytes
+    /// that no stream holds, which the encoder must not read.
+    fn scramble_kept_ring_buffer() {
+        super::RING_BUFFER.with(|kept| {
+            let mut kept = kept.borrow_mut();
+            let memory = kept
+                .as_mut()
+                .and_then(|memory| {
+                    memory.downcast_mut::<<StandardAlloc as Allocator<u8>>::AllocatedMemory>()
+                })
+                .expect("a ring buffer is kept");
+            let mut state = 0x9e37_79b9_u32;
+            for byte in memory.slice_mut() {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = state as u8;
+            }
+        });
+    }
+
+    /// Drop the ring buffer that [`super::RING_BUFFER`] keeps.
+    fn drop_kept_ring_buffer() {
+        super::RING_BUFFER.with(|kept| kept.borrow_mut().take());
+    }
+
+    /// What `compress` returns with a fresh ring buffer, and with a
+    /// recycled one full of other bytes: the same output, or the test fails.
+    ///
+    /// An encoder that allocates no ring buffer, as at qualities 0 and 1,
+    /// which ignore a custom dictionary, leaves nothing to recycle, so
+    /// `compress` then runs once; `recycles` says whether it must allocate
+    /// one.
+    fn compress_with_recycled_ring_buffer(
+        label: &str,
+        recycles: bool,
+        compress: impl Fn() -> Vec<u8>,
+    ) -> Vec<u8> {
+        drop_kept_ring_buffer();
+        let fresh = compress();
+        if kept_ring_buffer().is_none() {
+            assert!(!recycles, "the encoder kept no ring buffer: {label}");
+            return fresh;
+        }
+        scramble_kept_ring_buffer();
+        assert!(
+            compress() == fresh,
+            "a recycled ring buffer changed the output: {label}"
+        );
+        fresh
+    }
+
+    /// `size` bytes of text that compresses about as well as prose.
+    fn prose(size: usize) -> Vec<u8> {
+        TEXT.iter().copied().cycle().take(size).collect()
+    }
 
     /// 8 MiB of zeros compress to a few hundred bytes: one chunk that
     /// expands more than 10,000x.
@@ -1973,5 +2140,129 @@ mod tests {
         }
         output.extend(ctx.finish().unwrap());
         assert!(decompress_with_dict(&output, &dict).unwrap() == input);
+    }
+
+    #[test]
+    fn recycled_ring_buffers_give_the_output_of_fresh_ones() {
+        // The encoder allocates all of its ring buffer on every call with a
+        // dictionary, and once the input outgrows one block without one.
+        let dict = prose(4096);
+        let message = prose(100);
+        let text = prose(300 * 1024);
+        for quality in 0..=11 {
+            // Qualities 0 and 1 ignore a custom dictionary, and compress
+            // 300 KiB without the ring buffer.
+            let with_dict = quality >= 2;
+            compress_with_recycled_ring_buffer(
+                &format!("a message with a dictionary at quality {quality}"),
+                with_dict,
+                || compress_with_dict(&message, &dict, Some(quality)).unwrap(),
+            );
+            compress_with_recycled_ring_buffer(
+                &format!("20 KB with a dictionary at quality {quality}"),
+                with_dict,
+                || compress_with_dict(&text[..20_000], &dict, Some(quality)).unwrap(),
+            );
+            if quality < 10 {
+                compress_with_recycled_ring_buffer(
+                    &format!("300 KiB at quality {quality}"),
+                    quality >= 2,
+                    || crate::brotli::compress(&text, Some(quality)).unwrap(),
+                );
+                let output = compress_with_recycled_ring_buffer(
+                    &format!("a stream of 300 KiB at quality {quality}"),
+                    quality >= 2,
+                    || {
+                        let mut ctx = CompressContext::new(Some(quality)).unwrap();
+                        let mut output = Vec::new();
+                        for chunk in text.chunks(64 * 1024) {
+                            output.extend(ctx.transform(chunk).unwrap());
+                        }
+                        output.extend(ctx.finish().unwrap());
+                        output
+                    },
+                );
+                assert_eq!(decompress(&output).unwrap(), text);
+            }
+        }
+    }
+
+    #[test]
+    fn recycled_ring_buffers_give_the_output_of_fresh_ones_past_their_end() {
+        // More input than the ring buffer holds wraps around it.
+        let text = prose(9 * 1024 * 1024);
+        let output = compress_with_recycled_ring_buffer("9 MiB at quality 1", true, || {
+            crate::brotli::compress(&text, Some(1)).unwrap()
+        });
+        assert!(decompress(&output).unwrap() == text);
+        let dict = prose(4096);
+        compress_with_recycled_ring_buffer("9 MiB with a dictionary at quality 2", true, || {
+            let mut ctx = CompressDictContext::incremental(&dict, Some(2)).unwrap();
+            let mut output = Vec::new();
+            for chunk in text.chunks(1024 * 1024) {
+                output.extend(ctx.transform(chunk).unwrap());
+            }
+            output.extend(ctx.finish().unwrap());
+            output
+        });
+    }
+
+    #[test]
+    fn encoders_reuse_the_ring_buffer_of_their_thread() {
+        let dict = prose(4096);
+        let message = prose(100);
+        drop_kept_ring_buffer();
+        compress_with_dict(&message, &dict, Some(5)).unwrap();
+        let kept = kept_ring_buffer().expect("the encoder kept its ring buffer");
+        assert!(kept.0 > super::RECYCLED_BYTES);
+        // The next encoder takes it, and gives it back.
+        compress_with_dict(&message, &dict, Some(5)).unwrap();
+        assert_eq!(kept_ring_buffer(), Some(kept));
+        // Another thread keeps its own.
+        std::thread::spawn(move || {
+            assert_eq!(kept_ring_buffer(), None);
+            compress_with_dict(&message, &dict, Some(5)).unwrap();
+            assert!(kept_ring_buffer().is_some());
+        })
+        .join()
+        .unwrap();
+        assert_eq!(kept_ring_buffer(), Some(kept));
+    }
+
+    #[test]
+    fn only_encoders_recycle_and_only_their_ring_buffer() {
+        drop_kept_ring_buffer();
+        // A decoder's allocator, and an encoder's array of other elements,
+        // free their memory.
+        let mut decoder = CountingAlloc::default();
+        let bytes =
+            <CountingAlloc as Allocator<u8>>::alloc_cell(&mut decoder, super::RECYCLED_BYTES);
+        <CountingAlloc as Allocator<u8>>::free_cell(&mut decoder, bytes);
+        assert_eq!(kept_ring_buffer(), None);
+        let mut encoder = CountingAlloc::for_encoder();
+        let words =
+            <CountingAlloc as Allocator<u32>>::alloc_cell(&mut encoder, super::RECYCLED_BYTES);
+        <CountingAlloc as Allocator<u32>>::free_cell(&mut encoder, words);
+        assert_eq!(kept_ring_buffer(), None);
+        // An encoder's smaller array of bytes too.
+        let small = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, 4096);
+        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, small);
+        assert_eq!(kept_ring_buffer(), None);
+        // An encoder's ring buffer is kept, and goes to a request of its size
+        // only, counted as allocated as a fresh one is.
+        let len = super::RECYCLED_BYTES + 9;
+        let ring = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len);
+        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, ring);
+        let kept = kept_ring_buffer().expect("the ring buffer is kept");
+        let other = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len + 1);
+        assert_eq!(kept_ring_buffer(), Some(kept));
+        let same = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len);
+        assert_eq!(kept_ring_buffer(), None);
+        assert_eq!(same.slice().as_ptr() as usize, kept.1);
+        assert_eq!(encoder.allocated(), 2 * len + 1);
+        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, other);
+        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, same);
+        assert_eq!(encoder.allocated(), 0);
+        assert_eq!(kept_ring_buffer().map(|(kept_len, _)| kept_len), Some(len));
     }
 }

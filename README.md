@@ -639,9 +639,9 @@ The browser WASM binary (`wasm32-unknown-unknown`) is built with `wasm-pack`, op
 
 | `comprs-wasm_bg.wasm` | Size |
 | --- | --- |
-| Raw | 1.93 MB |
-| gzip (level 9) | 818 KB |
-| brotli (quality 11) | 567 KB |
+| Raw | 1.84 MB |
+| gzip (level 9) | 800 KB |
+| brotli (quality 11) | 557 KB |
 
 The compressed sizes are those of Node.js's zlib; what a CDN serves depends on its compressor and level. CI reports these sizes on every pull request, and fails when the raw or gzip size grows over its budget.
 
@@ -889,6 +889,8 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 
 > [!NOTE]
 > **LZ4 decode buffer**: LZ4 decompression (`lz4Decompress()`, `lz4DecompressWithCapacity()` and their `*Async` variants, `decompress()` and `decompressAsync()` for LZ4 input, `Lz4DecompressContext` and the LZ4 decompression streams) keeps the buffer that it decodes blocks into per thread instead of zero-filling a new one per call (the calling thread for the synchronous functions and context methods, the libuv pool threads for `*Async` and the asynchronous context methods, and either for the streams, as each chunk runs), which makes frames that declare large blocks, such as the 4 MB blocks that the `lz4` CLI declares by default, much faster to decode. A thread keeps the buffer only while it holds at most 4 MiB, so the buffer of up to 8 MiB that a large block of a legacy frame (`lz4 -l`) needs is not kept; this memory is not reported to V8.
+
+> **Brotli ring buffer**: brotli compression (`brotliCompress()` and `brotliCompressWithDict()` and their `*Async` variants, `compress()` and `compressSync()` of `./next` for brotli, and the brotli compression contexts and streams) keeps the ring buffer of its encoder per thread once a call or a stream has used it, instead of allocating and zero-filling a new one each time ([#707](https://github.com/derodero24/comprs/issues/707)). The encoder fills all of it on every call with a dictionary, and once the input outgrows one block (16 to 256 KiB) without one; with glibc, zero-filling it took about 0.33 ms per call. Compressing a 110-byte message with a 110 KiB dictionary at quality 5 now takes about 0.32 ms instead of 0.65 ms, and with a 2 KiB dictionary 0.05 ms instead of 0.38 ms. A thread keeps one ring buffer, of at most 8.3 MiB, which the encoder writes before it reads any byte of it; this memory is not reported to V8.
 
 > [!NOTE]
 > **Result memory**: in the native addon (Node.js, Bun, Deno), the synchronous functions and the stream contexts return results of up to 2 MiB in memory that the JavaScript engine allocates. The engine frees it as soon as it collects the result, and such a result can be transferred to a worker with `postMessage()` or `structuredClone()`. Larger results and the results of the `*Async` functions stay in the memory that the addon allocated, which saves a copy, and so does the `extra` field of `gzipReadHeader()`. Node.js frees that memory only on a later turn of the event loop, after V8 has collected the result, so a synchronous loop that returns large results holds the memory of all of them until it yields (an occasional `await new Promise(setImmediate)` releases it). Node.js also marks that memory as untransferable, so transferring such a result throws a `DataCloneError` there: copy it with `new Uint8Array(result)` first. The Web streams emit plain `Uint8Array` chunks, each with an `ArrayBuffer` of its own, which can always be transferred. The WebAssembly build returns every result as a copy in JavaScript memory, which can be transferred at any size.
