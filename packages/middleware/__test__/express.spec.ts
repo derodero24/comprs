@@ -681,6 +681,24 @@ describe('express adapter: failures and disconnects', () => {
     expect(await finished.promise).toBe(false);
   });
 
+  it('destroys the response when flushing the compressor fails', async () => {
+    vi.spyOn(GzipCompressContext.prototype, 'flush').mockImplementationOnce(() => {
+      throw new Error('injected flush failure');
+    });
+    const finished = deferred<boolean>();
+    const target = await serve((_req, res) => {
+      res.type('text/plain');
+      res.on('close', () => finished.resolve(res.writableFinished));
+      // The handler stops writing, so the compressor flushes.
+      res.write(BODY);
+    });
+    const res = await get(target);
+    expect(res.headers['content-encoding']).toBe('gzip');
+    expect(res.complete).toBe(false);
+    expect(await finished.promise).toBe(false);
+    expect(compressors.created[0]?.errored).toHaveProperty('message', 'injected flush failure');
+  });
+
   it.each([
     { encoding: 'gzip', context: GzipCompressContext },
     { encoding: 'deflate', context: DeflateCompressContext },

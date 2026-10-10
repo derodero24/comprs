@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import type { Transform } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
+import { finished } from 'node:stream/promises';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { constants, gunzipSync, inflateSync } from 'node:zlib';
 import {
@@ -216,6 +217,17 @@ describe('createCompressTransform', () => {
       },
     );
 
+    it('should not flush a stream that ends before its input pauses', async () => {
+      const flush = vi.spyOn(GzipCompressContext.prototype, 'flush');
+      const stream = createCompressTransform('gzip');
+      const input = randomBytes(1024);
+      const output = await compress(stream, [input]);
+      await finished(stream);
+      await nextTurn();
+      expect(flush).not.toHaveBeenCalled();
+      expect(gunzipSync(output)).toEqual(input);
+    });
+
     it('should include the chunk in a flush made while its output is emitted', async () => {
       const flush = vi.spyOn(GzipCompressContext.prototype, 'flush');
       const stream = createCompressTransform('gzip');
@@ -243,6 +255,19 @@ describe('createCompressTransform', () => {
       expect(flush).toHaveBeenCalledTimes(2);
       expect(output).toHaveLength(emitted);
       stream.destroy();
+    });
+
+    it('should fail when flushing fails', async () => {
+      vi.spyOn(GzipCompressContext.prototype, 'flush').mockImplementationOnce(() => {
+        throw new Error('injected flush failure');
+      });
+      const close = vi.spyOn(GzipCompressContext.prototype, 'close');
+      const stream = createCompressTransform('gzip');
+      stream.write(randomBytes(1024));
+      const [err]: unknown[] = await within(once(stream, 'error'));
+      expect(err).toHaveProperty('message', 'injected flush failure');
+      expect(stream.destroyed).toBe(true);
+      expect(close).toHaveBeenCalledOnce();
     });
   });
 

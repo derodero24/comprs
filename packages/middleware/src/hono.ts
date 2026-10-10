@@ -118,7 +118,9 @@ function compressStream(
 
   /** Compress the next chunk; returns whether the stream got output or ended. */
   const step = async (controller: Controller): Promise<boolean> => {
-    // Once cancel() has closed the encoder, it must not be used.
+    // Once cancel() has closed the encoder, it must not be used. Every await
+    // below is followed by the same check, so this one only guards against
+    // a cancel() that comes between two steps.
     if (cancelled) return true;
     const chunk = queued.pop();
     if (chunk) return transform(controller, chunk);

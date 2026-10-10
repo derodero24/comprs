@@ -384,6 +384,48 @@ describe('comprs hono middleware', () => {
         expect(cancelled).toBe(true);
       }));
 
+    it('stops using the encoder once the body is cancelled between two chunks', async () => {
+      let cancel: (() => void) | undefined;
+      const transform = vi
+        .spyOn(GzipCompressContext.prototype, 'transform')
+        // The first chunk gives output, which fills the compressed body's queue.
+        .mockImplementationOnce(() => Buffer.from('first'))
+        // The client cancels the body while the second chunk is compressed,
+        // which happens once the client reads.
+        .mockImplementationOnce(() => {
+          cancel?.();
+          return Buffer.alloc(0);
+        });
+      const app = new Hono();
+      app.use(comprs());
+      app.get(
+        '/',
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const part of ['first ', 'second ', 'third ']) {
+                  controller.enqueue(encoder.encode(part.repeat(200)));
+                }
+              },
+            }),
+            { headers: TEXT },
+          ),
+      );
+
+      const res = await within(app.request('/', { headers: { 'Accept-Encoding': 'gzip' } }));
+      expect(res.headers.get('content-encoding')).toBe('gzip');
+      const reader = bodyReader(res);
+      cancel = () => {
+        reader.cancel().catch(() => {});
+      };
+      const { value } = await within(reader.read());
+      expect(value).toEqual(Buffer.from('first'));
+      await sleep(10);
+      // The third chunk, which was read ahead, is left alone.
+      expect(transform).toHaveBeenCalledTimes(2);
+    });
+
     it('sends each write of an endless streamText() as it happens', async () => {
       const app = new Hono();
       app.use(comprs());

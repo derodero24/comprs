@@ -1,11 +1,16 @@
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from 'node:http';
 import { PassThrough, Readable } from 'node:stream';
 import { constants, gunzipSync } from 'node:zlib';
-import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/comprs';
+import {
+  brotliDecompress,
+  GzipCompressContext,
+  gzipDecompress,
+  zstdDecompress,
+} from '@derodero24/comprs';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import Fastify from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { comprs, type FastifyComprsOptions } from '../src/fastify.js';
 
@@ -213,6 +218,10 @@ afterAll(async () => {
   await app.close();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('comprs fastify plugin', () => {
   describe('compression', () => {
     it('should compress with gzip', async () => {
@@ -318,15 +327,20 @@ describe('comprs fastify plugin', () => {
     });
 
     it('should send each chunk of an endless stream payload as it happens', async () => {
+      const close = vi.spyOn(GzipCompressContext.prototype, 'close');
       const res = await open(baseUrl, '/endless-stream', 'gzip');
       try {
         expect(res.headers['content-encoding']).toBe('gzip');
         // Ticks are written 10 ms apart, so they arrive in separate flushes.
         expect(await within(readUntil(res, 'tick 2\n'))).toBe('tick 0\ntick 1\ntick 2\n');
+        expect(close).not.toHaveBeenCalled();
       } finally {
         // The response never ends, and would keep app.close() waiting.
         res.destroy();
       }
+      // Fastify destroys the compressing stream once the response closes,
+      // which releases the native state of its encoder.
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
     });
 
     it('should apply the threshold to a stream with a declared Content-Length', async () => {
