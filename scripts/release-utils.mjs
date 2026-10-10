@@ -1,14 +1,17 @@
 /**
  * Helpers shared by the release packaging scripts, prepare-release.mjs and
  * check-release.mjs, and by check-consumer-types.mjs and
- * e2e/install-package.mjs, which pack the package.
+ * e2e/install-package.mjs, which pack the package. The checks of
+ * check-release.mjs that __test__/release-utils.spec.ts tests are here too,
+ * as importing that script runs it.
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, matchesGlob, posix, resolve } from 'node:path';
 import { readNapiConfig } from '@napi-rs/cli';
+import { parseAst } from 'vite';
 
 /** Repository root, where the root package lives. */
 export const ROOT = resolve(import.meta.dirname, '..');
@@ -323,4 +326,288 @@ export function npmPack(cwd, args) {
       .filter((path) => typeof path === 'string')
       .sort(),
   };
+}
+
+/** ESTree nodes whose `source` names a module that the module loads. */
+const MODULE_NODE_TYPES = new Set([
+  'ImportDeclaration',
+  'ImportExpression',
+  'ExportAllDeclaration',
+  'ExportNamedDeclaration',
+]);
+
+/**
+ * Follow every module that each browser entry point loads and check that
+ * each one is a file of the package. A bare specifier fails: the browser
+ * build must not depend on another package (2.0.2's browser.js imported the
+ * WASI package, which is not even installed), nor on Node.js. Each entry
+ * point must reach a WebAssembly module, through `new URL()`: esbuild cannot
+ * bundle a .wasm file that is imported as an ES module. Bundlers must parse
+ * every module as an ES module, which also keeps the CommonJS loaders of the
+ * native addon out, and keep the entry points, which initialise the
+ * WebAssembly module, when they tree-shake.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string[]} packed Files in the package.
+ * @param {string[]} entries Browser entry points.
+ * @param {(line: string) => void} [log] Logs the files that each entry point
+ *   loads.
+ * @returns {string[]} The problems found, each naming the file it is about.
+ */
+export function browserEntryProblems(packageDir, packed, entries, log = console.log) {
+  /** @type {string[]} */
+  const problems = [];
+  if (entries.length === 0) {
+    problems.push('package.json declares no browser entry point');
+    return problems;
+  }
+  /**
+   * The package files that each module loads, checked once per module.
+   *
+   * @type {Map<string, string[]>}
+   */
+  const dependencies = new Map();
+  const dependenciesOf = (/** @type {string} */ file) => {
+    let found = dependencies.get(file);
+    if (found === undefined) {
+      if (packed.includes(file)) {
+        found = checkBrowserModule(problems, packageDir, file);
+      } else {
+        problems.push(`The browser entry loads ${file}, which the package does not include`);
+        found = [];
+      }
+      dependencies.set(file, found);
+    }
+    return found;
+  };
+  for (const entry of entries) {
+    checkEntrySideEffects(problems, packageDir, entry);
+    const seen = new Set([entry]);
+    for (const file of seen) {
+      for (const dependency of dependenciesOf(file)) {
+        seen.add(dependency);
+      }
+    }
+    log(`Browser entry ${entry} loads: ${[...seen].slice(1).join(', ')}`);
+    if (![...seen].some((file) => file.endsWith('.wasm') && packed.includes(file))) {
+      problems.push(
+        `The browser entry ${entry} does not load a WebAssembly module from the package`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Check that a JavaScript file that the browser entry loads is an ES module
+ * and loads WebAssembly through `new URL()`, and return the package files it
+ * loads. Return nothing for other files.
+ *
+ * @param {string[]} problems Where to report problems.
+ * @param {string} packageDir Extracted package.
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {string[]}
+ */
+function checkBrowserModule(problems, packageDir, file) {
+  if (!/\.[cm]?js$/.test(file)) {
+    return [];
+  }
+  if (!isEsModule(packageDir, file)) {
+    problems.push(
+      `The browser entry module ${file} is not an ES module by its file extension or the ` +
+        '"type" of its nearest package.json, so bundlers do not parse its import and export ' +
+        'statements',
+    );
+  }
+  const dependencies = localDependencies(problems, packageDir, file);
+  for (const { path } of dependencies.filter(({ path, url }) => path.endsWith('.wasm') && !url)) {
+    problems.push(
+      `The browser entry module ${file} imports ${path} as an ES module, which needs ` +
+        "WebAssembly ESM integration; load it through new URL('…', import.meta.url)",
+    );
+  }
+  return dependencies.map(({ path }) => path);
+}
+
+/**
+ * Check that no `sideEffects` field lets bundlers drop a browser entry point.
+ * Vite reads the field of the package root for the entry point it resolves,
+ * webpack that of the package.json nearest to the file.
+ *
+ * @param {string[]} problems Where to report problems.
+ * @param {string} packageDir Extracted package.
+ * @param {string} entry Path relative to `packageDir`.
+ */
+function checkEntrySideEffects(problems, packageDir, entry) {
+  const manifests = [{ dir: '.', manifest: readJson(join(packageDir, 'package.json')) }];
+  const nearest = nearestManifest(packageDir, entry);
+  if (nearest.dir !== '.') {
+    manifests.push(nearest);
+  }
+  for (const { dir, manifest } of manifests) {
+    if (!hasSideEffects(manifest['sideEffects'], posix.relative(dir, entry))) {
+      problems.push(
+        `${posix.join(dir, 'package.json')} marks the browser entry ${entry} as side-effect ` +
+          'free, so bundlers may drop the initialisation of the WebAssembly module',
+      );
+    }
+  }
+}
+
+/**
+ * Whether a `sideEffects` field marks a file as having side effects, as
+ * webpack and Vite read it: a pattern without a `/` matches the file name in
+ * any directory.
+ *
+ * @param {unknown} sideEffects
+ * @param {string} file Path relative to the directory of the package.json.
+ */
+function hasSideEffects(sideEffects, file) {
+  if (!Array.isArray(sideEffects)) {
+    return sideEffects !== false;
+  }
+  /** @type {unknown[]} */
+  const patterns = sideEffects;
+  return patterns.some((pattern) => {
+    if (typeof pattern !== 'string') {
+      return false;
+    }
+    const glob = normalizePath(pattern);
+    return matchesGlob(file, glob.includes('/') ? glob : `**/${glob}`);
+  });
+}
+
+/**
+ * Whether bundlers and Node parse a JavaScript file of the package as an ES
+ * module.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string} file Path relative to `packageDir`.
+ */
+function isEsModule(packageDir, file) {
+  if (file.endsWith('.mjs') || file.endsWith('.cjs')) {
+    return file.endsWith('.mjs');
+  }
+  return nearestManifest(packageDir, file).manifest['type'] === 'module';
+}
+
+/**
+ * Return the package.json that applies to a file of the package, the
+ * nearest one, with its directory relative to the package.
+ *
+ * @param {string} packageDir Extracted package.
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {{ dir: string, manifest: Record<string, unknown> }}
+ */
+function nearestManifest(packageDir, file) {
+  let dir = posix.dirname(file);
+  while (dir !== '.' && !existsSync(join(packageDir, dir, 'package.json'))) {
+    dir = posix.dirname(dir);
+  }
+  return { dir, manifest: readJson(join(packageDir, dir, 'package.json')) };
+}
+
+/**
+ * Return the package files that a JavaScript file of the package loads, and
+ * whether it loads each one through `new URL()`, and report every module it
+ * imports from elsewhere.
+ *
+ * @param {string[]} problems Where to report problems.
+ * @param {string} packageDir
+ * @param {string} file Path relative to `packageDir`.
+ * @returns {{ path: string, url: boolean }[]}
+ */
+function localDependencies(problems, packageDir, file) {
+  const ast = parseAst(readFileSync(join(packageDir, file), 'utf8'));
+  /** @type {{ path: string, url: boolean }[]} */
+  const dependencies = [];
+  for (const { specifier, url } of moduleReferences(ast)) {
+    const local = url
+      ? !/^[a-z][a-z\d+.-]*:|^\//i.test(specifier)
+      : specifier.startsWith('./') || specifier.startsWith('../');
+    if (local) {
+      dependencies.push({ path: posix.normalize(posix.join(posix.dirname(file), specifier)), url });
+    } else {
+      problems.push(
+        `The browser entry module ${file} imports ${specifier}, which is not part of the package`,
+      );
+    }
+  }
+  return dependencies;
+}
+
+/**
+ * Yield the modules and assets an ES module loads: static and dynamic
+ * imports, re-exports, and `new URL('…', import.meta.url)` references (the
+ * way wasm-bindgen's `web` target locates its .wasm file).
+ *
+ * @param {unknown} node ESTree node, or an array or value inside one.
+ * @returns {Generator<{ specifier: string, url: boolean }>}
+ */
+function* moduleReferences(node) {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      yield* moduleReferences(child);
+    }
+    return;
+  }
+  if (!isRecord(node)) {
+    return;
+  }
+  const source = stringLiteral(node['source']);
+  if (source !== undefined && MODULE_NODE_TYPES.has(String(node['type']))) {
+    yield { specifier: source, url: false };
+  }
+  const url = importMetaUrl(node);
+  if (url !== undefined) {
+    yield { specifier: url, url: true };
+  }
+  for (const value of Object.values(node)) {
+    yield* moduleReferences(value);
+  }
+}
+
+/**
+ * Return the path of a `new URL('<path>', import.meta.url)` expression.
+ *
+ * @param {Record<string, unknown>} node
+ * @returns {string | undefined}
+ */
+function importMetaUrl(node) {
+  const { callee } = node;
+  if (node['type'] !== 'NewExpression' || !isRecord(callee) || callee['name'] !== 'URL') {
+    return undefined;
+  }
+  /** @type {unknown[]} */
+  const args = Array.isArray(node['arguments']) ? node['arguments'] : [];
+  const [path, base] = args;
+  const isImportMetaUrl =
+    isRecord(base) &&
+    base['type'] === 'MemberExpression' &&
+    isRecord(base['object']) &&
+    base['object']['type'] === 'MetaProperty' &&
+    isRecord(base['property']) &&
+    base['property']['name'] === 'url';
+  return isImportMetaUrl ? stringLiteral(path) : undefined;
+}
+
+/**
+ * @param {unknown} node
+ * @returns {string | undefined}
+ */
+function stringLiteral(node) {
+  if (!isRecord(node) || node['type'] !== 'Literal') {
+    return undefined;
+  }
+  const { value } = node;
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Turn a package.json path such as `./index.js` into a packed path.
+ *
+ * @param {string} path
+ */
+export function normalizePath(path) {
+  return posix.normalize(path.replaceAll('\\', '/')).replace(/^\.\//, '');
 }
