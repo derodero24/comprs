@@ -13,6 +13,7 @@ use brotli::enc::writer::CompressorWriterCustomAlloc;
 use brotli::enc::{Allocator, BrotliAlloc, BrotliEncoderParams, SliceWrapper, StandardAlloc};
 use brotli::{BrotliDecompressStream, BrotliResult, BrotliState, InputPair, InputReferenceMut};
 
+use crate::blocks::Blocks;
 use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE, QUALITY};
 use crate::limited::LimitedVec;
 use crate::{ComprsError, MemoryUsage};
@@ -193,10 +194,21 @@ pub(crate) fn compressor(output: Vec<u8>, mut alloc: CountingAlloc, quality: u32
 }
 
 /// Streaming brotli compression context.
+///
+/// At qualities 0 and 1, the encoder compresses the input of each call on
+/// its own, with nothing that refers back to earlier calls, so the context
+/// passes it the input in blocks of 64 KiB, whatever the chunks (#731):
+/// `transform` holds the input that does not complete a block, and
+/// `flush` and `finish` pass it on first. In chunks of 100 bytes, text that
+/// compresses to 120 bytes in one call took 204,335 at quality 1. The other
+/// qualities collect blocks of input themselves, and get each chunk as it
+/// comes.
 pub struct CompressContext {
     compressor: Option<Compressor>,
     /// Shares its count with the compressor's allocator.
     alloc: CountingAlloc,
+    /// The input after the last block, at qualities 0 and 1.
+    blocks: Option<Blocks>,
 }
 
 impl CompressContext {
@@ -207,6 +219,7 @@ impl CompressContext {
         Ok(Self {
             compressor: Some(compressor),
             alloc,
+            blocks: (quality < 2).then(|| Blocks::new(FEED)),
         })
     }
 
@@ -216,12 +229,14 @@ impl CompressContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("brotli stream"))?;
 
-        compressor
-            .write_all(chunk)
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli stream compress",
-                source: e.into(),
-            })?;
+        match &mut self.blocks {
+            Some(blocks) => blocks.write(chunk, |block| compressor.write_all(block)),
+            None => compressor.write_all(chunk),
+        }
+        .map_err(|e| ComprsError::Operation {
+            context: "brotli stream compress",
+            source: e.into(),
+        })?;
 
         // Drain whatever the compressor has flushed to the inner Vec
         let data = std::mem::take(compressor.get_mut());
@@ -234,21 +249,34 @@ impl CompressContext {
             .as_mut()
             .ok_or(ComprsError::StreamFinished("brotli stream"))?;
 
-        compressor.flush().map_err(|e| ComprsError::Operation {
-            context: "brotli stream flush",
-            source: e.into(),
-        })?;
+        self.blocks
+            .as_mut()
+            .map_or(Ok(()), |blocks| {
+                blocks.drain(|held| compressor.write_all(held))
+            })
+            .and_then(|()| compressor.flush())
+            .map_err(|e| ComprsError::Operation {
+                context: "brotli stream flush",
+                source: e.into(),
+            })?;
 
         let data = std::mem::take(compressor.get_mut());
         Ok(data)
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let compressor = self
+        let mut compressor = self
             .compressor
             .take()
             .ok_or(ComprsError::StreamFinished("brotli stream"))?;
+        let held = self.blocks.as_mut().map(Blocks::take).unwrap_or_default();
 
+        compressor
+            .write_all(&held)
+            .map_err(|e| ComprsError::Operation {
+                context: "brotli stream compress",
+                source: e.into(),
+            })?;
         // into_inner drops the CompressorWriter, which flushes remaining data
         // and writes the brotli stream end marker
         Ok(compressor.into_inner())
@@ -258,7 +286,9 @@ impl CompressContext {
 impl MemoryUsage for CompressContext {
     fn memory_usage(&self) -> usize {
         self.compressor.as_ref().map_or(0, |compressor| {
-            self.alloc.allocated() + compressor.get_ref().capacity()
+            self.alloc.allocated()
+                + compressor.get_ref().capacity()
+                + self.blocks.as_ref().map_or(0, Blocks::capacity)
         })
     }
 }
@@ -542,9 +572,10 @@ fn catch_encoder_panic<T>(
 
 type EncoderState = BrotliEncoderStateStruct<CountingAlloc>;
 
-/// Input that [`StreamEncoder`] passes to each call of the encoder: it
-/// holds smaller chunks until they make this much, and passes what is left
-/// to the call that flushes or ends the stream.
+/// Input that [`StreamEncoder`], and [`CompressContext`] at qualities 0
+/// and 1, pass to each call of the encoder: they hold smaller chunks until
+/// they make this much, and pass what is left to the call that flushes or
+/// ends the stream.
 ///
 /// The encoder takes the input of its first block, with what the call
 /// holds past it, as a hint of the size of the stream, and tries a more
@@ -1173,6 +1204,69 @@ mod tests {
         // The encoder returned all its memory to the allocator, except the
         // buffer of the writer, which drops it.
         assert_eq!(strong.alloc.allocated(), BUFFER_SIZE);
+    }
+
+    /// At qualities 0 and 1, the encoder compresses the input of each call
+    /// on its own; the context passes it [`super::FEED`] bytes at a time, so
+    /// that the output does not depend on the chunks (#731).
+    #[test]
+    fn compress_context_output_does_not_depend_on_the_chunks() {
+        let mut input = prose(150 * 1024);
+        input.extend(b"The quick brown fox jumps over the lazy dog. ".repeat(1000));
+        let chunkings: [&[usize]; 6] = [
+            &[1],
+            &[100],
+            &[1000],
+            &[64 * 1024],
+            &[100_000],
+            &[7, 70_000],
+        ];
+        for quality in [0, 1, 2, 5] {
+            let compress = |chunk_sizes: &[usize]| {
+                let mut ctx = CompressContext::new(Some(quality)).unwrap();
+                let mut output = Vec::new();
+                let mut rest = input.as_slice();
+                for &size in chunk_sizes.iter().cycle() {
+                    if rest.is_empty() {
+                        break;
+                    }
+                    let (chunk, tail) = rest.split_at(size.min(rest.len()));
+                    output.extend(ctx.transform(chunk).unwrap());
+                    rest = tail;
+                }
+                output.extend(ctx.finish().unwrap());
+                output
+            };
+            let whole = compress(&[input.len()]);
+            assert_eq!(decompress(&whole).unwrap(), input, "quality {quality}");
+            for chunk_sizes in chunkings {
+                assert!(
+                    compress(chunk_sizes) == whole,
+                    "quality {quality}, chunks of {chunk_sizes:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fast_compress_context_holds_the_input_that_does_not_complete_a_block() {
+        let data = prose(super::FEED + 1000);
+        let mut ctx = CompressContext::new(Some(1)).unwrap();
+        let idle = ctx.memory_usage();
+        // The first chunk is held, and counted, until a block is complete.
+        assert!(ctx.transform(&data[..super::FEED - 1]).unwrap().is_empty());
+        assert!(ctx.memory_usage() >= idle + super::FEED);
+        let mut compressed = ctx.transform(&data[super::FEED - 1..]).unwrap();
+        // flush() and finish() pass what is held on first.
+        compressed.extend(ctx.flush().unwrap());
+        let mut decoder = DecompressContext::new(None).unwrap();
+        assert_eq!(decoder.transform(&compressed).unwrap(), data);
+        compressed.extend(ctx.transform(b" and the rest").unwrap());
+        compressed.extend(ctx.finish().unwrap());
+        assert_eq!(ctx.memory_usage(), 0);
+        let mut expected = data.clone();
+        expected.extend(b" and the rest");
+        assert_eq!(decompress(&compressed).unwrap(), expected);
     }
 
     #[test]

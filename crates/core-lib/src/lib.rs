@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod args;
+mod blocks;
 pub mod brotli;
 pub mod brotli_stream;
 pub mod crc;
