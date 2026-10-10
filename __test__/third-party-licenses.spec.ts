@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface CrateId {
   name: string;
@@ -192,6 +192,7 @@ describe('collectLicenses', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(registry, { recursive: true, force: true });
   });
 
@@ -304,6 +305,47 @@ describe('collectLicenses', () => {
       /^https:\/\/github\.com\/napi-rs\/napi-rs\/blob\/[\da-f]{40}\/LICENSE$/,
     );
     expect(found?.texts[0]?.text).toContain('Copyright (c) 2020-present LongYinan');
+  });
+
+  it('leaves out a license-file outside the crate sources, for the override', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const napi = registryCrate(
+      'napi',
+      '2.0.0',
+      { 'README.md': 'napi' },
+      { licenseFile: '../LICENSE' },
+    );
+    const [found] = licenses.collectLicenses([{ name: 'napi', version: '2.0.0' }], [napi]);
+    expect(found?.texts).toHaveLength(1);
+    expect(found?.texts[0]?.text).toContain('Copyright (c) 2020-present LongYinan');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('napi 2.0.0 names the license file ../LICENSE, which is not in'),
+    );
+  });
+
+  it('leaves out a missing license-file, for the license files that the crate ships', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const old = registryCrate(
+      'old',
+      '0.1.0',
+      { 'LICENSE-MIT': 'MIT text' },
+      { licenseFile: '../LICENSE' },
+    );
+    const [found] = licenses.collectLicenses([{ name: 'old', version: '0.1.0' }], [old]);
+    expect(found?.texts).toEqual([{ file: 'LICENSE-MIT', text: 'MIT text' }]);
+  });
+
+  it('fails on a crate whose license-file is missing, without an override or other files', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const packages = [
+      registryCrate('old', '0.1.0', { 'README.md': 'old' }, { licenseFile: '../LICENSE' }),
+      registryCrate('bare', '0.2.0', { 'README.md': '' }),
+    ];
+    const crates = packages.map(({ name, version }) => ({ name, version }));
+    expect(() => licenses.collectLicenses(crates, packages)).toThrow(
+      /^No license text for old 0\.1\.0, bare 0\.2\.0: .*OVERRIDES/,
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('prefers the license files that a crate ships over its override', () => {

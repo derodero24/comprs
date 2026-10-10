@@ -105,7 +105,7 @@ const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright|unlicense)([.-].*)?$
 
 /**
  * License files below the root of a crate, such as those of bundled C code,
- * by crate name, relative to the crate.
+ * by crate name, relative to the crate. Generation fails if one is missing.
  *
  * zstd-sys builds the zstd C library from its sources, under Meta's BSD
  * license in zstd/LICENSE; zstd/COPYING, the GPLv2 alternative, is left out.
@@ -380,8 +380,8 @@ export function collectLicenses(crates, packages) {
   }
   if (unlicensed.length > 0) {
     throw new Error(
-      `No license text for ${unlicensed.join(', ')}: no license file at the root of the ` +
-        "crate sources. Add a verbatim copy of the license file of each crate's repository to " +
+      `No license text for ${unlicensed.join(', ')}: no license file in the crate sources. ` +
+        "Add a verbatim copy of the license file of each crate's repository to " +
         'scripts/licenses/, and an entry for it to OVERRIDES in scripts/third-party-licenses.mjs ' +
         '(or, for a license file elsewhere in the crate, an entry to EXTRA_FILES).',
     );
@@ -399,7 +399,9 @@ export function collectLicenses(crates, packages) {
  */
 function licenseTexts(pkg) {
   const dir = dirname(pkg.manifestPath);
-  const files = [...new Set([...licenseFiles(dir), ...declaredFiles(pkg, dir)])].sort();
+  const files = [
+    ...new Set([...licenseFiles(dir), ...declaredLicenseFile(pkg, dir), ...extraFiles(pkg, dir)]),
+  ].sort();
   const texts = files
     .map((file) => ({ file, text: readText(join(dir, file)) }))
     .filter(({ text }) => text !== '');
@@ -423,18 +425,41 @@ function licenseFiles(dir) {
 }
 
 /**
- * The files of a crate that its `license-file` and EXTRA_FILES name, as
- * `/`-separated paths relative to the crate. Throws if one is missing.
+ * The file that a crate's `license-file` names, as a `/`-separated path
+ * relative to the crate, if the crate's sources hold it. Older crates may
+ * name a file outside the published crate, such as `../LICENSE`: such a
+ * crate is left with its other license files, or else with its OVERRIDES
+ * entry, or fails in collectLicenses() without either.
  *
  * @param {CargoPackage} pkg
  * @param {string} dir
  * @returns {string[]}
  */
-function declaredFiles(pkg, dir) {
-  const files = [...(EXTRA_FILES.get(pkg.name) ?? [])];
-  if (pkg.licenseFile !== null) {
-    files.push(relative(dir, resolve(dir, pkg.licenseFile)).replaceAll('\\', '/'));
+function declaredLicenseFile(pkg, dir) {
+  if (pkg.licenseFile === null) {
+    return [];
   }
+  const file = relative(dir, resolve(dir, pkg.licenseFile)).replaceAll('\\', '/');
+  if (isFile(join(dir, file))) {
+    return [file];
+  }
+  console.warn(
+    `warning: ${pkg.name} ${pkg.version} names the license file ${pkg.licenseFile}, ` +
+      `which is not in ${dir}; it is left out`,
+  );
+  return [];
+}
+
+/**
+ * The EXTRA_FILES of a crate, as `/`-separated paths relative to the crate.
+ * Throws if one is missing.
+ *
+ * @param {CargoPackage} pkg
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function extraFiles(pkg, dir) {
+  const files = EXTRA_FILES.get(pkg.name) ?? [];
   for (const file of files) {
     if (!isFile(join(dir, file))) {
       throw new Error(`${pkg.name} ${pkg.version} has no ${file} in ${dir}`);
