@@ -457,12 +457,14 @@ describe('LZ4 decompression transforms', () => {
   const data = Buffer.from(lines.join(''));
   const frame = Buffer.from(lz4Compress(data));
 
-  // They push each block once all of it has arrived, without waiting for
-  // the end of the input.
-  it.each([
+  const TRANSFORMS: [string, () => Transform][] = [
     ['createLz4DecompressTransform()', () => createLz4DecompressTransform()],
     ['createDecompressTransform()', () => createDecompressTransform()],
-  ])('%s should push output before the input ends', async (_label, create) => {
+  ];
+
+  // They push each block once all of it has arrived, without waiting for
+  // the end of the input.
+  it.each(TRANSFORMS)('%s should push output before the input ends', async (_label, create) => {
     const transform = create();
     const output: Buffer[] = [];
     transform.on('data', (chunk: Buffer) => output.push(chunk));
@@ -476,6 +478,31 @@ describe('LZ4 decompression transforms', () => {
     await finished(transform);
     expect(Buffer.concat(output).equals(data)).toBe(true);
   });
+
+  // They fail as soon as data that is not a frame follows a frame, without
+  // waiting for the end of the input.
+  it.each(TRANSFORMS)(
+    '%s should fail on data after a frame before the input ends',
+    async (_label, create) => {
+      const transform = create();
+      const output: Buffer[] = [];
+      transform.on('data', (chunk: Buffer) => output.push(chunk));
+      const content = Buffer.from('a complete LZ4 frame');
+      const pushed = once(transform, 'data');
+      transform.write(lz4Compress(content));
+      await pushed;
+      expect(Buffer.concat(output).equals(content)).toBe(true);
+
+      const failed = once(transform, 'error');
+      transform.write(Buffer.from('trailing garbage'));
+      const [error] = await failed;
+      expect(error).toHaveProperty(
+        'message',
+        'lz4 stream decompress failed: unexpected data after the end of a frame',
+      );
+      expect(transform.writableEnded).toBe(false);
+    },
+  );
 });
 
 describe('zstd dict node stream round-trip', () => {
