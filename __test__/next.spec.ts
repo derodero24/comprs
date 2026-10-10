@@ -50,7 +50,7 @@ const DETECTED: readonly Format[] = FORMATS.filter((format) => format !== 'defla
 const LEVELS: Record<Format, readonly (number | undefined)[]> = {
   zstd: [undefined, -5, 0, 1, 19],
   gzip: [undefined, 0, 1, 9],
-  deflate: [undefined, 0, 1, 9],
+  deflate: [undefined, 0, 1, 5, 9],
   'deflate-raw': [undefined, 0, 1, 9],
   brotli: [undefined, 0, 11],
   lz4: [undefined],
@@ -70,10 +70,25 @@ function rootCompress(data: Uint8Array, format: Format, level: number | undefine
 }
 
 /**
+ * The zlib header (RFC 1950) that comprs writes at `level`, as zlib does:
+ * CMF 0x78, deflate with a 32 KiB window, then FLG, whose FLEVEL is 0 below
+ * level 2, 1 below level 6, 2 at level 6, the default, and 3 above, and
+ * whose FCHECK makes the two bytes a multiple of 31. Its encoder, zlib-rs,
+ * sets FLEVEL as zlib's deflate.c does; the node:zlib tests check that the
+ * headers are those of zlib.
+ */
+function zlibHeader(level: number | undefined): Uint8Array {
+  const effective = level ?? 6;
+  if (effective < 2) return Uint8Array.of(0x78, 0x01);
+  if (effective < 6) return Uint8Array.of(0x78, 0x5e);
+  return effective === 6 ? Uint8Array.of(0x78, 0x9c) : Uint8Array.of(0x78, 0xda);
+}
+
+/**
  * The output of the root entry's function for `format` at `level`. The root
- * entry writes no zlib: its output is taken as the raw deflate of
- * deflateCompress() between the header and the Adler-32 checksum of the
- * zlib output, which the node:zlib tests check.
+ * entry writes no zlib: for 'deflate', its raw deflate, deflateCompress(),
+ * is put between the zlib header for the level and the Adler-32 checksum of
+ * the data, which the zlib output of node:zlib ends with at any level.
  */
 function rootOutput(data: Uint8Array, format: Format, level: number | undefined): Uint8Array {
   switch (format) {
@@ -81,10 +96,12 @@ function rootOutput(data: Uint8Array, format: Format, level: number | undefined)
       return zstdCompress(data, level);
     case 'gzip':
       return gzipCompress(data, level);
-    case 'deflate': {
-      const zlib = next.compressSync(data, { format, level });
-      return Buffer.concat([zlib.subarray(0, 2), deflateCompress(data, level), zlib.subarray(-4)]);
-    }
+    case 'deflate':
+      return Buffer.concat([
+        zlibHeader(level),
+        deflateCompress(data, level),
+        deflateSync(data).subarray(-4),
+      ]);
     case 'deflate-raw':
       return deflateCompress(data, level);
     case 'brotli':
@@ -250,6 +267,14 @@ describe('detection', () => {
 });
 
 describe('node:zlib interoperability', () => {
+  it.each(LEVELS.deflate)("writes zlib with zlib's header at level %s", (level) => {
+    const compressed = next.compressSync(text, compressOptions('deflate', level));
+    expect(inflateSync(compressed)).toEqual(Buffer.from(text));
+    const zlibOutput = deflateSync(text, level === undefined ? {} : { level });
+    expect(compressed.subarray(0, 2)).toEqual(plain(zlibOutput.subarray(0, 2)));
+    expect(zlibHeader(level)).toEqual(plain(zlibOutput.subarray(0, 2)));
+  });
+
   it("writes zlib as 'deflate' and raw deflate as 'deflate-raw'", async () => {
     expect(inflateSync(next.compressSync(text, { format: 'deflate' }))).toEqual(Buffer.from(text));
     expect(inflateSync(await next.compress(text, { format: 'deflate', level: 9 }))).toEqual(
