@@ -142,8 +142,11 @@ export interface CompressOptions {
    * of at most 512 KiB on the calling thread whatever the number, and each
    * call starts and stops its own workers, so they pay off for large inputs
    * only. They cost memory too: zstd buffers up to `workers + 3` jobs of
-   * the input, 56 MiB for 4 workers at level 3, and gives each worker a
-   * compression context of its own.
+   * the input, gives each job an output buffer of about the same size, and
+   * gives each worker a compression context of its own. With 4 workers at
+   * level 3, where a job is 8 MiB, compressing 96 MiB took about 60 MiB more
+   * memory than without workers for JSON lines, and about 100 MiB more for
+   * random bytes.
    *
    * {@link compress} runs on a thread of the libuv pool, whose size
    * `UV_THREADPOOL_SIZE` sets (4 by default), and each call may run
