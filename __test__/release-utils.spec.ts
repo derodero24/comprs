@@ -83,6 +83,25 @@ describe('repositoryUrlProblems', () => {
       'https://gitlab.com/derodero24/comprs',
     ],
     ['a URL inside the repository', `${REPOSITORY}/tree/develop`, `${REPOSITORY}/tree/develop`],
+    ['a query', `${REPOSITORY}?tab=readme`, `${REPOSITORY}?tab=readme`],
+    ['an empty query', `${REPOSITORY}?`, `${REPOSITORY}?`],
+    ['a fragment', `${REPOSITORY}#readme`, `${REPOSITORY}#readme`],
+    [
+      'credentials',
+      'https://user@github.com/derodero24/comprs',
+      'https://user@github.com/derodero24/comprs',
+    ],
+    [
+      'a port',
+      'https://github.com:8443/derodero24/comprs',
+      'https://github.com:8443/derodero24/comprs',
+    ],
+    ['plain http', 'http://github.com/derodero24/comprs', 'http://github.com/derodero24/comprs'],
+    [
+      'a percent-encoded name',
+      'https://github.com/derodero24/com%20prs',
+      'https://github.com/derodero24/com%20prs',
+    ],
   ])(
     'reports a root package that names %s instead of a GitHub repository',
     (_, url, normalized) => {

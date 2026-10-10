@@ -111,7 +111,7 @@ export function repositoryUrlProblems(manifests) {
     return [];
   }
   const rootUrl = repositoryUrl(root.json);
-  if (rootUrl === undefined || !/^https:\/\/github[.]com\/[^/]+\/[^/]+$/.test(rootUrl)) {
+  if (rootUrl === undefined || !isGitHubRepositoryUrl(rootUrl)) {
     return [
       `${root.path} must name a GitHub repository, https://github.com/<owner>/<repository>, ` +
         `but has ${describeRepositoryUrl(rootUrl)}`,
@@ -125,6 +125,35 @@ export function repositoryUrlProblems(manifests) {
         `${path} must name the repository ${rootUrl}, as ${root.path} does, ` +
         `but has ${describeRepositoryUrl(url)}`,
     );
+}
+
+/** The characters of a GitHub owner or repository name. */
+const GITHUB_NAME = /^[\w.-]+$/;
+
+/**
+ * Whether `url` is exactly `https://github.com/<owner>/<repository>`: parsed
+ * as a URL, without credentials, a port, a query, a fragment or more path.
+ *
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isGitHubRepositoryUrl(url) {
+  if (!URL.canParse(url) || /[?#]/.test(url)) {
+    return false;
+  }
+  const { protocol, username, password, host, pathname } = new URL(url);
+  const [, owner, repository, ...rest] = pathname.split('/');
+  return (
+    protocol === 'https:' &&
+    username === '' &&
+    password === '' &&
+    host === 'github.com' &&
+    rest.length === 0 &&
+    owner !== undefined &&
+    GITHUB_NAME.test(owner) &&
+    repository !== undefined &&
+    GITHUB_NAME.test(repository)
+  );
 }
 
 /**
