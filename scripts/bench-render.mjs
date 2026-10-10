@@ -674,16 +674,19 @@ function chartSubtitle(method) {
 }
 
 /**
- * The start of a chart: its frame, styles and titles.
+ * The start of a chart: its frame, styles and titles. The title is also the
+ * accessible name of the chart, through a <title> element.
  *
+ * @param {string} id The id of the <title> element, unique among the charts.
  * @param {number} height
  * @param {string} title
  * @param {string} subtitle
  * @returns {string[]}
  */
-function chartHeader(height, title, subtitle) {
+function chartHeader(id, height, title, subtitle) {
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${height}" width="${WIDTH}" height="${height}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${height}" width="${WIDTH}" height="${height}" role="img" aria-labelledby="${id}">`,
+    `<title id="${id}">${escapeXml(title)}</title>`,
     '<style>',
     '  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }',
     '  .title { font-size: 16px; font-weight: 600; fill: #1f2937; }',
@@ -719,6 +722,7 @@ export function renderCompressChart(report, method) {
   const max = Math.max(...bars.map(([, speed]) => speed));
   const height = 76 + bars.length * 36;
   const lines = chartHeader(
+    'bench-compress-title',
     height,
     `${CHART_FORMAT} compression, ${section.setting} — ${CHART_INPUT}`,
     chartSubtitle(method),
@@ -763,6 +767,7 @@ export function renderCrossAlgorithmChart(report, method) {
   );
   const height = 68 + section.libraries.length * 44;
   const lines = chartHeader(
+    'bench-cross-algorithm-title',
     height,
     `comprs formats at their default levels — ${CHART_INPUT}`,
     chartSubtitle(method),

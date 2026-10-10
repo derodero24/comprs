@@ -173,6 +173,15 @@ describe('bench report', () => {
     expect(cross).toContain('>1,000 MB/s</text>');
   });
 
+  it('names each chart by its title', () => {
+    expect(render.renderCompressChart(report(), METHOD)).toContain(
+      ' role="img" aria-labelledby="bench-compress-title">\n<title id="bench-compress-title">gzip compression, level 6 — JSON 84KB</title>\n',
+    );
+    expect(render.renderCrossAlgorithmChart(report(), METHOD)).toContain(
+      ' role="img" aria-labelledby="bench-cross-algorithm-title">\n<title id="bench-cross-algorithm-title">comprs formats at their default levels — JSON 84KB</title>\n',
+    );
+  });
+
   it('says how many times faster comprs is than the libraries it beats', () => {
     const timings = {
       ...TIMINGS,
