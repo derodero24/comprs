@@ -504,13 +504,13 @@ impl StreamEncoder {
             }
         }
         // Either `pending` is empty now, or so is `input`.
-        let mut pieces = input.chunks_exact(FEED);
-        for piece in &mut pieces {
+        let (pieces, rest) = input.as_chunks::<FEED>();
+        for piece in pieces {
             Self::call(&mut self.state, process, piece, &mut output)?;
         }
-        if !pieces.remainder().is_empty() {
+        if !rest.is_empty() {
             self.pending.reserve_exact(FEED);
-            self.pending.extend_from_slice(pieces.remainder());
+            self.pending.extend_from_slice(rest);
         }
         if op != process {
             Self::call(&mut self.state, op, &self.pending, &mut output)?;
