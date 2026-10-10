@@ -689,8 +689,10 @@ describe('express adapter: failures and disconnects', () => {
     const target = await serve((_req, res) => {
       res.type('text/plain');
       res.on('close', () => finished.resolve(res.writableFinished));
-      // The handler stops writing, so the compressor flushes.
-      res.write(BODY);
+      // The handler stops writing, so the compressor flushes. The body is
+      // more than a block of the encoder (32 KiB), so its output, and the
+      // headers with it, go out before that flush.
+      res.write(BODY.repeat(12));
     });
     const res = await get(target);
     expect(res.headers['content-encoding']).toBe('gzip');

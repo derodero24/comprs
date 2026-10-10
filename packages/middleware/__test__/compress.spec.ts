@@ -238,9 +238,11 @@ describe('createCompressTransform', () => {
       });
       // Once the stream flows, each output is emitted as it is pushed.
       await nextTurn();
-      // The first output is the gzip header: the flush made while it is
-      // emitted covers the chunk that produced it.
-      const input = randomBytes(1024);
+      // The encoder compresses its input in blocks of 32 KiB, so this chunk
+      // gives output, the gzip header and its first block: the flush made
+      // while that is emitted covers the whole chunk, the 8 KiB that the
+      // encoder holds included.
+      const input = randomBytes(40 * 1024);
       stream.write(input);
       expect(flush).toHaveBeenCalledOnce();
       expect(decodeReceived('gzip', Buffer.concat(output))).toEqual(input);
