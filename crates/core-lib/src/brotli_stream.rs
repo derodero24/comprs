@@ -1526,6 +1526,29 @@ mod tests {
         }
     }
 
+    /// The canary of `incremental_dict_context_streams_past_the_ring_buffer`,
+    /// which tests nothing unless brotli's encoder panics on
+    /// [`ring_buffer_input`] with a dictionary: brotli 9.0.0's does, as the
+    /// stream encoder would if it kept the dictionary past [`DICT_REACH`]
+    /// bytes. Once a brotli release no longer panics here (#623), this test
+    /// fails: if the release fixes the bug, delete this test and reconsider
+    /// keeping the dictionary in the stream; otherwise, change
+    /// [`ring_buffer_input`] to trigger the bug again.
+    #[test]
+    fn brotli_encoder_still_panics_past_the_ring_buffer_with_a_dictionary() {
+        let dict = b"a dictionary of a few words";
+        for (changed, quality) in [(4, 2), (3, 5)] {
+            let input = ring_buffer_input(changed);
+            let params = crate::brotli::encoder_params(quality, true);
+            let mut encoder = super::StreamEncoder::new(&params);
+            encoder.state.set_custom_dictionary(dict.len(), dict);
+            let encoded = crate::panic_guard::catch(std::panic::AssertUnwindSafe(|| {
+                encoder.run(FINISH, &input)
+            }));
+            assert!(encoded.is_err(), "quality {quality}");
+        }
+    }
+
     /// After the encoder fails, every call fails with its error, until
     /// `finish` ends the stream.
     #[test]
