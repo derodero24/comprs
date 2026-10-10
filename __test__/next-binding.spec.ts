@@ -24,6 +24,9 @@ type Format = (typeof FORMATS)[number];
 /** A prepared dictionary, as createDictionary() returns it: an `External`. */
 type DictionaryHandle = object;
 
+/** The handle of a withdrawal, as createWithdrawal() returns it: an `External`. */
+type Withdrawal = object;
+
 /** The functions of the hidden binding. */
 interface NextBinding {
   compress(
@@ -47,6 +50,7 @@ interface NextBinding {
     gzipMtime?: number,
     workers?: number,
     dictionaryHandle?: DictionaryHandle,
+    withdrawal?: Withdrawal,
   ): Promise<Uint8Array>;
   decompress(
     data: Uint8Array,
@@ -61,13 +65,20 @@ interface NextBinding {
     maxOutputSize?: number,
     dictionary?: Uint8Array,
     dictionaryHandle?: DictionaryHandle,
+    withdrawal?: Withdrawal,
   ): Promise<Uint8Array>;
   detectFormat(data: Uint8Array): string | null;
   trainDictionary(samples: Uint8Array[], maxSize?: number): Uint8Array;
-  trainDictionaryAsync(samples: Uint8Array[], maxSize?: number): Promise<Uint8Array>;
+  trainDictionaryAsync(
+    samples: Uint8Array[],
+    maxSize?: number,
+    withdrawal?: Withdrawal,
+  ): Promise<Uint8Array>;
   createDictionary(bytes: Uint8Array, format: string, level?: number): DictionaryHandle;
   dictionaryToBytes(handle: DictionaryHandle): Uint8Array;
   closeDictionary(handle: DictionaryHandle): void;
+  createWithdrawal(): Withdrawal;
+  withdraw(withdrawal: Withdrawal): boolean;
   errorCodes(): string[];
 }
 
@@ -82,6 +93,8 @@ const FUNCTIONS = [
   'createDictionary',
   'dictionaryToBytes',
   'closeDictionary',
+  'createWithdrawal',
+  'withdraw',
   'errorCodes',
 ] as const satisfies readonly (keyof NextBinding)[];
 
@@ -450,6 +463,81 @@ describe('the *Async functions', () => {
     const training = next().trainDictionaryAsync(copies, 4096);
     for (const copy of copies) copy.fill(0);
     expect(await training).toEqual(next().trainDictionary(samples, 4096));
+  });
+});
+
+describe('withdrawals', () => {
+  // A call withdrawn before a thread of the pool reaches its task fails
+  // with a `Cancelled` error of napi-rs, without running its task, which
+  // fails with the code of the case here. next-abort.spec.ts withdraws
+  // calls that wait in the queue.
+  const corrupt = encoder.encode('not zstd data');
+
+  /**
+   * The async functions, each called with `withdrawal`, and the code of the
+   * error of their task.
+   */
+  const calls: [
+    name: string,
+    call: (withdrawal: Withdrawal) => Promise<Uint8Array>,
+    code: string,
+  ][] = [
+    [
+      'compressAsync',
+      (withdrawal) =>
+        next().compressAsync(
+          text,
+          'zstd',
+          23,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          withdrawal,
+        ),
+      'ERR_COMPRS_INVALID_ARG',
+    ],
+    [
+      'decompressAsync',
+      (withdrawal) =>
+        next().decompressAsync(corrupt, 'zstd', undefined, undefined, undefined, withdrawal),
+      'ERR_COMPRS_CORRUPT_DATA',
+    ],
+    [
+      'trainDictionaryAsync',
+      (withdrawal) => next().trainDictionaryAsync([], 4096, withdrawal),
+      'ERR_COMPRS_OPERATION_FAILED',
+    ],
+  ];
+
+  it.each(calls)('keep %s from running its task', async (_, call) => {
+    const withdrawal = next().createWithdrawal();
+    expect(next().withdraw(withdrawal)).toBe(true);
+    expect(await rejection(call(withdrawal))).toMatchObject({
+      code: 'Cancelled',
+      message: 'the call was withdrawn',
+    });
+  });
+
+  it.each(calls)('come too late for %s once it ran', async (_, call, code) => {
+    const withdrawal = next().createWithdrawal();
+    expect(await rejection(call(withdrawal))).toMatchObject({ code });
+    expect(next().withdraw(withdrawal)).toBe(false);
+  });
+
+  it('succeed once', () => {
+    const withdrawal = next().createWithdrawal();
+    expect(next().withdraw(withdrawal)).toBe(true);
+    expect(next().withdraw(withdrawal)).toBe(false);
+  });
+
+  it('need a handle of createWithdrawal()', async () => {
+    const dictionaryHandle = next().createDictionary(dictionary, 'zstd');
+    expect(thrown(() => next().withdraw(dictionaryHandle))).toBeInstanceOf(Error);
+    const rejected = next().decompressAsync(text, 'zstd', undefined, undefined, undefined, {});
+    expect(await rejection(rejected)).toBeInstanceOf(Error);
   });
 });
 

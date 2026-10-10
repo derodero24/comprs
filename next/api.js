@@ -14,6 +14,7 @@ exports.trainDictionarySync = trainDictionarySync;
 // nothing of a particular runtime, so that the browser build compiles it
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
+const abort_js_1 = require("./abort.js");
 const backend_js_1 = require("./backend.js");
 /** The code of the errors that this module throws itself. */
 const INVALID_ARG = 'ERR_COMPRS_INVALID_ARG';
@@ -57,6 +58,19 @@ function optionalString(value, name) {
     if (value === undefined || typeof value === 'string')
         return value;
     throw invalidArg(`${name} must be a string`);
+}
+/**
+ * The `signal` option of `options`, which must be an AbortSignal or
+ * `undefined`, if the function takes one: `abortable` tells. The `*Sync`
+ * functions do not read it.
+ */
+function signalOption(options, abortable) {
+    if (!abortable)
+        return undefined;
+    const signal = options.signal;
+    if (signal === undefined || (0, abort_js_1.isAbortSignal)(signal))
+        return signal;
+    throw invalidArg('signal must be an AbortSignal');
 }
 /**
  * The getter of `key` on `prototype`, a built-in prototype.
@@ -251,12 +265,14 @@ function dictionaryArgs(value) {
     };
 }
 /**
- * Check the arguments of {@link compressSync}. The inputs are read last,
+ * Check the arguments of {@link compressSync}, or, if `abortable`, of
+ * {@link compress}, which also takes a signal. The inputs are read last,
  * after the getters of the options, which could detach their buffers.
  */
-function compressArgs(data, options) {
-    if (!isObject(options))
+function compressArgs(data, options, abortable) {
+    if (!isObject(options)) {
         throw invalidArg('options must be an object');
+    }
     const format = options.format;
     if (!isFormat(format))
         throw invalidArg(`format must be one of ${FORMATS.join(', ')}`);
@@ -274,6 +290,7 @@ function compressArgs(data, options) {
         gzipMtime = optionalNumber(header.mtime, 'gzipHeader.mtime');
     }
     const workers = optionalNumber(options.workers, 'workers');
+    const signal = signalOption(options, abortable);
     return {
         data: toBytes(data, 'data'),
         format,
@@ -283,16 +300,22 @@ function compressArgs(data, options) {
         gzipFilename,
         gzipMtime,
         workers,
+        signal,
     };
 }
-/** Check the arguments of {@link decompressSync}, as compressArgs does. */
-function decompressArgs(data, options) {
+/**
+ * Check the arguments of {@link decompressSync}, or, if `abortable`, of
+ * {@link decompress}, as compressArgs does.
+ */
+function decompressArgs(data, options, abortable) {
     let format;
     let maxOutputSize;
     let dictionary;
+    let signal;
     if (options !== undefined) {
-        if (!isObject(options))
+        if (!isObject(options)) {
             throw invalidArg('options must be an object');
+        }
         const name = options.format;
         if (name !== undefined && name !== 'auto') {
             if (!isFormat(name))
@@ -301,12 +324,14 @@ function decompressArgs(data, options) {
         }
         maxOutputSize = optionalNumber(options.maxOutputSize, 'maxOutputSize');
         dictionary = options.dictionary;
+        signal = signalOption(options, abortable);
     }
     return {
         data: toBytes(data, 'data'),
         format,
         maxOutputSize,
         ...dictionaryArgs(dictionary),
+        signal,
     };
 }
 /** Check the arguments of {@link Dictionary.from}, as compressArgs does. */
@@ -321,15 +346,19 @@ function createDictionaryArgs(bytes, options) {
     return { bytes: toBytes(bytes, 'bytes'), format, level };
 }
 /**
- * Check the arguments of {@link trainDictionarySync}. The samples are read
- * after the iterator ends, which could detach the buffers of earlier ones.
+ * Check the arguments of {@link trainDictionarySync}, or, if `abortable`, of
+ * {@link trainDictionary}. The samples are read after the iterator ends,
+ * which could detach the buffers of earlier ones.
  */
-function trainDictionaryArgs(samples, options) {
+function trainDictionaryArgs(samples, options, abortable) {
     let maxSize;
+    let signal;
     if (options !== undefined) {
-        if (!isObject(options))
+        if (!isObject(options)) {
             throw invalidArg('options must be an object');
+        }
         maxSize = optionalNumber(options.maxSize, 'maxSize');
+        signal = signalOption(options, abortable);
     }
     if (!isIterable(samples)) {
         throw invalidArg('samples must be an iterable of ArrayBuffers, SharedArrayBuffers or ArrayBufferViews');
@@ -337,6 +366,7 @@ function trainDictionaryArgs(samples, options) {
     return {
         samples: Array.from(samples).map((sample, index) => toBytes(sample, `samples[${index}]`)),
         maxSize,
+        signal,
     };
 }
 /**
@@ -361,14 +391,16 @@ function trainDictionaryArgs(samples, options) {
  * build has no such pool: it compresses the data on the calling thread,
  * which it blocks, before compress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the compressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`. compress()
- * itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. compress() itself never throws.
  */
 function compress(data, options) {
     try {
-        const args = compressArgs(data, options);
-        return (0, backend_js_1.backend)().compressAsync(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers, args.dictionaryHandle);
+        const args = compressArgs(data, options, true);
+        return (0, abort_js_1.withSignal)(args.signal, (withdrawal) => (0, backend_js_1.backend)().compressAsync(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers, args.dictionaryHandle, withdrawal));
     }
     catch (error) {
         return Promise.reject(error);
@@ -382,7 +414,7 @@ function compress(data, options) {
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 function compressSync(data, options) {
-    const args = compressArgs(data, options);
+    const args = compressArgs(data, options, false);
     return (0, backend_js_1.backend)().compress(args.data, args.format, args.level, args.dictionary, args.gzipHeader, args.gzipFilename, args.gzipMtime, args.workers, args.dictionaryHandle);
 }
 /**
@@ -404,14 +436,16 @@ function compressSync(data, options) {
  * browser build decompresses it on the calling thread, which it blocks,
  * before decompress() returns.
  *
+ * An {@link AbortOptions.signal} withdraws the call.
+ *
  * @returns A Promise of the decompressed data, which rejects on every error,
- * invalid arguments included, with an {@link ErrorCode} as `code`.
- * decompress() itself never throws.
+ * invalid arguments included, with an {@link ErrorCode} as `code`, or with
+ * the reason of the signal once it aborts. decompress() itself never throws.
  */
 function decompress(data, options) {
     try {
-        const args = decompressArgs(data, options);
-        return (0, backend_js_1.backend)().decompressAsync(args.data, args.format, args.maxOutputSize, args.dictionary, args.dictionaryHandle);
+        const args = decompressArgs(data, options, true);
+        return (0, abort_js_1.withSignal)(args.signal, (withdrawal) => (0, backend_js_1.backend)().decompressAsync(args.data, args.format, args.maxOutputSize, args.dictionary, args.dictionaryHandle, withdrawal));
     }
     catch (error) {
         return Promise.reject(error);
@@ -425,7 +459,7 @@ function decompress(data, options) {
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 function decompressSync(data, options) {
-    const args = decompressArgs(data, options);
+    const args = decompressArgs(data, options, false);
     return (0, backend_js_1.backend)().decompress(args.data, args.format, args.maxOutputSize, args.dictionary, args.dictionaryHandle);
 }
 /**
@@ -448,17 +482,18 @@ function detectFormat(data) {
  * The samples are copied when trainDictionary() is called. In Node.js, the
  * dictionary is trained on a thread of the libuv pool. The browser build
  * trains it on the calling thread, which it blocks, before trainDictionary()
- * returns.
+ * returns. An {@link AbortOptions.signal} withdraws the call.
  *
  * @returns A Promise of the dictionary, which rejects on every error, invalid
- * arguments included, with an {@link ErrorCode} as `code`: training fails
- * with `ERR_COMPRS_OPERATION_FAILED` without samples or from too little
- * data. trainDictionary() itself never throws.
+ * arguments included, with an {@link ErrorCode} as `code`, or with the
+ * reason of the signal once it aborts: training fails with
+ * `ERR_COMPRS_OPERATION_FAILED` without samples or from too little data.
+ * trainDictionary() itself never throws.
  */
 function trainDictionary(samples, options) {
     try {
-        const args = trainDictionaryArgs(samples, options);
-        return (0, backend_js_1.backend)().trainDictionaryAsync(args.samples, args.maxSize);
+        const args = trainDictionaryArgs(samples, options, true);
+        return (0, abort_js_1.withSignal)(args.signal, (withdrawal) => (0, backend_js_1.backend)().trainDictionaryAsync(args.samples, args.maxSize, withdrawal));
     }
     catch (error) {
         return Promise.reject(error);
@@ -472,7 +507,7 @@ function trainDictionary(samples, options) {
  * @throws An error with an {@link ErrorCode} as `code`.
  */
 function trainDictionarySync(samples, options) {
-    const args = trainDictionaryArgs(samples, options);
+    const args = trainDictionaryArgs(samples, options, false);
     return (0, backend_js_1.backend)().trainDictionary(args.samples, args.maxSize);
 }
 /**

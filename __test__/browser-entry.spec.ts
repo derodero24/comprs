@@ -26,6 +26,7 @@ const BROWSER_MODULES = [
   'next/browser.js',
   'next/wasm.js',
   'next/api.js',
+  'next/abort.js',
   'next/backend.js',
 ].map((file) => resolve(ROOT, 'browser', file));
 // How long each Node.js process may run. Vitest fails a test that outlasts

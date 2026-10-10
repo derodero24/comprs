@@ -5,6 +5,8 @@
 import './native.js';
 
 export type {
+  AbortOptions,
+  AbortSignalLike,
   Bytes,
   CompressOptions,
   DecompressOptions,

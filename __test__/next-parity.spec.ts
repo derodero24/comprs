@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import ts from 'typescript-5';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type {
+  AbortOptions,
   Bytes,
   CompressOptions,
   DecompressOptions,
@@ -62,12 +63,15 @@ interface PreparedDictionary {
  */
 interface Api {
   Dictionary: { from(bytes: Input, options: DictionaryOptions): PreparedDictionary };
-  compress(data: Input, options: EitherBuild<CompressOptions>): Promise<Bytes>;
+  compress(data: Input, options: EitherBuild<CompressOptions> & AbortOptions): Promise<Bytes>;
   compressSync(data: Input, options: EitherBuild<CompressOptions>): Bytes;
-  decompress(data: Input, options?: EitherBuild<DecompressOptions>): Promise<Bytes>;
+  decompress(data: Input, options?: EitherBuild<DecompressOptions> & AbortOptions): Promise<Bytes>;
   decompressSync(data: Input, options?: EitherBuild<DecompressOptions>): Bytes;
   detectFormat(data: Input): Format | undefined;
-  trainDictionary(samples: Iterable<Input>, options?: TrainDictionaryOptions): Promise<Bytes>;
+  trainDictionary(
+    samples: Iterable<Input>,
+    options?: TrainDictionaryOptions & AbortOptions,
+  ): Promise<Bytes>;
   trainDictionarySync(samples: Iterable<Input>, options?: TrainDictionaryOptions): Bytes;
 }
 
@@ -957,6 +961,113 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
       const [expected, actual] = both((api) => run(() => call(api)));
       expect(expected).toHaveProperty('threw.code');
       expect(actual).toEqual(expected);
+    });
+  });
+
+  describe('signals', () => {
+    /** The async functions of `api`, each called with `signal`. */
+    function abortable(api: Api, signal: AbortSignal): Promise<unknown>[] {
+      return [
+        api.compress(text, { format: 'zstd', signal }),
+        api.decompress(compressed.zstd, { signal }),
+        api.trainDictionary(samples, { maxSize: 2048, signal }),
+      ];
+    }
+
+    it('make the async functions reject with the reason of an aborted signal, before the backend', async () => {
+      // The browser build has a backend.js of its own, which Vitest loads
+      // once for the test and for browser.js.
+      const { backend, setBackend } = await import('../browser/next/backend.js');
+      const original = backend();
+      const called: PropertyKey[] = [];
+      setBackend(
+        new Proxy(original, {
+          get(target, key, receiver): unknown {
+            called.push(key);
+            return Reflect.get(target, key, receiver);
+          },
+        }),
+      );
+      try {
+        const reason = new Error('aborted before the call');
+        for (const promise of abortable(wasm, AbortSignal.abort(reason))) {
+          await expect(promise).rejects.toBe(reason);
+        }
+        expect(called).toEqual([]);
+        // The spy sees the calls whose signal has not aborted.
+        await Promise.all(abortable(wasm, new AbortController().signal));
+      } finally {
+        setBackend(original);
+      }
+      expect(called).toEqual([
+        'createWithdrawal',
+        'compressAsync',
+        'createWithdrawal',
+        'decompressAsync',
+        'createWithdrawal',
+        'trainDictionaryAsync',
+      ]);
+    });
+
+    it('make them reject with the reason of an abort before they settle', async () => {
+      // The browser build does the work before the function returns, so
+      // the abort only discards the result.
+      const controller = new AbortController();
+      const reason = new Error('aborted after the work');
+      const promises = abortable(wasm, controller.signal);
+      controller.abort(reason);
+      for (const promise of promises) await expect(promise).rejects.toBe(reason);
+    });
+
+    it('keep the results of calls that settled before the abort', async () => {
+      const controller = new AbortController();
+      const results = await Promise.all(abortable(wasm, controller.signal));
+      controller.abort();
+      expect(results.map(comparable)).toEqual(
+        await Promise.all(abortable(native, new AbortController().signal)).then((native) =>
+          native.map(comparable),
+        ),
+      );
+    });
+
+    it.each(['zstd', 'brotli'] as const)(
+      'pass a %s Dictionary and a signal on together, as the native build does',
+      async (format) => {
+        // The backend takes the Withdrawal right after the handle of the
+        // Dictionary; the WebAssembly build has no Withdrawal, so a call
+        // that mixed them up would drop the Dictionary without an error.
+        const results = await Promise.all(
+          [native, wasm].map(async (api: Api) => {
+            using prepared = api.Dictionary.from(dictionary, { format });
+            const { signal } = new AbortController();
+            const packed = await api.compress(text, { format, dictionary: prepared, signal });
+            const unpacked = await api.decompress(packed, { format, dictionary: prepared, signal });
+            return { packed: comparable(packed), unpacked: comparable(unpacked) };
+          }),
+        );
+        expect(results[1]).toEqual(results[0]);
+        expect(results[0]?.unpacked).toEqual(text);
+        expect(results[0]?.packed).not.toEqual(native.compressSync(text, { format }));
+      },
+    );
+
+    it('reject a signal that is no AbortSignal as the native build does', async () => {
+      const signal: unknown = 42;
+      const expected = await settle(() =>
+        Reflect.apply(native.compress, undefined, [text, { format: 'zstd', signal }]),
+      );
+      expect(expected).toMatchObject({
+        threw: {
+          class: 'TypeError',
+          code: 'ERR_COMPRS_INVALID_ARG',
+          message: 'signal must be an AbortSignal',
+        },
+      });
+      expect(
+        await settle(() =>
+          Reflect.apply(wasm.compress, undefined, [text, { format: 'zstd', signal }]),
+        ),
+      ).toEqual(expected);
     });
   });
 

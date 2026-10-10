@@ -1,0 +1,8 @@
+{
+  "name": "comprs-consumer-es-only-next",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@derodero24/comprs": "*"
+  }
+}

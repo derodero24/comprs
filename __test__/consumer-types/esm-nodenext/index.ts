@@ -15,7 +15,11 @@ import {
   zstdCompress,
   zstdCompressAsync,
 } from '@derodero24/comprs';
-import { Dictionary, compressSync as nextCompressSync } from '@derodero24/comprs/next';
+import {
+  Dictionary,
+  compress as nextCompress,
+  compressSync as nextCompressSync,
+} from '@derodero24/comprs/next';
 import { createZstdCompressTransform } from '@derodero24/comprs/node';
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
@@ -97,8 +101,20 @@ function compressWithDictionary(data: Uint8Array, bytes: Uint8Array): Uint8Array
   return nextCompressSync(data, { format: 'zstd', dictionary });
 }
 
+/**
+ * Compress `data` unless `signal`, an AbortSignal of the Node.js types,
+ * aborts first.
+ */
+function compressUnlessAborted(
+  data: Uint8Array,
+  signal: AbortSignal,
+): Promise<Uint8Array<ArrayBuffer>> {
+  return nextCompress(data, { format: 'zstd', signal });
+}
+
 export {
   chunks,
+  compressUnlessAborted,
   compressWithDictionary,
   filename,
   format,

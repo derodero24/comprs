@@ -18,6 +18,8 @@ const FUNCTIONS = [
     'createDictionary',
     'dictionaryToBytes',
     'closeDictionary',
+    'createWithdrawal',
+    'withdraw',
 ];
 function isBackend(value) {
     return (typeof value === 'object' &&

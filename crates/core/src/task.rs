@@ -3,9 +3,12 @@
 //! Each `*Async` function checks its arguments, copies its input and returns
 //! a [`OneShot`] task, which runs one `comprs_core` call on the libuv thread
 //! pool. A [`Settle`] type then turns the result into the value or the error
-//! that settles the Promise, on the JavaScript thread.
+//! that settles the Promise, on the JavaScript thread. A [`Withdrawable`]
+//! task can be withdrawn until a thread of the pool reaches it.
 
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use comprs_core::ComprsError;
 use napi::Task;
@@ -122,5 +125,113 @@ impl<S: Settle> Task for OneShot<S> {
             Ok(output) => S::resolve(&env, output),
             Err(err) => Err(S::reject(&env, err)),
         }
+    }
+}
+
+/// The claim on the start of the task of a [`Withdrawable`], shared by the
+/// task and the caller: the thread of the pool that reaches the task and
+/// [`Withdrawal::withdraw`] both take it, and whichever comes first wins.
+#[derive(Clone, Default)]
+pub struct Withdrawal(Arc<AtomicBool>);
+
+impl Withdrawal {
+    /// Withdraw the task: whether no thread had started it, which then none
+    /// will. The task fails with [`Status::Cancelled`] when a thread reaches
+    /// it instead.
+    pub fn withdraw(&self) -> bool {
+        self.take()
+    }
+
+    /// Take the claim: whether nobody had taken it. `Relaxed` is enough: the
+    /// flag guards no other memory, and each swap reads the value that the
+    /// one before it wrote.
+    fn take(&self) -> bool {
+        !self.0.swap(true, Ordering::Relaxed)
+    }
+}
+
+/// A task that runs `T` unless the caller withdrew it through its
+/// [`Withdrawal`] before a thread of the pool reached it.
+///
+/// A withdrawn task stays in the queue of the pool, but the thread that
+/// reaches it fails it at once, without running `T`, so it holds the thread
+/// for no more than that check. The `AbortSignal` of napi-rs would remove
+/// the task from the queue instead, but napi-rs 3.14 leaks the reference
+/// that `napi_wrap` returns for each signal that it converts, about 100
+/// bytes of native memory per call.
+pub struct Withdrawable<T> {
+    task: T,
+    withdrawal: Option<Withdrawal>,
+}
+
+impl<T> Withdrawable<T> {
+    /// `task`, which `withdrawal` can withdraw, if there is one.
+    pub fn new(task: T, withdrawal: Option<Withdrawal>) -> Self {
+        Self { task, withdrawal }
+    }
+
+    /// Whether the thread that reached the task may run it: whether it took
+    /// the claim before the caller withdrew the task, if the caller can.
+    fn may_run(&self) -> bool {
+        self.withdrawal.as_ref().is_none_or(Withdrawal::take)
+    }
+}
+
+impl<T: Task> Task for Withdrawable<T> {
+    type Output = T::Output;
+    type JsValue = T::JsValue;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        if !self.may_run() {
+            return Err(Error::new(Status::Cancelled, "the call was withdrawn"));
+        }
+        self.task.compute()
+    }
+
+    fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        self.task.resolve(env, output)
+    }
+
+    fn reject(&mut self, env: Env, err: Error) -> Result<Self::JsValue> {
+        self.task.reject(env, err)
+    }
+
+    fn finally(self, env: Env) -> Result<()> {
+        self.task.finally(env)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // The tests call no function that creates a `napi::Error`: its `Drop`
+    // calls Node-API, which a test binary does not link.
+    use super::*;
+
+    #[test]
+    fn a_withdrawn_task_does_not_run() {
+        let withdrawal = Withdrawal::default();
+        let task = Withdrawable::new((), Some(withdrawal.clone()));
+        assert!(withdrawal.withdraw());
+        assert!(!task.may_run());
+    }
+
+    #[test]
+    fn a_task_that_a_thread_reached_cannot_be_withdrawn() {
+        let withdrawal = Withdrawal::default();
+        let task = Withdrawable::new((), Some(withdrawal.clone()));
+        assert!(task.may_run());
+        assert!(!withdrawal.withdraw());
+    }
+
+    #[test]
+    fn a_task_is_withdrawn_once() {
+        let withdrawal = Withdrawal::default();
+        assert!(withdrawal.withdraw());
+        assert!(!withdrawal.withdraw());
+    }
+
+    #[test]
+    fn a_task_without_a_withdrawal_runs() {
+        assert!(Withdrawable::new((), None).may_run());
     }
 }
