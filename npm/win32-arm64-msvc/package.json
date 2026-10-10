@@ -6,7 +6,9 @@
   ],
   "main": "comprs.win32-arm64-msvc.node",
   "files": [
-    "comprs.win32-arm64-msvc.node"
+    "comprs.win32-arm64-msvc.node",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [

@@ -16,6 +16,12 @@ dist/
 /browser/comprs-wasm.js
 /browser/comprs-wasm.d.ts
 
+# License notices and LICENSE copies of the npm packages, which
+# scripts/prepare-release.mjs generates when it assembles them
+/THIRD_PARTY_LICENSES
+/npm/*/LICENSE
+/npm/*/THIRD_PARTY_LICENSES
+
 # Logs
 *.log
 

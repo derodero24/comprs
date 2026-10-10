@@ -722,6 +722,10 @@ jobs:
         with:
           name: bindings-wasm-bindgen
           path: artifacts/bindings-wasm-bindgen
+      # prepare-release.mjs runs cargo for the license notices.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
       - name: Assemble the npm packages
         run: node scripts/prepare-release.mjs --artifacts-dir artifacts --allow-missing-targets
       - name: Install the packed package into the fixtures
@@ -946,6 +950,11 @@ jobs:
         with:
           pattern: bindings-*
           path: artifacts
+      # prepare-release.mjs and check-release.mjs run cargo for the license
+      # notices.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
       # JS-only pull requests build Linux only (see the `changes` job):
       # --allow-missing-targets limits the platform packages to that one.
       - name: Assemble the npm packages

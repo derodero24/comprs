@@ -215,6 +215,15 @@ node scripts/check-release.mjs
 
 Pass `--allow-missing-targets` to both scripts when the run built only some targets, as CI does for pull requests that build only Linux (see the `changes` job in `ci.yml`). `prepare-release.mjs` writes the build outputs into the working tree (the package root and `npm/`), as the release does.
 
+The packages ship the license notices of the code that the binaries link statically. `prepare-release.mjs` writes `THIRD_PARTY_LICENSES` into the root package, for the WebAssembly build, and into each `npm/<abi>/` package, for its target, and copies `LICENSE` into each `npm/<abi>/`. It generates the notices with `scripts/third-party-licenses.mjs`, from the crates that `cargo tree` lists for the build and their license files, so it needs `cargo`, and network access the first time, when cargo downloads the crates in `Cargo.lock`. `check-release.mjs` compares each notice with a fresh generation. To print the notice of one build:
+
+```bash
+node scripts/third-party-licenses.mjs --package comprs --target x86_64-unknown-linux-gnu
+node scripts/third-party-licenses.mjs --package comprs-wasm --target wasm32-unknown-unknown
+```
+
+A new dependency whose crate publishes no license file fails the dry run until its upstream license is added: commit a verbatim copy of the license file of its repository to `scripts/licenses/`, and add an entry for it to `OVERRIDES` in `scripts/third-party-licenses.mjs`, with the URL of the file at the commit it was copied from. If the crate keeps its license files below its root instead, name them in `EXTRA_FILES`. A crate that compiles C sources whose headers carry copyright notices that its license files lack, as zstd-sys does, needs those headers too: commit each one verbatim to `scripts/licenses/`, after a note on where it comes from, and add an entry for its source file to `SOURCE_NOTICES`. When a crate update changes such a header, the generation fails until the copy is updated.
+
 ## Releases
 
 This section is for maintainers. Releases go through `.github/workflows/release.yml`:

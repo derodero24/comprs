@@ -124,7 +124,8 @@
     "browser/next",
     "browser/comprs-wasm.js",
     "browser/comprs-wasm.d.ts",
-    "browser/comprs-wasm_bg.wasm"
+    "browser/comprs-wasm_bg.wasm",
+    "THIRD_PARTY_LICENSES"
   ],
   "napi": {
     "binaryName": "comprs",

@@ -6,7 +6,9 @@
   ],
   "main": "comprs.darwin-arm64.node",
   "files": [
-    "comprs.darwin-arm64.node"
+    "comprs.darwin-arm64.node",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [

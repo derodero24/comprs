@@ -325,6 +325,16 @@ jobs:
         with:
           path: artifacts
 
+      # prepare-release.mjs writes the license notices of the crates that
+      # the binaries link, with cargo tree and cargo metadata. Both only read
+      # manifests and run no build script, so this job, which holds
+      # id-token: write, runs no crate code. --locked keeps them to the
+      # versions in Cargo.lock, whose checksums cargo checks each downloaded
+      # crate against, and the job still restores no cache.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
       # Shared with the release-dry-run job in ci.yml, which runs it on every
       # CI run and then checks the packages with check-release.mjs. That
       # check is not repeated here, to keep its tools (publint, attw, vite)

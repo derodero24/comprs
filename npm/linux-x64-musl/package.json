@@ -6,7 +6,9 @@
   ],
   "main": "comprs.linux-x64-musl.node",
   "files": [
-    "comprs.linux-x64-musl.node"
+    "comprs.linux-x64-musl.node",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
   ],
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "keywords": [

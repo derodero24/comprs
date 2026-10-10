@@ -12,17 +12,25 @@
  * actions/download-artifact lays them out. Then it:
  *
  *   1. copies the wasm-bindgen browser build (`bindings-wasm-bindgen`) to
- *      browser/, next to the browser entry of the root package that loads it;
+ *      browser/, next to the browser entry of the root package that loads it,
+ *      and writes the root package's THIRD_PARTY_LICENSES, the licenses of
+ *      the crates that the WebAssembly module links (third-party-licenses.mjs);
  *   2. runs `napi artifacts`, which copies every native binary into its
  *      npm/<platform> package;
  *   3. restores every file of the root package that `napi artifacts`
  *      rewrote: the root package ships its files as committed, plus the
- *      wasm-bindgen build. `napi artifacts` copies the index.js of a build
- *      artifact over the committed one, and while a WASI target was
- *      configured, it also regenerated the browser.js that the browser entry
- *      of 2.0.2 loaded, to re-export the WASI package (#564);
- *   4. checks that every file the root and platform packages list exists:
+ *      wasm-bindgen build and its THIRD_PARTY_LICENSES. `napi artifacts`
+ *      copies the index.js of a build artifact over the committed one, and
+ *      while a WASI target was configured, it also regenerated the
+ *      browser.js that the browser entry of 2.0.2 loaded, to re-export the
+ *      WASI package (#564);
+ *   4. writes the THIRD_PARTY_LICENSES of each platform package, for the
+ *      crates that its binary links, and copies LICENSE into it;
+ *   5. checks that every file the root and platform packages list exists:
  *      npm publish leaves out a missing `files` entry without an error.
+ *
+ * The notices need `cargo`, and network access the first time: cargo
+ * downloads the crates in Cargo.lock to read their license files.
  *
  * Usage:
  *   node scripts/prepare-release.mjs [--artifacts-dir <dir>] [--allow-missing-targets]
@@ -45,6 +53,7 @@ import {
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { napiTargetArgs, ROOT, readJson, readRelease, runMain, runTool } from './release-utils.mjs';
+import { NOTICE_FILE, platformNotice, rootNotice } from './third-party-licenses.mjs';
 
 /** Artifact that holds the wasm-bindgen build (see the build-wasm-bindgen jobs). */
 const WASM_BINDGEN_ARTIFACT = 'bindings-wasm-bindgen';
@@ -70,6 +79,7 @@ await runMain(async () => {
   const targets = selectTargets(release.targets, artifactsDir, values['allow-missing-targets']);
 
   copyWasmBindgenBuild(artifactsDir);
+  writeNotice(ROOT, rootNotice(release.packageName));
 
   const rootFiles = packageFiles(release.packageJson, ROOT, 'package.json');
   const snapshot = new Map(rootFiles.map((file) => [file, readFileSync(join(ROOT, file))]));
@@ -78,6 +88,8 @@ await runMain(async () => {
   restoreRootFiles(snapshot);
 
   for (const target of targets) {
+    writeNotice(target.packageDir, platformNotice(target));
+    copyFileSync(join(ROOT, 'LICENSE'), join(target.packageDir, 'LICENSE'));
     const manifest = readJson(join(target.packageDir, 'package.json'));
     packageFiles(
       manifest,
@@ -133,6 +145,18 @@ function copyWasmBindgenBuild(artifactsDir) {
     copyFileSync(join(dir, file), dest);
     console.log(`Copied ${relative(ROOT, join(dir, file))} to ${relative(ROOT, dest)}`);
   }
+}
+
+/**
+ * Write the THIRD_PARTY_LICENSES of a package.
+ *
+ * @param {string} packageDir
+ * @param {string} notice
+ */
+function writeNotice(packageDir, notice) {
+  const path = join(packageDir, NOTICE_FILE);
+  writeFileSync(path, notice);
+  console.log(`Wrote ${relative(ROOT, path)}`);
 }
 
 /**

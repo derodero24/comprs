@@ -1,9 +1,10 @@
 /**
- * Helpers shared by the release packaging scripts, prepare-release.mjs and
- * check-release.mjs, and by check-consumer-types.mjs and
- * e2e/install-package.mjs, which pack the package. The checks of
- * check-release.mjs that __test__/release-utils.spec.ts tests are here too,
- * as importing that script runs it.
+ * Helpers shared by the release packaging scripts, prepare-release.mjs,
+ * check-release.mjs and third-party-licenses.mjs, and by
+ * check-consumer-types.mjs and e2e/install-package.mjs, which pack the
+ * package. The checks of check-release.mjs that
+ * __test__/release-utils.spec.ts tests are here too, as importing that
+ * script runs it.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -187,6 +188,53 @@ function repositoryUrl(manifest) {
 }
 
 /**
+ * Check that a packed package holds the files it must ship. check-release.mjs
+ * requires the license files of each package that ships a binary whatever
+ * its package.json says, as well as the files that the package.json names.
+ *
+ * @param {string} name Name of the package, as problems name it.
+ * @param {string[]} packed The files of its tarball.
+ * @param {string[]} required Paths relative to the package, as package.json
+ *   writes them (`./LICENSE`) or as npm packs them (`LICENSE`).
+ * @returns {string[]} A problem for each missing file, once.
+ */
+export function packedFileProblems(name, packed, required) {
+  return [...new Set(required.map(normalizePath))]
+    .filter((file) => !packed.includes(file))
+    .map((file) => `${name} would be published without ${file}`);
+}
+
+/**
+ * Check that the `files` field of a platform package's package.json lists
+ * its license files. npm packs a LICENSE file whatever `files` says, but
+ * THIRD_PARTY_LICENSES only if `files` lists it, and `napi create-npm-dirs`
+ * writes the package.json of a new target with its binary alone in `files`.
+ * Unlike the check of the packed package, this one also covers the targets
+ * that a partial CI run does not build. A package.json without `files`
+ * passes, as npm then packs every file.
+ *
+ * @param {Manifest} manifest
+ * @param {string[]} notices File names of the license files.
+ * @returns {string[]} A problem for each one that `files` does not list.
+ */
+export function platformNoticeProblems({ path, json }, notices) {
+  const { files } = json;
+  if (!Array.isArray(files)) {
+    return [];
+  }
+  /** @type {unknown[]} */
+  const entries = files;
+  const listed = entries.filter((entry) => typeof entry === 'string').map(normalizePath);
+  return notices
+    .filter((notice) => !listed.includes(normalizePath(notice)))
+    .map(
+      (notice) =>
+        `${path} does not list ${notice} in "files"; add it there (napi create-npm-dirs ` +
+        'writes "files" with the binary alone for a new target)',
+    );
+}
+
+/**
  * Return the `napi` arguments that limit a command to some of the configured
  * targets, through a temporary config file that overrides `napi.targets`.
  * The file is removed when the process exits.
@@ -229,17 +277,19 @@ export function runTool(name, args) {
 
 /**
  * Run a command and return its standard output. Its standard error is passed
- * through. Throws if it exits with a non-zero status.
+ * through. Throws if it exits with a non-zero status, or prints more than
+ * `maxBuffer` bytes (1 MiB unless given).
  *
  * @param {string} command
  * @param {string[]} args
- * @param {{ cwd?: string }} [options]
+ * @param {{ cwd?: string, maxBuffer?: number }} [options]
  * @returns {string}
  */
-export function capture(command, args, { cwd = ROOT } = {}) {
+export function capture(command, args, { cwd = ROOT, maxBuffer = 1024 * 1024 } = {}) {
   return execFileSync(command, args, {
     cwd,
     encoding: 'utf8',
+    maxBuffer,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 }

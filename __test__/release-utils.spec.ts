@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +11,8 @@ interface Manifest {
 
 interface ReleaseUtils {
   repositoryUrlProblems(manifests: Manifest[]): string[];
+  packedFileProblems(name: string, packed: string[], required: string[]): string[];
+  platformNoticeProblems(manifest: Manifest, notices: string[]): string[];
   browserEntryProblems(
     packageDir: string,
     packed: string[],
@@ -26,10 +28,13 @@ const RELEASE_UTILS = pathToFileURL(resolve(__dirname, '../scripts/release-utils
 const REPOSITORY = 'https://github.com/derodero24/comprs';
 
 let repositoryUrlProblems: ReleaseUtils['repositoryUrlProblems'];
+let packedFileProblems: ReleaseUtils['packedFileProblems'];
+let platformNoticeProblems: ReleaseUtils['platformNoticeProblems'];
 let browserEntryProblems: ReleaseUtils['browserEntryProblems'];
 
 beforeAll(async () => {
-  ({ repositoryUrlProblems, browserEntryProblems } = (await import(RELEASE_UTILS)) as ReleaseUtils);
+  ({ repositoryUrlProblems, packedFileProblems, platformNoticeProblems, browserEntryProblems } =
+    (await import(RELEASE_UTILS)) as ReleaseUtils);
 });
 
 function manifest(path: string, repository: unknown): Manifest {
@@ -129,6 +134,68 @@ describe('repositoryUrlProblems', () => {
     expect(repositoryUrlProblems([manifest('package.json', undefined)])).toEqual([
       'package.json must name a GitHub repository, https://github.com/<owner>/<repository>, but has no repository URL',
     ]);
+  });
+});
+
+/** The license files that check-release.mjs requires of each package. */
+const LICENSE_FILES = ['LICENSE', 'THIRD_PARTY_LICENSES'];
+
+describe('packedFileProblems', () => {
+  it('reports each required file that the tarball lacks, once', () => {
+    // npm packs LICENSE whatever `files` says, but not THIRD_PARTY_LICENSES.
+    const packed = ['LICENSE', 'comprs.freebsd-x64.node', 'package.json'];
+    const required = [
+      'package.json',
+      'comprs.freebsd-x64.node',
+      ...LICENSE_FILES,
+      './comprs.freebsd-x64.node',
+      './THIRD_PARTY_LICENSES',
+    ];
+    expect(packedFileProblems('@scope/pkg-freebsd-x64', packed, required)).toEqual([
+      '@scope/pkg-freebsd-x64 would be published without THIRD_PARTY_LICENSES',
+    ]);
+  });
+
+  it('accepts a tarball that holds every required file', () => {
+    const packed = ['LICENSE', 'THIRD_PARTY_LICENSES', 'index.js', 'package.json'];
+    expect(
+      packedFileProblems('The root package', packed, [...LICENSE_FILES, './index.js']),
+    ).toEqual([]);
+  });
+});
+
+describe('platformNoticeProblems', () => {
+  it('reports the license files that a package.json from napi create-npm-dirs leaves out', () => {
+    const created = {
+      path: 'npm/freebsd-x64/package.json',
+      json: { name: '@scope/pkg-freebsd-x64', files: ['comprs.freebsd-x64.node'] },
+    };
+    expect(platformNoticeProblems(created, LICENSE_FILES)).toEqual(
+      LICENSE_FILES.map(
+        (file) =>
+          `npm/freebsd-x64/package.json does not list ${file} in "files"; add it there ` +
+          '(napi create-npm-dirs writes "files" with the binary alone for a new target)',
+      ),
+    );
+  });
+
+  it('accepts a files field that lists them, also as ./ paths', () => {
+    const json = { files: ['comprs.freebsd-x64.node', './LICENSE', 'THIRD_PARTY_LICENSES'] };
+    expect(platformNoticeProblems({ path: 'package.json', json }, LICENSE_FILES)).toEqual([]);
+  });
+
+  it('accepts a package.json without files, which npm packs whole', () => {
+    expect(platformNoticeProblems({ path: 'package.json', json: {} }, LICENSE_FILES)).toEqual([]);
+  });
+
+  it('accepts every platform package of the repository', () => {
+    const dirs = readdirSync(resolve(__dirname, '../npm'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `npm/${entry.name}/package.json`);
+    expect(dirs.length).toBeGreaterThan(0);
+    for (const path of dirs) {
+      expect(platformNoticeProblems({ path, json: readManifest(path) }, LICENSE_FILES)).toEqual([]);
+    }
   });
 });
 
