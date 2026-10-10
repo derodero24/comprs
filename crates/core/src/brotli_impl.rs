@@ -4,6 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
+use crate::convert::sync_result;
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -13,13 +14,18 @@ use crate::task::{LegacyBuffer, OneShot};
 /// Quality is an integer from 0 (fastest) to 11 (best compression). Default
 /// is 6.
 #[napi]
-pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<f64>) -> Result<Buffer> {
+pub fn brotli_compress(
+    env: Env,
+    data: Either<Buffer, Uint8Array>,
+    quality: Option<f64>,
+) -> Result<Buffer> {
     let quality = comprs_core::brotli::QUALITY
         .check_optional_f64(quality)
         .map_err(to_napi_error)?;
-    comprs_core::brotli::compress(crate::as_bytes(&data), quality)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::brotli::compress(crate::as_bytes(&data), quality),
+    )
 }
 
 /// Decompress Brotli-compressed data.
@@ -27,10 +33,11 @@ pub fn brotli_compress(data: Either<Buffer, Uint8Array>, quality: Option<f64>) -
 /// Returns the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB.
 #[napi]
-pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::brotli::decompress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn brotli_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(
+        &env,
+        comprs_core::brotli::decompress(crate::as_bytes(&data)),
+    )
 }
 
 /// Decompress Brotli-compressed data with explicit capacity.
@@ -39,13 +46,15 @@ pub fn brotli_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
 pub fn brotli_decompress_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::brotli::decompress_with_capacity(crate::as_bytes(&data), cap)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::brotli::decompress_with_capacity(crate::as_bytes(&data), cap),
+    )
 }
 
 // --- Async tasks ---
@@ -123,6 +132,7 @@ pub fn brotli_decompress_with_capacity_async(
 /// is 6.
 #[napi]
 pub fn brotli_compress_with_dict(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
     quality: Option<f64>,
@@ -130,9 +140,14 @@ pub fn brotli_compress_with_dict(
     let quality = comprs_core::brotli::QUALITY
         .check_optional_f64(quality)
         .map_err(to_napi_error)?;
-    comprs_core::brotli::compress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict), quality)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::brotli::compress_with_dict(
+            crate::as_bytes(&data),
+            crate::as_bytes(&dict),
+            quality,
+        ),
+    )
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
@@ -140,12 +155,14 @@ pub fn brotli_compress_with_dict(
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn brotli_decompress_with_dict(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
 ) -> Result<Buffer> {
-    comprs_core::brotli::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::brotli::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict)),
+    )
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary,
@@ -156,18 +173,20 @@ pub fn brotli_decompress_with_dict(
 /// The same dictionary used for compression must be provided.
 #[napi]
 pub fn brotli_decompress_with_dict_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::brotli::decompress_with_dict_with_capacity(
-        crate::as_bytes(&data),
-        crate::as_bytes(&dict),
-        cap,
+    sync_result(
+        &env,
+        comprs_core::brotli::decompress_with_dict_with_capacity(
+            crate::as_bytes(&data),
+            crate::as_bytes(&dict),
+            cap,
+        ),
     )
-    .map(|v| v.into())
-    .map_err(to_napi_error)
 }
 
 // --- Async tasks for dictionary compression ---

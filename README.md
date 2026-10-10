@@ -394,6 +394,8 @@ await pipeline(
 
 The transforms push their output in chunks of at most `readableHighWaterMark` bytes (64 KiB by default), even when a single small input chunk decompresses to many megabytes.
 
+The chunks that come from one input chunk are views of one buffer, as with `node:zlib`. Transferring the `ArrayBuffer` of one of them to a worker, with `postMessage()` or `structuredClone()`, therefore detaches the others as well. Copy a chunk with `new Uint8Array(chunk)` before you transfer it.
+
 <details>
 <summary><strong>Full Node.js Transform API list</strong></summary>
 
@@ -699,6 +701,9 @@ comprs uses a pure-Rust brotli encoder: at equal quality, it is slower than `nod
 
 > [!NOTE]
 > **LZ4 decode buffer**: LZ4 decompression (`lz4Decompress()`, `lz4DecompressWithCapacity()` and their `*Async` variants, `decompress()` and `decompressAsync()` for LZ4 input, `Lz4DecompressContext` and the LZ4 decompression streams) keeps the buffer that it decodes blocks into per thread instead of zero-filling a new one per call (the calling thread for the synchronous functions, the contexts and the streams, the libuv pool threads for `*Async`), which makes frames that declare large blocks, such as the 4 MB blocks that the `lz4` CLI declares by default, much faster to decode. A thread keeps the buffer only while it holds at most 4 MiB, so a legacy frame's (`lz4 -l`) 8 MiB buffer is not kept; this memory is not reported to V8.
+
+> [!NOTE]
+> **Result memory**: the synchronous functions and the stream contexts return results of up to 2 MiB in memory that V8 allocates. V8 frees it as soon as it collects the result, and such a result can be transferred to a worker with `postMessage()` or `structuredClone()`. Larger results, and the results of the `*Async` functions, stay in the memory that the addon allocated, which saves a copy. Node.js frees that memory only on a later turn of the event loop, after V8 has collected the result, so a synchronous loop that returns large results holds the memory of all of them until it yields (an occasional `await new Promise(setImmediate)` releases it). Such a result cannot be transferred either (`DataCloneError`): copy it with `new Uint8Array(result)` first. The Web streams emit plain `Uint8Array` chunks, each with an `ArrayBuffer` of its own, which can always be transferred.
 
 > [!NOTE]
 > **Small payloads on WASM**: For data under ~1 KB, the WASM runtime overhead may exceed compression time. Consider batching small items or using the native Node.js backend where possible.

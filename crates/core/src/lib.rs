@@ -4,6 +4,7 @@ mod async_args;
 mod brotli_impl;
 mod brotli_stream;
 mod context;
+mod convert;
 mod crc;
 mod detect;
 mod error;
