@@ -91,6 +91,8 @@ function enqueue(controller: Controller, output: Uint8Array): boolean {
  * The encoder is flushed whenever the body has no chunk ready, so that a
  * stream that produces data slowly, or never ends, reaches the client as it
  * is produced, while chunks that come together are compressed together.
+ * A compressed stream that is cancelled or fails closes the encoder, so its
+ * native state is released right away.
  */
 function compressStream(
   reader: Reader,
@@ -106,6 +108,8 @@ function compressStream(
 
   /** Compress the next chunk; returns whether the stream got output or ended. */
   const step = async (controller: Controller): Promise<boolean> => {
+    // Once cancel() has closed the encoder, it must not be used.
+    if (cancelled) return true;
     const chunk = queued.pop();
     if (chunk) {
       unflushed = true;
@@ -135,14 +139,16 @@ function compressStream(
         let sent = false;
         while (!sent) sent = await step(controller);
       } catch (err) {
-        // Stop the body too, as nothing reads it any more; a body that
-        // failed by itself refuses to be cancelled.
+        // Release the encoder, and stop the body, which nothing reads any
+        // more; a body that failed by itself refuses to be cancelled.
+        encoder.close();
         reader.cancel(err).catch(() => {});
         throw err;
       }
     },
     cancel(reason: unknown): Promise<void> {
       cancelled = true;
+      encoder.close();
       return reader.cancel(reason);
     },
   });

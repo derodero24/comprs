@@ -10,11 +10,6 @@ import {
   ZstdCompressContext,
   zstdCompressAsync,
 } from '@derodero24/comprs';
-import {
-  createBrotliCompressTransform,
-  createGzipCompressTransform,
-  createZstdCompressTransform,
-} from '@derodero24/comprs/node';
 
 import type { Encoding, LevelOptions } from './types.js';
 import { ADLER32_INITIAL, adler32, toZlib, zlibHeader, zlibTrailer } from './zlib.js';
@@ -31,6 +26,13 @@ export interface Encoder {
   flush(): Uint8Array;
   /** End the compressed stream; the encoder cannot be used afterwards. */
   finish(): Uint8Array;
+  /**
+   * Release the native state of the encoder now rather than when it is
+   * garbage-collected; the encoder cannot be used afterwards. `finish()`
+   * releases the state too, and closing a finished or closed encoder does
+   * nothing.
+   */
+  close(): void;
 }
 
 function toError(err: unknown): Error {
@@ -62,6 +64,7 @@ function createZlibEncoder(level: number | undefined): Encoder {
     },
     flush: () => frame(context.flush()),
     finish: () => frame(Buffer.concat([context.finish(), zlibTrailer(checksum)])),
+    close: () => context.close(),
   };
 }
 
@@ -79,48 +82,58 @@ export function createEncoder(encoding: Encoding, level?: LevelOptions): Encoder
   }
 }
 
-/** Create a Node.js Transform that compresses to the zlib format. */
-function createZlibCompressTransform(level: number | undefined): Transform {
-  const encoder = createZlibEncoder(level);
+/**
+ * A Node.js Transform that compresses with an encoder. Destroying the stream,
+ * which happens when it ends, fails or is destroyed early, closes the
+ * encoder, so that an aborted response releases its native state right away
+ * instead of when the garbage collector gets to it.
+ *
+ * Each result is pushed as one chunk: compressed output is no larger than
+ * about the input that produced it, so it needs no slicing, unlike the
+ * output of decompression.
+ */
+class EncoderTransform extends Transform {
+  readonly #encoder: Encoder;
 
-  const push = (stream: Transform, output: Uint8Array): void => {
-    if (output.byteLength > 0) stream.push(output);
-  };
+  constructor(encoder: Encoder) {
+    super();
+    this.#encoder = encoder;
+  }
 
-  return new Transform({
-    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
-      try {
-        push(this, encoder.transform(chunk));
-        callback();
-      } catch (err) {
-        callback(toError(err));
-      }
-    },
-    flush(callback: TransformCallback): void {
-      try {
-        push(this, encoder.finish());
-        callback();
-      } catch (err) {
-        callback(toError(err));
-      }
-    },
-  });
+  /** Push compressed output, if there is any. */
+  #push(output: Uint8Array): void {
+    if (output.byteLength > 0) this.push(output);
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
+    try {
+      this.#push(this.#encoder.transform(chunk));
+      callback();
+    } catch (err) {
+      callback(toError(err));
+    }
+  }
+
+  override _flush(callback: TransformCallback): void {
+    try {
+      this.#push(this.#encoder.finish());
+      callback();
+    } catch (err) {
+      callback(toError(err));
+    }
+  }
+
+  override _destroy(err: Error | null, callback: (error?: Error | null) => void): void {
+    this.#encoder.close();
+    callback(err);
+  }
 }
 
 /**
  * Create a Node.js Transform stream for the given encoding.
  */
 export function createCompressTransform(encoding: Encoding, level?: LevelOptions): Transform {
-  switch (encoding) {
-    case 'zstd':
-      return createZstdCompressTransform(level?.zstd);
-    case 'br':
-      return createBrotliCompressTransform(level?.br);
-    case 'gzip':
-      return createGzipCompressTransform(level?.gzip);
-    case 'deflate':
-      return createZlibCompressTransform(level?.deflate);
-  }
+  return new EncoderTransform(createEncoder(encoding, level));
 }
 
 /**

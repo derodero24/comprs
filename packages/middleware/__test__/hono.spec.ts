@@ -2,15 +2,20 @@ import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { brotliDecompressSync, constants, gunzipSync, inflateSync } from 'node:zlib';
 import {
+  BrotliCompressContext,
   brotliDecompress,
+  DeflateCompressContext,
+  GzipCompressContext,
   gzipDecompress,
+  ZstdCompressContext,
   ZstdDecompressContext,
   zstdDecompress,
 } from '@derodero24/comprs';
 import { Hono } from 'hono';
 import { stream, streamSSE, streamText } from 'hono/streaming';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { Encoder } from '../src/compress.js';
 import { comprs } from '../src/hono.js';
 import type { Encoding } from '../src/types.js';
 
@@ -18,6 +23,18 @@ const TEST_BODY = 'Hello, World! '.repeat(200);
 const TEXT = { 'Content-Type': 'text/plain' };
 const ENCODINGS: readonly Encoding[] = ['zstd', 'br', 'gzip', 'deflate'];
 const encoder = new TextEncoder();
+
+/** The context class each encoding compresses with. */
+const CONTEXTS: Record<Encoding, { prototype: Encoder }> = {
+  zstd: ZstdCompressContext,
+  br: BrotliCompressContext,
+  gzip: GzipCompressContext,
+  deflate: DeflateCompressContext,
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function createApp(options?: Parameters<typeof comprs>[0]) {
   const app = new Hono();
@@ -202,6 +219,7 @@ describe('comprs hono middleware', () => {
     it.each(ENCODINGS)(
       'sends what a stream that stays open has produced (%s)',
       async (encoding) => {
+        const close = vi.spyOn(CONTEXTS[encoding].prototype, 'close');
         let cancelled = false;
         const app = new Hono();
         app.use(comprs());
@@ -225,9 +243,11 @@ describe('comprs hono middleware', () => {
         expect(res.headers.get('content-encoding')).toBe(encoding);
         const reader = bodyReader(res);
         expect(await within(readUntil(reader, encoding, TEST_BODY))).toBe(TEST_BODY);
-        // Cancelling the compressed stream releases the handler's stream.
+        // Cancelling the compressed stream releases the handler's stream and
+        // the encoder.
         await reader.cancel();
         expect(cancelled).toBe(true);
+        expect(close).toHaveBeenCalledOnce();
       },
     );
 
@@ -362,6 +382,7 @@ describe('comprs hono middleware', () => {
 
   describe('errors', () => {
     it('aborts the compressed body when the stream fails later', async () => {
+      const close = vi.spyOn(GzipCompressContext.prototype, 'close');
       let source: ReadableStreamDefaultController<Uint8Array> | undefined;
       const app = new Hono();
       app.use(comprs());
@@ -384,6 +405,7 @@ describe('comprs hono middleware', () => {
       // The stream fails once the compressed response has been returned.
       source?.error(new Error('stream failed'));
       await expect(within(res.arrayBuffer())).rejects.toThrow('stream failed');
+      expect(close).toHaveBeenCalledOnce();
     });
 
     it('passes a stream that fails at once to the error handler', async () => {

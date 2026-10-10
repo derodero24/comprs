@@ -1,11 +1,35 @@
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import type { Transform } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import { inflateSync } from 'node:zlib';
-import { brotliDecompress, gzipDecompress, zstdDecompress } from '@derodero24/comprs';
-import { describe, expect, it } from 'vitest';
+import {
+  BrotliCompressContext,
+  brotliDecompress,
+  DeflateCompressContext,
+  GzipCompressContext,
+  gzipDecompress,
+  ZstdCompressContext,
+  zstdDecompress,
+} from '@derodero24/comprs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { compressBufferAsync, createCompressTransform } from '../src/compress.js';
+import { compressBufferAsync, createCompressTransform, type Encoder } from '../src/compress.js';
+import type { Encoding } from '../src/types.js';
+
+const ENCODINGS: readonly Encoding[] = ['zstd', 'br', 'gzip', 'deflate'];
+
+/** The context class each encoding compresses with. */
+const CONTEXTS: Record<Encoding, { prototype: Encoder }> = {
+  zstd: ZstdCompressContext,
+  br: BrotliCompressContext,
+  gzip: GzipCompressContext,
+  deflate: DeflateCompressContext,
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** Write `chunks` to a compressor and collect its output. */
 function compress(stream: Transform, chunks: readonly Uint8Array[]): Promise<Buffer> {
@@ -25,6 +49,15 @@ function zstdWindowSize(frame: Buffer): number {
 }
 
 describe('createCompressTransform', () => {
+  it.each(ENCODINGS)('should close the context when destroyed (%s)', async (encoding) => {
+    const close = vi.spyOn(CONTEXTS[encoding].prototype, 'close');
+    const stream = createCompressTransform(encoding);
+    stream.write(randomBytes(1024));
+    stream.destroy();
+    await once(stream, 'close');
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   describe('deflate', () => {
     it('should produce the zlib format, whatever the chunks', async () => {
       const data = randomBytes(100_000);

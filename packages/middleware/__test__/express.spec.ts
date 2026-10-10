@@ -5,6 +5,7 @@ import {
   createServer,
   type IncomingHttpHeaders,
   type IncomingMessage,
+  type OutgoingHttpHeaders,
   type RequestOptions,
   request,
   type Server,
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, type Transform, type TransformCallback } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { gzipDecompress } from '@derodero24/comprs';
+import { DeflateCompressContext, GzipCompressContext, gzipDecompress } from '@derodero24/comprs';
 import express, { type Request, type Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -80,6 +81,7 @@ interface RawResponse {
 const servers: Server[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   compressors.created.length = 0;
   compressors.failAfterFirstChunk = false;
   compressors.deferChunks = false;
@@ -115,18 +117,21 @@ async function serve(
   return { host: '127.0.0.1', port: address.port };
 }
 
-/** Send a gzip-accepting GET request; resolves before the body is read. */
-function open(target: RequestOptions): Promise<IncomingMessage> {
+/**
+ * Send a GET request that accepts gzip, unless `headers` says otherwise;
+ * resolves before the body is read.
+ */
+function open(target: RequestOptions, headers?: OutgoingHttpHeaders): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const req = request({ ...target, headers: { 'Accept-Encoding': 'gzip' } }, resolve);
+    const req = request({ ...target, headers: { 'Accept-Encoding': 'gzip', ...headers } }, resolve);
     req.on('error', reject);
     req.end();
   });
 }
 
-/** Send a gzip-accepting GET request and collect the raw response, even if aborted. */
-async function get(target: RequestOptions): Promise<RawResponse> {
-  const res = await open(target);
+/** Send a GET request like `open()` and collect the raw response, even if aborted. */
+async function get(target: RequestOptions, headers?: OutgoingHttpHeaders): Promise<RawResponse> {
+  const res = await open(target, headers);
   const chunks: Buffer[] = [];
   res.on('data', (chunk: Buffer) => chunks.push(chunk));
   // An aborted body is reported through `complete` instead of an error.
@@ -557,7 +562,11 @@ describe('express adapter: failures and disconnects', () => {
     expect(await finished.promise).toBe(false);
   });
 
-  it('destroys the compressor when the client disconnects', async () => {
+  it.each([
+    { encoding: 'gzip', context: GzipCompressContext },
+    { encoding: 'deflate', context: DeflateCompressContext },
+  ])('destroys the compressor when the client disconnects ($encoding)', async (testCase) => {
+    const close = vi.spyOn(testCase.context.prototype, 'close');
     const closed = deferred<void>();
     const target = await serve((_req, res) => {
       res.type('text/plain');
@@ -568,10 +577,13 @@ describe('express adapter: failures and disconnects', () => {
       });
       res.write(randomBytes(8 * 1024).toString('hex'));
     });
-    const res = await open(target);
+    const res = await open(target, { 'Accept-Encoding': testCase.encoding });
+    expect(res.headers['content-encoding']).toBe(testCase.encoding);
     res.destroy();
     await closed.promise;
     expect(compressors.created).toHaveLength(1);
     expect(compressors.created[0]?.destroyed).toBe(true);
+    // Destroying the compressor releases the native state of its encoder.
+    expect(close).toHaveBeenCalledOnce();
   });
 });

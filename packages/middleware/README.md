@@ -18,7 +18,7 @@ HTTP compression middleware powered by [comprs](https://github.com/derodero24/co
 npm install @derodero24/comprs @derodero24/comprs-middleware
 ```
 
-`@derodero24/comprs` 2.x is a peer dependency. Fastify 5 and Hono 4 are optional peer dependencies, needed only by their adapters. Express is not a peer dependency, as the Express adapter does not use it (see [Express](#express)).
+`@derodero24/comprs` 2.1 or later is a peer dependency. Fastify 5 and Hono 4 are optional peer dependencies, needed only by their adapters. Express is not a peer dependency, as the Express adapter does not use it (see [Express](#express)).
 
 The package requires Node.js 22.12 or later. It consists of ES modules, which Node.js 22.12 and later load with `require()` as well as with `import`:
 
