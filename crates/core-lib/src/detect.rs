@@ -2,22 +2,42 @@
 //!
 //! Detects the compression format from its magic number, or for brotli by
 //! decoding the start of the data, and decompresses accordingly.
+//!
+//! [`detect()`] and the functions that decompress exist only in builds with
+//! every format, the default. The magic numbers and the brotli probe, which
+//! [`crate::unified`] detects with, exist in every build, the probe in
+//! builds with brotli.
 
+use std::ops::RangeInclusive;
+
+#[cfg(feature = "brotli")]
 use comprs_brotli::{Decoder, Status};
 
+#[cfg(all_formats)]
 use crate::ComprsError;
-use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
 
 /// Zstd magic number: 0xFD2FB528.
 pub(crate) const ZSTD_MAGIC: u32 = 0xFD2F_B528;
 
+/// Magic number of an LZ4 frame.
+pub(crate) const LZ4_MAGIC: u32 = 0x184D_2204;
+
+/// Magic number of an LZ4 legacy frame, as written by `lz4 -l`.
+pub(crate) const LZ4_LEGACY_MAGIC: u32 = 0x184C_2102;
+
+/// Magic numbers of skippable frames, which hold user data for decoders to
+/// skip. zstd and LZ4 share them.
+pub(crate) const SKIPPABLE_MAGIC: RangeInclusive<u32> = 0x184D_2A50..=0x184D_2A5F;
+
 /// Gzip magic number: 0x1F 0x8B.
+#[cfg(all_formats)]
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
 /// How much of the input [`detect`] decodes to recognize brotli: 64 KiB.
 pub(crate) const BROTLI_PROBE_SIZE: usize = 64 * 1024;
 
 /// Compression format detected from input data.
+#[cfg(all_formats)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Zstd,
@@ -27,6 +47,7 @@ pub enum Format {
     Unknown,
 }
 
+#[cfg(all_formats)]
 impl std::fmt::Display for Format {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -53,6 +74,7 @@ impl std::fmt::Display for Format {
 /// it fills the 64 KiB. Other data passes only by filling them: about 5% of
 /// random data of 64 KiB or more does, as it decodes as a long uncompressed
 /// meta-block.
+#[cfg(all_formats)]
 #[must_use]
 pub fn detect(data: &[u8]) -> Format {
     if data.starts_with(&GZIP_MAGIC) {
@@ -86,6 +108,7 @@ pub(crate) fn skip_skippable_frames(mut data: &[u8]) -> Option<&[u8]> {
 }
 
 /// Whether `data` looks like a brotli stream, as described for [`detect`].
+#[cfg(all_formats)]
 fn is_brotli(data: &[u8]) -> bool {
     match probe_brotli(data, false) {
         BrotliProbe::Invalid => false,
@@ -96,6 +119,7 @@ fn is_brotli(data: &[u8]) -> bool {
 }
 
 /// What decoding the first 64 KiB of some data as brotli found.
+#[cfg(feature = "brotli")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BrotliProbe {
     /// The data is not a brotli stream.
@@ -121,6 +145,7 @@ pub(crate) enum BrotliProbe {
 /// [`detect`] decides without, as it always has, while
 /// [`crate::unified::detect_prefix`] needs a probe whose answer for a brotli
 /// stream that compresses does not change as more of the stream arrives.
+#[cfg(feature = "brotli")]
 pub(crate) fn probe_brotli(data: &[u8], drain: bool) -> BrotliProbe {
     let input = &data[..data.len().min(BROTLI_PROBE_SIZE)];
     // The decoder rejects Large Window Brotli streams: see
@@ -149,6 +174,7 @@ pub(crate) fn probe_brotli(data: &[u8], drain: bool) -> BrotliProbe {
 }
 
 /// The error for data whose format [`detect`] cannot determine.
+#[cfg(all_formats)]
 fn unknown_format() -> ComprsError {
     ComprsError::UnknownFormat(
         "unable to detect compression format; use algorithm-specific functions (zstdDecompress, gzipDecompress, brotliDecompress, lz4Decompress, or deflateDecompress for raw deflate) instead".to_string(),
@@ -161,6 +187,7 @@ fn unknown_format() -> ComprsError {
 /// only a guess: data detected as brotli that does not decode as brotli fails
 /// with [`ComprsError::UnknownFormat`], as data of no known format does, not
 /// with a brotli error.
+#[cfg(all_formats)]
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
     decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
 }
@@ -170,6 +197,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 ///
 /// `capacity` limits the output size, as the `decompress_with_capacity`
 /// function of each format does; otherwise it works like [`decompress`].
+#[cfg(all_formats)]
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     match detect(data) {
         Format::Zstd => crate::zstd::decompress_with_capacity(data, capacity),
@@ -187,7 +215,7 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, all_formats))]
 mod tests {
     use super::*;
     use std::io::Write;

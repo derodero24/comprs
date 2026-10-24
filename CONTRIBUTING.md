@@ -117,6 +117,7 @@ pnpm test             # Vitest tests
 cargo test            # Rust tests
 cargo test -p comprs-core   # comprs-core alone, without zstdmt, as the WebAssembly build compiles it
 cargo clippy --workspace --all-targets -- -D warnings   # Rust lint; warnings fail it too
+cargo test -p comprs-core --no-default-features --features gzip   # One family of formats alone (zstd, gzip, brotli or lz4), when comprs-core changes
 pnpm run build        # napi-rs build
 pnpm run build:js     # Modules and declarations compiled from src/
 pnpm --filter @derodero24/comprs-middleware typecheck   # When packages/middleware changes
@@ -128,6 +129,8 @@ pnpm --filter @derodero24/comprs-middleware test        # When packages/middlewa
 `pnpm run check` runs `biome ci --error-on-warnings`, as CI does, and the pre-commit hook also fails on warnings. Besides Biome's recommended rules, `biome.json` enables some nursery rules: `noFloatingPromises` and `noMisusedPromises` everywhere, and `useExplicitType` in the published sources, `src/` and `packages/middleware/src/`, where functions, methods and their parameters declare their types. A Biome release can rename or change nursery rules, so `package.json` pins Biome to an exact version, which Renovate updates in a pull request of its own. When such an update fails the check, run `pnpm exec biome migrate --write` and fix what the new version reports.
 
 Clippy runs with `-D warnings` in CI, in the pre-push hook and in `pnpm run verify`, so any warning, from rustc or from clippy, fails it. CI lints with the latest stable Rust, whose new lints can fail a pull request that did not touch the code they flag; fix what they report. The Fuzz workflow lints the fuzz crate the same way (`cargo clippy --all-targets -- -D warnings` in `crates/core-lib/fuzz`).
+
+`comprs-core` has a Cargo feature for each family of formats, `zstd`, `gzip` (with deflate and deflate-raw), `brotli` and `lz4`, all of them by default. A build without one leaves out its modules, and the unified API (`crates/core-lib/src/unified.rs`) rejects its formats with `ERR_COMPRS_INVALID_ARG` ("this build of comprs does not include zstd"); `crate::detect` and the tests that mix formats need every feature (the `all_formats` cfg that `build.rs` sets). CI lints and tests `comprs-core` with each feature alone, for the per-format WebAssembly builds ([#342](https://github.com/derodero24/comprs/issues/342)).
 
 After changing a workflow in `.github/workflows/`, check it with [actionlint](https://github.com/rhysd/actionlint), which CI's Workflow Lint job runs. Its Docker image includes shellcheck, which actionlint runs on the `run:` scripts:
 

@@ -3,23 +3,17 @@
 use std::cell::Cell;
 use std::hash::Hasher;
 use std::io::Write;
-use std::ops::RangeInclusive;
 
 use lz4_flex::block::{decompress_into, decompress_into_with_dict};
 use lz4_flex::frame::{BlockSize, Error as FrameError, FrameEncoder, FrameInfo};
 use twox_hash::XxHash32;
 
 use crate::ComprsError;
-
-/// Magic number of an LZ4 frame.
-pub(crate) const FRAME_MAGIC: u32 = 0x184D_2204;
-
-/// Magic number of a legacy frame, as written by `lz4 -l`.
-pub(crate) const LEGACY_MAGIC: u32 = 0x184C_2102;
-
-/// Magic numbers of skippable frames, which hold user data for decoders to
-/// skip. zstd has the same frames.
-pub(crate) const SKIPPABLE_MAGIC: RangeInclusive<u32> = 0x184D_2A50..=0x184D_2A5F;
+// The magic numbers live in crate::detect, which every build has, for the
+// detection of the unified API.
+pub(crate) use crate::detect::{
+    LZ4_LEGACY_MAGIC as LEGACY_MAGIC, LZ4_MAGIC as FRAME_MAGIC, SKIPPABLE_MAGIC,
+};
 
 /// Fields of the FLG byte of the frame descriptor.
 const FLG_VERSION_MASK: u8 = 0xC0;

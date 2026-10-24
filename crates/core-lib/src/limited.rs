@@ -1,5 +1,6 @@
 //! Size-limited output sink for streaming decompression.
 
+#[cfg(feature = "brotli")]
 use std::collections::TryReserveError;
 use std::io::{self, Write};
 
@@ -51,6 +52,7 @@ impl LimitedVec {
     /// Reserve room for `additional` more bytes, but not more than the budget
     /// can still fill plus one byte. A failed allocation is reported instead
     /// of aborting, for reservations that callers size from their input.
+    #[cfg(feature = "brotli")]
     pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         self.buf
             .try_reserve_exact(additional.min(self.remaining.saturating_add(1)))
@@ -149,6 +151,7 @@ mod tests {
         assert_eq!(sink.take(), b"helloworld");
     }
 
+    #[cfg(feature = "brotli")]
     #[test]
     fn try_reserve_stays_within_the_budget() {
         let mut sink = LimitedVec::new(10, "test");

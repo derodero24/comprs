@@ -5,21 +5,42 @@
 // this is a crate attribute rather than a [lints] table in Cargo.toml.
 #![forbid(unsafe_code)]
 
+// Each format family is a feature, all of them by default (see Cargo.toml):
+// its modules exist only with it. The unified API, `unified`, exists in every
+// build and rejects the formats that the build leaves out.
+#[cfg(not(any(
+    feature = "zstd",
+    feature = "gzip",
+    feature = "brotli",
+    feature = "lz4"
+)))]
+compile_error!("comprs-core needs at least one of the features zstd, gzip, brotli and lz4");
+
 mod args;
+#[cfg(feature = "gzip")]
 mod blocks;
+#[cfg(feature = "brotli")]
 pub mod brotli;
+#[cfg(feature = "brotli")]
 pub mod brotli_stream;
 pub mod crc;
 pub mod detect;
 pub mod dictionary;
 pub mod error;
+#[cfg(feature = "gzip")]
 pub mod gzip;
+#[cfg(feature = "gzip")]
 pub mod gzip_stream;
+#[cfg(any(feature = "gzip", feature = "brotli"))]
 mod limited;
+#[cfg(feature = "lz4")]
 pub mod lz4;
+#[cfg(feature = "lz4")]
 pub mod lz4_stream;
 pub mod unified;
+#[cfg(feature = "zstd")]
 pub mod zstd;
+#[cfg(feature = "zstd")]
 pub mod zstd_stream;
 
 pub use args::{IntArg, validate_capacity, validate_max_output_size};
@@ -124,7 +145,7 @@ pub fn decompress_with_limit(
     Ok(finish_output(output))
 }
 
-#[cfg(test)]
+#[cfg(all(test, all_formats))]
 mod tests {
     use std::sync::LazyLock;
 

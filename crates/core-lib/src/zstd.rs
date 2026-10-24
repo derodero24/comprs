@@ -867,6 +867,8 @@ mod tests {
         }
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_sizes_output_from_the_data_without_a_content_size() {
         let small = compress_without_content_size(b"hello");
@@ -963,6 +965,8 @@ mod tests {
         ));
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_accepts_concatenated_frames() {
         let (a, b) = (vec![b'a'; 4096], vec![b'b'; 4096]);
@@ -1205,6 +1209,8 @@ mod tests {
         frame
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_bounds_the_window_by_the_capacity() {
         use crate::dictionary::DictionaryFormat;

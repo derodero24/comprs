@@ -195,6 +195,13 @@ impl ComprsError {
     }
 }
 
+/// The error for a format that this build of comprs leaves out (see the
+/// features in Cargo.toml), such as zstd in the gzip build of the
+/// WebAssembly package: `this build of comprs does not include zstd`.
+pub(crate) fn not_built(format: &str) -> ComprsError {
+    ComprsError::InvalidArg(format!("this build of comprs does not include {format}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
