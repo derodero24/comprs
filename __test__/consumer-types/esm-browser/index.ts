@@ -19,6 +19,7 @@ import {
 } from '@derodero24/comprs';
 import type { DecompressOptions, Format } from '@derodero24/comprs/next';
 import * as next from '@derodero24/comprs/next';
+import * as gzipNext from '@derodero24/comprs/next/gzip';
 import { createDecompressStream, createGzipCompressStream } from '@derodero24/comprs/streams';
 
 const input = new TextEncoder().encode('hello');
@@ -88,15 +89,25 @@ const nextRoundTrip: ReadableStream<Uint8Array<ArrayBuffer>> = roundTrip
   .pipeThrough(new next.CompressionStream('lz4'))
   .pipeThrough(new next.DecompressionStream('auto'));
 
+// The entry point of the gzip family, in its WebAssembly build (#342).
+const deflated: Uint8Array<ArrayBuffer> = await gzipNext.compress(input, { format: 'deflate-raw' });
+const inflated: ReadableStream<Uint8Array<ArrayBuffer>> = roundTrip
+  .pipeThrough(new gzipNext.CompressionStream('gzip', { gzipHeader: {} }))
+  .pipeThrough(new gzipNext.DecompressionStream('auto'));
+// @ts-expect-error zstd is not a format of the gzip family.
+gzipNext.compressSync(input, { format: 'zstd' });
+
 export {
   blob,
   chunks,
   compressed,
+  deflated,
   detected,
   digest,
   filename,
   format,
   incrementalContexts,
+  inflated,
   isGzip,
   isZstd,
   label,

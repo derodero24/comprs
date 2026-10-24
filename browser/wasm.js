@@ -35,5 +35,6 @@ export {
   nextCompress,
   nextDecompress,
   nextDetectFormat,
+  nextDetectPrefix,
   nextTrainDictionary,
 } from './comprs-wasm.js';

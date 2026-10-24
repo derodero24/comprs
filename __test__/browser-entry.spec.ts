@@ -13,7 +13,6 @@ const STREAMS_ENTRY = resolve(ROOT, 'browser/streams.js');
 // The browser entry of @derodero24/comprs/next (#577), and the module that
 // it imports to make the WebAssembly build the backend of its functions.
 const NEXT_ENTRY = resolve(ROOT, 'browser/next/browser.js');
-const NEXT_BACKEND = resolve(ROOT, 'browser/next/wasm.js');
 // The module that loads the WebAssembly module, which the entries import.
 const WASM_MODULE = resolve(ROOT, 'browser/wasm.js');
 const WASM_FILE = resolve(ROOT, 'browser/comprs-wasm_bg.wasm');
@@ -151,20 +150,25 @@ describe('browser entry', { timeout: 2 * PROCESS_TIMEOUT }, () => {
   // side-effect free, a bundler may skip its initialisation and import the
   // re-exported functions straight from the glue; if either marks wasm.js
   // so, a bundler may drop the import of it, which loads the WebAssembly
-  // module. The entries of ./next import the module that sets the backend
-  // of their functions, browser/next/wasm.js or next/native.js for Node.js,
-  // for that alone: a bundler that dropped the import would leave the
-  // functions without a backend. Bundlers that turn CommonJS modules into ES
-  // modules, such as Rollup, read the field for next/ as well.
+  // module. The entries of ./next and of its families register the backend
+  // of their functions when they are loaded, and the loaders of the
+  // WebAssembly builds of the families load them as wasm.js does: a bundler
+  // that dropped either would leave the functions without a backend.
+  // Bundlers that turn CommonJS modules into ES modules, such as Rollup,
+  // read the field for next/ as well.
   it.each(
     [
       ENTRY,
       STREAMS_ENTRY,
       WASM_MODULE,
       NEXT_ENTRY,
-      NEXT_BACKEND,
       resolve(ROOT, 'next/index.js'),
       resolve(ROOT, 'next/native.js'),
+      ...['zstd', 'gzip', 'brotli', 'lz4'].flatMap((family) => [
+        resolve(ROOT, `browser/wasm-${family}.js`),
+        resolve(ROOT, `browser/next/browser-${family}.js`),
+        resolve(ROOT, `next/${family}.js`),
+      ]),
     ].map((file) => [relative(ROOT, file), file]),
   )('%s is not side-effect free for any bundler', (_name, file) => {
     const root: Record<string, unknown> = JSON.parse(

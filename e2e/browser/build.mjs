@@ -28,7 +28,8 @@ rmSync(DIST_DIR, { recursive: true, force: true });
 
 // esbuild bundles ES modules with top-level await only as an ES module. It
 // leaves `new URL('./comprs-wasm_bg.wasm', import.meta.url)` as it is, so
-// the binary goes next to the bundle.
+// the binaries go next to the bundle: the full build, and those of the
+// families that app.js imports.
 await bundle('esbuild', async (outDir) => {
   await esbuild.build({
     entryPoints: [APP],
@@ -37,10 +38,12 @@ await bundle('esbuild', async (outDir) => {
     outfile: join(outDir, 'app.js'),
     logLevel: 'warning',
   });
-  copyFileSync(
-    join(E2E_DIR, 'node_modules', '@derodero24', 'comprs', 'browser', 'comprs-wasm_bg.wasm'),
-    join(outDir, 'comprs-wasm_bg.wasm'),
-  );
+  for (const binary of ['comprs-wasm', 'comprs-wasm-zstd', 'comprs-wasm-gzip']) {
+    copyFileSync(
+      join(E2E_DIR, 'node_modules', '@derodero24', 'comprs', 'browser', `${binary}_bg.wasm`),
+      join(outDir, `${binary}_bg.wasm`),
+    );
+  }
   writePage(outDir, 'esbuild', '<script type="module" src="./app.js"></script>');
 });
 

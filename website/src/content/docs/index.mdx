@@ -43,7 +43,8 @@ const restored = await decompress(zstd); // detects the format
   </Card>
   <Card title="WebAssembly in the browser" icon="laptop">
     Bundlers pick the WebAssembly build through the `browser` condition, with the same functions
-    and, but for LZ4 frames, the same output. The module is 567 KB gzipped.
+    and, but for LZ4 frames, the same output. The module is 568 KB gzipped, and 42 to 337 KB
+    with one family of formats.
   </Card>
   <Card title="One API for every format" icon="puzzle">
     `compress()` and `decompress()` with an options object, a `CompressionStream` ponyfill in

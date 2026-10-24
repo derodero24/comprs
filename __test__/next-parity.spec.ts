@@ -19,6 +19,7 @@ import type {
 import * as native from '../next/index.js';
 import { HAS_WASM_BUILD, importBrowserNext, wasmMemory } from './load-browser-entry.js';
 import { MISLEADING_LENGTHS } from './misleading-length.js';
+import { withBackend } from './next-backend.js';
 
 // The unified API, @derodero24/comprs/next (#577), in the browser build,
 // against the native build: the functions of src/next/api.ts over the
@@ -1021,28 +1022,26 @@ describe.skipIf(!HAS_WASM_BUILD)('the browser build of ./next', () => {
     it('make the async functions reject with the reason of an aborted signal, before the backend', async () => {
       // The browser build has a backend.js of its own, which Vitest loads
       // once for the test and for browser.js.
-      const { backend, setBackend } = await import('../browser/next/backend.js');
-      const original = backend();
       const called: PropertyKey[] = [];
-      setBackend(
-        new Proxy(original, {
-          get(target, key, receiver): unknown {
-            called.push(key);
-            return Reflect.get(target, key, receiver);
-          },
-        }),
+      await withBackend(
+        (original) =>
+          new Proxy(original, {
+            get(target, key, receiver): unknown {
+              called.push(key);
+              return Reflect.get(target, key, receiver);
+            },
+          }),
+        async () => {
+          const reason = new Error('aborted before the call');
+          for (const promise of abortable(wasm, AbortSignal.abort(reason))) {
+            await expect(promise).rejects.toBe(reason);
+          }
+          expect(called).toEqual([]);
+          // The spy sees the calls whose signal has not aborted.
+          await Promise.all(abortable(wasm, new AbortController().signal));
+        },
+        await import('../browser/next/backend.js'),
       );
-      try {
-        const reason = new Error('aborted before the call');
-        for (const promise of abortable(wasm, AbortSignal.abort(reason))) {
-          await expect(promise).rejects.toBe(reason);
-        }
-        expect(called).toEqual([]);
-        // The spy sees the calls whose signal has not aborted.
-        await Promise.all(abortable(wasm, new AbortController().signal));
-      } finally {
-        setBackend(original);
-      }
       expect(called).toEqual([
         'createWithdrawal',
         'compressAsync',

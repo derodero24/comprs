@@ -100,7 +100,12 @@
       }
     },
     {
-      "includes": ["browser/index.js", "browser/wasm.js", "website/src/playground/**"],
+      "includes": [
+        "browser/index.js",
+        "browser/wasm.js",
+        "browser/wasm-*.js",
+        "website/src/playground/**"
+      ],
       "linter": {
         "rules": {
           "complexity": {
@@ -115,8 +120,13 @@
         "src/next/index.ts",
         "src/next/index.mts",
         "src/next/browser.ts",
+        "src/next/{zstd,gzip,brotli,lz4}.ts",
+        "src/next/{zstd,gzip,brotli,lz4}.mts",
+        "src/next/browser-*.ts",
         "browser/index.js",
-        "browser/wasm.js"
+        "browser/wasm.js",
+        "browser/wasm-*.js",
+        "browser/wasm-*.d.ts"
       ],
       "linter": {
         "rules": {
@@ -234,7 +244,7 @@
       }
     },
     {
-      "includes": ["src/index.mts", "src/next/index.mts"],
+      "includes": ["src/index.mts", "src/next/*.mts"],
       "linter": {
         "rules": {
           "performance": {

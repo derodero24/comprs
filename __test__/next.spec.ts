@@ -36,7 +36,7 @@ import {
 import type { Backend, CodecStream } from '../next/backend.js';
 import type { Bytes, CompressOptions, Format, Input } from '../next/index.js';
 import * as next from '../next/index.js';
-import { backendModule } from './next-backend.js';
+import { withBackend } from './next-backend.js';
 
 // The unified API, @derodero24/comprs/next (#577), as the native build
 // compiles it from src/next: the functions of api.ts over the hidden binding
@@ -625,6 +625,7 @@ describe('bytes in a SharedArrayBuffer', () => {
       }
     }
     return {
+      formats: inner.formats,
       compress: (...args) => {
         record(args[0], args[3]);
         return inner.compress(...args);
@@ -644,6 +645,10 @@ describe('bytes in a SharedArrayBuffer', () => {
       detectFormat: (data) => {
         record(data);
         return inner.detectFormat(data);
+      },
+      detectPrefix: (data, isFinal) => {
+        record(data);
+        return inner.detectPrefix(data, isFinal);
       },
       trainDictionary: (samples, maxSize) => {
         record(...samples);
@@ -687,47 +692,45 @@ describe('bytes in a SharedArrayBuffer', () => {
   it('reach the backend as copies in ArrayBuffers', async () => {
     // Another thread could write the bytes of a SharedArrayBuffer while
     // Rust reads them, so api.ts copies them before the backend gets them.
-    const { backend, setBackend } = backendModule();
-    const original = backend();
     const received: Uint8Array[] = [];
-    setBackend(recording(original, received));
-    try {
-      const zstdOptions = { format: 'zstd', dictionary: shared(dictionary) } as const;
-      const withDictionary = plain(zstdCompressWithDict(text, dictionary));
-      expect(next.compressSync(shared(text), { format: 'zstd' })).toEqual(zstdText);
-      expect(await next.compress(new Uint8Array(shared(text)), { format: 'zstd' })).toEqual(
-        zstdText,
-      );
-      expect(next.compressSync(new DataView(shared(text)), zstdOptions)).toEqual(withDictionary);
-      expect(next.decompressSync(shared(zstdText))).toEqual(text);
-      expect(await next.decompress(new Uint8Array(shared(withDictionary)), zstdOptions)).toEqual(
-        text,
-      );
-      expect(next.detectFormat(new DataView(shared(zstdText)))).toBe('zstd');
-      const trained = plain(zstdTrainDictionary(samples, 4096));
-      expect(next.trainDictionarySync(samples.map(shared), { maxSize: 4096 })).toEqual(trained);
-      const sharedViews = samples.map((sample) => new Uint8Array(shared(sample)));
-      expect(await next.trainDictionary(sharedViews, { maxSize: 4096 })).toEqual(trained);
-      const prepared = next.Dictionary.from(new DataView(shared(dictionary)), { format: 'zstd' });
-      expect(prepared.toBytes()).toEqual(dictionary);
-      prepared.close();
-      const compression = new next.CompressionStream('zstd', { dictionary: shared(dictionary) });
-      const writer = compression.writable.getWriter();
-      const compressed = new Response(compression.readable).arrayBuffer();
-      await writer.write(shared(text));
-      await writer.write(new Uint8Array(shared(text)));
-      await writer.close();
-      const decompression = new next.DecompressionStream('zstd', {
-        dictionary: new DataView(shared(dictionary)),
-      });
-      const decompressed = new Response(decompression.readable).arrayBuffer();
-      const decompressionWriter = decompression.writable.getWriter();
-      await decompressionWriter.write(shared(new Uint8Array(await compressed)));
-      await decompressionWriter.close();
-      expect(new Uint8Array(await decompressed)).toEqual(new Uint8Array([...text, ...text]));
-    } finally {
-      setBackend(original);
-    }
+    await withBackend(
+      (original) => recording(original, received),
+      async () => {
+        const zstdOptions = { format: 'zstd', dictionary: shared(dictionary) } as const;
+        const withDictionary = plain(zstdCompressWithDict(text, dictionary));
+        expect(next.compressSync(shared(text), { format: 'zstd' })).toEqual(zstdText);
+        expect(await next.compress(new Uint8Array(shared(text)), { format: 'zstd' })).toEqual(
+          zstdText,
+        );
+        expect(next.compressSync(new DataView(shared(text)), zstdOptions)).toEqual(withDictionary);
+        expect(next.decompressSync(shared(zstdText))).toEqual(text);
+        expect(await next.decompress(new Uint8Array(shared(withDictionary)), zstdOptions)).toEqual(
+          text,
+        );
+        expect(next.detectFormat(new DataView(shared(zstdText)))).toBe('zstd');
+        const trained = plain(zstdTrainDictionary(samples, 4096));
+        expect(next.trainDictionarySync(samples.map(shared), { maxSize: 4096 })).toEqual(trained);
+        const sharedViews = samples.map((sample) => new Uint8Array(shared(sample)));
+        expect(await next.trainDictionary(sharedViews, { maxSize: 4096 })).toEqual(trained);
+        const prepared = next.Dictionary.from(new DataView(shared(dictionary)), { format: 'zstd' });
+        expect(prepared.toBytes()).toEqual(dictionary);
+        prepared.close();
+        const compression = new next.CompressionStream('zstd', { dictionary: shared(dictionary) });
+        const writer = compression.writable.getWriter();
+        const compressed = new Response(compression.readable).arrayBuffer();
+        await writer.write(shared(text));
+        await writer.write(new Uint8Array(shared(text)));
+        await writer.close();
+        const decompression = new next.DecompressionStream('zstd', {
+          dictionary: new DataView(shared(dictionary)),
+        });
+        const decompressed = new Response(decompression.readable).arrayBuffer();
+        const decompressionWriter = decompression.writable.getWriter();
+        await decompressionWriter.write(shared(new Uint8Array(await compressed)));
+        await decompressionWriter.close();
+        expect(new Uint8Array(await decompressed)).toEqual(new Uint8Array([...text, ...text]));
+      },
+    );
     // The data of each call, the dictionaries of two, the samples, the
     // bytes of the prepared dictionary, and the dictionaries and the chunks
     // of the streams.

@@ -95,6 +95,22 @@ Browser builds that import `@derodero24/comprs/next` get its WebAssembly build, 
 - lz4 frames differ from those of the native build for most inputs of more than a few hundred bytes, and both builds decode either; the other formats come out the same in both;
 - a panic, or an allocation that the WebAssembly memory cannot grow for, fails with a `WebAssembly.RuntimeError` without a code.
 
+## One family of formats
+
+`@derodero24/comprs/next/zstd`, `/gzip`, `/brotli` and `/lz4` export the functions and classes of `@derodero24/comprs/next` for the formats of one family each: `/gzip` covers `'gzip'`, `'deflate'` and `'deflate-raw'`. In browsers, each loads a WebAssembly build with that family alone, a fraction of the full build (see [Browsers](/comprs/guides/browsers/#one-family-of-formats)). In Node.js, they use the native addon, restricted to the same formats, so that code behaves the same in both:
+
+```ts
+import { compressSync, decompressSync } from '@derodero24/comprs/next/zstd';
+
+const compressed = compressSync(data, { format: 'zstd' });
+const restored = decompressSync(compressed);
+```
+
+- Their declarations take the formats of the family alone, so `compressSync(data, { format: 'gzip' })` from `/next/zstd` does not type-check. At run time, a format whose entry point was not imported fails with `ERR_COMPRS_INVALID_ARG`: "gzip is not loaded: import @derodero24/comprs/next/gzip, or @derodero24/comprs/next for every format".
+- They share their state: after `/next/zstd` and `/next/gzip` are imported, the functions of either take the formats of both, and `decompress()` without a `format` detects among them. A format keeps the entry point that was imported for it first, so `@derodero24/comprs/next` imported afterwards adds the other formats only.
+- Detection still recognizes zstd, gzip and lz4 data by their magic numbers, and fails with `ERR_COMPRS_INVALID_ARG` for a family that was not imported. zlib and brotli data, which have none, are only recognized where their decoder is: in browsers, brotli data fails with `ERR_COMPRS_UNKNOWN_FORMAT` until `/next/brotli` is imported.
+- `trainDictionary()` comes with `/next/zstd`, and `Dictionary` with `/next/zstd` and `/next/brotli`. A `Dictionary` stays with the build that prepared it.
+
 ## Types
 
-The declarations export the types of the arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions`, `DictionaryOptions`, `CompressionStreamOptions`, `DecompressionStreamOptions`, and `AbortOptions` and `AbortSignalLike` for the `signal` option. They need neither the DOM library nor the types of Node.js.
+The declarations export the types of the arguments and results: `Format`, `Input`, `Bytes`, `ErrorCode`, `CompressOptions`, `DecompressOptions`, `GzipHeaderOptions`, `TrainDictionaryOptions`, `DictionaryOptions`, `CompressionStreamOptions`, `DecompressionStreamOptions`, and `AbortOptions` and `AbortSignalLike` for the `signal` option. They need neither the DOM library nor the types of Node.js. `CompressOptions`, `DecompressOptions` and `DictionaryOptions` take the formats as a type parameter, such as `CompressOptions<'zstd'>`, which the entry points of the families use.

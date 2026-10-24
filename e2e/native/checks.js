@@ -31,6 +31,8 @@ const PACKAGE_DIR = join(import.meta.dirname, '..', 'node_modules', '@derodero24
  *   `@derodero24/comprs` when it needs it later.
  * @property {() => Promise<typeof import('@derodero24/comprs/next')>} importNext
  *   How the fixture imports `@derodero24/comprs/next`.
+ * @property {import('../scenario.js').Comprs['importFamilies']} importFamilies
+ *   How the fixture imports the entry points of two families of formats.
  * @property {(specifier: string) => string} resolve How the fixture resolves a
  *   specifier: to a path or a file: URL.
  * @property {Record<string, string>} files The file of the package that each
@@ -89,6 +91,7 @@ export async function checkNativePackage({
   node,
   importMain,
   importNext,
+  importFamilies,
   resolve,
   files,
 }) {
@@ -99,7 +102,13 @@ export async function checkNativePackage({
     assert.equal(path, join(PACKAGE_DIR, file), `${specifier} resolved to ${resolved}`);
   }
 
-  const passed = await checkPackage({ ...main, ...streams, importAsync: importMain, importNext });
+  const passed = await checkPackage({
+    ...main,
+    ...streams,
+    importAsync: importMain,
+    importNext,
+    importFamilies,
+  });
 
   const data = new TextEncoder().encode(`Hello from ${runtime}! `.repeat(1000));
   /** @type {Uint8Array[]} */

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompressOptions } from '../next/index.js';
 import * as next from '../next/index.js';
-import { backendModule } from './next-backend.js';
+import { withBackend } from './next-backend.js';
 
 // The `signal` option of the async functions of the unified API,
 // @derodero24/comprs/next (#559): an aborted call rejects with the reason
@@ -74,30 +74,25 @@ async function withBackendSpy(
   body: (calls: BackendCall[]) => Promise<void>,
   answer: (name: string) => unknown = () => undefined,
 ): Promise<void> {
-  const { backend, setBackend } = backendModule();
-  const original = backend();
   const calls: BackendCall[] = [];
-  setBackend(
-    new Proxy(original, {
-      get(target, key, receiver): unknown {
-        const value: unknown = Reflect.get(target, key, receiver);
-        if (typeof key !== 'string' || typeof value !== 'function') {
-          return value;
-        }
-        return (...args: unknown[]): unknown => {
-          const call: BackendCall = { name: key, args };
-          calls.push(call);
-          call.result = answer(key) ?? Reflect.apply(value, target, args);
-          return call.result;
-        };
-      },
-    }),
+  await withBackend(
+    (original) =>
+      new Proxy(original, {
+        get(target, key, receiver): unknown {
+          const value: unknown = Reflect.get(target, key, receiver);
+          if (typeof key !== 'string' || typeof value !== 'function') {
+            return value;
+          }
+          return (...args: unknown[]): unknown => {
+            const call: BackendCall = { name: key, args };
+            calls.push(call);
+            call.result = answer(key) ?? Reflect.apply(value, target, args);
+            return call.result;
+          };
+        },
+      }),
+    () => body(calls),
   );
-  try {
-    await body(calls);
-  } finally {
-    setBackend(original);
-  }
 }
 
 describe('the signal option of ./next', () => {
