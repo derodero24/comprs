@@ -163,8 +163,6 @@ jobs:
           CORE_VERSION=$(node -p "require('./package.json').version")
           MW_NAME=$(node -p "require('./packages/middleware/package.json').name")
           MW_VERSION=$(node -p "require('./packages/middleware/package.json').version")
-          UNSCOPED_NAME=$(node -p "require('./packages/comprs/package.json').name")
-          UNSCOPED_VERSION=$(node -p "require('./packages/comprs/package.json').version")
 
           # Check publish status (distinguish E404 "not found" from other errors)
           check_published() {
@@ -182,26 +180,21 @@ jobs:
 
           CORE_STATUS=$(check_published "$CORE_NAME" "$CORE_VERSION")
           MW_STATUS=$(check_published "$MW_NAME" "$MW_VERSION")
-          UNSCOPED_STATUS=$(check_published "$UNSCOPED_NAME" "$UNSCOPED_VERSION")
 
-          if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ] &&
-            [ "$UNSCOPED_STATUS" = "published" ]; then
+          if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ]; then
             echo "All packages already published, skipping release PR"
             exit 0
           fi
 
           echo "Core: ${CORE_NAME}@${CORE_VERSION} → ${CORE_STATUS}"
           echo "Middleware: ${MW_NAME}@${MW_VERSION} → ${MW_STATUS}"
-          echo "Unscoped: ${UNSCOPED_NAME}@${UNSCOPED_VERSION} → ${UNSCOPED_STATUS}"
 
           EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
           CORE_BADGE=$([ "$CORE_STATUS" = "published" ] && echo "published" || echo "**new**")
           MW_BADGE=$([ "$MW_STATUS" = "published" ] && echo "published" || echo "**new**")
-          UNSCOPED_BADGE=$([ "$UNSCOPED_STATUS" = "published" ] && echo "published" || echo "**new**")
-          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
+          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
             "$CORE_NAME" "$CORE_VERSION" "$CORE_BADGE" \
-            "$MW_NAME" "$MW_VERSION" "$MW_BADGE" \
-            "$UNSCOPED_NAME" "$UNSCOPED_VERSION" "$UNSCOPED_BADGE")
+            "$MW_NAME" "$MW_VERSION" "$MW_BADGE")
 
           if [ -n "$EXISTING" ]; then
             gh pr edit "$EXISTING" --title "chore(release): release packages" --body "$BODY"
@@ -380,8 +373,7 @@ jobs:
       # publishes the platform packages inherit this step's environment and
       # do the same. No npm token is passed, so a package without a matching
       # trusted publisher fails to publish instead of falling back to a
-      # token. The publish steps of this job, publish-middleware and
-      # publish-unscoped must stay in release.yml and in the
+      # token. Both publish steps must stay in release.yml and in the
       # npm-publish environment, because the trusted publishers name them
       # (see Releases in CONTRIBUTING.md).
       # napi prepublish leaves the GitHub release to the github-release job
@@ -505,69 +497,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ──── Publish the unscoped comprs package after the core package ────
-  # packages/comprs re-exports @derodero24/comprs under the name `comprs`
-  # (#752) and depends on exactly the core release of its own version, which
-  # must be on npm first. Like publish-middleware, the job checks for itself
-  # whether its version is published, so it also publishes when a re-run
-  # finds the core version published already.
-  publish-unscoped:
-    name: Publish Unscoped
-    needs: [check, publish]
-    if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      needs.check.result == 'success' &&
-      (needs.publish.result == 'success' || needs.check.outputs.should_publish == 'false')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: npm-publish
-    permissions:
-      contents: read
-      id-token: write # npm provenance and trusted publishing
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-          registry-url: https://registry.npmjs.org/
-
-      # pnpm pack reads only the workspace manifests, so the job installs
-      # nothing.
-      - name: Check and publish the unscoped package
-        run: |
-          NAME=$(node -p "require('./packages/comprs/package.json').name")
-          VERSION=$(node -p "require('./packages/comprs/package.json').version")
-
-          # Check publish status (distinguish E404 from other errors)
-          ERR=$(npm view "${NAME}@${VERSION}" version 2>&1) && {
-            echo "${NAME}@${VERSION} already published, skipping"
-            exit 0
-          }
-          if ! echo "$ERR" | grep -q "E404"; then
-            echo "Error checking ${NAME}@${VERSION}: $ERR"
-            exit 1
-          fi
-
-          echo "Publishing ${NAME}@${VERSION}"
-          # npm publish would keep the workspace: protocol of the dependency
-          # on @derodero24/comprs in the published manifest; pnpm pack
-          # writes the version in its place.
-          TARBALL="${RUNNER_TEMP}/comprs.tgz"
-          pnpm --dir packages/comprs pack --out "$TARBALL"
-          # Authenticates like the core publish (see the publish job).
-          npm publish "$TARBALL" --provenance --access public
-
   # ──── Merge main back into develop to prevent divergence ────
   # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
   # CI does not run on the merge commit this job pushes to develop, nor on the
   # pull request it opens. Switching to a GitHub App token is tracked in #574.
   merge-back:
     name: Merge Back
-    needs: [publish, publish-middleware, publish-unscoped]
+    needs: [publish, publish-middleware]
     if: always() && github.ref == 'refs/heads/main'
     permissions:
       contents: write # push the merge commit or the merge-back branch
