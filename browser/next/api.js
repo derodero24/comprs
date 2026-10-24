@@ -554,15 +554,19 @@ let handleOf = () => undefined;
  * decompresses the first frame with them, which costs far more than a small
  * message: a call with the bytes of a dictionary digests them every time, a
  * Dictionary once. A zstd Dictionary is digested when it is created, for its
- * compression level and for decompression. A brotli Dictionary holds the
- * bytes, which brotli takes as they are and indexes on every call, so it
- * saves little time yet.
+ * compression level and for decompression. A brotli Dictionary is hashed for
+ * compression when it is created, for every level, which brotli otherwise
+ * does on every call with dictionaries of more than 256 KiB, and with more
+ * than 4 others on the same thread: 0.3 ms for a dictionary of 4 KiB, 2 to 4
+ * ms for 256 KiB and 12 to 32 ms for 2 MiB. brotli decompression takes the
+ * bytes as they are.
  *
  * A Dictionary holds memory outside the JavaScript heap. For zstd, that is
  * a copy of the bytes, a digest for decompression of about their size, and
  * a digest for each compression level that it keeps, which grows with the
  * level: 0.8 MB in all at level 3 for a dictionary of 110 KiB, and 2 MB at
- * level 19. The garbage collector frees it with the Dictionary;
+ * level 19. For brotli, that is a copy of the bytes and about 270 KB of
+ * tables, plus 4 bytes for each byte of the dictionary. The garbage collector frees it with the Dictionary;
  * {@link Dictionary.close} frees it earlier. `[Symbol.dispose]()` is
  * `close()`, for `using` declarations.
  *

@@ -249,7 +249,7 @@ enum Encoder<'a> {
     },
     Brotli {
         level: Option<u32>,
-        dictionary: Option<&'a [u8]>,
+        dictionary: Option<DictionaryRef<'a>>,
     },
     Lz4,
 }
@@ -306,7 +306,7 @@ fn encoder<'a>(
         },
         Format::Brotli => Encoder::Brotli {
             level: BROTLI_LEVEL.check_optional_f64(level)?,
-            dictionary: dictionary.map(DictionaryRef::bytes),
+            dictionary,
         },
         Format::Lz4 if level.is_some() => {
             return Err(ComprsError::InvalidArg(
@@ -404,8 +404,12 @@ pub fn compress(
         } => brotli::compress(data, level),
         Encoder::Brotli {
             level,
-            dictionary: Some(dict),
+            dictionary: Some(DictionaryRef::Raw(dict)),
         } => brotli::compress_with_dict(data, dict, level),
+        Encoder::Brotli {
+            level,
+            dictionary: Some(DictionaryRef::Prepared(dict)),
+        } => brotli::compress_prepared(data, dict, level),
         Encoder::Lz4 => lz4::compress(data),
     }
 }
@@ -417,7 +421,7 @@ enum Decoder<'a> {
     Zstd(Option<DictionaryRef<'a>>),
     /// gzip, deflate or deflate-raw.
     Flate(FlateWrapper),
-    Brotli(Option<&'a [u8]>),
+    Brotli(Option<DictionaryRef<'a>>),
     Lz4,
 }
 
@@ -454,7 +458,7 @@ fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, C
     // Only zstd and brotli get past this.
     let dictionary = check_dictionary(format, dictionary)?;
     Ok(Some(match format {
-        Format::Brotli => Decoder::Brotli(Some(dictionary.bytes())),
+        Format::Brotli => Decoder::Brotli(Some(dictionary)),
         _ => Decoder::Zstd(Some(dictionary)),
     }))
 }
@@ -514,7 +518,9 @@ fn decode(data: &[u8], decoder: Decoder, limit: usize) -> Result<Vec<u8>, Comprs
             zstd::decompress_prepared(data, dict, limit)
         }
         Decoder::Flate(wrapper) => gzip::decompress_strict(data, wrapper, limit),
-        Decoder::Brotli(dict) => brotli::decompress_strict(data, dict.unwrap_or_default(), limit),
+        Decoder::Brotli(dict) => {
+            brotli::decompress_strict(data, dict.map_or(&[], DictionaryRef::bytes), limit)
+        }
         Decoder::Lz4 => lz4::decompress_with_capacity(data, limit),
     }
 }
@@ -930,8 +936,14 @@ impl CompressContext {
             } => Self::Brotli(Box::new(brotli_stream::CompressContext::new(level)?)),
             Encoder::Brotli {
                 level,
-                dictionary: Some(dict),
+                dictionary: Some(DictionaryRef::Raw(dict)),
             } => Self::BrotliDict(brotli_stream::CompressDictContext::incremental(
+                dict, level,
+            )?),
+            Encoder::Brotli {
+                level,
+                dictionary: Some(DictionaryRef::Prepared(dict)),
+            } => Self::BrotliDict(brotli_stream::CompressDictContext::incremental_prepared(
                 dict, level,
             )?),
             Encoder::Lz4 => Self::Lz4(lz4_stream::CompressContext::new()),
@@ -1073,8 +1085,11 @@ impl DecompressContext {
             Decoder::Brotli(None) => {
                 Self::Brotli(brotli_stream::DecompressContext::new(max_output_size)?)
             }
-            Decoder::Brotli(Some(dict)) => Self::BrotliDict(
+            Decoder::Brotli(Some(DictionaryRef::Raw(dict))) => Self::BrotliDict(
                 brotli_stream::DecompressDictContext::new(dict, max_output_size)?,
+            ),
+            Decoder::Brotli(Some(DictionaryRef::Prepared(dict))) => Self::BrotliDict(
+                brotli_stream::DecompressDictContext::with_prepared(dict, max_output_size)?,
             ),
             Decoder::Lz4 => Self::Lz4(lz4_stream::DecompressContext::incremental(max_output_size)?),
         })
