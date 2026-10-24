@@ -1,11 +1,15 @@
-name: Deploy Playground
+name: Deploy Website
 
 on:
   push:
     branches: [develop]
     paths:
-      - 'playground/**'
-      - '.github/workflows/playground.yml'
+      - 'website/**'
+      - '.github/workflows/website.yml'
+      # The API reference comes from the declaration files.
+      - '*.d.ts'
+      - '*.d.mts'
+      - 'next/*.d.ts'
       - 'crates/**'
       - 'package.json'
       - 'Cargo.toml'
@@ -24,7 +28,7 @@ jobs:
   # Installs and builds run without any write permission; only the deploy job
   # below can publish to Pages, and it runs no repository code.
   build:
-    name: Build playground
+    name: Build website
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -40,6 +44,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            website/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
@@ -48,7 +55,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          shared-key: playground-wasm-bindgen
+          shared-key: website-wasm-bindgen
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -64,22 +71,25 @@ jobs:
         run: pnpm run build:wasm-bindgen
 
       # After the WebAssembly build: the file:.. dependency installs the
-      # package with the files that exist at install time, and the playground
-      # build fails if the binary is missing.
-      - name: Install playground dependencies
-        run: cd playground && pnpm install --frozen-lockfile
+      # package with the files that exist at install time, and the build of
+      # the playground page fails if the binary is missing.
+      - name: Install website dependencies
+        run: pnpm --dir website install --frozen-lockfile
 
-      - name: Build playground
-        run: cd playground && pnpm build
-        env:
-          GITHUB_ACTIONS: true
+      # astro build does not type-check the site, and a push that changes
+      # only the website runs no CI.
+      - name: Check website
+        run: pnpm --dir website run check
+
+      - name: Build website
+        run: pnpm --dir website run build
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: playground/dist
+          path: website/dist
 
   deploy:
-    name: Deploy playground
+    name: Deploy website
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 10

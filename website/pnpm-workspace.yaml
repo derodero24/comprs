@@ -1,0 +1,14 @@
+# Make the website its own pnpm root. Without this, pnpm 12 walks up to the
+# repository workspace and cannot resolve the file:.. dependency (issue #522).
+packages:
+  - '.'
+# The same 3-day release-age policy as ../pnpm-workspace.yaml, which this
+# root does not inherit.
+minimumReleaseAge: 4320
+# The same strict engines check as ../pnpm-workspace.yaml.
+engineStrict: true
+# esbuild and sharp install their binaries as optional dependencies, so their
+# install scripts are not needed.
+allowBuilds:
+  esbuild: false
+  sharp: false

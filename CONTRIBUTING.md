@@ -50,11 +50,11 @@ comprs/
 ├── packages/
 │   ├── comprs/      ← The unscoped `comprs` package, which re-exports @derodero24/comprs (see Changesets)
 │   └── middleware/  ← HTTP compression middleware (@derodero24/comprs-middleware)
-├── playground/      ← Interactive playground (GitHub Pages)
+├── website/         ← Documentation site and playground (Astro Starlight, GitHub Pages)
 ├── scripts/         ← Build, packaging, optimization and benchmark report scripts
 ├── .changeset/      ← Changesets of the next release (see Changesets)
 └── .github/
-    └── workflows/   ← CI, Build, Release, Fuzz, CodSpeed, CodeQL, Renovate, Playground, Bench Report
+    └── workflows/   ← CI, Build, Release, Fuzz, CodSpeed, CodeQL, Renovate, Website, Bench Report
 ```
 
 ### JavaScript sources
@@ -124,7 +124,7 @@ pnpm --filter @derodero24/comprs-middleware typecheck   # When packages/middlewa
 pnpm --filter @derodero24/comprs-middleware test        # When packages/middleware changes
 ```
 
-`pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the three projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js`, `browser/wasm.js` and `playground/`, which no tsconfig checks.
+`pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the three projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js`, `browser/wasm.js` and `website/src/playground/`, which no tsconfig checks.
 
 `pnpm run check` runs `biome ci --error-on-warnings`, as CI does, and the pre-commit hook also fails on warnings. Besides Biome's recommended rules, `biome.json` enables some nursery rules: `noFloatingPromises` and `noMisusedPromises` everywhere, and `useExplicitType` in the published sources, `src/` and `packages/middleware/src/`, where functions, methods and their parameters declare their types. A Biome release can rename or change nursery rules, so `package.json` pins Biome to an exact version, which Renovate updates in a pull request of its own. When such an update fails the check, run `pnpm exec biome migrate --write` and fix what the new version reports.
 
@@ -200,7 +200,7 @@ Conventional Commits format: `type(scope): description`. The commit-msg hook che
 
 **Types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`
 
-**Scopes** are optional and free-form: name the area that the change touches, such as `core`, `zstd`, `gzip`, `brotli`, `lz4`, `detect`, `streams`, `node`, `browser`, `wasm`, `types`, `api`, `middleware`, `bench`, `fuzz`, `e2e`, `release`, `deps`, `renovate`, `ci`, `docs`, `readme` or `playground`.
+**Scopes** are optional and free-form: name the area that the change touches, such as `core`, `zstd`, `gzip`, `brotli`, `lz4`, `detect`, `streams`, `node`, `browser`, `wasm`, `types`, `api`, `middleware`, `bench`, `fuzz`, `e2e`, `release`, `deps`, `renovate`, `ci`, `docs`, `readme`, `playground` or `website`.
 
 ## Changesets
 
@@ -309,19 +309,21 @@ pnpm --dir e2e run test:browser       # --project=chromium for one browser
 
 The fixtures use the installed copy of the package, not the working tree: run `node e2e/install-package.mjs` again after changing the package, and the steps before it after rebuilding it.
 
-## Playground
+## Website
 
-`playground/` is the site that the Playground workflow deploys to GitHub Pages. Like `e2e/`, it is a pnpm project of its own, and it imports `@derodero24/comprs` by name, through a `file:..` dependency that installs the package from the working tree with the files it would publish. It loads the WebAssembly build: build that first, and install the playground's dependencies again after each build, as the installed package holds the files that existed at install time, which a rebuild does not always update.
+`website/` is the documentation site and the playground, which the Website workflow (`.github/workflows/website.yml`) deploys to GitHub Pages at <https://derodero24.github.io/comprs/>. It is built with [Astro Starlight](https://starlight.astro.build/): the pages are Markdown and MDX files in `website/src/content/docs/`, the playground is `website/src/pages/playground.astro` with its scripts in `website/src/playground/`, and the API reference is generated at build time from the declaration files of the package (`index.d.ts`, `streams.d.ts`, `node.d.ts` and `next/index.d.ts`) by starlight-typedoc, into `website/src/content/docs/api/`, which is gitignored. Like `e2e/`, it is a pnpm project of its own, and it imports `@derodero24/comprs` by name, through a `file:..` dependency that installs the package from the working tree with the files it would publish. The playground loads the WebAssembly build: build that first, and install the site's dependencies again after each build, as the installed package holds the files that existed at install time, which a rebuild does not always update.
 
 ```bash
+pnpm run build:js
 pnpm run build:wasm-bindgen
-pnpm --dir playground install --frozen-lockfile
-pnpm --dir playground run dev         # or build, into playground/dist
+pnpm --dir website install --frozen-lockfile
+pnpm --dir website run dev         # or build, into website/dist
+pnpm --dir website run check       # astro check: the types of the site
 ```
 
-Without the WebAssembly build, the dev server and the build fail. To work on the UI without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
+Without the WebAssembly build, the build of the playground page fails. To work on the playground without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
 
-CI builds the playground with these commands in its `Build playground` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Playground workflow deploys it from `develop`.
+CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `develop`.
 
 ## Pull request checklist
 
