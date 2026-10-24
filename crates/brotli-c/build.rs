@@ -13,6 +13,16 @@ fn main() {
     // (brotli/c/enc/memory.h), which would end the process that loads
     // comprs; with it, the call fails and the encoder frees what it holds.
     build.define("BROTLI_ENCODER_CLEANUP_ON_OOM", None);
+    // libbrotli picks 64-bit registers from the predefined macros of the
+    // compiler (brotli/c/common/platform.h). GCC before 5, such as that of
+    // the cross toolchain for the glibc 2.17 builds, does not define
+    // __ARM_64BIT_STATE on aarch64, so libbrotli would use 32-bit registers
+    // there, with an `rbit` that reverses all 64 bits of its register: every
+    // brotli stream it wrote or read was wrong. The target says what the
+    // compiler may not.
+    if std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH").as_deref() == Ok("64") {
+        build.define("BROTLI_BUILD_64_BIT", None);
+    }
     // MSVC warns that the CRT functions that libbrotli calls, such as
     // memcpy, are unsafe; libbrotli's own CMake build turns that off too.
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
