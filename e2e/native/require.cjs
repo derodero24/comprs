@@ -14,12 +14,19 @@ import('./checks.js')
       node,
       importMain: () => Promise.resolve(main),
       importNext: () => Promise.resolve(next),
+      importFamilies: () =>
+        Promise.resolve({
+          zstd: require('@derodero24/comprs/next/zstd'),
+          gzip: require('@derodero24/comprs/next/gzip'),
+        }),
       resolve: (specifier) => require.resolve(specifier),
       files: {
         '@derodero24/comprs': 'index.js',
         '@derodero24/comprs/streams': 'streams.js',
         '@derodero24/comprs/node': 'node.js',
         '@derodero24/comprs/next': 'next/index.js',
+        '@derodero24/comprs/next/zstd': 'next/zstd.js',
+        '@derodero24/comprs/next/gzip': 'next/gzip.js',
       },
     }),
   )

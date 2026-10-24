@@ -71,6 +71,7 @@ interface NextBinding {
     withdrawal?: Withdrawal,
   ): Promise<Uint8Array>;
   detectFormat(data: Uint8Array): string | null;
+  detectPrefix(data: Uint8Array, isFinal: boolean): string | null | undefined;
   trainDictionary(samples: Uint8Array[], maxSize?: number): Uint8Array;
   trainDictionaryAsync(
     samples: Uint8Array[],
@@ -114,6 +115,7 @@ const FUNCTIONS = [
   'decompress',
   'decompressAsync',
   'detectFormat',
+  'detectPrefix',
   'trainDictionary',
   'trainDictionaryAsync',
   'createDictionary',
@@ -220,6 +222,7 @@ describe.each(FORMATS)('%s', (format) => {
     const compressed = next().compress(text, format);
     expect(next().decompress(compressed, format)).toEqual(text);
     expect(next().detectFormat(compressed)).toBe(detected ?? null);
+    expect(next().detectPrefix(compressed, true)).toBe(detected ?? null);
     if (detected !== undefined) {
       expect(next().decompress(compressed)).toEqual(text);
     }
@@ -246,6 +249,21 @@ describe.each(FORMATS)('%s', (format) => {
     for (const result of results) {
       expect(Object.getPrototypeOf(result)).toBe(Uint8Array.prototype);
     }
+  });
+});
+
+describe('detectPrefix', () => {
+  it('needs more data while more could change the answer', () => {
+    const gzip = next().compress(text, 'gzip');
+    expect(next().detectPrefix(gzip.subarray(0, 2), false)).toBeUndefined();
+    expect(next().detectPrefix(gzip.subarray(0, 2), true)).toBeNull();
+    expect(next().detectPrefix(gzip.subarray(0, 3), false)).toBe('gzip');
+    expect(next().detectPrefix(new Uint8Array(0), false)).toBeUndefined();
+    expect(next().detectPrefix(new Uint8Array(0), true)).toBeNull();
+  });
+
+  it('finds no format in data that no format starts so', () => {
+    expect(next().detectPrefix(new Uint8Array([0xff, 0xff, 0xff, 0xff]), false)).toBeNull();
   });
 });
 

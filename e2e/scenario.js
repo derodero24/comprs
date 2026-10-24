@@ -40,6 +40,18 @@
  *   `@derodero24/comprs/next` as the fixture does. browser/app.js imports it
  *   dynamically too, so that it does not keep the initialisation of the
  *   WebAssembly module in a bundle that drops that of the root entry.
+ * @property {() => Promise<Families>} importFamilies Load the entry points
+ *   of the zstd and the gzip families of `@derodero24/comprs/next` (#342) as
+ *   the fixture does, each with the WebAssembly build of its family in
+ *   browsers.
+ */
+
+/**
+ * What the checks use from the entry points of two families of formats.
+ *
+ * @typedef {object} Families
+ * @property {Pick<typeof import('@derodero24/comprs/next/zstd'), 'compressSync' | 'decompressSync' | 'DecompressionStream'>} zstd
+ * @property {Pick<typeof import('@derodero24/comprs/next/gzip'), 'compressSync' | 'decompress' | 'CompressionStream'>} gzip
  */
 
 /**
@@ -286,6 +298,21 @@ export async function checkPackage(comprs) {
         '[object CompressionStream]',
       'CompressionStream has no tag of its own',
     );
+  });
+  await run('unified API entry points of families', async () => {
+    // Each loads the build of its family, which a bundler has to emit as
+    // the full one; together, they detect and route both families.
+    const { zstd, gzip } = await comprs.importFamilies();
+    const sample = data.subarray(0, 65536);
+    const zstdOutput = zstd.compressSync(sample, { format: 'zstd' });
+    assertBytes(await gzip.decompress(zstdOutput), sample);
+    const gzipStream = new Blob([sample])
+      .stream()
+      .pipeThrough(new gzip.CompressionStream('gzip'))
+      .pipeThrough(new zstd.DecompressionStream('auto'));
+    assertBytes(new Uint8Array(await new Response(gzipStream).arrayBuffer()), sample);
+    const raw = gzip.compressSync(sample, { format: 'deflate-raw' });
+    assertBytes(zstd.decompressSync(raw, { format: 'deflate-raw' }), sample);
   });
   await run('stream round trip', async () => {
     const stream = new Blob([data])

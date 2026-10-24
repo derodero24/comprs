@@ -1,10 +1,11 @@
 "use strict";
+exports.native = void 0;
 const stream_schedule_js_1 = require("../stream-schedule.js");
-const backend_js_1 = require("./backend.js");
+const api_js_1 = require("./api.js");
 // The backend of the native build: the hidden binding of the native addon,
 // crates/core/src/next.rs, which the addon keeps on its exports under
 // Symbol.for('@derodero24/comprs/internal') so that the root entry does not
-// list it. Importing this module makes it the backend of api.ts.
+// list it. The entry points of Node.js register it for their formats.
 /** The key of the hidden binding on the exports of the addon. */
 const INTERNAL = Symbol.for('@derodero24/comprs/internal');
 /** The functions of the binding that this module calls. */
@@ -14,6 +15,7 @@ const FUNCTIONS = [
     'decompress',
     'decompressAsync',
     'detectFormat',
+    'detectPrefix',
     'trainDictionary',
     'trainDictionaryAsync',
     'createDictionary',
@@ -110,12 +112,19 @@ function createDecompressStream(format, maxOutputSize, dictionary, dictionaryHan
     const context = binding.createDecompressContext(format, maxOutputSize, dictionary, dictionaryHandle);
     return scheduled(context, `${codecOf(format)}-decompress`, undefined, {});
 }
-(0, backend_js_1.setBackend)({
+/**
+ * The backend of the native addon, which includes every format: the entry
+ * point of a family of formats restricts it to that family when it
+ * registers it.
+ */
+exports.native = {
+    formats: api_js_1.FORMATS,
     compress: binding.compress,
     compressAsync: binding.compressAsync,
     decompress: binding.decompress,
     decompressAsync: binding.decompressAsync,
     detectFormat: binding.detectFormat,
+    detectPrefix: binding.detectPrefix,
     trainDictionary: binding.trainDictionary,
     trainDictionaryAsync: binding.trainDictionaryAsync,
     createDictionary: binding.createDictionary,
@@ -125,4 +134,4 @@ function createDecompressStream(format, maxOutputSize, dictionary, dictionaryHan
     withdraw: binding.withdraw,
     createCompressStream,
     createDecompressStream,
-});
+};

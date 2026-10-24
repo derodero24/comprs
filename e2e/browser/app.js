@@ -59,6 +59,10 @@ try {
     createDecompressStream,
     importAsync: () => import('@derodero24/comprs'),
     importNext: () => import('@derodero24/comprs/next'),
+    importFamilies: async () => ({
+      zstd: await import('@derodero24/comprs/next/zstd'),
+      gzip: await import('@derodero24/comprs/next/gzip'),
+    }),
   });
 } catch (error) {
   result = error instanceof Error ? (error.stack ?? error.message) : String(error);

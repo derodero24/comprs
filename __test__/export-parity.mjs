@@ -22,7 +22,14 @@ const ROOT = new URL('../', import.meta.url);
  *
  * @type {Record<string, number>}
  */
-const MIN_VALUES = { '.': 60, './next': 10 };
+const MIN_VALUES = {
+  '.': 60,
+  './next': 10,
+  './next/zstd': 10,
+  './next/gzip': 7,
+  './next/brotli': 8,
+  './next/lz4': 7,
+};
 
 /**
  * @param {unknown} value
@@ -192,14 +199,17 @@ for (const entry of ENTRIES) {
   exported.set(label, names);
 }
 
-// The ES module entry of ./next re-exports the CommonJS entry and nothing
-// else, unlike that of the root, which adds the stream helpers.
-compare(
-  'import(./next)',
-  exported.get('import(./next)') ?? [],
-  exported.get('require(./next)') ?? [],
-  'exported by require()',
-);
+// The ES module entries of ./next and of its families re-export their
+// CommonJS entries and nothing else, unlike that of the root, which adds the
+// stream helpers.
+for (const subpath of Object.keys(MIN_VALUES).filter((key) => key.startsWith('./next'))) {
+  compare(
+    `import(${subpath})`,
+    exported.get(`import(${subpath})`) ?? [],
+    exported.get(`require(${subpath})`) ?? [],
+    'exported by require()',
+  );
+}
 
 if (problems.length > 0) {
   process.stderr.write(`Export parity check failed:\n\n${problems.join('\n\n')}\n`);

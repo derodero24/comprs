@@ -4,7 +4,14 @@
     "./index.js",
     "./streams.js",
     "./wasm.js",
+    "./wasm-zstd.js",
+    "./wasm-gzip.js",
+    "./wasm-brotli.js",
+    "./wasm-lz4.js",
     "./next/browser.js",
-    "./next/wasm.js"
+    "./next/browser-zstd.js",
+    "./next/browser-gzip.js",
+    "./next/browser-brotli.js",
+    "./next/browser-lz4.js"
   ]
 }
