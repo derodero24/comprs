@@ -30,7 +30,7 @@ Issues related to compression ratio, performance, or API usability are **not** c
 
 **Please do not create public issues for security vulnerabilities.**
 
-To report a vulnerability, use [GitHub Security Advisories](https://github.com/derodero24/comprs/security/advisories/new). This allows us to discuss and resolve the issue privately before any public disclosure.
+To report a vulnerability, use **Report a vulnerability** on the [Security tab](https://github.com/derodero24/comprs/security) of the repository, which opens [GitHub's private vulnerability reporting form](https://github.com/derodero24/comprs/security/advisories/new). Only you and the maintainers can see the report and the discussion that follows, so we can resolve the issue privately before any public disclosure.
 
 When reporting, please include:
 
@@ -50,7 +50,7 @@ When reporting, please include:
 
 We follow a coordinated disclosure process:
 
-1. The vulnerability is reported privately via GitHub Security Advisories.
+1. The vulnerability is reported privately through GitHub's private vulnerability reporting.
 2. We confirm the issue and work on a fix.
 3. A patched version is released.
 4. The vulnerability is publicly disclosed after the fix is available.
