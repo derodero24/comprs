@@ -5,7 +5,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) ≥ 1.88 (CI lints and tests with the latest stable)
-- A C compiler, for the zstd C sources (Clang for the WebAssembly build)
+- A C compiler, for the zstd and libbrotli C sources (Clang for the WebAssembly build)
 - [Node.js](https://nodejs.org/) 22 (≥ 22.20), 24 (≥ 24.12) or 26 (`engineStrict` in `pnpm-workspace.yaml` makes `pnpm install` fail on a version that a dependency's `engines` field excludes)
 - [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
@@ -38,6 +38,7 @@ comprs/
 ├── crates/
 │   ├── core-lib/    ← Pure Rust compression logic (no FFI dependencies)
 │   │   └── fuzz/    ← cargo-fuzz targets for core-lib
+│   ├── brotli-c/    ← libbrotli, vendored in brotli/, with the safe interface that comprs uses (see Vendored libbrotli)
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
@@ -69,6 +70,19 @@ The stream helpers, the ES module entry and the unified API are written in TypeS
 | `src/next/` | `next/` and `browser/next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)). `api.ts` holds the functions and the stream classes and checks the types of their arguments, `abort.ts` handles the `signal` option of the async functions, and `backend.ts` holds the `Backend` interface, which the backend of each build implements. In `next/`, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) the backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries for Node.js. In `browser/next/`, `wasm.ts` makes the functions of the WebAssembly build (`crates/wasm/src/next.rs`), which `browser/wasm.js` loads, the backend, and `browser.ts` is the entry for browsers |
 
 The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json`, `tsconfig.browser.json` and `tsconfig.next-browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Each project lists its entries in `files`, and compiles the modules that they import as well. Editors check the sources with `src/tsconfig.json`, `src/browser/tsconfig.json` and `src/next/tsconfig.json`, which take the options and files of those three projects. The projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and `browser/wasm.js`, which loads the WebAssembly module for the entry and for `browser/next/`, are written by hand, as are their declarations.
+
+### Vendored libbrotli
+
+`crates/brotli-c/brotli` holds the C sources of [libbrotli](https://github.com/google/brotli), Google's brotli library, as released: the `.c` and `.h` files of `c/common`, `c/dec`, `c/enc` and `c/include`, and its `LICENSE` (MIT). `crates/brotli-c` builds them with `cc` and wraps the part that comprs uses: the streaming encoder and decoder, and raw dictionaries. All the unsafe code that calls libbrotli is in that crate; comprs-core forbids unsafe code (#563).
+
+Never edit the vendored files. `BROTLI_VERSION` in `scripts/vendor-brotli.mjs` names the release, and the script vendors it:
+
+```bash
+node scripts/vendor-brotli.mjs          # replace crates/brotli-c/brotli with BROTLI_VERSION
+node scripts/vendor-brotli.mjs --check  # what the Rust Lint job runs
+```
+
+Renovate updates `BROTLI_VERSION` in a pull request of its own. The Rust Lint job fails on it until the script has been run on that branch and its changes committed.
 
 ## Workflow
 
