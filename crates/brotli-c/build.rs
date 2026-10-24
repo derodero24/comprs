@@ -17,6 +17,11 @@ fn main() {
     // memcpy, are unsafe; libbrotli's own CMake build turns that off too.
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         build.define("_CRT_SECURE_NO_WARNINGS", None);
+    } else {
+        // libbrotli is written in C99. GCC before 5, such as the GCC 4.8 of
+        // the cross toolchain that builds the glibc 2.17 Linux binaries,
+        // compiles C89 by default.
+        build.flag("-std=gnu99");
     }
     // wasm32-unknown-unknown has no C library: wasm-shim has the headers of
     // the part that libbrotli uses, and Rust defines the functions.

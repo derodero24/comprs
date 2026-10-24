@@ -15,8 +15,8 @@ const OUTPUT_ROOM: usize = crate::brotli::BUFFER_SIZE;
 
 /// Streaming brotli compression context.
 ///
-/// The encoder gets the input [`FEED`] bytes at a time, whatever the chunks
-/// (see [`StreamEncoder`]): `transform` holds the input that does not make
+/// The encoder gets the input `FEED` bytes at a time, whatever the chunks
+/// (see `StreamEncoder`): `transform` holds the input that does not make
 /// that much yet, and `flush` and `finish` pass it on first. At qualities 0
 /// and 1, the encoder compresses the input of each call on its own, with
 /// nothing that refers back to earlier calls: in chunks of 100 bytes, text
@@ -140,7 +140,7 @@ const DICT_COMPRESS: &str = "brotli dict stream compress";
 ///   The `transform` that takes the input past [`DICT_REACH`] bytes
 ///   compresses the input held so far with the dictionary, flushes it and
 ///   drops it, then passes the rest of its chunk on. From then on, the
-///   encoder takes the input as it arrives, [`FEED`] bytes at a time:
+///   encoder takes the input as it arrives, `FEED` bytes at a time:
 ///   `transform` returns the output that the encoder has emitted, `flush`
 ///   all the output of the input so far, and `finish` ends the stream.
 ///
