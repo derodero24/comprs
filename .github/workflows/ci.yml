@@ -1,12 +1,13 @@
 name: CI
 
-# CI runs when a file changes that it builds, tests, checks or installs with
-# (pushes to develop leave out the playground and some files that only the
-# lint jobs check; see pull_request). That includes .gitignore, whose files Biome skips
-# (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads through
-# its prepare script (lefthook install), and README.md, which the package
-# includes and the benchmark smoke test parses (scripts/bench-report.mjs
-# fails when its bench markers are missing or duplicated).
+# CI checks the files that it builds, tests, checks or installs with (pushes
+# to develop leave out the playground and some files that only the lint jobs
+# check; see the changes job). That includes .gitignore, whose files Biome
+# skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
+# through its prepare script (lefthook install), and README.md, which the
+# package includes and the benchmark smoke test parses
+# (scripts/bench-report.mjs fails when its bench markers are missing or
+# duplicated).
 on:
   push:
     branches: [develop]
@@ -49,56 +50,18 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/release.yml'
   # Pull requests run CI whatever their base branch, so stacked PRs (based on
-  # another PR's branch) and PRs into main are checked too. Their list also
-  # names files that the push list leaves out, so that a change to them is
-  # checked before it is merged: every workflow, which Workflow Lint checks,
-  # the playground, which the playground job builds, and the chart images and
-  # the configuration files that Biome checks. Pushes to develop leave these
-  # out, apart from the workflows that CI calls or mirrors, so that a merge
-  # that changes only those does not run the full matrix; playground.yml
-  # builds the playground on such a push when it deploys it.
+  # another PR's branch) and PRs into main are checked too. Every pull request
+  # starts the workflow, so that CI Complete, the required check, reports on
+  # each of them; the changes job decides whether the other jobs run (see
+  # CI_PATHS there). Its list also names files that the push list leaves out,
+  # so that a change to them is checked before it is merged: every workflow,
+  # which Workflow Lint checks, the playground, which the playground job
+  # builds, and the chart images and the configuration files that Biome
+  # checks. Pushes to develop leave these out, apart from the workflows that
+  # CI calls or mirrors, so that a merge that changes only those does not run
+  # the full matrix; playground.yml builds the playground on such a push when
+  # it deploys it.
   pull_request:
-    paths:
-      - 'crates/**'
-      - '__test__/**'
-      - 'e2e/**'
-      - 'package.json'
-      - 'README.md'
-      - 'pnpm-lock.yaml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'tsconfig*.json'
-      - 'biome.json'
-      - '.gitignore'
-      - 'commitlint.config.ts'
-      - 'lefthook.yml'
-      - 'deny.toml'
-      - 'vitest.config.mts'
-      - 'codecov.yml'
-      - 'browser/**'
-      - 'src/**'
-      - 'streams.js'
-      - 'streams.d.ts'
-      - 'index.js'
-      - 'index.d.ts'
-      - 'index.mjs'
-      - 'index.d.mts'
-      - 'node.js'
-      - 'node.d.ts'
-      - 'next/**'
-      - 'scripts/**'
-      - 'packages/**'
-      - 'pnpm-workspace.yaml'
-      - 'npm/**'
-      - '.cargo/**'
-      - 'rust-toolchain*'
-      - '.nvmrc'
-      - 'playground/**'
-      - 'renovate.json'
-      - '.changeset/config.json'
-      - '.devcontainer/**'
-      - '.github/assets/**'
-      - '.github/workflows/**'
   # Maintainers can run CI on any branch from the Actions tab, such as the
   # branch of the Version Packages pull request, which changesets/action opens
   # with GITHUB_TOKEN and which therefore starts no workflow on its own
@@ -123,6 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      ci: ${{ steps.filter.outputs.ci }}
       native: ${{ steps.filter.outputs.native }}
       build_targets: ${{ steps.filter.outputs.build_targets }}
       test_matrix: ${{ steps.filter.outputs.test_matrix }}
@@ -137,6 +101,36 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
         run: |
+          # Pull requests that change none of CI_PATHS, such as those that
+          # only add a changeset or edit documentation, skip every other job;
+          # CI Complete then passes on its own. Pushes to develop, which the
+          # push paths above already filter, and dispatched runs check
+          # everything. CI_PATHS holds the files that the pull_request
+          # trigger used to list as paths, as extended regular expressions
+          # on the paths from the repository root.
+          CI_PATHS=(
+            '^crates/' '^__test__/' '^e2e/' '^browser/' '^src/' '^next/'
+            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^playground/'
+            '^\.devcontainer/' '^\.github/assets/' '^\.github/workflows/'
+            '^package\.json$' '^pnpm-lock\.yaml$' '^pnpm-workspace\.yaml$'
+            '^README\.md$' '^Cargo\.toml$' '^Cargo\.lock$' '^deny\.toml$'
+            '^rust-toolchain' '^\.nvmrc$' '^tsconfig[^/]*\.json$'
+            '^biome\.json$' '^\.gitignore$' '^commitlint\.config\.ts$'
+            '^lefthook\.yml$' '^vitest\.config\.mts$' '^codecov\.yml$'
+            '^renovate\.json$' '^\.changeset/config\.json$'
+            '^(streams|node|index)\.(js|d\.ts)$' '^index\.(mjs|d\.mts)$'
+          )
+          ci=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+            if ! grep -qEf <(printf '%s\n' "${CI_PATHS[@]}") <<< "$changed"; then
+              ci=false
+            fi
+          fi
+          echo "ci=$ci" >> "$GITHUB_OUTPUT"
+          echo "ci=$ci"
+
           # Pushes to develop and dispatched runs always run the full matrix.
           # Pull requests run it only when something that ends up in the
           # native binary or in the release packaging changed; JS-only PRs and
@@ -196,6 +190,8 @@ jobs:
 
   lint:
     name: Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -262,6 +258,8 @@ jobs:
   # is pinned too, as a newer version can report new findings.
   workflow-lint:
     name: Workflow Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -293,6 +291,8 @@ jobs:
 
   audit:
     name: Dependency Audit
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -343,6 +343,8 @@ jobs:
 
   rust-lint:
     name: Rust Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -369,6 +371,8 @@ jobs:
 
   rust-test:
     name: Rust Test
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -395,6 +399,8 @@ jobs:
   # toolchain that the runner image already has.
   rust-msrv:
     name: Rust MSRV
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -423,6 +429,7 @@ jobs:
   build:
     name: Build
     needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     uses: ./.github/workflows/build.yml
     with:
       # Every target on pushes and native changes; Linux x64 only for
@@ -432,6 +439,8 @@ jobs:
 
   build-wasm-bindgen:
     name: Build - wasm-bindgen
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -877,7 +886,7 @@ jobs:
   # build-wasm-bindgen's step summary and in the wasm-size-report artifact.
   report-wasm-size:
     name: Report WASM Size
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.build-wasm-bindgen.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -981,9 +990,12 @@ jobs:
           ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
 
   # ──── Aggregate gate: single required status check ────
-  # Every job listed here is expected to run, so anything other than success
-  # fails the gate. A job is skipped when a job it needs fails (e.g. a build
-  # leg skips every test job), so treating "skipped" as a pass would hide it.
+  # When the changes job finds files to check, every job listed here is
+  # expected to run, so anything other than success fails the gate. A job is
+  # skipped when a job it needs fails (e.g. a build leg skips every test
+  # job), so treating "skipped" as a pass would hide it. When it finds none,
+  # on a pull request that changes no file of CI_PATHS, every other job is
+  # expected to be skipped, and the gate passes once they are.
   ci-complete:
     name: CI Complete
     if: always()
@@ -994,11 +1006,24 @@ jobs:
       - name: Check all jobs
         env:
           NEEDS: ${{ toJSON(needs) }}
+          CI: ${{ needs.changes.outputs.ci }}
         run: |
-          not_ok=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          expected=success
+          if [ "$CI" = "false" ]; then
+            expected=skipped
+          fi
+          not_ok=$(jq -r --arg expected "$expected" '
+            to_entries[]
+            | select(.value.result != (if .key == "changes" then "success" else $expected end))
+            | "\(.key): \(.value.result)"
+          ' <<< "$NEEDS")
           if [ -n "$not_ok" ]; then
             echo "::error::Required jobs did not succeed"
             echo "$not_ok"
             exit 1
           fi
-          echo "All required jobs succeeded"
+          if [ "$expected" = "skipped" ]; then
+            echo "No file that CI checks changed: every job was skipped"
+          else
+            echo "All required jobs succeeded"
+          fi
