@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "comprs"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "comprs-core",
  "mimalloc",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "comprs-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "brotli",
  "comprs-brotli",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "comprs-wasm"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "comprs-core",
  "js-sys",
