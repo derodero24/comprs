@@ -114,8 +114,8 @@ pub fn gzip_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'gzip', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn gzip_decompress_with_capacity(
     env: Env,
@@ -169,8 +169,8 @@ pub fn deflate_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<
 /// Throws if the input ends before the final deflate block.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'deflate-raw', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn deflate_decompress_with_capacity(
     env: Env,
@@ -280,8 +280,8 @@ pub fn deflate_decompress_async(
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `await decompress(data, { format: 'gzip', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -307,8 +307,8 @@ pub fn gzip_decompress_with_capacity_async(
 /// Rejects if the input ends before the final deflate block.
 ///
 /// @deprecated Use `await decompress(data, { format: 'deflate-raw', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

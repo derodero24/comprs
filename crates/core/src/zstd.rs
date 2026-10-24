@@ -103,8 +103,8 @@ pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
 /// throws an error instead.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_capacity(
     env: Env,
@@ -153,8 +153,8 @@ pub fn zstd_train_dictionary(
 /// 3.
 ///
 /// @deprecated Use `compressSync(data, { format: 'zstd', dictionary: dict, level })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_compress_with_dict(
     env: Env,
@@ -180,8 +180,8 @@ pub fn zstd_compress_with_dict(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_dict(
     env: Env,
@@ -212,8 +212,8 @@ pub fn zstd_decompress_with_dict(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity(
     env: Env,
@@ -244,8 +244,8 @@ pub fn zstd_decompress_with_dict_with_capacity(
 /// window the promise rejects with an error instead.
 ///
 /// @deprecated Use `await decompress(data, { format: 'zstd', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -271,8 +271,8 @@ pub fn zstd_decompress_with_capacity_async(
 /// 3.
 ///
 /// @deprecated Use `await compress(data, { format: 'zstd', dictionary: dict, level })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null",
     ts_return_type = "Promise<Buffer>"
@@ -301,8 +301,8 @@ pub fn zstd_compress_with_dict_async(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"
@@ -367,8 +367,8 @@ pub fn zstd_train_dictionary_async(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

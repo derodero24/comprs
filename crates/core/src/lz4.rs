@@ -34,8 +34,8 @@ pub fn lz4_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buff
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'lz4', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn lz4_decompress_with_capacity(
     env: Env,
@@ -93,8 +93,8 @@ pub fn lz4_decompress_async(
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `await decompress(data, { format: 'lz4', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

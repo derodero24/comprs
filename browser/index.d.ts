@@ -26,7 +26,8 @@ export declare function zstdDecompress(data: Uint8Array): Uint8Array;
  * Decompress zstd-compressed data, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithCapacity(data: Uint8Array, capacity: number): Uint8Array;
 /** Train a zstd dictionary from sample data, of at most `maxDictSize` bytes. */
@@ -38,7 +39,8 @@ export declare function zstdTrainDictionary(
  * Compress data with zstd and a dictionary.
  *
  * @deprecated Use `compressSync(data, { format: 'zstd', dictionary: dict, level })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdCompressWithDict(
   data: Uint8Array,
@@ -49,14 +51,16 @@ export declare function zstdCompressWithDict(
  * Decompress zstd-compressed data with the dictionary it was compressed with.
  *
  * @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithDict(data: Uint8Array, dict: Uint8Array): Uint8Array;
 /**
  * Decompress with a dictionary, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithDictWithCapacity(
   data: Uint8Array,
@@ -96,7 +100,8 @@ export declare function gzipDecompress(data: Uint8Array): Uint8Array;
  * Decompress gzip-compressed data, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'gzip', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function gzipDecompressWithCapacity(data: Uint8Array, capacity: number): Uint8Array;
 /** Compress data with gzip, with a file name and modification time in the header. */
@@ -118,7 +123,8 @@ export declare function deflateDecompress(data: Uint8Array): Uint8Array;
  * Decompress raw deflate data, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'deflate-raw', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function deflateDecompressWithCapacity(
   data: Uint8Array,
@@ -135,7 +141,8 @@ export declare function brotliDecompress(data: Uint8Array): Uint8Array;
  * Decompress brotli-compressed data, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'brotli', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithCapacity(
   data: Uint8Array,
@@ -145,7 +152,8 @@ export declare function brotliDecompressWithCapacity(
  * Compress data with brotli and a custom dictionary.
  *
  * @deprecated Use `compressSync(data, { format: 'brotli', dictionary: dict, level: quality })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliCompressWithDict(
   data: Uint8Array,
@@ -156,14 +164,16 @@ export declare function brotliCompressWithDict(
  * Decompress brotli-compressed data with the dictionary it was compressed with.
  *
  * @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithDict(data: Uint8Array, dict: Uint8Array): Uint8Array;
 /**
  * Decompress with a dictionary, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithDictWithCapacity(
   data: Uint8Array,
@@ -181,7 +191,8 @@ export declare function lz4Decompress(data: Uint8Array): Uint8Array;
  * Decompress LZ4 frame data, failing if the output exceeds `capacity` bytes.
  *
  * @deprecated Use `decompressSync(data, { format: 'lz4', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function lz4DecompressWithCapacity(data: Uint8Array, capacity: number): Uint8Array;
 
@@ -233,7 +244,8 @@ export declare function zstdDecompressAsync(data: Uint8Array): Promise<Uint8Arra
  * Run zstdDecompressWithCapacity() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'zstd', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithCapacityAsync(
   data: Uint8Array,
@@ -243,7 +255,8 @@ export declare function zstdDecompressWithCapacityAsync(
  * Run zstdCompressWithDict() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await compress(data, { format: 'zstd', dictionary: dict, level })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdCompressWithDictAsync(
   data: Uint8Array,
@@ -254,7 +267,8 @@ export declare function zstdCompressWithDictAsync(
  * Run zstdDecompressWithDict() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithDictAsync(
   data: Uint8Array,
@@ -265,7 +279,8 @@ export declare function zstdDecompressWithDictAsync(
  * Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function zstdDecompressWithDictWithCapacityAsync(
   data: Uint8Array,
@@ -288,7 +303,8 @@ export declare function gzipDecompressAsync(data: Uint8Array): Promise<Uint8Arra
  * Run gzipDecompressWithCapacity() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'gzip', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function gzipDecompressWithCapacityAsync(
   data: Uint8Array,
@@ -306,7 +322,8 @@ export declare function deflateDecompressAsync(data: Uint8Array): Promise<Uint8A
  * Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'deflate-raw', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function deflateDecompressWithCapacityAsync(
   data: Uint8Array,
@@ -324,7 +341,8 @@ export declare function brotliDecompressAsync(data: Uint8Array): Promise<Uint8Ar
  * Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'brotli', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithCapacityAsync(
   data: Uint8Array,
@@ -334,7 +352,8 @@ export declare function brotliDecompressWithCapacityAsync(
  * Run brotliCompressWithDict() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await compress(data, { format: 'brotli', dictionary: dict, level: quality })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliCompressWithDictAsync(
   data: Uint8Array,
@@ -345,7 +364,8 @@ export declare function brotliCompressWithDictAsync(
  * Run brotliDecompressWithDict() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithDictAsync(
   data: Uint8Array,
@@ -356,7 +376,8 @@ export declare function brotliDecompressWithDictAsync(
  * a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function brotliDecompressWithDictWithCapacityAsync(
   data: Uint8Array,
@@ -371,7 +392,8 @@ export declare function lz4DecompressAsync(data: Uint8Array): Promise<Uint8Array
  * Run lz4DecompressWithCapacity() on the calling thread, and return a Promise of its result.
  *
  * @deprecated Use `await decompress(data, { format: 'lz4', maxOutputSize: capacity })`
- * of `@derodero24/comprs/next` (see the migration table in the README).
+ * of `@derodero24/comprs/next`. See
+ * [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
  */
 export declare function lz4DecompressWithCapacityAsync(
   data: Uint8Array,

@@ -9,9 +9,9 @@ import { compressSync, decompressSync } from '../next/index.js';
 // package root, and their *Async forms, are deprecated in favor of options of
 // the unified API (#577). Their declarations say so with a @deprecated tag
 // that names the replacement, in the native and the browser declarations
-// alike, and the README and the Classic API page of the website have a table
-// of the replacements. These tests keep them in step, and run each
-// replacement that the table shows.
+// alike, and the Classic API page of the website has a table of the
+// replacements. These tests keep them in step, and run each replacement that
+// the table shows.
 
 /** The synchronous functions that are deprecated, with an *Async form each. */
 const DEPRECATED = [
@@ -80,8 +80,7 @@ function asyncReplacement(sync: string): string {
 
 const native = deprecations(read('index.d.ts'));
 const browser = deprecations(read('browser/index.d.ts'));
-const table = replacementTable('README.md', '### From the deprecated functions');
-const siteTable = replacementTable(
+const table = replacementTable(
   'website/src/content/docs/reference/classic-api.md',
   '## Deprecated functions',
 );
@@ -103,18 +102,14 @@ describe('deprecated functions', () => {
     }
   });
 
-  it('are listed in the README with the replacements that their declarations name', () => {
+  it('are listed on the website with the replacements that their declarations name', () => {
     const listed = Object.fromEntries(
       [...table].map(([call, replacement]) => [call.slice(0, call.indexOf('(')), replacement]),
     );
     expect(listed).toEqual(Object.fromEntries(DEPRECATED.map((name) => [name, native.get(name)])));
   });
 
-  it('are listed on the website with the replacements of the README', () => {
-    expect(Object.fromEntries(siteTable)).toEqual(Object.fromEntries(table));
-  });
-
-  describe('give the result of their replacement in the README', () => {
+  describe('give the result of their replacement on the website', () => {
     const text = new TextEncoder().encode(
       '{"id":1,"name":"comprs","tags":["zstd","brotli","gzip","lz4"]}\n'.repeat(200),
     );

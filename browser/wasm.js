@@ -9,7 +9,8 @@
 // resolves. The package does not export this module: only its own browser
 // modules import it. webpack 5 and Vite emit the file that
 // `new URL('…', import.meta.url)` names as an asset; with other bundlers, it
-// has to be copied next to the bundle (see Browser Usage in the README).
+// has to be copied next to the bundle (see the Browsers guide of the
+// website, https://derodero24.github.io/comprs/guides/browsers/).
 // This module must stay listed under `sideEffects` in both package.json
 // files, so that bundlers keep this initialisation in a bundle that uses
 // none of its exports.
