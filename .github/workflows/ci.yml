@@ -62,7 +62,8 @@ on:
   # Maintainers can run CI on any branch from the Actions tab, such as the
   # branch of the Version Packages pull request, which changesets/action opens
   # with GITHUB_TOKEN and which therefore starts no workflow on its own
-  # (#574). release.yml will dispatch it on the bot pull requests.
+  # (#574). The Version job of release.yml dispatches it there after each
+  # update of that pull request.
   workflow_dispatch:
 
 # A newer push to a pull request cancels its running CI. Dispatched runs group
