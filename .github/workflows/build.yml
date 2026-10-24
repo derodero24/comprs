@@ -114,7 +114,7 @@ jobs:
         if: matrix.settings.use-zig
         run: |
           # renovate: datasource=pypi depName=ziglang
-          echo 'ziglang==0.16.0 --hash=sha256:9fcda73f62b851dd72a54b710ad40a209896db14cfb13649e62191243556342b' > "$RUNNER_TEMP/zig-requirements.txt"
+          echo 'ziglang==0.17.0 --hash=sha256:97079827064a7492cce5541ceb438ae8003ce1e54e399676da2d62fb7a5dc08b' > "$RUNNER_TEMP/zig-requirements.txt"
           pip3 install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/zig-requirements.txt"
 
       - name: Build native
