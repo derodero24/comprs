@@ -108,14 +108,11 @@ Prebuilt binaries cover macOS (x64, ARM64), Linux (x64, ARM64, with glibc 2.17 o
 
 ## Benchmarks
 
-<img src=".github/assets/bench-cross-algorithm.svg" alt="Compression and decompression speed of zstd, gzip, brotli and LZ4 in comprs" width="680" />
+<img src=".github/assets/bench-cross-algorithm.svg" alt="Compression and decompression speed and compression ratio of zstd, gzip, brotli and LZ4 in comprs, for 84 KB of JSON" width="680" />
 
-<img src=".github/assets/bench-compress.svg" alt="gzip compression speed of comprs, pako, fflate and node:zlib" width="680" />
+<img src=".github/assets/bench-compress.svg" alt="gzip compression speed at level 6 of comprs, node:zlib, pako and fflate, for 84 KB of JSON" width="680" />
 
-> [!WARNING]
-> These charts are out of date. They were measured in March 2026, before comprs 1.0, on an Apple M2 with Node.js 22, with each library at its default level, and count operations per second. The next run of the Bench Report workflow replaces them with speeds in MB/s at equal settings ([#556](https://github.com/derodero24/comprs/issues/556)).
-
-The [Benchmarks page](https://derodero24.github.io/comprs/reference/benchmarks/) of the website has the tables behind the charts, by library, format, direction and input. comprs compresses brotli with libbrotli, the C library that `node:zlib` uses too ([#563](https://github.com/derodero24/comprs/issues/563)), so at the same quality and window it runs at about the same speed as `node:zlib`. Run the benchmarks locally with `pnpm run bench`; numbers vary by machine and data. [CodSpeed](https://codspeed.io/derodero24/comprs) tracks the Rust benchmarks of `comprs-core` on the pull requests that change Rust code, to catch performance regressions.
+Measured on x86-64 Linux with Node.js 24, with every library at the same settings: comprs decompresses zstd 1.4–3.6 times and gzip 1.0–2.0 times as fast as `node:zlib`, and gzip 3.5–16 times as fast as pako. Its brotli comes from libbrotli, the C library of `node:zlib`, and runs at the same speed. The [Benchmarks page](https://derodero24.github.io/comprs/reference/benchmarks/) of the website has the takeaways and the tables, with compression ratios, by library, format, direction and input. Run the benchmarks locally with `pnpm run bench`; numbers vary by machine and data. [CodSpeed](https://codspeed.io/derodero24/comprs) tracks the Rust benchmarks of `comprs-core` on the pull requests that change Rust code, to catch performance regressions.
 
 ## Ecosystem
 
