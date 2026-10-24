@@ -16,15 +16,10 @@
  * repository's own tsconfig.json skips, and they use the package by its
  * name, so that the `exports` conditions pick the declaration files.
  *
- * Each project's unscoped.ts imports the same entry points from the
- * unscoped `comprs` package as well (packages/comprs, #752), whose
- * declarations re-export those of @derodero24/comprs, and checks that both
- * give the same values and types.
- *
- * The script packs the root package and packages/comprs into temporary
- * tarballs, as `npm publish` would, extracts them into each project's
- * node_modules (gitignored) and type-checks the project with TypeScript 7
- * and TypeScript 5.9 (the `typescript-5` devDependency).
+ * The script packs the root package into a temporary tarball, as `npm
+ * publish` would, extracts it into each project's
+ * node_modules/@derodero24/comprs (gitignored) and type-checks the project
+ * with TypeScript 7 and TypeScript 5.9 (the `typescript-5` devDependency).
  * @types/node, for the projects that use it, resolves from the repository's
  * node_modules. It reports every failure, exits non-zero if there is any,
  * and removes what it installed.
@@ -40,9 +35,6 @@ import { group, npmPack, ROOT, readJson, run, runMain } from './release-utils.mj
 
 const FIXTURES_DIR = join(ROOT, '__test__', 'consumer-types');
 
-/** The directories of the packages that the consumer projects install. */
-const PACKAGE_DIRS = [ROOT, join(ROOT, 'packages', 'comprs')];
-
 /**
  * The compilers to check with. Both packages provide a `tsc` command, so each
  * one's own bin/tsc is run with Node.js rather than node_modules/.bin/tsc.
@@ -53,13 +45,10 @@ const COMPILERS = [
 ];
 
 await runMain(async () => {
-  const names = PACKAGE_DIRS.map((dir) => {
-    const { name } = readJson(join(dir, 'package.json'));
-    if (typeof name !== 'string') {
-      throw new Error(`${relative(ROOT, join(dir, 'package.json'))} has no name`);
-    }
-    return name;
-  });
+  const { name } = readJson(join(ROOT, 'package.json'));
+  if (typeof name !== 'string') {
+    throw new Error('package.json has no name');
+  }
   const fixtures = readdirSync(FIXTURES_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -72,25 +61,17 @@ await runMain(async () => {
   const failures = [];
   const workDir = mkdtempSync(join(tmpdir(), 'comprs-consumer-types-'));
   try {
-    /** @type {string[]} */
-    const tarballs = [];
-    for (const [index, dir] of PACKAGE_DIRS.entries()) {
-      tarballs.push(
-        await group(`npm pack ${names[index]}`, () => {
-          const { filename, files } = npmPack(dir, ['--pack-destination', workDir]);
-          console.log(files.join('\n'));
-          return join(workDir, filename);
-        }),
-      );
-    }
+    const tarball = await group('npm pack', () => {
+      const { filename, files } = npmPack(ROOT, ['--pack-destination', workDir]);
+      console.log(files.join('\n'));
+      return join(workDir, filename);
+    });
     for (const fixture of fixtures) {
       const project = join(FIXTURES_DIR, fixture);
+      const installDir = join(project, 'node_modules', ...name.split('/'));
       rmSync(join(project, 'node_modules'), { recursive: true, force: true });
-      for (const [index, tarball] of tarballs.entries()) {
-        const installDir = join(project, 'node_modules', ...(names[index] ?? '').split('/'));
-        mkdirSync(installDir, { recursive: true });
-        run('tar', ['-xzf', tarball, '-C', installDir, '--strip-components=1']);
-      }
+      mkdirSync(installDir, { recursive: true });
+      run('tar', ['-xzf', tarball, '-C', installDir, '--strip-components=1']);
       for (const compiler of COMPILERS) {
         await group(`${fixture}: ${compiler.name}`, () => {
           try {

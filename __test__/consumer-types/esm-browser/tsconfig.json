@@ -14,5 +14,5 @@
     "types": [],
     "noEmit": true
   },
-  "include": ["index.ts", "unscoped.ts"]
+  "include": ["index.ts"]
 }

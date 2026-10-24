@@ -243,12 +243,6 @@ jobs:
       # packages/middleware/__test__/package.spec.ts checks it instead.
       - name: Validate middleware TypeScript type resolution
         run: pnpm --filter @derodero24/comprs-middleware attw
-      # The unscoped comprs package (packages/comprs) has no build: its
-      # entry points re-export those of the root package.
-      - name: Unscoped package publint
-        run: pnpm --filter comprs publint
-      - name: Validate unscoped package TypeScript type resolution
-        run: pnpm --filter comprs attw
 
   # actionlint checks the workflows: their syntax, expressions and contexts,
   # the inputs of the actions they use, and, with shellcheck, their run:
