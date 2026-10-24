@@ -120,12 +120,11 @@ stream_context_methods!(
 ///   16 bytes of input (4,194,288 bytes, as far as brotli refers back to
 ///   the dictionary), which compress with the dictionary into the output of
 ///   `brotliCompressWithDict()` if the input ends there. A longer input is
-///   compressed without the dictionary, which only helps the start of a
-///   stream, into a stream that decodes with or without it: the
-///   `transform()` that takes the input past those bytes returns their
-///   output, and from then on, `transform()` returns the output that the
-///   encoder has emitted, `flush()` all the output of the input so far, and
-///   `finish()` the rest of the stream. The stream helpers use this mode.
+///   compressed with the dictionary too, as it arrives: the `transform()`
+///   that takes the input past those bytes returns their output, and from
+///   then on, `transform()` returns the output that the encoder has
+///   emitted, `flush()` all the output of the input so far, and `finish()`
+///   the rest of the stream. The stream helpers use this mode.
 #[napi(custom_finalize)]
 pub struct BrotliCompressDictContext {
     inner: NativeState<comprs_core::brotli_stream::CompressDictContext>,

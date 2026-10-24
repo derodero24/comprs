@@ -1,13 +1,10 @@
-//! Module setup, which installs the panic hook for the panics that
-//! comprs-core recovers from, hides the binding of the unified API and adds
+//! Module setup, which hides the binding of the unified API and adds
 //! `[Symbol.dispose]()` to the stream context classes, and the native state
 //! and shared methods of those classes.
 
-use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Once, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use comprs_core::panic_guard::quiet_guarded_panics;
 use comprs_core::{ComprsError, MemoryUsage};
 use napi::bindgen_prelude::{Buffer, Env, JsObjectValue, Object, Property, Unknown, ValueType};
 use napi_derive::napi;
@@ -32,9 +29,8 @@ const CONTEXT_CLASSES: [&str; 14] = [
     "ZstdDecompressDictContext",
 ];
 
-/// Set up the module once napi-rs has registered its exports: keep the
-/// panics that comprs-core recovers from off stderr, hide the binding of the
-/// unified API, and make the stream contexts disposable.
+/// Set up the module once napi-rs has registered its exports: hide the
+/// binding of the unified API, and make the stream contexts disposable.
 ///
 /// The contexts get `[Symbol.dispose]()` as an alias of `close()`, so that a
 /// `using` declaration closes its context at the end of the scope. napi-rs
@@ -43,7 +39,6 @@ const CONTEXT_CLASSES: [&str; 14] = [
 /// without it.
 #[napi(module_exports)]
 pub fn init(mut exports: Object, env: Env) -> napi::Result<()> {
-    quiet_recovered_panics();
     // Before the return below, so that every runtime gets the binding.
     crate::next::hide(&env, &mut exports)?;
     // `Symbol` and the classes are functions, which the checked getters
@@ -64,26 +59,6 @@ pub fn init(mut exports: Object, env: Env) -> napi::Result<()> {
         prototype.define_properties(&[alias])?;
     }
     Ok(())
-}
-
-/// Keep the panics that comprs-core recovers from off stderr.
-///
-/// brotli 9.0.0's encoder panics on some inputs with a custom dictionary.
-/// comprs-core catches the panic and compresses again without the
-/// dictionary, so the call succeeds, but the panic hook runs first, and
-/// Rust's default hook would print a "panicked at" message to the
-/// application's stderr for every such call (#650). The hook installed here
-/// says nothing about the panics that comprs-core recovers from and passes
-/// every other panic on to the hook that it replaces.
-///
-/// The hook is global to the process, but the addon links its own copy of
-/// the Rust standard library, so it sees the panics of this addon only, not
-/// those of other native addons. Node.js runs [`init`] in every environment
-/// that loads the addon, such as a worker thread: the `Once` keeps the hook
-/// from wrapping itself again each time.
-fn quiet_recovered_panics() {
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| panic::set_hook(quiet_guarded_panics(panic::take_hook())));
 }
 
 /// The engine's account of memory held outside its heap, which it counts

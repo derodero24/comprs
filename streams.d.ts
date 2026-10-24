@@ -112,9 +112,9 @@ export declare function createDeflateDecompressStream(maxOutputSize?: number): T
  * Uses the Web Streams API (`TransformStream`) to provide chunked compression
  * with a custom dictionary for improved compression of similar data. It
  * holds up to the first 4 MiB less 16 bytes (4,194,288 bytes) of the input,
- * and compresses an input that ends there with the dictionary. A longer
- * input is compressed without the dictionary, which only helps the start of
- * a stream, and the stream emits compressed output as the input arrives.
+ * and compresses an input that ends there into the output of
+ * `brotliCompressWithDict()`. Past them, the stream emits compressed output
+ * as the input arrives, still with the dictionary.
  *
  * Input chunks may be any ArrayBuffer, SharedArrayBuffer or ArrayBufferView,
  * read byte for byte: a `Uint16Array` is not converted element by element.

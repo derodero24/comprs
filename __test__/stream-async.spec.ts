@@ -473,8 +473,8 @@ describe('blockBytes()', () => {
     ).toStrictEqual([
       64 * KiB,
       64 * KiB,
-      16 * KiB,
-      16 * KiB,
+      64 * KiB,
+      64 * KiB,
       64 * KiB,
       64 * KiB,
       256 * KiB,

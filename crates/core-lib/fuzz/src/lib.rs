@@ -11,7 +11,6 @@ pub mod decompress;
 pub mod detect;
 pub mod format;
 pub mod heap;
-pub mod panic_hook;
 pub mod plan;
 pub mod round_trip;
 pub mod unified;

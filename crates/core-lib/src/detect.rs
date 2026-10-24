@@ -3,8 +3,7 @@
 //! Detects the compression format from its magic number, or for brotli by
 //! decoding the start of the data, and decompresses accordingly.
 
-use brotli::enc::StandardAlloc;
-use brotli::{BrotliDecompressStream, BrotliResult, BrotliState};
+use comprs_brotli::{Decoder, Status};
 
 use crate::ComprsError;
 use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
@@ -124,37 +123,27 @@ pub(crate) enum BrotliProbe {
 /// stream that compresses does not change as more of the stream arrives.
 pub(crate) fn probe_brotli(data: &[u8], drain: bool) -> BrotliProbe {
     let input = &data[..data.len().min(BROTLI_PROBE_SIZE)];
-    let mut state = BrotliState::new(
-        StandardAlloc::default(),
-        StandardAlloc::default(),
-        StandardAlloc::default(),
-    );
-    // Probe RFC 7932 streams only: see `crate::brotli::reject_large_window`.
-    state.large_window = false;
-    let mut output = [0; crate::brotli::BUFFER_SIZE];
-    let mut available_in = input.len();
-    let mut input_offset = 0;
+    // The decoder rejects Large Window Brotli streams: see
+    // `crate::brotli::reject_large_window`. A decoder that cannot be
+    // allocated finds no stream.
+    let Ok(mut decoder) = Decoder::new() else {
+        return BrotliProbe::Invalid;
+    };
+    let mut rest = input;
+    let mut output = Vec::with_capacity(crate::brotli::BUFFER_SIZE);
     let mut total_out = 0;
     loop {
-        let mut available_out = output.len();
-        let mut output_offset = 0;
-        let result = BrotliDecompressStream(
-            &mut available_in,
-            &mut input_offset,
-            input,
-            &mut available_out,
-            &mut output_offset,
-            &mut output,
-            &mut total_out,
-            &mut state,
-        );
+        output.clear();
+        let result = decoder.decompress(&mut rest, &mut output);
+        total_out += output.len();
+        let taken = input.len() - rest.len();
         match result {
-            BrotliResult::ResultFailure => return BrotliProbe::Invalid,
-            BrotliResult::ResultSuccess => return BrotliProbe::Ended(input_offset),
-            _ if total_out > input_offset => return BrotliProbe::Expands,
-            BrotliResult::NeedsMoreOutput => {}
-            BrotliResult::NeedsMoreInput if drain && output_offset > 0 => {}
-            BrotliResult::NeedsMoreInput => return BrotliProbe::NeedsMoreInput,
+            Err(_) => return BrotliProbe::Invalid,
+            Ok(Status::Finished) => return BrotliProbe::Ended(taken),
+            _ if total_out > taken => return BrotliProbe::Expands,
+            Ok(Status::NeedsMoreOutput) => {}
+            Ok(Status::NeedsMoreInput) if drain && !output.is_empty() => {}
+            Ok(Status::NeedsMoreInput) => return BrotliProbe::NeedsMoreInput,
         }
     }
 }
