@@ -15,5 +15,8 @@ comprs-core = { path = "../core-lib", features = ["zstdmt"] }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { workspace = true }
+
 [build-dependencies]
 napi-build = { workspace = true }

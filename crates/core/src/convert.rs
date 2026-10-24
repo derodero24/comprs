@@ -32,8 +32,13 @@ use crate::error::to_napi_error;
 /// longer, 8 MiB 70% and 16 MiB 2.7 times as long.
 ///
 /// These figures, and so the limit, come from Node.js 22 on x86-64 Linux
-/// with glibc. Other allocators, such as musl's mallocng and the Windows
-/// heap, serve large blocks from fresh mappings, and were not measured.
+/// with glibc. musl's mallocng, which Node.js uses on musl, serves blocks
+/// above 128 KiB from fresh mappings, so there the copy makes calls that
+/// return 128 KiB to 2 MiB take 1.2–1.5 times as long, with mimalloc for the
+/// addon's own memory (see lib.rs; 1.5–2 times without it), measured with
+/// Node.js 24 on x86-64 Alpine Linux. It still keeps a synchronous loop
+/// that gets results of 1 MiB at a quarter of the memory, and is kept for
+/// that (#679). The Windows heap was not measured.
 ///
 /// `src/streams.ts` mirrors this value: the Web streams enqueue the results
 /// of the stream contexts up to this size without copying them again.
