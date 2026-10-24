@@ -18,3 +18,8 @@
 # line endings on checkout, which would change the data they decode.
 /crates/core-lib/tests/fixtures/*.bin binary
 /crates/core-lib/tests/fixtures/*.txt -text
+
+# libbrotli's sources, which scripts/vendor-brotli.mjs copies from a release
+# and checks byte for byte: never converted on checkout, and left out of the
+# language statistics.
+/crates/brotli-c/brotli/** linguist-vendored -text

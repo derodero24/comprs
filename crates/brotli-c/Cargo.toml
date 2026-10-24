@@ -1,0 +1,22 @@
+[package]
+name = "comprs-brotli"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+# The crate is MIT, as comprs is; the libbrotli sources in brotli/ are MIT
+# too (brotli/LICENSE).
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "libbrotli, Google's C brotli library, vendored and built for comprs, with a safe interface to the part that comprs uses"
+# scripts/vendor-brotli.mjs vendors brotli/ and is all that changes it.
+include = ["/brotli", "/build.rs", "/src", "/wasm-shim"]
+
+[build-dependencies]
+cc = "1.2"
+
+# The Rust port of brotli, which comprs used before libbrotli: the tests
+# check that each decodes what the other encodes.
+[dev-dependencies]
+brotli = { workspace = true }
+brotli-decompressor = { version = "6", default-features = false, features = ["std"] }

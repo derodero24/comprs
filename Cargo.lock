@@ -275,6 +275,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "comprs-brotli"
+version = "0.0.0"
+dependencies = [
+ "brotli",
+ "brotli-decompressor",
+ "cc",
+]
+
+[[package]]
 name = "comprs-core"
 version = "2.1.0"
 dependencies = [
