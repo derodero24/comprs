@@ -192,6 +192,7 @@ describe('synchronous zstd decompression of frames with content sizes', () => {
       'zstdDecompressWithDictWithCapacity',
       () => zstdDecompressWithDictWithCapacity(zstdDict, dict, size),
     ],
+    ['decompress', () => decompress(zstd)],
   ])('%s returns a result larger than 2 MiB in memory that V8 allocates', (_, call) => {
     expectDecodedIntoV8(call(), large);
   });
@@ -240,6 +241,7 @@ describe('synchronous lz4 decompression of frames with content sizes', () => {
   it.each<[string, () => Buffer]>([
     ['lz4Decompress', () => lz4Decompress(lz4)],
     ['lz4DecompressWithCapacity', () => lz4DecompressWithCapacity(lz4, size)],
+    ['decompress', () => decompress(lz4)],
   ])('%s returns a result larger than 2 MiB in memory that V8 allocates', (_, call) => {
     expectDecodedIntoV8(call(), large);
   });
