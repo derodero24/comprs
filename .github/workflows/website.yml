@@ -76,6 +76,11 @@ jobs:
       - name: Install website dependencies
         run: pnpm --dir website install --frozen-lockfile
 
+      # astro build does not type-check the site, and a push that changes
+      # only the website runs no CI.
+      - name: Check website
+        run: pnpm --dir website run check
+
       - name: Build website
         run: pnpm --dir website run build
 

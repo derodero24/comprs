@@ -52,7 +52,8 @@ const formats = { zstd: 'zstd', br: 'brotli', gzip: 'gzip', deflate: 'deflate' }
 
 async function readBody(request: Request): Promise<Uint8Array> {
   const body = new Uint8Array(await request.arrayBuffer());
-  const encoding = request.headers.get('content-encoding');
+  // Content codings are case-insensitive.
+  const encoding = request.headers.get('content-encoding')?.trim().toLowerCase() ?? null;
   if (encoding === null || encoding === 'identity') return body;
   const format = formats[encoding as keyof typeof formats];
   if (format === undefined) throw new Response(null, { status: 415 });
@@ -65,7 +66,7 @@ async function readBody(request: Request): Promise<Uint8Array> {
 }
 ```
 
-For bodies too large to hold, pipe them through a `DecompressionStream` with the same `maxOutputSize` (see [Streaming](/comprs/guides/streaming/)). `'deflate'` is zlib here, as HTTP's `deflate` content coding is.
+`maxOutputSize` limits the decompressed body, but `request.arrayBuffer()` reads all of the compressed body first: limit its size too, such as with the request size limit of the server or the proxy in front of it. For bodies too large to hold, pipe them through a `DecompressionStream` with the same `maxOutputSize` (see [Streaming](/comprs/guides/streaming/)). `'deflate'` is zlib here, as HTTP's `deflate` content coding is.
 
 ## SSR frameworks
 

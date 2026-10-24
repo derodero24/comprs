@@ -9,7 +9,7 @@ comprs is built to decompress untrusted data: it stops at a size limit, rejects 
 
 ## Error codes
 
-Every error of the [unified API](/comprs/guides/unified-api/) has a `code`:
+The errors that the [unified API](/comprs/guides/unified-api/) raises have a `code`. Errors that come from the caller, such as one thrown by a getter of an options object or by the iterator of the samples, and the `reason` of an aborted `signal`, are passed on unchanged, without one.
 
 | `code` | When |
 | --- | --- |
@@ -57,4 +57,4 @@ zstd, gzip, zlib and LZ4 are recognized by their headers. Brotli has none, so it
 
 ## Numeric arguments
 
-Levels, limits, sizes and the gzip `mtime` must be integers in their ranges. Other numbers, such as `NaN`, `Infinity`, `1.5` or `2 ** 32`, fail with an error that names the argument and its range instead of being converted to a valid value. Limits range from 0 to `Number.MAX_SAFE_INTEGER` on every platform, and a limit of 0 accepts only data that decompresses to nothing.
+Levels, limits, sizes and the gzip `mtime` must be integers in their ranges. Other numbers, such as `NaN`, `Infinity` and `1.5`, or a level or `mtime` of `2 ** 32`, fail with an error that names the argument and its range instead of being converted to a valid value. Limits range from 0 to `Number.MAX_SAFE_INTEGER` on every platform, and a limit of 0 accepts only data that decompresses to nothing.

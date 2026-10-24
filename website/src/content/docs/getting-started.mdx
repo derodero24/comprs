@@ -78,11 +78,12 @@ Node.js streams have their own `stream.Transform` factories; see [Streaming](/co
 
 ## Handle errors
 
-Every error of the unified API has a stable `code`:
+The errors that comprs raises have a stable `code`:
 
 ```ts
+const bytes = new Uint8Array(await request.arrayBuffer());
 try {
-  await decompress(body, { maxOutputSize: 10 * 1024 * 1024 });
+  await decompress(bytes, { maxOutputSize: 10 * 1024 * 1024 });
 } catch (error) {
   // 413 for a body that decompresses to more than 10 MiB, 400 for corrupt data and the like
   const status =

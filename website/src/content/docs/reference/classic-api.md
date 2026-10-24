@@ -87,4 +87,4 @@ Each has `transform(chunk)`, `flush()`, `finish()`, their `Async` variants, and 
 
 ## Numeric arguments
 
-Levels, qualities, `capacity`, `maxOutputSize`, `maxDictSize`, the `crc32()` initial value and the gzip header `mtime` must be integers in their documented ranges. Other numbers, such as `NaN`, `Infinity`, `1.5` or `2 ** 32`, throw an error that names the argument and its range instead of being converted to a valid value. `capacity` and `maxOutputSize` range from 0 to `Number.MAX_SAFE_INTEGER`, and a limit of 0 accepts only data that decompresses to nothing; `maxDictSize` ranges from 0 to 16 MiB (16777216).
+Levels, qualities, `capacity`, `maxOutputSize`, `maxDictSize`, the `crc32()` initial value and the gzip header `mtime` must be integers in their documented ranges. Other numbers, such as `NaN`, `Infinity` and `1.5`, or a level or `mtime` of `2 ** 32`, throw an error that names the argument and its range instead of being converted to a valid value. `capacity` and `maxOutputSize` range from 0 to `Number.MAX_SAFE_INTEGER`, and a limit of 0 accepts only data that decompresses to nothing; `maxDictSize` ranges from 0 to 16 MiB (16777216).

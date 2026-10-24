@@ -24,7 +24,9 @@ pako is a JavaScript port of zlib. comprs reads and writes the same three format
 | `inflate(data)` (zlib or gzip) | `decompressSync(data)`, which detects zlib and gzip | none |
 | `deflateRaw(data)` | `compressSync(data, { format: 'deflate-raw' })` | `deflateCompress(data)` |
 | `inflateRaw(data)` | `decompressSync(data, { format: 'deflate-raw' })` | `deflateDecompress(data)` |
-| `new Deflate()`, `push()` | `new CompressionStream('gzip')`, or a `GzipCompressContext` | `createGzipCompressStream()` |
+| `new Deflate()`, `push()` (zlib) | `new CompressionStream('deflate')` | none |
+| `new Deflate({ raw: true })` | `new CompressionStream('deflate-raw')`, or a `DeflateCompressContext` | `createDeflateCompressStream()` |
+| `new Deflate({ gzip: true })` | `new CompressionStream('gzip')`, or a `GzipCompressContext` | `createGzipCompressStream()` |
 | `gzip(data, { header: { name } })` | `compressSync(data, { format: 'gzip', gzipHeader: { filename } })` | `gzipCompressWithHeader(data, { filename })` |
 
 - **zlib and raw deflate.** pako's `deflate()` writes zlib data, as `'deflate'` of the unified API does. The `deflateCompress()` function of the package root writes raw deflate, like pako's `deflateRaw()`.
