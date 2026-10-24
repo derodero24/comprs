@@ -730,8 +730,25 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
+      # The Ubuntu mirror occasionally stalls: this step normally takes under a
+      # minute, but has taken over 20 and timed the job out. Bound each attempt
+      # so a stalled download is killed and retried; apt keeps the packages it
+      # already fetched, so a retry resumes. dpkg --configure -a finishes an
+      # installation an attempt interrupted.
       - name: Install Playwright system dependencies
-        run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
+        timeout-minutes: 10
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright system dependency install attempt ${attempt}/3"
+            if timeout --kill-after=30 180 pnpm --dir e2e exec playwright install-deps chromium firefox webkit; then
+              exit 0
+            fi
+            echo "Playwright system dependency install failed or timed out (attempt ${attempt}); retrying..."
+            sudo dpkg --configure -a || true
+            sleep 5
+          done
+          echo "Playwright system dependency install failed after 3 attempts"
+          exit 1
       # Headless Chromium runs the headless shell, so the full browser is not
       # needed.
       - name: Install Playwright browsers
