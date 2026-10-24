@@ -8,6 +8,7 @@ use std::sync::Arc;
 use comprs_brotli::{Encoder, Operation, PreparedDictionary};
 
 use crate::brotli_stream::End;
+use crate::dictionary::Dictionary;
 use crate::{ComprsError, IntArg};
 
 /// Default compression quality for brotli.
@@ -94,8 +95,9 @@ thread_local! {
     /// thread, the most recently used first.
     ///
     /// libbrotli hashes a dictionary before an encoder can refer to it,
-    /// which took 0.3 ms for a dictionary of 4 KiB, whatever its size up to
-    /// 2 MiB: 40 times as long as compressing a 150-byte message with it.
+    /// which took 0.3 ms for a dictionary of 4 KiB, 40 times as long as
+    /// compressing a 150-byte message with it, and 2 to 4 ms for 256 KiB.
+    /// A [`Dictionary`] keeps its own, prepared when it is created.
     /// The one-shot functions take the dictionary's bytes on every call, so
     /// the thread keeps the last few prepared, as it is likely to get the
     /// same again. The memory that they hold is not reported to the
@@ -128,16 +130,20 @@ pub(crate) fn prepared_dictionary(
     })
 }
 
-/// Compress all of `input` at `quality` into one stream, with the custom
-/// dictionary `dict` (empty for none).
+/// Compress all of `input` at `quality` into one stream, with the prepared
+/// custom dictionary `dict`, if any.
 ///
 /// The encoder gets the size of the input as a hint, as libbrotli's own
 /// one-shot `BrotliEncoderCompress` gives it, and the output starts with
 /// room for as many bytes as the input.
-fn encode(input: &[u8], dict: &[u8], quality: u32) -> Result<Vec<u8>, comprs_brotli::Error> {
+fn encode(
+    input: &[u8],
+    dict: Option<Arc<PreparedDictionary<'static>>>,
+    quality: u32,
+) -> Result<Vec<u8>, comprs_brotli::Error> {
     let mut encoder = encoder(quality)?;
-    if !dict.is_empty() {
-        encoder.attach_shared(prepared_dictionary(dict)?)?;
+    if let Some(dict) = dict {
+        encoder.attach_shared(dict)?;
     }
     encoder.set_size_hint(input.len())?;
     let mut output = Vec::new();
@@ -151,7 +157,7 @@ fn encode(input: &[u8], dict: &[u8], quality: u32) -> Result<Vec<u8>, comprs_bro
 /// Compress data using Brotli.
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
     let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-    encode(data, &[], quality).map_err(|e| operation_error("brotli compress", e))
+    encode(data, None, quality).map_err(|e| operation_error("brotli compress", e))
 }
 
 /// Decompress Brotli-compressed data.
@@ -184,11 +190,43 @@ pub fn compress_with_dict(
     compress_with_dict_inner(input, dict, quality, "brotli compress with dict")
 }
 
+/// Compress `input` with a prepared brotli dictionary, into the output of
+/// [`compress_with_dict`] with its bytes. The dictionary was prepared when
+/// it was created, so the call does not hash it again, nor look it up among
+/// those that the thread keeps (#707).
+///
+/// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary ("this
+/// Dictionary is for zstd"), then for an invalid `quality`.
+pub fn compress_prepared(
+    input: &[u8],
+    dictionary: &Dictionary,
+    quality: Option<u32>,
+) -> Result<Vec<u8>, ComprsError> {
+    let dict = Arc::clone(dictionary.brotli_prepared()?);
+    let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
+    encode(input, Some(dict), quality).map_err(|e| operation_error("brotli compress with dict", e))
+}
+
 /// [`compress_with_dict`] with a checked `quality`, reporting encoder errors
 /// with `context`.
 pub(crate) fn compress_with_dict_inner(
     input: &[u8],
     dict: &[u8],
+    quality: u32,
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    let dict = (!dict.is_empty())
+        .then(|| prepared_dictionary(dict))
+        .transpose()
+        .map_err(|e| operation_error(context, e))?;
+    compress_with_prepared_inner(input, dict, quality, context)
+}
+
+/// Compress `input` with the prepared dictionary `dict`, if any, as
+/// [`compress_with_dict_inner`] does with its bytes.
+pub(crate) fn compress_with_prepared_inner(
+    input: &[u8],
+    dict: Option<Arc<PreparedDictionary<'static>>>,
     quality: u32,
     context: &'static str,
 ) -> Result<Vec<u8>, ComprsError> {

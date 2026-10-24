@@ -6,7 +6,8 @@
 //! call on it (#557). A [`Dictionary`] digests it once, and
 //! [`crate::zstd::compress_prepared`] and
 //! [`crate::zstd::decompress_prepared`] reuse the result on every call, on
-//! any thread.
+//! any thread. libbrotli hashes a dictionary before its encoder can refer
+//! to it, and a brotli [`Dictionary`] keeps that too (#707).
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -14,9 +15,11 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use comprs_brotli::PreparedDictionary;
 use zstd::zstd_safe::{self, CCtx, CDict, DDict};
 
 use crate::ComprsError;
+use crate::brotli::{QUALITY, operation_error};
 use crate::zstd::{DEFAULT_LEVEL, LEVEL, effective_level};
 use crate::zstd_stream::zstd_error;
 
@@ -75,18 +78,21 @@ const MAX_EXTRA_LEVELS: usize = 3;
 /// A zstd dictionary is prepared when it is created: zstd digests it into a
 /// compression dictionary for its level and a decompression dictionary. It
 /// prepares other compression levels on first use, and keeps up to 3 of
-/// them, dropping the one that it prepared first. A brotli dictionary only
-/// holds the bytes, which the brotli functions take as they are
-/// ([`raw_for`](Self::raw_for)).
+/// them, dropping the one that it prepared first. A brotli dictionary is
+/// prepared for the encoder when it is created, for every quality; the
+/// decoder takes the bytes as they are, and shares them.
 ///
 /// The dictionary copies its bytes, so the caller can change or free them
 /// afterwards. It can be shared between threads: the prepared dictionaries
 /// are only read, and the other levels are kept behind a lock.
 pub struct Dictionary {
     format: DictionaryFormat,
-    raw: Box<[u8]>,
+    raw: Arc<[u8]>,
     /// The prepared state of a zstd dictionary; `None` for brotli.
     zstd: Option<ZstdPrepared>,
+    /// The bytes prepared for the brotli encoder, which shares them with
+    /// `raw`; `None` for zstd.
+    brotli: Option<Arc<PreparedDictionary<'static>>>,
 }
 
 /// The digested forms of a zstd dictionary.
@@ -105,7 +111,8 @@ type ExtraLevels = VecDeque<(i32, Arc<CDict<'static>>)>;
 
 // The bindings share a dictionary between threads, such as the threads that
 // run asynchronous calls. zstd documents its digested dictionaries as
-// read-only once created, and zstd-safe marks them Send and Sync.
+// read-only once created, and zstd-safe marks them Send and Sync, as
+// comprs-brotli does its prepared dictionaries.
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Dictionary>();
@@ -123,7 +130,8 @@ impl Dictionary {
     /// `level`, or any `level` for a brotli dictionary, and with
     /// [`ComprsError::Operation`] if zstd cannot prepare the dictionary: it
     /// is corrupt, such as a trained dictionary cut short inside its entropy
-    /// tables, or memory ran out.
+    /// tables, or memory ran out, or if libbrotli runs out of memory
+    /// preparing it.
     pub fn new(
         raw: &[u8],
         format: DictionaryFormat,
@@ -134,22 +142,30 @@ impl Dictionary {
                 "dictionary must not be empty".to_string(),
             ));
         }
-        let zstd = match format {
+        let raw: Arc<[u8]> = raw.into();
+        let (zstd, brotli) = match format {
             DictionaryFormat::Zstd => {
                 let level = LEVEL.check_optional_f64(level)?.unwrap_or(DEFAULT_LEVEL);
-                Some(ZstdPrepared::new(raw, effective_level(level))?)
+                (Some(ZstdPrepared::new(&raw, effective_level(level))?), None)
             }
             DictionaryFormat::Brotli if level.is_some() => {
                 return Err(ComprsError::InvalidArg(
                     "level applies to zstd dictionaries only".to_string(),
                 ));
             }
-            DictionaryFormat::Brotli => None,
+            DictionaryFormat::Brotli => {
+                // libbrotli prepares a raw dictionary the same way for every
+                // quality.
+                let prepared = PreparedDictionary::shared(Arc::clone(&raw), QUALITY.max)
+                    .map_err(|e| operation_error("brotli dictionary preparation", e))?;
+                (None, Some(Arc::new(prepared)))
+            }
         };
         Ok(Self {
             format,
-            raw: raw.into(),
+            raw,
             zstd,
+            brotli,
         })
     }
 
@@ -184,10 +200,14 @@ impl Dictionary {
     }
 
     /// The heap memory that the dictionary holds, so that bindings can
-    /// report it to their runtime: the bytes and, for zstd, the prepared
-    /// dictionaries, including those of the other levels that it keeps.
+    /// report it to their runtime: the bytes and the prepared dictionaries,
+    /// for zstd including those of the other levels that it keeps.
     pub fn memory_usage(&self) -> usize {
         self.raw.len()
+            + self
+                .brotli
+                .as_ref()
+                .map_or(0, |prepared| prepared.memory_usage())
             + self.zstd.as_ref().map_or(0, |zstd| {
                 let extra: usize = zstd
                     .lock_extra()
@@ -196,6 +216,19 @@ impl Dictionary {
                     .sum();
                 zstd.cdict.sizeof() + zstd.ddict.sizeof() + extra
             })
+    }
+
+    /// The bytes of the dictionary, shared, for a brotli decoder, or
+    /// [`ComprsError::InvalidArg`] for a zstd dictionary.
+    pub(crate) fn brotli_raw(&self) -> Result<Arc<[u8]>, ComprsError> {
+        self.brotli_prepared()?;
+        Ok(Arc::clone(&self.raw))
+    }
+
+    /// The dictionary prepared for the brotli encoder, or
+    /// [`ComprsError::InvalidArg`] for a zstd dictionary.
+    pub(crate) fn brotli_prepared(&self) -> Result<&Arc<PreparedDictionary<'static>>, ComprsError> {
+        self.brotli.as_ref().ok_or_else(|| self.wrong_format())
     }
 
     /// The prepared zstd state, or [`ComprsError::InvalidArg`] for a brotli
@@ -410,5 +443,46 @@ mod tests {
             crate::zstd::decompress_with_dict(&frame, RAW).unwrap(),
             b"a message"
         );
+    }
+
+    #[test]
+    fn a_brotli_dictionary_compresses_as_its_bytes_do() {
+        let dict = Dictionary::new(RAW, DictionaryFormat::Brotli, None).unwrap();
+        let message = b"a message of the words that the messages share";
+        for quality in [None, Some(0), Some(5), Some(11)] {
+            assert_eq!(
+                crate::brotli::compress_prepared(message, &dict, quality).unwrap(),
+                crate::brotli::compress_with_dict(message, RAW, quality).unwrap(),
+                "quality {quality:?}"
+            );
+        }
+    }
+
+    // The prepared dictionary does not copy the bytes again, and its tables
+    // count.
+    #[test]
+    fn a_brotli_dictionary_reports_its_prepared_tables() {
+        let dict = Dictionary::new(RAW, DictionaryFormat::Brotli, None).unwrap();
+        let prepared = dict.brotli_prepared().unwrap();
+        assert!(std::ptr::eq(prepared.bytes(), dict.raw()));
+        assert!(prepared.memory_usage() > 0);
+        assert_eq!(dict.memory_usage(), RAW.len() + prepared.memory_usage());
+        assert!(dict.zstd_ddict().is_err());
+    }
+
+    #[test]
+    fn a_zstd_dictionary_is_not_one_for_brotli() {
+        let dict = Dictionary::new(RAW, DictionaryFormat::Zstd, None).unwrap();
+        for result in [
+            crate::brotli::compress_prepared(b"a message", &dict, None).map(drop),
+            dict.brotli_raw().map(drop),
+        ] {
+            match result {
+                Err(ComprsError::InvalidArg(message)) => {
+                    assert_eq!(message, "this Dictionary is for zstd");
+                }
+                other => panic!("{other:?}"),
+            }
+        }
     }
 }
