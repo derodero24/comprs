@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative, resolve } from 'node:path';
+import { join, posix, relative, resolve } from 'node:path';
 import { build, type Plugin } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 
@@ -98,9 +98,12 @@ function conditionFormats(dir: string, value: unknown): unknown {
   return value;
 }
 
-/** Whether `files` of a package.json includes the file at `path`. */
+/**
+ * Whether `files` of a package.json includes the file at `path`, a path of
+ * `exports`, which uses forward slashes on every platform.
+ */
 function listedInFiles(files: readonly string[], path: string): boolean {
-  const file = relative('.', path);
+  const file = posix.normalize(path);
   return files.some((entry) => file === entry || file.startsWith(`${entry}/`));
 }
 
