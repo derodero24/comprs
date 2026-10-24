@@ -288,6 +288,7 @@ name = "comprs-core"
 version = "2.1.0"
 dependencies = [
  "brotli",
+ "comprs-brotli",
  "crc32fast",
  "flate2",
  "lz4_flex",

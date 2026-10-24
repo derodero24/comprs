@@ -474,6 +474,47 @@ describe('collectLicenses', () => {
     ).toEqual(['brotli']);
   });
 
+  /** comprs-brotli with libbrotli's license and version header. */
+  function brotliCrate(files: Record<string, string> = {}): CargoPackage {
+    return registryCrate(
+      'comprs-brotli',
+      '0.1.0',
+      {
+        'brotli/LICENSE': 'Copyright (c) by the Brotli Authors.',
+        'brotli/c/common/version.h':
+          '#define BROTLI_VERSION_MAJOR 1\n#define BROTLI_VERSION_MINOR 2\n#define BROTLI_VERSION_PATCH 1\n',
+        ...files,
+      },
+      { source: null },
+    );
+  }
+
+  it('lists the libbrotli that comprs-brotli vendors, with its version and license', () => {
+    expect(
+      licenses.collectLicenses([{ name: 'comprs-brotli', version: '0.1.0' }], [brotliCrate()]),
+    ).toEqual([
+      {
+        name: 'libbrotli',
+        version: '1.2.1',
+        license: 'MIT',
+        repository: 'https://github.com/google/brotli',
+        texts: [{ file: 'brotli/LICENSE', text: 'Copyright (c) by the Brotli Authors.' }],
+      },
+    ]);
+  });
+
+  it('fails when the vendored libbrotli has no license or no version', () => {
+    const crates = [{ name: 'comprs-brotli', version: '0.1.0' }];
+    expect(() => licenses.collectLicenses(crates, [brotliCrate({ 'brotli/LICENSE': '' })])).toThrow(
+      'comprs-brotli vendors libbrotli, but has no brotli/LICENSE',
+    );
+    expect(() =>
+      licenses.collectLicenses(crates, [
+        brotliCrate({ 'brotli/c/common/version.h': '#define BROTLI_VERSION 0x1000000\n' }),
+      ]),
+    ).toThrow('No BROTLI_VERSION_MAJOR, MINOR and PATCH defines');
+  });
+
   it('fails on a crate that cargo metadata does not list', () => {
     expect(() => licenses.collectLicenses([{ name: 'ghost', version: '1.0.0' }], [])).toThrow(
       'cargo metadata does not list ghost 1.0.0',

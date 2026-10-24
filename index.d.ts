@@ -168,12 +168,11 @@ export declare class BrotliCompressContext {
  *   16 bytes of input (4,194,288 bytes, as far as brotli refers back to
  *   the dictionary), which compress with the dictionary into the output of
  *   `brotliCompressWithDict()` if the input ends there. A longer input is
- *   compressed without the dictionary, which only helps the start of a
- *   stream, into a stream that decodes with or without it: the
- *   `transform()` that takes the input past those bytes returns their
- *   output, and from then on, `transform()` returns the output that the
- *   encoder has emitted, `flush()` all the output of the input so far, and
- *   `finish()` the rest of the stream. The stream helpers use this mode.
+ *   compressed with the dictionary too, as it arrives: the `transform()`
+ *   that takes the input past those bytes returns their output, and from
+ *   then on, `transform()` returns the output that the encoder has
+ *   emitted, `flush()` all the output of the input so far, and `finish()`
+ *   the rest of the stream. The stream helpers use this mode.
  */
 export declare class BrotliCompressDictContext {
   /**
@@ -1576,7 +1575,7 @@ export interface StreamContextOptions {
    * more, and `maxOutputSize` limits the output of the whole stream;
    * `BrotliCompressDictContext` holds at most the first 4 MiB less
    * 16 bytes of input (4,194,288 bytes), then compresses each chunk as it
-   * arrives, without the dictionary.
+   * arrives.
    * Without it, the context keeps the behaviour that it has always had.
    * The stream helpers of `@derodero24/comprs/streams` and
    * `@derodero24/comprs/node` set it.
