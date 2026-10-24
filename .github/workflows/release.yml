@@ -111,6 +111,7 @@ jobs:
     permissions:
       contents: write # changesets/action commits the version PR branch
       pull-requests: write # create or update the version and release PRs
+      actions: write # dispatch CI on the version PR branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -155,6 +156,19 @@ jobs:
           pr-title: "chore(release): version packages"
           commit-message: "chore(release): version packages"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # changesets/action pushes the version PR branch with GITHUB_TOKEN,
+      # whose events start no workflow, so CI would not run on the pull
+      # request. workflow_dispatch is one of the two events that GITHUB_TOKEN
+      # may start: the dispatched run checks the head commit of the branch,
+      # and its checks, CI Complete among them, show on the pull request
+      # (#574). The release PR needs none: its head is develop, which CI ran
+      # on when it was pushed.
+      - name: Run CI on the version PR
+        if: steps.changesets.outputs.has-changesets == 'true' && steps.changesets.outputs.pullRequestNumber != ''
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create or update release PR
         if: steps.changesets.outputs.has-changesets == 'false'
