@@ -165,7 +165,7 @@ jobs:
       # (#574). The release PR needs none: its head is develop, which CI ran
       # on when it was pushed.
       - name: Run CI on the version PR
-        if: steps.changesets.outputs.has-changesets == 'true' && steps.changesets.outputs.pullRequestNumber != ''
+        if: steps.changesets.outputs.has-changesets == 'true' && steps.changesets.outputs.pr-number != ''
         run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
