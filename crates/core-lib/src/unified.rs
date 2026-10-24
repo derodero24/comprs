@@ -677,18 +677,25 @@ pub const DICTIONARY_SIZE: IntArg<usize> = IntArg {
 /// Fails with [`ComprsError::InvalidArg`] for any other `max_size` ("maxSize
 /// must be an integer between 0 and 16777216"), and with
 /// [`ComprsError::Operation`] when zstd cannot train a dictionary, such as
-/// from no samples or too little data.
-///
-/// Only builds with zstd have it.
-#[cfg(feature = "zstd")]
+/// from no samples or too little data. A build without zstd fails with
+/// [`ComprsError::InvalidArg`] ("this build of comprs does not include
+/// zstd").
 pub fn train_dictionary(
     samples: &[Vec<u8>],
     max_size: Option<f64>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let max_size = DICTIONARY_SIZE
-        .check_optional_f64(max_size)?
-        .unwrap_or(zstd::DEFAULT_MAX_DICT_SIZE);
-    zstd::train_dictionary(samples, max_size)
+    #[cfg(feature = "zstd")]
+    {
+        let max_size = DICTIONARY_SIZE
+            .check_optional_f64(max_size)?
+            .unwrap_or(zstd::DEFAULT_MAX_DICT_SIZE);
+        zstd::train_dictionary(samples, max_size)
+    }
+    #[cfg(not(feature = "zstd"))]
+    {
+        let _ = (samples, max_size);
+        Err(not_built(Format::Zstd.name()))
+    }
 }
 
 /// Compress `data` in the format named `format` with [`compress`], with the
