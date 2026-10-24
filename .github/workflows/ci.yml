@@ -369,6 +369,13 @@ jobs:
       # Rust can bring new lints, so the job can fail without a change to the
       # code: fix what it reports.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # comprs-core also builds with one family of formats alone, as the
+      # per-format WebAssembly builds do (#342).
+      - name: Clippy for each family of formats alone
+        run: |
+          for family in zstd gzip brotli lz4; do
+            cargo clippy -p comprs-core --all-targets --no-default-features --features "$family" -- -D warnings
+          done
       # The same for rustdoc: a doc comment that links to an item that the
       # documentation does not show, or that reads as HTML, such as `<name>`
       # outside a code span, which the doc comments of napi-rs functions also
@@ -382,7 +389,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -397,6 +404,13 @@ jobs:
       # comprs-core builds without it, as the WebAssembly build does: this
       # run tests that such builds reject zstd workers.
       - run: cargo test -p comprs-core
+      # Each family of formats alone, as for clippy in the Rust Lint job:
+      # the unified API must reject the formats that the build leaves out.
+      - name: Test each family of formats alone
+        run: |
+          for family in zstd gzip brotli lz4; do
+            cargo test -p comprs-core --no-default-features --features "$family"
+          done
 
   # Checks the workspace with the oldest Rust it supports, the rust-version in
   # Cargo.toml; the other jobs use the latest stable. Cargo refuses a

@@ -1224,6 +1224,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "zstd")]
     #[test]
     fn dict_contexts_reject_a_zstd_dictionary() {
         use crate::dictionary::{Dictionary, DictionaryFormat};

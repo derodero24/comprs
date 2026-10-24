@@ -12,20 +12,39 @@
 //! [`ComprsError::Truncated`], and data after the end of the stream with
 //! [`ComprsError::Corrupt`]. The per-format functions and stream contexts,
 //! [`crate::detect`] and its format enum stay as they are.
+//!
+//! Every build has this module, also one that leaves out some formats (see
+//! the features in Cargo.toml): the functions and contexts fail with
+//! [`ComprsError::InvalidArg`] for those formats ("this build of comprs does
+//! not include zstd"), before they check the options, and
+//! [`Format::is_built`] tells them apart. Detection recognizes the formats
+//! with a magic number in every build, and zlib and brotli only in builds
+//! with them.
 
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "gzip")]
 use flate2::{Decompress, FlushDecompress, Status};
 
-use crate::detect::{self, BrotliProbe};
+#[cfg(any(feature = "zstd", feature = "gzip", feature = "brotli"))]
+use crate::IntArg;
+#[cfg(feature = "brotli")]
+use crate::detect::BrotliProbe;
+use crate::detect::{self, LZ4_LEGACY_MAGIC, LZ4_MAGIC, SKIPPABLE_MAGIC};
 use crate::dictionary::{Dictionary, DictionaryFormat};
+use crate::error::not_built;
+#[cfg(feature = "gzip")]
 use crate::gzip::FlateWrapper;
-use crate::lz4::{FRAME_MAGIC as LZ4_MAGIC, LEGACY_MAGIC as LZ4_LEGACY_MAGIC, SKIPPABLE_MAGIC};
-use crate::{
-    ComprsError, IntArg, MemoryUsage, brotli, brotli_stream, gzip, gzip_stream, lz4, lz4_stream,
-    zstd, zstd_stream,
-};
+use crate::{ComprsError, MemoryUsage};
+#[cfg(feature = "brotli")]
+use crate::{brotli, brotli_stream};
+#[cfg(feature = "gzip")]
+use crate::{gzip, gzip_stream};
+#[cfg(feature = "lz4")]
+use crate::{lz4, lz4_stream};
+#[cfg(feature = "zstd")]
+use crate::{zstd, zstd_stream};
 
 /// A compression format of the unified API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,6 +88,25 @@ impl Format {
             Format::DeflateRaw => "deflate-raw",
             Format::Brotli => "brotli",
             Format::Lz4 => "lz4",
+        }
+    }
+
+    /// Whether this build of comprs includes the format.
+    pub fn is_built(self) -> bool {
+        match self {
+            Format::Zstd => cfg!(feature = "zstd"),
+            Format::Gzip | Format::Deflate | Format::DeflateRaw => cfg!(feature = "gzip"),
+            Format::Brotli => cfg!(feature = "brotli"),
+            Format::Lz4 => cfg!(feature = "lz4"),
+        }
+    }
+
+    /// [`ComprsError::InvalidArg`] for a format that this build leaves out.
+    fn check_built(self) -> Result<(), ComprsError> {
+        if self.is_built() {
+            Ok(())
+        } else {
+            Err(not_built(self.name()))
         }
     }
 }
@@ -188,6 +226,7 @@ impl GzipHeaderOptions {
 
     /// The header as the per-format functions take it, with its mtime
     /// checked. They check the filename.
+    #[cfg(feature = "gzip")]
     fn checked(&self) -> Result<gzip::GzipHeaderOptions, ComprsError> {
         Ok(gzip::GzipHeaderOptions {
             filename: self.filename.clone(),
@@ -218,12 +257,16 @@ pub struct DecompressOptions<'a> {
 
 /// The levels of the formats other than zstd, which take the levels of
 /// their per-format functions under the names of the unified API.
+#[cfg(feature = "gzip")]
 const GZIP_LEVEL: IntArg<u32> = gzip::LEVEL;
+#[cfg(feature = "gzip")]
 const DEFLATE_LEVEL: IntArg<u32> = gzip::DEFLATE_LEVEL;
+#[cfg(feature = "gzip")]
 const DEFLATE_RAW_LEVEL: IntArg<u32> = IntArg {
     name: "deflate-raw compression level",
     ..gzip::LEVEL
 };
+#[cfg(feature = "brotli")]
 const BROTLI_LEVEL: IntArg<u32> = IntArg {
     name: "brotli compression level",
     ..brotli::QUALITY
@@ -231,38 +274,50 @@ const BROTLI_LEVEL: IntArg<u32> = IntArg {
 
 /// The encoder that [`encoder`] chose, with its checked settings.
 enum Encoder<'a> {
+    #[cfg(feature = "zstd")]
     Zstd {
         level: Option<i32>,
         dictionary: Option<DictionaryRef<'a>>,
         workers: u32,
     },
+    #[cfg(feature = "gzip")]
     Gzip {
         level: Option<u32>,
         /// With its mtime checked.
         header: Option<gzip::GzipHeaderOptions>,
     },
-    Deflate {
-        level: Option<u32>,
-    },
-    DeflateRaw {
-        level: Option<u32>,
-    },
+    #[cfg(feature = "gzip")]
+    Deflate { level: Option<u32> },
+    #[cfg(feature = "gzip")]
+    DeflateRaw { level: Option<u32> },
+    #[cfg(feature = "brotli")]
     Brotli {
         level: Option<u32>,
         dictionary: Option<DictionaryRef<'a>>,
     },
+    #[cfg(feature = "lz4")]
     Lz4,
+    /// Holds the lifetime of the dictionary, which only zstd and brotli
+    /// take, in a build without them. It is never created.
+    #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+    #[allow(dead_code)]
+    Never(std::convert::Infallible, std::marker::PhantomData<&'a ()>),
 }
 
-/// Check `options` for compression in `format`, in this order: the
-/// dictionary, the gzip header, the workers, the level, then the mtime of
-/// the gzip header. The per-format encoder checks the filename of the
-/// header last.
+/// Check `options` for compression in `format`, in this order: that the
+/// build includes `format`, the dictionary, the gzip header, the workers,
+/// the level, then the mtime of the gzip header. The per-format encoder
+/// checks the filename of the header last.
 fn encoder<'a>(
     format: Format,
     options: &'a CompressOptions<'a>,
 ) -> Result<Encoder<'a>, ComprsError> {
+    format.check_built()?;
     // Only zstd and brotli get past this with a dictionary.
+    #[cfg_attr(
+        not(any(feature = "zstd", feature = "brotli")),
+        allow(unused_variables)
+    )]
     let dictionary = options
         .dictionary
         .map(|dictionary| check_dictionary(format, dictionary))
@@ -272,22 +327,28 @@ fn encoder<'a>(
             "gzipHeader applies to gzip compression only".to_string(),
         ));
     }
+    #[cfg_attr(not(feature = "zstd"), allow(unused_variables))]
     let workers = match options.workers {
         None => 0,
-        Some(_) if format != Format::Zstd => {
+        #[cfg(feature = "zstd")]
+        Some(workers) if format == Format::Zstd => {
+            zstd::check_workers(zstd::WORKERS.check_f64(workers)?)?
+        }
+        Some(_) => {
             return Err(ComprsError::InvalidArg(
                 "workers applies to zstd compression only".to_string(),
             ));
         }
-        Some(workers) => zstd::check_workers(zstd::WORKERS.check_f64(workers)?)?,
     };
     let level = options.level;
     Ok(match format {
+        #[cfg(feature = "zstd")]
         Format::Zstd => Encoder::Zstd {
             level: zstd::LEVEL.check_optional_f64(level)?,
             dictionary,
             workers,
         },
+        #[cfg(feature = "gzip")]
         Format::Gzip => {
             let level = GZIP_LEVEL.check_optional_f64(level)?;
             // The fields of the header come after the level.
@@ -298,22 +359,29 @@ fn encoder<'a>(
                 .transpose()?;
             Encoder::Gzip { level, header }
         }
+        #[cfg(feature = "gzip")]
         Format::Deflate => Encoder::Deflate {
             level: DEFLATE_LEVEL.check_optional_f64(level)?,
         },
+        #[cfg(feature = "gzip")]
         Format::DeflateRaw => Encoder::DeflateRaw {
             level: DEFLATE_RAW_LEVEL.check_optional_f64(level)?,
         },
+        #[cfg(feature = "brotli")]
         Format::Brotli => Encoder::Brotli {
             level: BROTLI_LEVEL.check_optional_f64(level)?,
             dictionary,
         },
+        #[cfg(feature = "lz4")]
         Format::Lz4 if level.is_some() => {
             return Err(ComprsError::InvalidArg(
                 "lz4 does not take a compression level".to_string(),
             ));
         }
+        #[cfg(feature = "lz4")]
         Format::Lz4 => Encoder::Lz4,
+        #[cfg(not(all_formats))]
+        _ => return Err(not_built(format.name())),
     })
 }
 
@@ -373,44 +441,57 @@ pub fn compress(
     options: &CompressOptions,
 ) -> Result<Vec<u8>, ComprsError> {
     match encoder(format, options)? {
+        #[cfg(feature = "zstd")]
         Encoder::Zstd {
             level,
             dictionary: None,
             workers,
         } => zstd::compress_with_workers(data, level, workers),
+        #[cfg(feature = "zstd")]
         Encoder::Zstd {
             level,
             dictionary: Some(DictionaryRef::Raw(dict)),
             workers,
         } => zstd::compress_with_dict_and_workers(data, dict, level, workers),
+        #[cfg(feature = "zstd")]
         Encoder::Zstd {
             level,
             dictionary: Some(DictionaryRef::Prepared(dict)),
             workers,
         } => zstd::compress_prepared(data, dict, level, workers),
+        #[cfg(feature = "gzip")]
         Encoder::Gzip {
             level,
             header: None,
         } => gzip::compress(data, level),
+        #[cfg(feature = "gzip")]
         Encoder::Gzip {
             level,
             header: Some(header),
         } => gzip::compress_with_header(data, &header, level),
+        #[cfg(feature = "gzip")]
         Encoder::Deflate { level } => gzip::zlib_compress(data, level),
+        #[cfg(feature = "gzip")]
         Encoder::DeflateRaw { level } => gzip::deflate_compress(data, level),
+        #[cfg(feature = "brotli")]
         Encoder::Brotli {
             level,
             dictionary: None,
         } => brotli::compress(data, level),
+        #[cfg(feature = "brotli")]
         Encoder::Brotli {
             level,
             dictionary: Some(DictionaryRef::Raw(dict)),
         } => brotli::compress_with_dict(data, dict, level),
+        #[cfg(feature = "brotli")]
         Encoder::Brotli {
             level,
             dictionary: Some(DictionaryRef::Prepared(dict)),
         } => brotli::compress_prepared(data, dict, level),
+        #[cfg(feature = "lz4")]
         Encoder::Lz4 => lz4::compress(data),
+        #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+        Encoder::Never(never, _) => match never {},
     }
 }
 
@@ -418,28 +499,46 @@ pub fn compress(
 /// dictionary.
 #[derive(Clone, Copy)]
 enum Decoder<'a> {
+    #[cfg(feature = "zstd")]
     Zstd(Option<DictionaryRef<'a>>),
     /// gzip, deflate or deflate-raw.
+    #[cfg(feature = "gzip")]
     Flate(FlateWrapper),
+    #[cfg(feature = "brotli")]
     Brotli(Option<DictionaryRef<'a>>),
+    #[cfg(feature = "lz4")]
     Lz4,
+    /// As [`Encoder::Never`].
+    #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+    #[allow(dead_code)]
+    Never(std::convert::Infallible, std::marker::PhantomData<&'a ()>),
 }
 
 impl Decoder<'_> {
-    /// The decoder of `format`, without a dictionary.
-    fn of(format: Format) -> Self {
-        match format {
+    /// The decoder of `format`, without a dictionary, or
+    /// [`ComprsError::InvalidArg`] for a format that this build leaves out.
+    fn of(format: Format) -> Result<Self, ComprsError> {
+        Ok(match format {
+            #[cfg(feature = "zstd")]
             Format::Zstd => Decoder::Zstd(None),
+            #[cfg(feature = "gzip")]
             Format::Gzip => Decoder::Flate(FlateWrapper::Gzip),
+            #[cfg(feature = "gzip")]
             Format::Deflate => Decoder::Flate(FlateWrapper::Zlib),
+            #[cfg(feature = "gzip")]
             Format::DeflateRaw => Decoder::Flate(FlateWrapper::Raw),
+            #[cfg(feature = "brotli")]
             Format::Brotli => Decoder::Brotli(None),
+            #[cfg(feature = "lz4")]
             Format::Lz4 => Decoder::Lz4,
-        }
+            #[cfg(not(all_formats))]
+            _ => return Err(not_built(format.name())),
+        })
     }
 }
 
-/// Check the format and the dictionary of `options`: `None` stands for
+/// Check the format and the dictionary of `options`, in this order: that
+/// the build includes the format, then the dictionary. `None` stands for
 /// detection.
 fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, ComprsError> {
     let format = match (options.format, options.dictionary) {
@@ -452,14 +551,25 @@ fn decoder<'a>(options: &DecompressOptions<'a>) -> Result<Option<Decoder<'a>>, C
         }
         (None, Some(DictionaryRef::Prepared(dict))) => dict.format().into(),
     };
+    let decoder = Decoder::of(format)?;
     let Some(dictionary) = options.dictionary else {
-        return Ok(Some(Decoder::of(format)));
+        return Ok(Some(decoder));
     };
     // Only zstd and brotli get past this.
+    #[cfg_attr(
+        not(any(feature = "zstd", feature = "brotli")),
+        allow(unused_variables)
+    )]
     let dictionary = check_dictionary(format, dictionary)?;
-    Ok(Some(match format {
-        Format::Brotli => Decoder::Brotli(Some(dictionary)),
-        _ => Decoder::Zstd(Some(dictionary)),
+    Ok(Some(match decoder {
+        #[cfg(feature = "zstd")]
+        Decoder::Zstd(_) => Decoder::Zstd(Some(dictionary)),
+        #[cfg(feature = "brotli")]
+        Decoder::Brotli(_) => Decoder::Brotli(Some(dictionary)),
+        // check_dictionary rejected the others. A build with only zstd and
+        // brotli has no others.
+        #[allow(unreachable_patterns)]
+        decoder => decoder,
     }))
 }
 
@@ -502,7 +612,7 @@ pub fn decompress(data: &[u8], options: &DecompressOptions) -> Result<Vec<u8>, C
     let limit = crate::validate_max_output_size(options.max_output_size)?;
     let Some(decoder) = decoder else {
         let format = detect(data).ok_or_else(unknown_format)?;
-        return decode(data, Decoder::of(format), limit).map_err(|e| detected_error(format, e));
+        return decode(data, Decoder::of(format)?, limit).map_err(|e| detected_error(format, e));
     };
     decode(data, decoder, limit)
 }
@@ -510,18 +620,26 @@ pub fn decompress(data: &[u8], options: &DecompressOptions) -> Result<Vec<u8>, C
 /// Decompress `data` with `decoder` into at most `limit` bytes.
 fn decode(data: &[u8], decoder: Decoder, limit: usize) -> Result<Vec<u8>, ComprsError> {
     match decoder {
+        #[cfg(feature = "zstd")]
         Decoder::Zstd(None) => zstd::decompress_with_capacity(data, limit),
+        #[cfg(feature = "zstd")]
         Decoder::Zstd(Some(DictionaryRef::Raw(dict))) => {
             zstd::decompress_with_dict_with_capacity(data, dict, limit)
         }
+        #[cfg(feature = "zstd")]
         Decoder::Zstd(Some(DictionaryRef::Prepared(dict))) => {
             zstd::decompress_prepared(data, dict, limit)
         }
+        #[cfg(feature = "gzip")]
         Decoder::Flate(wrapper) => gzip::decompress_strict(data, wrapper, limit),
+        #[cfg(feature = "brotli")]
         Decoder::Brotli(dict) => {
             brotli::decompress_strict(data, dict.map_or(&[], DictionaryRef::bytes), limit)
         }
+        #[cfg(feature = "lz4")]
         Decoder::Lz4 => lz4::decompress_with_capacity(data, limit),
+        #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+        Decoder::Never(never, _) => match never {},
     }
 }
 
@@ -545,6 +663,7 @@ fn detected_error(format: Format, error: ComprsError) -> ComprsError {
 
 /// The largest dictionary that [`train_dictionary`] may train:
 /// [`zstd::DICT_SIZE`] under the name of the unified API, `maxSize`.
+#[cfg(feature = "zstd")]
 pub const DICTIONARY_SIZE: IntArg<usize> = IntArg {
     name: "maxSize",
     ..zstd::DICT_SIZE
@@ -559,6 +678,9 @@ pub const DICTIONARY_SIZE: IntArg<usize> = IntArg {
 /// must be an integer between 0 and 16777216"), and with
 /// [`ComprsError::Operation`] when zstd cannot train a dictionary, such as
 /// from no samples or too little data.
+///
+/// Only builds with zstd have it.
+#[cfg(feature = "zstd")]
 pub fn train_dictionary(
     samples: &[Vec<u8>],
     max_size: Option<f64>,
@@ -654,7 +776,9 @@ fn decompress_options<'a>(
 }
 
 /// How much of the input detection decodes to recognize zlib and brotli,
-/// and how much input [`AutoDecoder`] holds at most: 64 KiB.
+/// and how much input [`AutoDecoder`] holds at most: 64 KiB. A build without
+/// gzip and brotli holds as much, since zstd and LZ4 frames can follow
+/// skippable frames.
 const MAX_PREFIX: usize = detect::BROTLI_PROBE_SIZE;
 
 /// What [`detect_prefix`] found in the start of some data.
@@ -707,7 +831,11 @@ pub enum Detection {
 /// [`Detection::Unknown`], which [`detect()`] maps to an `Option`.
 ///
 /// It never returns [`Format::DeflateRaw`], which has no header to
-/// recognize.
+/// recognize. A build without gzip skips step 3, and one without brotli
+/// step 4: data that the steps of the build do not recognize is unknown.
+/// The formats with a magic number are detected in every build, and the
+/// decoder then fails for those that the build leaves out, as for a format
+/// that is passed.
 pub fn detect_prefix(data: &[u8], is_final: bool) -> Detection {
     // 1. gzip.
     if data.starts_with(&[0x1f, 0x8b, 0x08]) {
@@ -736,11 +864,15 @@ pub fn detect_prefix(data: &[u8], is_final: bool) -> Detection {
     }
 
     // 3. zlib.
+    #[cfg(feature = "gzip")]
     if let Some(detection) = detect_zlib(data, is_final) {
         return detection;
     }
 
     // 4. brotli.
+    #[cfg(not(feature = "brotli"))]
+    return Detection::Unknown;
+    #[cfg(feature = "brotli")]
     match detect::probe_brotli(data, true) {
         BrotliProbe::Invalid => Detection::Unknown,
         BrotliProbe::Expands => Detection::Known(Format::Brotli),
@@ -774,6 +906,7 @@ fn is_magic_prefix(data: &[u8]) -> bool {
 
 /// Detect a zlib stream at the start of `data`, as [`detect_prefix`]
 /// describes: `None` if the data is no zlib stream.
+#[cfg(feature = "gzip")]
 fn detect_zlib(data: &[u8], is_final: bool) -> Option<Detection> {
     let need_more = (!is_final).then_some(Detection::NeedMore);
     let Some(&cmf) = data.first() else {
@@ -801,6 +934,7 @@ fn detect_zlib(data: &[u8], is_final: bool) -> Option<Detection> {
 }
 
 /// What inflating the start of a zlib stream found, without an error.
+#[cfg(feature = "gzip")]
 enum ZlibPrefix {
     /// The stream ended, after its checksum.
     Ended,
@@ -817,11 +951,13 @@ enum ZlibPrefix {
 /// error: random data after a zlib header fails within 1.5 KiB of output.
 /// The bound keeps detection about as cheap as its input, which 64 KiB of
 /// zlib data would not be: they can inflate to 64 MiB.
+#[cfg(feature = "gzip")]
 const ZLIB_PROBE_OUTPUT: usize = 64 * 1024;
 
 /// Inflate `prefix` as the start of a zlib stream into at most
 /// [`ZLIB_PROBE_OUTPUT`] bytes, dropping the output: `None` if the decoder
 /// fails.
+#[cfg(feature = "gzip")]
 fn inflate_zlib(prefix: &[u8]) -> Option<ZlibPrefix> {
     let mut inflater = Decompress::new(true);
     let mut output = vec![0; ZLIB_PROBE_OUTPUT];
@@ -863,13 +999,21 @@ fn inflate_zlib(prefix: &[u8]) -> Option<ZlibPrefix> {
 /// holds at most the first [`brotli_stream::DICT_REACH`] bytes of input and
 /// then streams, and [`lz4_stream::CompressContext`].
 pub enum CompressContext {
+    #[cfg(feature = "zstd")]
     Zstd(zstd_stream::CompressContext),
+    #[cfg(feature = "zstd")]
     ZstdDict(zstd_stream::CompressDictContext),
+    #[cfg(feature = "gzip")]
     Gzip(gzip_stream::GzipCompressContext),
+    #[cfg(feature = "gzip")]
     Deflate(gzip_stream::ZlibCompressContext),
+    #[cfg(feature = "gzip")]
     DeflateRaw(gzip_stream::DeflateCompressContext),
+    #[cfg(feature = "brotli")]
     Brotli(Box<brotli_stream::CompressContext>),
+    #[cfg(feature = "brotli")]
     BrotliDict(brotli_stream::CompressDictContext),
+    #[cfg(feature = "lz4")]
     Lz4(lz4_stream::CompressContext),
 }
 
@@ -878,13 +1022,21 @@ pub enum CompressContext {
 macro_rules! each_compressor {
     ($context:expr, $method:ident($($args:expr),*)) => {
         match $context {
+            #[cfg(feature = "zstd")]
             CompressContext::Zstd(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "zstd")]
             CompressContext::ZstdDict(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "gzip")]
             CompressContext::Gzip(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "gzip")]
             CompressContext::Deflate(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "gzip")]
             CompressContext::DeflateRaw(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "brotli")]
             CompressContext::Brotli(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "brotli")]
             CompressContext::BrotliDict(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "lz4")]
             CompressContext::Lz4(ctx) => ctx.$method($($args),*),
         }
     };
@@ -895,11 +1047,13 @@ impl CompressContext {
     /// checks of [`compress`].
     pub fn new(format: Format, options: &CompressOptions) -> Result<Self, ComprsError> {
         Ok(match encoder(format, options)? {
+            #[cfg(feature = "zstd")]
             Encoder::Zstd {
                 level,
                 dictionary: None,
                 workers,
             } => Self::Zstd(zstd_stream::CompressContext::with_workers(level, workers)?),
+            #[cfg(feature = "zstd")]
             Encoder::Zstd {
                 level,
                 dictionary: Some(DictionaryRef::Raw(dict)),
@@ -907,6 +1061,7 @@ impl CompressContext {
             } => Self::ZstdDict(zstd_stream::CompressDictContext::with_workers(
                 dict, level, workers,
             )?),
+            #[cfg(feature = "zstd")]
             Encoder::Zstd {
                 level,
                 dictionary: Some(DictionaryRef::Prepared(dict)),
@@ -914,39 +1069,49 @@ impl CompressContext {
             } => Self::ZstdDict(zstd_stream::CompressDictContext::with_prepared(
                 dict, level, workers,
             )?),
+            #[cfg(feature = "gzip")]
             Encoder::Gzip {
                 level,
                 header: None,
             } => Self::Gzip(gzip_stream::GzipCompressContext::new(level)?),
+            #[cfg(feature = "gzip")]
             Encoder::Gzip {
                 level,
                 header: Some(header),
             } => Self::Gzip(gzip_stream::GzipCompressContext::with_header(
                 level, &header,
             )?),
+            #[cfg(feature = "gzip")]
             Encoder::Deflate { level } => {
                 Self::Deflate(gzip_stream::ZlibCompressContext::new(level)?)
             }
+            #[cfg(feature = "gzip")]
             Encoder::DeflateRaw { level } => {
                 Self::DeflateRaw(gzip_stream::DeflateCompressContext::new(level)?)
             }
+            #[cfg(feature = "brotli")]
             Encoder::Brotli {
                 level,
                 dictionary: None,
             } => Self::Brotli(Box::new(brotli_stream::CompressContext::new(level)?)),
+            #[cfg(feature = "brotli")]
             Encoder::Brotli {
                 level,
                 dictionary: Some(DictionaryRef::Raw(dict)),
             } => Self::BrotliDict(brotli_stream::CompressDictContext::incremental(
                 dict, level,
             )?),
+            #[cfg(feature = "brotli")]
             Encoder::Brotli {
                 level,
                 dictionary: Some(DictionaryRef::Prepared(dict)),
             } => Self::BrotliDict(brotli_stream::CompressDictContext::incremental_prepared(
                 dict, level,
             )?),
+            #[cfg(feature = "lz4")]
             Encoder::Lz4 => Self::Lz4(lz4_stream::CompressContext::new()),
+            #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+            Encoder::Never(never, _) => match never {},
         })
     }
 
@@ -1006,13 +1171,23 @@ impl MemoryUsage for CompressContext {
 /// [`brotli_stream::DecompressDictContext`], [`lz4_stream::DecompressContext`]
 /// in its incremental mode, which decodes each block as it arrives, and
 /// [`AutoDecoder`].
+// A build with gzip and none of zstd, brotli and lz4 has only the deflate
+// context besides the small AutoDecoder, which a stream holds only until it
+// detects the format.
+#[cfg_attr(not(all_formats), allow(clippy::large_enum_variant))]
 pub enum DecompressContext {
+    #[cfg(feature = "zstd")]
     Zstd(zstd_stream::DecompressContext),
+    #[cfg(feature = "zstd")]
     ZstdDict(zstd_stream::DecompressDictContext),
     /// gzip, deflate or deflate-raw.
+    #[cfg(feature = "gzip")]
     Flate(gzip_stream::StrictDecompressContext),
+    #[cfg(feature = "brotli")]
     Brotli(brotli_stream::DecompressContext),
+    #[cfg(feature = "brotli")]
     BrotliDict(brotli_stream::DecompressDictContext),
+    #[cfg(feature = "lz4")]
     Lz4(lz4_stream::DecompressContext),
     Auto(AutoDecoder),
 }
@@ -1022,11 +1197,17 @@ pub enum DecompressContext {
 macro_rules! each_decompressor {
     ($context:expr, $method:ident($($args:expr),*)) => {
         match $context {
+            #[cfg(feature = "zstd")]
             DecompressContext::Zstd(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "zstd")]
             DecompressContext::ZstdDict(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "gzip")]
             DecompressContext::Flate(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "brotli")]
             DecompressContext::Brotli(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "brotli")]
             DecompressContext::BrotliDict(ctx) => ctx.$method($($args),*),
+            #[cfg(feature = "lz4")]
             DecompressContext::Lz4(ctx) => ctx.$method($($args),*),
             DecompressContext::Auto(ctx) => ctx.$method($($args),*),
         }
@@ -1069,29 +1250,39 @@ impl DecompressContext {
     /// Create the context of `decoder`, with a checked `max_output_size`.
     fn with_decoder(decoder: Decoder, max_output_size: Option<f64>) -> Result<Self, ComprsError> {
         Ok(match decoder {
+            #[cfg(feature = "zstd")]
             Decoder::Zstd(None) => {
                 Self::Zstd(zstd_stream::DecompressContext::new(max_output_size)?)
             }
+            #[cfg(feature = "zstd")]
             Decoder::Zstd(Some(DictionaryRef::Raw(dict))) => Self::ZstdDict(
                 zstd_stream::DecompressDictContext::new(dict, max_output_size)?,
             ),
+            #[cfg(feature = "zstd")]
             Decoder::Zstd(Some(DictionaryRef::Prepared(dict))) => Self::ZstdDict(
                 zstd_stream::DecompressDictContext::with_prepared(dict, max_output_size)?,
             ),
+            #[cfg(feature = "gzip")]
             Decoder::Flate(wrapper) => Self::Flate(gzip_stream::StrictDecompressContext::new(
                 wrapper,
                 max_output_size,
             )?),
+            #[cfg(feature = "brotli")]
             Decoder::Brotli(None) => {
                 Self::Brotli(brotli_stream::DecompressContext::new(max_output_size)?)
             }
+            #[cfg(feature = "brotli")]
             Decoder::Brotli(Some(DictionaryRef::Raw(dict))) => Self::BrotliDict(
                 brotli_stream::DecompressDictContext::new(dict, max_output_size)?,
             ),
+            #[cfg(feature = "brotli")]
             Decoder::Brotli(Some(DictionaryRef::Prepared(dict))) => Self::BrotliDict(
                 brotli_stream::DecompressDictContext::with_prepared(dict, max_output_size)?,
             ),
+            #[cfg(feature = "lz4")]
             Decoder::Lz4 => Self::Lz4(lz4_stream::DecompressContext::incremental(max_output_size)?),
+            #[cfg(not(any(feature = "zstd", feature = "brotli")))]
+            Decoder::Never(never, _) => match never {},
         })
     }
 
@@ -1301,7 +1492,8 @@ impl AutoDecoder {
         let Detection::Known(format) = detection else {
             return Err(self.fail(unknown_format()));
         };
-        let inner = match DecompressContext::with_decoder(Decoder::of(format), self.max_output_size)
+        let inner = match Decoder::of(format)
+            .and_then(|decoder| DecompressContext::with_decoder(decoder, self.max_output_size))
         {
             Ok(inner) => inner,
             Err(error) => return Err(self.fail(error)),
@@ -1335,6 +1527,7 @@ impl MemoryUsage for AutoDecoder {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "gzip")]
     #[test]
     fn auto_decoder_bounds_the_input_that_detection_decodes() {
         // Stored blocks, which detection takes for zlib only at 64 KiB, fed
@@ -1365,5 +1558,60 @@ mod tests {
         let mut output = ctx.transform(&data[MAX_PREFIX - 1..]).unwrap();
         output.extend(ctx.finish().unwrap());
         assert!(output == [0; MAX_PREFIX]);
+    }
+
+    #[test]
+    fn rejects_the_formats_that_the_build_leaves_out() {
+        let not_built =
+            |format: Format| format!("this build of comprs does not include {}", format.name());
+        for format in Format::ALL {
+            let compressed = compress(b"data", format, &CompressOptions::default());
+            let context = CompressContext::new(format, &CompressOptions::default());
+            let options = DecompressOptions {
+                format: Some(format),
+                ..DecompressOptions::default()
+            };
+            if format.is_built() {
+                let compressed = compressed.unwrap();
+                assert!(context.is_ok(), "{format}");
+                assert_eq!(decompress(&compressed, &options).unwrap(), b"data");
+                continue;
+            }
+            for error in [
+                compressed.err(),
+                context.err(),
+                decompress(b"data", &options).err(),
+                DecompressContext::new(&options).err(),
+            ] {
+                match error {
+                    Some(ComprsError::InvalidArg(message)) => {
+                        assert_eq!(message, not_built(format), "{format}");
+                    }
+                    other => panic!("{format}: {other:?}"),
+                }
+            }
+        }
+    }
+
+    // The format is checked before the options that it does not take.
+    #[cfg(not(all_formats))]
+    #[test]
+    fn rejects_a_format_left_out_before_its_options() {
+        let format = Format::ALL
+            .into_iter()
+            .find(|format| !format.is_built())
+            .unwrap();
+        let options = CompressOptions {
+            level: Some(-1000.0),
+            workers: Some(1.0),
+            ..CompressOptions::default()
+        };
+        match compress(b"data", format, &options) {
+            Err(ComprsError::InvalidArg(message)) => assert_eq!(
+                message,
+                format!("this build of comprs does not include {}", format.name())
+            ),
+            other => panic!("{other:?}"),
+        }
     }
 }
