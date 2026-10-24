@@ -13,9 +13,10 @@ Rust-powered universal compression for JavaScript/TypeScript.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-blue)](https://www.typescriptlang.org/)
-[![Playground](https://img.shields.io/badge/playground-try%20it%20live-8b5cf6)](https://derodero24.github.io/comprs/)
+[![Docs](https://img.shields.io/badge/docs-derodero24.github.io%2Fcomprs-8b5cf6)](https://derodero24.github.io/comprs/)
+[![Playground](https://img.shields.io/badge/playground-try%20it%20live-8b5cf6)](https://derodero24.github.io/comprs/playground/)
 
-**[→ Try the live playground](https://derodero24.github.io/comprs/)**
+**[Documentation](https://derodero24.github.io/comprs/)** · **[Try the live playground](https://derodero24.github.io/comprs/playground/)**
 
 </div>
 
@@ -44,7 +45,7 @@ The JavaScript compression ecosystem is fragmented across 12+ packages with inco
 - **Streaming** — Web Streams API (`TransformStream`) for processing large data with bounded memory, in Node.js and browsers; brotli-dictionary compression streams hold at most the first 4 MiB less 16 bytes of input, then stream (see [Notes](#notes))
 - **Universal** — Node.js, Deno, and Bun (native), and browsers (WebAssembly)
 - **Zero JS dependencies** — Only Rust and the platform
-- **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/), no install needed
+- **Interactive playground** — [Try any algorithm live in your browser](https://derodero24.github.io/comprs/playground/), no install needed
 
 ## Comparison with Alternatives
 
@@ -82,7 +83,7 @@ bun add @derodero24/comprs
 
 ## Quick Start
 
-> **Try it live** → [derodero24.github.io/comprs](https://derodero24.github.io/comprs/)
+> **Try it live** → [derodero24.github.io/comprs/playground](https://derodero24.github.io/comprs/playground/)
 
 ```typescript
 import { zstdCompress, zstdDecompress } from '@derodero24/comprs';

@@ -488,8 +488,9 @@ function onWorkerError(message) {
 // cross-origin isolation, which the WebAssembly build does not need.
 // Unregister it for returning visitors, so that it stops intercepting
 // requests. Other service workers of the origin are left alone.
-const staleWorkerUrl = new URL(`${import.meta.env.BASE_URL}coi-serviceworker.js`, location.origin)
-  .href;
+// The playground was then the root of the site, where the worker was.
+const siteRoot = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const staleWorkerUrl = new URL(`${siteRoot}coi-serviceworker.js`, location.origin).href;
 navigator.serviceWorker
   ?.getRegistrations()
   .then((registrations) => {

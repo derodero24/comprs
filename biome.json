@@ -94,7 +94,7 @@
       }
     },
     {
-      "includes": ["browser/index.js", "browser/wasm.js", "playground/**"],
+      "includes": ["browser/index.js", "browser/wasm.js", "website/src/playground/**"],
       "linter": {
         "rules": {
           "complexity": {
@@ -207,7 +207,18 @@
       }
     },
     {
-      "includes": ["playground/vite.config.js"],
+      "includes": ["website/**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["website/astro.config.mjs"],
       "linter": {
         "rules": {
           "style": {

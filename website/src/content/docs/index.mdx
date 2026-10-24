@@ -1,0 +1,87 @@
+---
+title: zstd, brotli, gzip and LZ4 for JavaScript
+description: zstd, brotli, gzip and LZ4 compression for Node.js, Deno, Bun and browsers, with one API. Native speed on the server, WebAssembly in the browser.
+template: splash
+hero:
+  title: comprs
+  tagline: zstd, brotli, gzip and LZ4 in one package, for Node.js, Deno, Bun and browsers. Native code on the server, WebAssembly in the browser, one API on both.
+  actions:
+    - text: Get started
+      link: /comprs/getting-started/
+      icon: right-arrow
+    - text: Try the playground
+      link: /comprs/playground/
+      icon: rocket
+      variant: secondary
+    - text: View on GitHub
+      link: https://github.com/derodero24/comprs
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+```ts
+import { compress, decompress } from '@derodero24/comprs/next';
+
+const data = new TextEncoder().encode('Hello, comprs!');
+
+const zstd = await compress(data, { format: 'zstd', level: 19 });
+const restored = await decompress(zstd); // detects the format
+```
+
+## Why comprs
+
+<CardGrid>
+  <Card title="Every format you need" icon="seti:zip">
+    zstd, brotli, gzip, zlib, raw deflate and LZ4, with dictionaries for zstd and brotli. Browsers
+    have no zstd or LZ4 of their own, and Chrome no brotli in `CompressionStream`.
+  </Card>
+  <Card title="Native on the server" icon="rocket">
+    Node.js, Deno and Bun load a prebuilt Rust addon. Async calls and streams run on the libuv
+    thread pool, so the event loop keeps turning, and zstd can compress on several threads.
+  </Card>
+  <Card title="WebAssembly in the browser" icon="laptop">
+    Bundlers pick the WebAssembly build through the `browser` condition, with the same functions
+    and, but for LZ4 frames, the same output. The module is 567 KB gzipped.
+  </Card>
+  <Card title="One API for every format" icon="puzzle">
+    `compress()` and `decompress()` with an options object, a `CompressionStream` ponyfill in
+    every format, `AbortSignal`, and an error `code` you can switch on.
+  </Card>
+  <Card title="Safe with untrusted input" icon="approve-check">
+    Decompression stops at a size limit (256 MiB by default), rejects truncated data and data
+    after the end of the stream, and checks every argument.
+  </Card>
+  <Card title="Typed and tested" icon="seti:typescript">
+    Strict TypeScript declarations for Node.js and browsers, checked from ES module, CommonJS and
+    bundler projects, and thousands of tests on every platform.
+  </Card>
+</CardGrid>
+
+## How it compares
+
+| Feature | comprs | pako | fflate | node:zlib |
+| --- | :---: | :---: | :---: | :---: |
+| zstd | ✅ | ❌ | ❌ | ⚠️ Experimental (Node.js 22.15+) |
+| gzip / deflate | ✅ | ✅ | ✅ | ✅ |
+| brotli | ✅ | ❌ | ❌ | ✅ |
+| LZ4 | ✅ | ❌ | ❌ | ❌ |
+| Web Streams | ✅ | ❌ | ❌ | ❌ |
+| Node.js Transform | ✅ | ❌ | ❌ | ✅ |
+| Browsers | ✅ | ✅ | ✅ | ❌ |
+| Deno and Bun | ✅ | ✅ | ✅ | ✅ |
+| Native performance | ✅ | ❌ | ❌ | ✅ |
+| Dictionaries | zstd, brotli | deflate | deflate | deflate; zstd (Node.js 22.19+, 24.6+) |
+| JavaScript dependencies | none | none | none | none |
+
+pako uses chunked `Inflate` and `Deflate` classes rather than Web Streams. Deno 2 and Bun implement `node:zlib`.
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Getting started" href="/comprs/getting-started/" description="Install comprs and compress your first data." />
+  <LinkCard title="Choosing an algorithm" href="/comprs/choosing-an-algorithm/" description="Which format, and which kind of call, fits your data." />
+  <LinkCard title="Browsers" href="/comprs/guides/browsers/" description="Bundler setup for the WebAssembly build." />
+  <LinkCard title="Migrating" href="/comprs/migration/pako/" description="Move from pako, fflate, node:zlib, brotli-wasm or @mongodb-js/zstd." />
+</CardGrid>

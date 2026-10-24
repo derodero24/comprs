@@ -1,0 +1,26 @@
+{
+  "name": "comprs-website",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@derodero24/comprs": "file:.."
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.11",
+    "@astrojs/starlight": "^0.42.6",
+    "astro": "^7.4.1",
+    "sharp": "^0.35.5",
+    "starlight-links-validator": "^0.27.0",
+    "starlight-typedoc": "^0.23.1",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.14.1",
+    "typescript": "~5.9.3"
+  }
+}

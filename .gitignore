@@ -57,3 +57,8 @@ CLAUDE.md
 test-results/
 playwright-report/
 deno.lock
+
+# Website: Astro's generated types, and the API reference that
+# starlight-typedoc writes from the declaration files at build time
+/website/.astro/
+/website/src/content/docs/api/

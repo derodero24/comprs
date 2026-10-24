@@ -1,7 +1,7 @@
 name: CI
 
 # CI checks the files that it builds, tests, checks or installs with (pushes
-# to develop leave out the playground and some files that only the lint jobs
+# to develop leave out the website and some files that only the lint jobs
 # check; see the changes job). That includes .gitignore, whose files Biome
 # skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
 # through its prepare script (lefthook install), and README.md, which the
@@ -55,12 +55,11 @@ on:
   # each of them; the changes job decides whether the other jobs run (see
   # CI_PATHS there). Its list also names files that the push list leaves out,
   # so that a change to them is checked before it is merged: every workflow,
-  # which Workflow Lint checks, the playground, which the playground job
-  # builds, and the chart images and the configuration files that Biome
+  # which Workflow Lint checks, the website, which the website job builds, and the chart images and the configuration files that Biome
   # checks. Pushes to develop leave these out, apart from the workflows that
   # CI calls or mirrors, so that a merge that changes only those does not run
-  # the full matrix; playground.yml builds the playground on such a push when
-  # it deploys it.
+  # the full matrix; website.yml builds the website on such a push when it
+  # deploys it.
   pull_request:
   # Maintainers can run CI on any branch from the Actions tab, such as the
   # branch of the Version Packages pull request, which changesets/action opens
@@ -110,7 +109,7 @@ jobs:
           # on the paths from the repository root.
           CI_PATHS=(
             '^crates/' '^__test__/' '^e2e/' '^browser/' '^src/' '^next/'
-            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^playground/'
+            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^website/'
             '^\.devcontainer/' '^\.github/assets/' '^\.github/workflows/'
             '^package\.json$' '^pnpm-lock\.yaml$' '^pnpm-workspace\.yaml$'
             '^README\.md$' '^Cargo\.toml$' '^Cargo\.lock$' '^deny\.toml$'
@@ -502,12 +501,13 @@ jobs:
           path: wasm-size-report/
           if-no-files-found: error
 
-  # Builds the playground with the commands with which playground.yml builds
-  # the site that it deploys from develop, on the WebAssembly build of
-  # build-wasm-bindgen. It is a job of its own so that a playground failure
-  # fails CI Complete without skipping the jobs that need build-wasm-bindgen.
-  playground:
-    name: Build playground
+  # Builds the website, the documentation and the playground, with the
+  # commands with which website.yml builds the site that it deploys from
+  # develop, on the WebAssembly build of build-wasm-bindgen. It is a job of
+  # its own so that a website failure fails CI Complete without skipping the
+  # jobs that need build-wasm-bindgen.
+  website:
+    name: Build website
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -522,20 +522,21 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            playground/pnpm-lock.yaml
+            website/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      # Before the playground install: the file:.. dependency installs the
-      # package with the files that exist at install time, and the playground
-      # build fails without the binary.
+      # Before the website install: the file:.. dependency installs the
+      # package with the files that exist at install time, and the build of
+      # the playground page fails without the binary.
       - name: Download wasm-bindgen bindings
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bindings-wasm-bindgen
           path: browser
-      - name: Build playground
+      - name: Build website
         run: |
-          pnpm --dir playground install --frozen-lockfile
-          pnpm --dir playground run build
+          pnpm --dir website install --frozen-lockfile
+          pnpm --dir website run check
+          pnpm --dir website run build
 
   test:
     name: Test - Node ${{ matrix.node }} / ${{ matrix.target }}
@@ -1005,7 +1006,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, playground, test, test-wasm, test-package, coverage, release-dry-run]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, website, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

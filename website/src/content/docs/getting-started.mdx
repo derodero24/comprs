@@ -1,0 +1,119 @@
+---
+title: Getting started
+description: Install comprs and compress and decompress data in Node.js, Deno, Bun and browsers.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Install
+
+<Tabs syncKey="pkg">
+  <TabItem label="npm">
+    ```sh
+    npm install @derodero24/comprs
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```sh
+    pnpm add @derodero24/comprs
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```sh
+    yarn add @derodero24/comprs
+    ```
+  </TabItem>
+  <TabItem label="bun">
+    ```sh
+    bun add @derodero24/comprs
+    ```
+  </TabItem>
+  <TabItem label="deno">
+    ```sh
+    deno add npm:@derodero24/comprs
+    ```
+  </TabItem>
+</Tabs>
+
+comprs needs Node.js 22 or later. The package manager installs one prebuilt native binary for your platform as an optional dependency (see [Platforms](/comprs/reference/platforms/)); browsers get the WebAssembly build, which ships in the package.
+
+## Compress and decompress
+
+The unified API, `@derodero24/comprs/next`, has one function per direction for every format, with an options object:
+
+```ts
+import { compress, compressSync, decompress, decompressSync } from '@derodero24/comprs/next';
+
+const data = new TextEncoder().encode('Hello, comprs!');
+
+// The plain names are async, as in node:zlib: in Node.js, they run on the libuv thread pool.
+const zstd = await compress(data, { format: 'zstd', level: 19 });
+const restored = await decompress(zstd); // detects the format
+
+// The *Sync variants run on the calling thread.
+const gzip = compressSync(data, { format: 'gzip', gzipHeader: { filename: 'hello.txt' } });
+decompressSync(gzip, { format: 'gzip', maxOutputSize: 1024 * 1024 });
+```
+
+Every result is a plain `Uint8Array`. The formats are `'zstd'`, `'gzip'`, `'deflate'` (zlib), `'deflate-raw'`, `'brotli'` and `'lz4'`; the [unified API guide](/comprs/guides/unified-api/) has every option.
+
+The package root, `@derodero24/comprs`, has a function for each format and variant instead, such as `zstdCompress(data, level)` and `gzipDecompressAsync(data)`, which return a Node.js `Buffer` in the native addon. Both APIs are supported and produce the same bytes at the same settings; see the [classic API](/comprs/reference/classic-api/).
+
+## Stream
+
+Pipe a stream of bytes through a `CompressionStream` or a `DecompressionStream`, which work like the standard classes in every format:
+
+```ts
+import { CompressionStream, DecompressionStream } from '@derodero24/comprs/next';
+
+const compressed = file.stream().pipeThrough(new CompressionStream('zstd', { level: 9 }));
+const response = new Response(compressed, { headers: { 'Content-Encoding': 'zstd' } });
+
+const body = request.body!.pipeThrough(
+  new DecompressionStream('auto', { maxOutputSize: 10 * 1024 * 1024 }),
+);
+```
+
+Node.js streams have their own `stream.Transform` factories; see [Streaming](/comprs/guides/streaming/).
+
+## Handle errors
+
+Every error of the unified API has a stable `code`:
+
+```ts
+try {
+  await decompress(body, { maxOutputSize: 10 * 1024 * 1024 });
+} catch (error) {
+  // 413 for a body that decompresses to more than 10 MiB, 400 for corrupt data and the like
+  const status =
+    error instanceof Error && 'code' in error && error.code === 'ERR_COMPRS_SIZE_LIMIT' ? 413 : 400;
+}
+```
+
+See [Errors and limits](/comprs/reference/errors-and-limits/) for every code.
+
+## Deno and Bun
+
+Both load the native addon, as Node.js does:
+
+```ts
+// Deno
+import { compress } from 'npm:@derodero24/comprs/next';
+
+// Bun, as in Node.js
+import { compress } from '@derodero24/comprs/next';
+```
+
+Deno needs permission to load it: run with `--allow-ffi --allow-read --allow-env`, or `--allow-all`. Without `--allow-ffi`, the import fails with a misleading `Cannot find native binding` error, which blames a bug in npm. Deno also needs a local `node_modules` directory, which holds the platform package with the binary: set `"nodeModulesDir": "auto"` in `deno.json`, or install the package into a local `node_modules` with npm.
+
+## Browsers
+
+Bundlers that target browsers pick the WebAssembly build through the `browser` condition of the package's `exports`. The same imports work, with no initialization call:
+
+```ts
+import { compressSync } from '@derodero24/comprs/next';
+
+const gzip = compressSync(new TextEncoder().encode('Hello from the browser!'), { format: 'gzip' });
+```
+
+Some bundlers need a setting for the WebAssembly binary or for top-level `await`; see [Browsers](/comprs/guides/browsers/).
