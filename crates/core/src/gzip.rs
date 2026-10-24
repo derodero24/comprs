@@ -112,6 +112,10 @@ pub fn gzip_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+///
+/// @deprecated Use `decompressSync(data, { format: 'gzip', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn gzip_decompress_with_capacity(
     env: Env,
@@ -163,6 +167,10 @@ pub fn deflate_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 /// Throws if the input ends before the final deflate block.
+///
+/// @deprecated Use `decompressSync(data, { format: 'deflate-raw', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn deflate_decompress_with_capacity(
     env: Env,
@@ -270,6 +278,10 @@ pub fn deflate_decompress_async(
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+///
+/// @deprecated Use `await decompress(data, { format: 'gzip', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -293,6 +305,10 @@ pub fn gzip_decompress_with_capacity_async(
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 /// Rejects if the input ends before the final deflate block.
+///
+/// @deprecated Use `await decompress(data, { format: 'deflate-raw', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
