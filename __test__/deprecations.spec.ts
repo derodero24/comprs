@@ -32,8 +32,9 @@ type Deprecated = (typeof DEPRECATED)[number];
 
 const ROOT = resolve(__dirname, '..');
 
+/** The file at `path`, with LF line endings, as a checkout on Windows may not have. */
 function read(path: string): string {
-  return readFileSync(resolve(ROOT, path), 'utf8');
+  return readFileSync(resolve(ROOT, path), 'utf8').replaceAll('\r\n', '\n');
 }
 
 /**
