@@ -40,8 +40,8 @@ use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::unified::{self, DictionaryRef, Format};
 use comprs_core::{ComprsError, MemoryUsage};
 use napi::bindgen_prelude::{
-    AsyncTask, Env, External, FromNapiValue, JsObjectValue, Object, Property, PropertyAttributes,
-    Uint8Array,
+    AsyncTask, Either3, Env, External, FromNapiValue, JsObjectValue, Null, Object, Property,
+    PropertyAttributes, Uint8Array, Undefined,
 };
 use napi::sys;
 use napi_derive::napi;
@@ -567,6 +567,21 @@ pub fn context_finish_async(context: AsyncArg<&External<NextContext>>) -> NextSt
 #[napi(namespace = "next", skip_typescript)]
 pub fn detect_format(data: &[u8]) -> Option<&'static str> {
     unified::detect(data).map(Format::name)
+}
+
+/// What [`unified::detect_prefix`] finds in `data`, the start of some data,
+/// with `isFinal` if no more data follows: the name of the format, `null`
+/// for data of no format that detection recognizes, or `undefined` while
+/// more data could change the answer. The TypeScript layer detects with it
+/// itself when an entry point of one family of formats (#342) restricts the
+/// formats.
+#[napi(namespace = "next", skip_typescript)]
+pub fn detect_prefix(data: &[u8], is_final: bool) -> Either3<&'static str, Null, Undefined> {
+    match unified::detect_prefix(data, is_final) {
+        unified::Detection::Known(format) => Either3::A(format.name()),
+        unified::Detection::Unknown => Either3::B(Null),
+        unified::Detection::NeedMore => Either3::C(()),
+    }
 }
 
 /// Train a zstd dictionary of at most `maxSize` bytes from `samples`, with

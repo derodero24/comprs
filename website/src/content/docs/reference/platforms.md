@@ -28,13 +28,15 @@ On any other platform, loading comprs in Node.js, Deno or Bun throws `Cannot fin
 
 ## WebAssembly size
 
-The browser build is one WebAssembly module, which holds all four codecs, optimized for size:
+The browser build is one WebAssembly module, which holds all four codecs, optimized for size. The entry points of the families of `@derodero24/comprs/next` load a module with one family each (see [Browsers](/comprs/guides/browsers/#one-family-of-formats)):
 
-| `comprs-wasm_bg.wasm` | Size |
-| --- | --- |
-| Raw | 1.52 MB |
-| gzip (level 9) | 567 KB |
-| brotli (quality 11) | 425 KB |
+| Binary | Raw | gzip (level 9) | brotli (quality 11) |
+| --- | ---: | ---: | ---: |
+| `comprs-wasm_bg.wasm` | 1.52 MB | 568 KB | 425 KB |
+| `comprs-wasm-zstd_bg.wasm` | 534 KB | 160 KB | 121 KB |
+| `comprs-wasm-gzip_bg.wasm` | 177 KB | 76 KB | 64 KB |
+| `comprs-wasm-brotli_bg.wasm` | 830 KB | 337 KB | 249 KB |
+| `comprs-wasm-lz4_bg.wasm` | 107 KB | 42 KB | 36 KB |
 
 The compressed sizes are those of Node.js's zlib; what a CDN serves depends on its compressor and level. CI reports these sizes on every pull request, and fails when the raw or gzip size grows over its budget.
 

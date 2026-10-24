@@ -5,13 +5,13 @@ import {
   codecScheduler,
   zstdSetupMs,
 } from '../stream-schedule.js';
-import type { Bytes, Format } from './api.js';
-import { type Backend, type CodecStream, type DictionaryHandle, setBackend } from './backend.js';
+import { type Bytes, FORMATS, type Format } from './api.js';
+import type { Backend, CodecStream, DictionaryHandle } from './backend.js';
 
 // The backend of the native build: the hidden binding of the native addon,
 // crates/core/src/next.rs, which the addon keeps on its exports under
 // Symbol.for('@derodero24/comprs/internal') so that the root entry does not
-// list it. Importing this module makes it the backend of api.ts.
+// list it. The entry points of Node.js register it for their formats.
 
 /** The key of the hidden binding on the exports of the addon. */
 const INTERNAL = Symbol.for('@derodero24/comprs/internal');
@@ -27,7 +27,8 @@ type Context = object;
  * The functions of the binding: those of the backend, but its stream
  * methods, which this module builds on the stream functions of the binding.
  */
-interface Binding extends Omit<Backend, 'createCompressStream' | 'createDecompressStream'> {
+interface Binding
+  extends Omit<Backend, 'formats' | 'createCompressStream' | 'createDecompressStream'> {
   createCompressContext(
     format: Format,
     level: number | undefined,
@@ -60,6 +61,7 @@ const FUNCTIONS: readonly (keyof Binding)[] = [
   'decompress',
   'decompressAsync',
   'detectFormat',
+  'detectPrefix',
   'trainDictionary',
   'trainDictionaryAsync',
   'createDictionary',
@@ -206,12 +208,19 @@ function createDecompressStream(
   return scheduled(context, `${codecOf(format)}-decompress`, undefined, {});
 }
 
-setBackend({
+/**
+ * The backend of the native addon, which includes every format: the entry
+ * point of a family of formats restricts it to that family when it
+ * registers it.
+ */
+export const native: Backend = {
+  formats: FORMATS,
   compress: binding.compress,
   compressAsync: binding.compressAsync,
   decompress: binding.decompress,
   decompressAsync: binding.decompressAsync,
   detectFormat: binding.detectFormat,
+  detectPrefix: binding.detectPrefix,
   trainDictionary: binding.trainDictionary,
   trainDictionaryAsync: binding.trainDictionaryAsync,
   createDictionary: binding.createDictionary,
@@ -221,4 +230,4 @@ setBackend({
   withdraw: binding.withdraw,
   createCompressStream,
   createDecompressStream,
-});
+};

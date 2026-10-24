@@ -76,6 +76,13 @@ export interface CodecStream {
  */
 export interface Backend {
   /**
+   * The formats that the backend includes: every format for the native
+   * addon and the full WebAssembly build, and those of one family for a
+   * per-format WebAssembly build (#342). It rejects the others with
+   * `ERR_COMPRS_INVALID_ARG`.
+   */
+  readonly formats: readonly Format[];
+  /**
    * Compress `data` in `format`. `gzipHeader` tells whether the options
    * have a gzip header, which may have no fields; `gzipFilename` and
    * `gzipMtime` hold its fields.
@@ -150,8 +157,21 @@ export interface Backend {
     dictionary: Uint8Array | undefined,
     dictionaryHandle: DictionaryHandle | undefined,
   ): CodecStream;
-  /** The format of `data`, or `null` if detection does not find one. */
+  /**
+   * The format of `data`, or `null` if detection does not find one. A
+   * backend detects the formats with a magic number, gzip, zstd and lz4,
+   * even if it does not include them, but zlib and brotli only if it
+   * includes them.
+   */
   detectFormat(data: Uint8Array): Format | null;
+  /**
+   * The format of the data that starts with `data`, as
+   * {@link Backend.detectFormat} detects it, with `isFinal` if no more data
+   * follows: `null` if detection does not find one, or `undefined` while
+   * more data could change the answer, which only happens without
+   * `isFinal`.
+   */
+  detectPrefix(data: Uint8Array, isFinal: boolean): Format | null | undefined;
   /** Train a zstd dictionary of at most `maxSize` bytes from `samples`. */
   trainDictionary(samples: Uint8Array[], maxSize: number | undefined): Bytes;
   /** {@link Backend.trainDictionary}, asynchronously. */
@@ -192,20 +212,45 @@ export interface Backend {
   withdraw(withdrawal: Withdrawal): boolean;
 }
 
-let current: Backend | undefined;
+/** The backend of each format that an entry point registered. */
+const registry = new Map<Format, Backend>();
 
 /**
- * Make `codecs` the backend of the functions of api.ts. The entry point of
- * each build calls this once, when it is loaded.
+ * Make `codecs` the backend of `formats`, the formats of its entry point,
+ * for the functions of api.ts. Each entry point calls this once, when it is
+ * loaded: `@derodero24/comprs/next` for every format, and those of a family
+ * of formats, such as `@derodero24/comprs/next/zstd`, for that family. A
+ * format keeps the backend that was registered for it first, so that its
+ * calls do not move to another one: the entry points of a page that loads
+ * several WebAssembly builds share api.ts, which then calls each build for
+ * its formats.
  */
-export function setBackend(codecs: Backend): void {
-  current = codecs;
+export function registerBackend(codecs: Backend, formats: readonly Format[]): void {
+  for (const format of formats) {
+    if (!registry.has(format)) {
+      registry.set(format, codecs);
+    }
+  }
 }
 
-/** The backend that the entry point set. */
-export function backend(): Backend {
-  if (current === undefined) {
-    throw new Error('@derodero24/comprs/next has no backend: import its entry point');
+/** The backend registered for `format`, if any. */
+export function backendOf(format: Format): Backend | undefined {
+  return registry.get(format);
+}
+
+/** Every backend registered for a format, once each, in their order. */
+export function registeredBackends(): Backend[] {
+  return [...new Set(registry.values())];
+}
+
+/**
+ * Make `replacement` the backend of every format whose backend is
+ * `current`, as the tests do to watch the calls of a backend.
+ */
+export function replaceBackend(current: Backend, replacement: Backend): void {
+  for (const [format, codecs] of registry) {
+    if (codecs === current) {
+      registry.set(format, replacement);
+    }
   }
-  return current;
 }
