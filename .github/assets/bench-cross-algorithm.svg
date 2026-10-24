@@ -1,28 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220" width="680" height="220" role="img" aria-labelledby="bench-cross-algorithm-title">
-<title id="bench-cross-algorithm-title">Cross-Algorithm Compression — 10 KB</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 244" width="680" height="244" role="img" aria-labelledby="bench-cross-algorithm-title">
+<title id="bench-cross-algorithm-title">comprs formats at their default levels — JSON 84KB</title>
 <style>
   text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
   .title { font-size: 16px; font-weight: 600; fill: #1f2937; }
   .subtitle { font-size: 12px; fill: #6b7280; }
   .bar-label { font-size: 12px; fill: #4b5563; }
   .bar-value { font-size: 12px; fill: #374151; font-weight: 500; }
-  .multiplier { font-size: 11px; fill: #6b7280; font-style: italic; }
+  .multiplier { font-size: 11px; fill: #059669; font-weight: 600; }
+  .note { font-size: 11px; fill: #6b7280; font-style: italic; }
+  .legend { font-size: 11px; fill: #4b5563; }
 </style>
-<rect width="680" height="220" rx="8" fill="#ffffff" />
-<rect x="0.5" y="0.5" width="679" height="219" rx="8" fill="none" stroke="#e5e7eb" />
-<text x="20" y="28" class="title">Cross-Algorithm Compression — 10 KB</text>
-<text x="20" y="44" class="subtitle">Apple M2 · Node.js v22 · ops/sec (higher is better)</text>
-<text x="112" y="78" class="bar-label" text-anchor="end">lz4</text>
-<rect x="120" y="60" width="360" height="28" rx="4" fill="#22c55e" />
-<text x="488" y="78" class="bar-value">165,821 ops/s</text>
-<text x="112" y="114" class="bar-label" text-anchor="end">zstd</text>
-<rect x="120" y="96" width="351" height="28" rx="4" fill="#3b82f6" />
-<text x="479" y="114" class="bar-value">161,706 ops/s</text>
-<text x="112" y="150" class="bar-label" text-anchor="end">gzip</text>
-<rect x="120" y="132" width="69" height="28" rx="4" fill="#f59e0b" />
-<text x="197" y="150" class="bar-value">31,941 ops/s</text>
-<text x="112" y="186" class="bar-label" text-anchor="end">brotli</text>
-<rect x="120" y="168" width="33" height="28" rx="4" fill="#a855f7" />
-<text x="161" y="186" class="bar-value">15,146 ops/s</text>
-<text x="260" y="186" class="multiplier">best compression ratio</text>
+<rect width="680" height="244" rx="8" fill="#ffffff" />
+<rect x="0.5" y="0.5" width="679" height="243" rx="8" fill="none" stroke="#e5e7eb" />
+<text x="20" y="28" class="title">comprs formats at their default levels — JSON 84KB</text>
+<text x="20" y="44" class="subtitle">AMD EPYC 7763 64-Core Processor × 4 · Node.js v24.21.0 · MB/s (higher is better)</text>
+<rect x="512" y="19" width="10" height="10" rx="2" fill="#6b7280" />
+<text x="527" y="28" class="legend">compress</text>
+<rect x="584" y="19" width="10" height="10" rx="2" fill="#6b7280" opacity="0.45" />
+<text x="599" y="28" class="legend">decompress</text>
+<text x="112" y="80" class="bar-label" text-anchor="end">zstd</text>
+<rect x="120" y="60" width="102.19" height="14" rx="3" fill="#3b82f6" />
+<text x="230.19" y="71" class="bar-value">583 MB/s</text>
+<rect x="120" y="78" width="307.62" height="14" rx="3" fill="#3b82f6" opacity="0.45" />
+<text x="435.62" y="89" class="bar-value">1,756 MB/s</text>
+<text x="660" y="80" class="note" text-anchor="end">ratio 9.25</text>
+<text x="112" y="124" class="bar-label" text-anchor="end">gzip</text>
+<rect x="120" y="104" width="40.66" height="14" rx="3" fill="#f59e0b" />
+<text x="168.66" y="115" class="bar-value">232 MB/s</text>
+<rect x="120" y="122" width="242.8" height="14" rx="3" fill="#f59e0b" opacity="0.45" />
+<text x="370.8" y="133" class="bar-value">1,386 MB/s</text>
+<text x="660" y="124" class="note" text-anchor="end">ratio 7.54</text>
+<text x="112" y="168" class="bar-label" text-anchor="end">brotli</text>
+<rect x="120" y="148" width="13.62" height="14" rx="3" fill="#a855f7" />
+<text x="141.62" y="159" class="bar-value">77.7 MB/s</text>
+<rect x="120" y="166" width="158.05" height="14" rx="3" fill="#a855f7" opacity="0.45" />
+<text x="286.05" y="177" class="bar-value">902 MB/s</text>
+<text x="660" y="168" class="note" text-anchor="end">ratio 10.4</text>
+<text x="112" y="212" class="bar-label" text-anchor="end">lz4</text>
+<rect x="120" y="192" width="198.28" height="14" rx="3" fill="#22c55e" />
+<text x="326.28" y="203" class="bar-value">1,132 MB/s</text>
+<rect x="120" y="210" width="360" height="14" rx="3" fill="#22c55e" opacity="0.45" />
+<text x="488" y="221" class="bar-value">2,055 MB/s</text>
+<text x="660" y="212" class="note" text-anchor="end">ratio 4.60</text>
 </svg>
