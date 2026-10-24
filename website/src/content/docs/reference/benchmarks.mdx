@@ -7,16 +7,15 @@ sidebar:
 
 import crossAlgorithm from '../../../../../.github/assets/bench-cross-algorithm.svg';
 import gzipCompress from '../../../../../.github/assets/bench-compress.svg';
+import { Content as Report } from '../../../bench/report.md';
 
 :::caution[Out of date]
-These charts were measured in March 2026, before comprs 1.0, on an Apple M2 with Node.js 22, with each library at its default level, and count operations per second. Since then, brotli has moved to libbrotli, which runs at about the speed of `node:zlib`. The next run of the Bench Report workflow replaces them with speeds in MB/s and compression ratios, at equal settings ([#556](https://github.com/derodero24/comprs/issues/556)).
+These charts and tables were measured in March 2026, before comprs 1.0, on an Apple M2 with Node.js 22, with each library at its default level, and count operations per second. Since then, brotli has moved to libbrotli, which runs at about the speed of `node:zlib`. The next run of the Bench Report workflow replaces them with speeds in MB/s and compression ratios, at equal settings ([#556](https://github.com/derodero24/comprs/issues/556)).
 :::
 
 <img src={crossAlgorithm.src} alt="Compression speed of zstd, gzip, brotli and LZ4 in comprs" width="680" />
 
 <img src={gzipCompress.src} alt="gzip compression speed of comprs, pako, fflate and node:zlib" width="680" />
-
-The [tables in the README](https://github.com/derodero24/comprs#benchmarks) break the numbers down by library, format, direction and input.
 
 ## Takeaways
 
@@ -25,6 +24,10 @@ The [tables in the README](https://github.com/derodero24/comprs#benchmarks) brea
 - **brotli** comes from libbrotli, the C library of `node:zlib`, in the native addon and the WebAssembly build alike. At the same quality and window, it runs at about the same speed as `node:zlib`, and writes the same bytes when Node.js bundles the same libbrotli release.
 - These numbers are from the native addon; the WebAssembly build was not measured.
 
+## Tables
+
+<Report />
+
 ## How they are measured
 
-The Bench Report workflow runs `scripts/bench-report.mjs` on a GitHub-hosted runner, with every library at the same settings, and states the versions, the machine and the settings with the results. Run the benchmarks yourself with `pnpm run bench` in a clone of the repository; numbers vary by machine and data. [CodSpeed](https://codspeed.io/derodero24/comprs) tracks the Rust benchmarks on the pull requests that change Rust code, to catch performance regressions.
+The Bench Report workflow runs `scripts/bench-report.mjs` on a GitHub-hosted runner, with every library at the same settings, and writes the tables and the charts from that one run, with the versions, the machine and the settings above the tables. Run the benchmarks yourself with `pnpm run bench` in a clone of the repository; numbers vary by machine and data. [CodSpeed](https://codspeed.io/derodero24/comprs) tracks the Rust benchmarks on the pull requests that change Rust code, to catch performance regressions.

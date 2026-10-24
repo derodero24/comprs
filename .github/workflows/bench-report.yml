@@ -1,9 +1,9 @@
 name: Bench Report
 
-# Regenerates the benchmark tables and charts of README.md with
+# Regenerates the benchmark tables of the website and the charts with
 # scripts/bench-report.mjs, on a GitHub-hosted runner, and pushes them to a new
 # branch, bench-report/<run id>-<run attempt>, for a maintainer to open a pull
-# request from (see "Regenerating the README benchmarks" in CONTRIBUTING.md).
+# request from (see "Regenerating the benchmarks" in CONTRIBUTING.md).
 # A re-run of the workflow keeps the run id, so the attempt gives it a branch
 # of its own instead of a rejected push to the first attempt's. No job both
 # runs the repository's code and holds a token that can write: the bench job
@@ -44,8 +44,8 @@ jobs:
       # files go into the artifact under their names alone.
       - name: Collect the report
         run: |
-          cp README.md .github/assets/bench-compress.svg .github/assets/bench-cross-algorithm.svg \
-            "$RUNNER_TEMP/bench-report/"
+          cp website/src/bench/report.md .github/assets/bench-compress.svg \
+            .github/assets/bench-cross-algorithm.svg "$RUNNER_TEMP/bench-report/"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bench-report
@@ -70,12 +70,13 @@ jobs:
           path: ${{ runner.temp }}/bench-report
       - name: Commit the report
         run: |
-          cp "$RUNNER_TEMP/bench-report/README.md" README.md
+          cp "$RUNNER_TEMP/bench-report/report.md" website/src/bench/report.md
           cp "$RUNNER_TEMP/bench-report/bench-compress.svg" \
             "$RUNNER_TEMP/bench-report/bench-cross-algorithm.svg" .github/assets/
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md .github/assets/bench-compress.svg .github/assets/bench-cross-algorithm.svg
+          git add website/src/bench/report.md .github/assets/bench-compress.svg \
+            .github/assets/bench-cross-algorithm.svg
           git commit -m "docs(bench): regenerate the benchmark tables"
       # The token reaches git as an HTTP header for this one push, as
       # actions/checkout would pass it, and is not stored in .git/config.
