@@ -91,15 +91,15 @@ describe('CompressionFormat', () => {
     expect(label(detectFormat(data))).toBe('unknown format');
   });
 
-  // As napi-rs defines them: read-only and not enumerable, so that
-  // Object.keys() and Object.values() return []. The browser entry defines
-  // its members the same way (wasm-parity.spec.ts).
-  it('has read-only members that are not enumerable', () => {
+  // As napi-rs defines them since napi-derive 3.6.11: plain properties, as
+  // in the object that TypeScript compiles an enum into. The browser entry
+  // defines its members the same way (wasm-parity.spec.ts).
+  it('has a plain property for each member', () => {
     const member = (value: string) => ({
       value,
-      writable: false,
-      enumerable: false,
-      configurable: false,
+      writable: true,
+      enumerable: true,
+      configurable: true,
     });
     expect(Object.getOwnPropertyDescriptors(CompressionFormat)).toStrictEqual({
       Zstd: member('zstd'),

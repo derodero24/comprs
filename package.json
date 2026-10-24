@@ -181,7 +181,7 @@
     "@changesets/cli": "^3.0.0",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
-    "@napi-rs/cli": "3.10.6",
+    "@napi-rs/cli": "3.10.8",
     "@types/node": "^24.13.2",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",

@@ -15,6 +15,9 @@ The browser entry now exports `CompressionFormat` as well: in 2.0.x, the
 declarations of the `browser` condition declared it, but the entry did not
 export it. The values are unchanged, the strings `'zstd'`, `'gzip'`,
 `'brotli'`, `'lz4'` and `'unknown'`, so comparisons with strings keep
-working. As in the native addon, the members are not enumerable:
-`Object.keys(CompressionFormat)` and `Object.values(CompressionFormat)`
-return `[]`.
+working. As in the object that TypeScript compiles an enum into, each
+member is now a plain property in both builds: `Object.keys(CompressionFormat)`
+returns the names, `Object.values(CompressionFormat)` the strings, and
+`JSON.stringify(CompressionFormat)` shows them. In 2.0.x, the native addon
+defined the members as read-only and not enumerable, so these returned `[]`
+and `{}`.
