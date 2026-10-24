@@ -10,7 +10,7 @@ repository.workspace = true
 publish = false
 description = "libbrotli, Google's C brotli library, vendored and built for comprs, with a safe interface to the part that comprs uses"
 # scripts/vendor-brotli.mjs vendors brotli/ and is all that changes it.
-include = ["/brotli", "/build.rs", "/src"]
+include = ["/brotli", "/build.rs", "/src", "/wasm-shim"]
 
 [build-dependencies]
 cc = "1.2"

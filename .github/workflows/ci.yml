@@ -399,7 +399,8 @@ jobs:
   # Cargo.toml; the other jobs use the latest stable. Cargo refuses a
   # dependency that declares a newer rust-version, so an update that raises
   # the minimum fails here until rust-version is raised with it. The
-  # WebAssembly crate is checked for wasm32 too, where its dependencies differ.
+  # WebAssembly crate is checked for wasm32 too, where its dependencies differ,
+  # and so is comprs-brotli, which builds libbrotli there with wasm-shim.
   # Each cargo call names the toolchain, so the job cannot pass on the stable
   # toolchain that the runner image already has.
   rust-msrv:
@@ -427,7 +428,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo +"$MSRV" check --workspace --all-targets --locked
-      - run: cargo +"$MSRV" check -p comprs-wasm --target wasm32-unknown-unknown --locked
+      - run: cargo +"$MSRV" check -p comprs-wasm -p comprs-brotli --target wasm32-unknown-unknown --locked
 
   # Builds the native binaries with build.yml, as release.yml does, so the
   # test jobs load the binaries the release would publish.

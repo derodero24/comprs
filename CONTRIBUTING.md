@@ -84,6 +84,8 @@ node scripts/vendor-brotli.mjs --check  # what the Rust Lint job runs
 
 Renovate updates `BROTLI_VERSION` in a pull request of its own. The Rust Lint job fails on it until the script has been run on that branch and its changes committed.
 
+`wasm32-unknown-unknown` has no C library, so for that target `crates/brotli-c/wasm-shim` supplies the few headers that libbrotli includes. Rust provides the functions behind them: `malloc` and `free` come from `src/alloc.rs`, and Rust's compiler-builtins supplies `memcpy`, `log2` and the rest. If a new libbrotli release includes another libc header, the WebAssembly build fails until the shim covers it. The Rust MSRV job checks that build.
+
 ## Workflow
 
 All changes must start from a GitHub Issue.

@@ -39,7 +39,7 @@ impl Default for Counter {
 
 impl Counter {
     /// A counter for an instance that may hold at most `limit` bytes.
-    pub(crate) fn limited(limit: usize) -> Self {
+    pub(crate) const fn limited(limit: usize) -> Self {
         Self {
             held: AtomicUsize::new(0),
             limit,
@@ -123,6 +123,34 @@ unsafe extern "C" fn free(opaque: *mut c_void, address: *mut c_void) {
             .held
             .fetch_sub(layout.size(), Ordering::Relaxed);
         std::alloc::dealloc(block, layout);
+    }
+}
+
+/// The `malloc` and `free` of wasm-shim/stdlib.h, for wasm32-unknown-unknown,
+/// which has no C library: blocks of [`alloc`] that no instance counts.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod libc {
+    use std::ffi::c_void;
+
+    use super::Counter;
+
+    static UNCOUNTED: Counter = Counter::limited(usize::MAX);
+
+    #[unsafe(no_mangle)]
+    extern "C" fn comprs_brotli_malloc(size: usize) -> *mut c_void {
+        // SAFETY: the counter is a static.
+        unsafe { super::alloc(UNCOUNTED.opaque(), size) }
+    }
+
+    /// # Safety
+    ///
+    /// `ptr` must be null or a block of `comprs_brotli_malloc` that is not
+    /// freed yet.
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn comprs_brotli_free(ptr: *mut c_void) {
+        // SAFETY: the counter is a static, and the caller passes a block of
+        // `comprs_brotli_malloc`, which allocates with it.
+        unsafe { super::free(UNCOUNTED.opaque(), ptr) }
     }
 }
 
