@@ -33,6 +33,9 @@ twox-hash = { version = "2.1.3", default-features = false, features = ["xxhash32
 # Error handling
 thiserror = "2"
 
+# The allocator of the musl builds (see crates/core/src/lib.rs)
+mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

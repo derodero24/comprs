@@ -111,9 +111,20 @@ const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright|unlicense)([.-].*)?$
  * code, and its own LICENSE.MIT (the Brotli Authors) and
  * LICENSE.BSD-3-Clause (Dropbox) carry both notices.
  *
+ * libmimalloc-sys, which the musl builds link, builds the mimalloc C library
+ * (version 2, without the crate's v3 feature) from its sources, whose MIT
+ * license (Microsoft, Daan Leijen) is c_src/mimalloc/v2/LICENSE; the
+ * crate's own LICENSE.txt covers only the Rust bindings. The headers of the
+ * sources it compiles name Microsoft and Daan Leijen alone; the two that
+ * name others, the Emscripten and the Windows ones, are not compiled for
+ * musl.
+ *
  * @type {Map<string, string[]>}
  */
-const EXTRA_FILES = new Map([['zstd-sys', ['zstd/LICENSE']]]);
+const EXTRA_FILES = new Map([
+  ['zstd-sys', ['zstd/LICENSE']],
+  ['libmimalloc-sys', ['c_src/mimalloc/v2/LICENSE']],
+]);
 
 /** Committed copies of upstream texts, for OVERRIDES and SOURCE_NOTICES. */
 const LICENSES_DIR = join(import.meta.dirname, 'licenses');

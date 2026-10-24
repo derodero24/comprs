@@ -1,5 +1,18 @@
 #![deny(clippy::all)]
 
+// musl's allocator, mallocng, serves each block above 128 KiB from a fresh
+// mapping and is slow at the many mid-sized allocations of the codecs. With
+// mimalloc, the musl builds decompress brotli and lz4 about twice as fast,
+// compress brotli 1.8 times as fast, and pay about half the extra time for
+// copying results into memory that V8 allocates (see `SYNC_COPY_LIMIT` in
+// convert.rs). Node.js loads the addon with dlopen(), where mimalloc's
+// thread-local state needs the local-dynamic TLS model
+// (`local_dynamic_tls`): with the default initial-exec model, loading the
+// addon crashes on musl.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod async_args;
 mod brotli_impl;
 mod brotli_stream;
