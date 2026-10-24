@@ -943,11 +943,11 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       # The publish jobs of release.yml set up Node.js from .nvmrc like this
-      # job. npm uses trusted publishing (OIDC) from version 11.5.1 on; with
-      # an older npm, they would keep publishing with NODE_AUTH_TOKEN without
-      # a word. The check runs here rather than in the publish jobs, where it
-      # would block the token publishes that work today, or in
-      # check-release.mjs, which contributors run with npm 10.
+      # job and publish only through trusted publishing (OIDC), which npm
+      # supports from version 11.5.1 on; with an older npm, every publish
+      # would fail. The check runs here, so that such a .nvmrc fails CI
+      # before it reaches a release, rather than in check-release.mjs, which
+      # contributors run with npm 10.
       - name: Check that npm supports trusted publishing
         run: |
           node -e '

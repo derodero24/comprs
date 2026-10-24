@@ -239,29 +239,24 @@ This section is for maintainers. Releases go through `.github/workflows/release.
 
 The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. CI therefore never runs on the Version Packages pull request on its own, and those runs are not a failure of the pull request: before merging it, run the CI workflow on its branch, `changeset-release/develop`, from the Actions tab (**CI** → **Run workflow**). The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
 
-Both publish jobs run in the `npm-publish` environment and authenticate with the `NPM_TOKEN` secret (`NODE_AUTH_TOKEN`), a granular access token. npm lets a token that can publish live for at most 90 days: renew it before it expires, or the next release fails.
+Both publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
 
 ### Trusted publishing
 
-npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), try [trusted publishing](https://docs.npmjs.com/trusted-publishers) on every `npm publish` in GitHub Actions: when the package has a trusted publisher that matches the workflow, npm exchanges the job's OIDC token for a short-lived token that can publish that package, and uses it instead of `NODE_AUTH_TOKEN`. Otherwise it silently keeps `NODE_AUTH_TOKEN`. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages work the same way. To move the release to trusted publishing ([#584](https://github.com/derodero24/comprs/issues/584)):
+Every package publishes through [trusted publishing](https://docs.npmjs.com/trusted-publishers) ([#584](https://github.com/derodero24/comprs/issues/584)). npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), exchange the job's OIDC token for a short-lived token that can publish the package, when the package has a trusted publisher that matches the workflow. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages publish the same way. The publish steps pass no npm token, so a package without a matching trusted publisher fails to publish instead of falling back to a token.
 
-1. Add a trusted publisher to each of the 10 packages shortly before a release that publishes it: a new trusted publisher expires unless a publish through it succeeds within 2 days, and an expired one has to be deleted and added again. A release publishes the middleware only when its version changes, so its trusted publisher may have to wait for a later release than the others.
-   - Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
-   - Settings: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`. Allow `npm publish`, not only `npm stage publish`: the release publishes directly.
-   - On npmjs.com, they are under each package's **Settings** → **Trusted publishing** → **GitHub Actions**. npm 11.15.0 and later can also add them from a terminal, logged in to an account with two-factor authentication. This adds them to the core package and the platform packages, which every release publishes:
+- Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
+- Settings of each trusted publisher: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`, with `npm publish` allowed, not only `npm stage publish`: the release publishes directly.
+- The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. The deployment branches of the `npm-publish` environment should be limited to `main`.
+- After a release, `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish. With no token in use, each package's **Publishing access** can be set to "Require two-factor authentication and disallow tokens".
 
-     ```bash
-     for pkg in comprs comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}; do
-       npm trust github "@derodero24/$pkg" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
-       sleep 2
-     done
-     ```
+A new package name, such as the platform package of a new napi target, needs a first publish before it can have a trusted publisher: npm adds trusted publishers only to packages that it already has ([`npm trust`](https://docs.npmjs.com/cli/v11/commands/npm-trust)). Publish its first version from a maintainer's machine, logged in to an account with two-factor authentication, then add its trusted publisher under the package's **Settings** → **Trusted publishing** → **GitHub Actions** on npmjs.com, or from a terminal with npm 11.15.0 and later:
 
-     Add the middleware's only before a release that changes its version: `npm trust github @derodero24/comprs-middleware --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes`. A package has at most one trusted publisher, so replacing an expired one takes `npm trust list` and `npm trust revoke --id` first.
-2. In the repository settings, limit the deployment branches of the `npm-publish` environment to `main`.
-3. After the release, check how each package was published: `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish, and `derodero24` for a token publish. Once all 10 packages have published as `GitHub Actions`, a follow-up pull request removes `NODE_AUTH_TOKEN` from both publish steps; then delete the `NPM_TOKEN` secret and revoke the token on npmjs.com. Each package's **Publishing access** can then be set to "Require two-factor authentication and disallow tokens".
+```bash
+npm trust github "@derodero24/<package>" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
+```
 
-The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. A new package name, such as the platform package of a new napi target, needs a first publish with a token before it can have a trusted publisher: npm adds trusted publishers only to packages that it already has ([`npm trust`](https://docs.npmjs.com/cli/v11/commands/npm-trust)). `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
+A new trusted publisher expires unless a publish through it succeeds within 2 days, so add it shortly before a release that publishes the package. A trusted publisher cannot be changed, so an expired one is deleted (`npm trust list`, then `npm trust revoke --id`) and added again. `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
 
 ## Package tests
 

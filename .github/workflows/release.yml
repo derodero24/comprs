@@ -364,23 +364,22 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      # npm 11.5.1 and later publish through trusted publishing (OIDC) when
-      # the package has a trusted publisher for this workflow file
-      # (release.yml) and the npm-publish environment, and with
-      # NODE_AUTH_TOKEN otherwise; CI's release-dry-run job checks the npm
-      # version that .nvmrc brings. The `npm publish` calls with which napi
-      # prepublish (the prepublishOnly script) publishes the platform
-      # packages inherit this step's environment and do the same. Both
-      # publish steps must stay in release.yml and in the npm-publish
-      # environment, because the trusted publishers name them.
-      # NODE_AUTH_TOKEN and the NPM_TOKEN secret go once every package has
-      # published through OIDC (#584; see Releases in CONTRIBUTING.md).
+      # Every package publishes through trusted publishing (OIDC): npm 11.5.1
+      # and later exchange the job's ID token for a short-lived token that can
+      # publish the package, whose trusted publisher names this workflow file
+      # (release.yml) and the npm-publish environment; CI's release-dry-run
+      # job checks the npm version that .nvmrc brings. The `npm publish`
+      # calls with which napi prepublish (the prepublishOnly script)
+      # publishes the platform packages inherit this step's environment and
+      # do the same. No npm token is passed, so a package without a matching
+      # trusted publisher fails to publish instead of falling back to a
+      # token. Both publish steps must stay in release.yml and in the
+      # npm-publish environment, because the trusted publishers name them
+      # (see Releases in CONTRIBUTING.md).
       # napi prepublish leaves the GitHub release to the github-release job
       # (--no-gh-release), so it needs no GitHub token.
       - name: Publish core to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Create the GitHub release of the published version ────
   # napi prepublish used to create it, with the tag on the default branch,
@@ -497,7 +496,6 @@ jobs:
           npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Merge main back into develop to prevent divergence ────
   # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
