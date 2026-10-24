@@ -42,6 +42,7 @@ import {
   zstdDecompressWithDictWithCapacity,
   zstdTrainDictionary,
 } from '../index.js';
+import { compressSync, Dictionary, decompressSync } from '../next/index.js';
 import { JSON_DATA } from './bench-fixtures.js';
 
 // The synchronous functions and the stream contexts copy results of up to
@@ -225,6 +226,74 @@ describe('synchronous zstd decompression of frames with content sizes', () => {
   });
 });
 
+// decompressSync() of the unified API decodes zstd frames with content
+// sizes as the classic functions do, into a plain Uint8Array over an
+// ArrayBuffer of its own, also when it detects the format.
+describe('synchronous zstd decompression of the unified API', () => {
+  const size = 2 * 1024 * 1024 + 1;
+  const large = Buffer.alloc(size, 'decompressSync decodes into memory that V8 owns ');
+  const zstd = compressSync(large, { format: 'zstd' });
+  const zstdDict = compressSync(large, { format: 'zstd', dictionary: dict });
+  const prepared = Dictionary.from(dict, { format: 'zstd' });
+
+  /**
+   * Check that `out`, larger than 2 MiB, is a plain Uint8Array that holds
+   * `expected` in V8's memory: its memory can be transferred, which detaches
+   * it, except in the musl builds, as above.
+   */
+  function expectDecodedIntoV8(out: Uint8Array, expected: Uint8Array): void {
+    expect(Buffer.isBuffer(out)).toBe(false);
+    expect(out).toEqual(new Uint8Array(expected));
+    const { buffer } = out;
+    if (!isArrayBuffer(buffer)) {
+      throw new Error('expected an ArrayBuffer');
+    }
+    expect(out.byteOffset).toBe(0);
+    expect(buffer.byteLength).toBe(out.byteLength);
+    if (isMuslLinux()) {
+      expect(() => structuredClone(out, { transfer: [buffer] })).toThrow(
+        expect.objectContaining({ name: 'DataCloneError' }),
+      );
+      return;
+    }
+    const moved = structuredClone(out, { transfer: [buffer] });
+    expect(out.byteLength).toBe(0);
+    expect(moved).toEqual(new Uint8Array(expected));
+  }
+
+  it.each<[string, () => Uint8Array]>([
+    ['format', () => decompressSync(zstd, { format: 'zstd' })],
+    ['maxOutputSize', () => decompressSync(zstd, { format: 'zstd', maxOutputSize: size })],
+    ['detection', () => decompressSync(zstd)],
+    ['dictionary', () => decompressSync(zstdDict, { format: 'zstd', dictionary: dict })],
+    ['prepared dictionary', () => decompressSync(zstdDict, { dictionary: prepared })],
+  ])('returns a result larger than 2 MiB in memory that V8 allocates: %s', (_, call) => {
+    expectDecodedIntoV8(call(), large);
+  });
+
+  it('decodes several frames into one result in memory that V8 allocates', () => {
+    const frames = Buffer.concat([zstd, compressSync(data, { format: 'zstd' })]);
+    expectDecodedIntoV8(decompressSync(frames), Buffer.concat([large, data]));
+  });
+
+  it('decodes an empty frame into an empty result', () => {
+    const out = decompressSync(compressSync(new Uint8Array(0), { format: 'zstd' }));
+    expect(Buffer.isBuffer(out)).toBe(false);
+    expect(out.byteLength).toBe(0);
+  });
+
+  it('throws the coded error for frames that decode to less than they declare', () => {
+    const frame = Buffer.from(zstd);
+    const descriptor = frame[4] ?? 0;
+    expect(descriptor >> 6).toBe(2);
+    const offset = descriptor & 0x20 ? 5 : 6;
+    frame.writeUInt32LE(size + 1, offset);
+    expect(() => decompressSync(frame, { format: 'zstd' })).toThrow(
+      expect.objectContaining({ code: 'ERR_COMPRS_CORRUPT_DATA' }),
+    );
+  });
+});
+
 describe('stream contexts', () => {
   it('return transform, flush and finish results that can be transferred', () => {
     const ctx = new GzipCompressContext();
@@ -333,11 +402,14 @@ describe('memory', () => {
   // limit, which it raises after each collection, and CI measured from 4 to
   // 92 MiB, and once 128 MiB, so the bound leaves room for twice that and
   // still fails far below the leak.
-  it.skipIf(!isGlibcLinux())(
-    'frees zstd results larger than 2 MiB in a synchronous loop before it yields',
+  it.skipIf(!isGlibcLinux()).for<[string, string]>([
+    ['zstdDecompress', 'zstd'],
+    ['decompressSync of the unified API', 'next-zstd'],
+  ])(
+    'frees zstd results larger than 2 MiB in a synchronous loop before it yields: %s',
     { timeout: 2 * PROCESS_TIMEOUT },
-    async ({ annotate }) => {
-      const rssGrowthMiB = runRssLoop(['zstd']);
+    async ([, arg], { annotate }) => {
+      const rssGrowthMiB = runRssLoop([arg]);
       await annotate(`the resident set grew by ${rssGrowthMiB} MiB`);
       expect(rssGrowthMiB).toBeLessThan(256);
     },

@@ -617,6 +617,66 @@ pub fn decompress(data: &[u8], options: &DecompressOptions) -> Result<Vec<u8>, C
     decode(data, decoder, limit)
 }
 
+/// [`decompress`], decoding the output of zstd frames that declare their
+/// content sizes into `allocate(size)` instead of a `Vec`, as
+/// [`zstd::decompress_into`] does, also after detection.
+///
+/// The output and the errors are those of [`decompress`]. Other input, in
+/// zstd and in the other formats, is returned as [`zstd::Decoded::Grown`],
+/// with its spare capacity released as [`decompress`] releases it.
+#[cfg(feature = "zstd")]
+pub fn decompress_into<B: zstd::WriteBuf>(
+    data: &[u8],
+    options: &DecompressOptions,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<zstd::Decoded<B>, ComprsError> {
+    let decoder = decoder(options)?;
+    let limit = crate::validate_max_output_size(options.max_output_size)?;
+    let Some(decoder) = decoder else {
+        let format = detect(data).ok_or_else(unknown_format)?;
+        return decode_into(data, Decoder::of(format)?, limit, allocate)
+            .map_err(|e| detected_error(format, e));
+    };
+    decode_into(data, decoder, limit, allocate)
+}
+
+/// [`decompress_fields`], decoding into `allocate(size)` as
+/// [`decompress_into`] does.
+#[cfg(feature = "zstd")]
+pub fn decompress_fields_into<B: zstd::WriteBuf>(
+    data: &[u8],
+    format: Option<&str>,
+    max_output_size: Option<f64>,
+    dictionary: Option<DictionaryRef<'_>>,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<zstd::Decoded<B>, ComprsError> {
+    let options = decompress_options(format, max_output_size, dictionary)?;
+    decompress_into(data, &options, allocate)
+}
+
+/// [`decode`], decoding zstd frames that declare their content sizes into
+/// `allocate(size)`.
+#[cfg(feature = "zstd")]
+fn decode_into<B: zstd::WriteBuf>(
+    data: &[u8],
+    decoder: Decoder,
+    limit: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<zstd::Decoded<B>, ComprsError> {
+    match decoder {
+        Decoder::Zstd(None) => zstd::decompress_into(data, limit, allocate),
+        Decoder::Zstd(Some(DictionaryRef::Raw(dict))) => {
+            zstd::decompress_with_dict_into(data, dict, limit, allocate)
+        }
+        Decoder::Zstd(Some(DictionaryRef::Prepared(dict))) => {
+            zstd::decompress_prepared_into(data, dict, limit, allocate)
+        }
+        // A build with only zstd has no others.
+        #[allow(unreachable_patterns)]
+        decoder => decode(data, decoder, limit).map(zstd::Decoded::Grown),
+    }
+}
+
 /// Decompress `data` with `decoder` into at most `limit` bytes.
 fn decode(data: &[u8], decoder: Decoder, limit: usize) -> Result<Vec<u8>, ComprsError> {
     match decoder {

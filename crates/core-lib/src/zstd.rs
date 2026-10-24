@@ -305,15 +305,18 @@ pub enum Decoded<B> {
     /// The output of frames that declare their content sizes, in the memory
     /// that `allocate` returned for their total.
     Allocated(B),
-    /// The output of other input, which the streaming decoder grew.
+    /// The output of other input, which the streaming decoder grew, with
+    /// its spare capacity released as the functions that return a `Vec`
+    /// release it.
     Grown(Vec<u8>),
 }
 
 impl Decoded<Vec<u8>> {
-    /// The output, whichever way it was decoded.
+    /// The output, whichever way it was decoded. The allocated output has
+    /// no spare capacity: `output_buffer` reserves exactly its size.
     fn into_vec(self) -> Vec<u8> {
         match self {
-            Self::Allocated(output) | Self::Grown(output) => crate::finish_output(output),
+            Self::Allocated(output) | Self::Grown(output) => output,
         }
     }
 }
@@ -371,7 +374,7 @@ fn decompress_with_limit<B: WriteBuf>(
         return with_dctx(dict, limit, |dctx| {
             crate::zstd_stream::decompress_all(dctx, data, limit, data.len(), context)
         })
-        .map(Decoded::Grown);
+        .map(|output| Decoded::Grown(crate::finish_output(output)));
     };
 
     let mut output = allocate(size)?;
@@ -505,7 +508,7 @@ pub fn decompress_prepared_into<B: WriteBuf>(
                 source: zstd_error(code),
             })?;
         return crate::zstd_stream::decompress_all(&mut dctx, data, limit, data.len(), CONTEXT)
-            .map(Decoded::Grown);
+            .map(|output| Decoded::Grown(crate::finish_output(output)));
     };
 
     let mut output = allocate(size)?;

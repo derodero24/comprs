@@ -17,7 +17,8 @@
 //! `code`, as `coded_error` describes, except that of a withdrawn task,
 //! below. Results are plain `Uint8Array`s: the synchronous functions copy
 //! results of up to `SYNC_COPY_LIMIT` into memory that V8 allocates, as
-//! `to_uint8array` does. The `*Async` functions copy their inputs when
+//! `to_uint8array` does, and [`decompress`] decodes zstd frames that
+//! declare their content sizes straight into it, as `sync_decoded` does. The `*Async` functions copy their inputs when
 //! they are called (#548), run on the libuv thread pool and settle as
 //! `NextBytes` does.
 //!
@@ -48,7 +49,7 @@ use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::context::NativeState;
-use crate::convert::{SYNC_COPY_LIMIT, to_uint8array};
+use crate::convert::{SYNC_COPY_LIMIT, Uint8ArrayKind, sync_decoded, to_uint8array};
 use crate::error::coded_error;
 use crate::stream_task::{NextStreamBytes, Op, StreamCodec, StreamTask};
 use crate::task::{NextBytes, OneShot, Withdrawable, Withdrawal};
@@ -317,15 +318,20 @@ pub fn decompress(
     dictionary: Option<&[u8]>,
     dictionary_handle: Option<&External<NextDictionary>>,
 ) -> napi::Result<Uint8Array> {
-    let result = prepared(dictionary_handle).and_then(|prepared| {
-        unified::decompress_fields(
-            data,
-            format.as_deref(),
-            max_output_size,
-            dictionary_ref(prepared.as_deref(), dictionary),
-        )
-    });
-    sync_output(&env, result)
+    let prepared = prepared(dictionary_handle).map_err(|err| coded_error(&env, &err))?;
+    sync_decoded::<Uint8ArrayKind>(
+        &env,
+        |allocate| {
+            unified::decompress_fields_into(
+                data,
+                format.as_deref(),
+                max_output_size,
+                dictionary_ref(prepared.as_deref(), dictionary),
+                allocate,
+            )
+        },
+        |err| coded_error(&env, &err),
+    )
 }
 
 /// [`decompress`] on the libuv thread pool: `decompress()` of the unified
