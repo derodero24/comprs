@@ -81,11 +81,11 @@ impl Error {
     }
 
     /// Whether this is a decoder error that tells that memory ran out:
-    /// libbrotli's codes from -30 to -39 (`_ERROR_ALLOC_*`).
+    /// libbrotli's codes from -30 to -21 (`_ERROR_ALLOC_*`).
     pub fn is_out_of_memory(&self) -> bool {
         match self {
             Self::OutOfMemory => true,
-            Self::Decoder { code, .. } => (-39..=-30).contains(code),
+            Self::Decoder { code, .. } => (-30..=-21).contains(code),
             _ => false,
         }
     }
@@ -298,7 +298,10 @@ impl<'d> Encoder<'d> {
     /// A new encoder with libbrotli's default parameters: quality 11, a
     /// window of 2^22 bytes, generic mode.
     pub fn new() -> Result<Self, Error> {
-        let counter = Box::<Counter>::default();
+        Self::with_counter(Box::default())
+    }
+
+    fn with_counter(counter: Box<Counter>) -> Result<Self, Error> {
         let (alloc, free) = alloc::FUNCTIONS;
         // SAFETY: the memory functions get the opaque of `counter`, which
         // `self` keeps in its box for as long as the state lives.
@@ -400,12 +403,19 @@ impl<'d> Encoder<'d> {
     /// room in `output`, until it has taken all the input and, for
     /// [`Operation::Flush`] and [`Operation::Finish`], emitted all the
     /// output. [`Encoder::compress_all`] does that.
+    ///
+    /// Once memory has run out, the encoder fails with
+    /// [`Error::OutOfMemory`] for good: libbrotli does not report every
+    /// failed allocation, and may have dropped input when one failed.
     pub fn compress(
         &mut self,
         operation: Operation,
         input: &mut &[u8],
         output: &mut Vec<u8>,
     ) -> Result<(), Error> {
+        if self.counter.has_failed() {
+            return Err(Error::OutOfMemory);
+        }
         self.started = true;
         let mut available_in = input.len();
         let mut next_in = input.as_ptr();
@@ -433,7 +443,12 @@ impl<'d> Encoder<'d> {
         // capacity.
         unsafe { output.set_len(output.len() + written) };
         *input = &input[input.len() - available_in..];
-        if ok == ffi::BROTLI_TRUE {
+        // libbrotli 1.2.1 takes the input even when it fails to allocate the
+        // ring buffer for it, and reports success, so the failure is checked
+        // here rather than trusted to `ok`.
+        if self.counter.has_failed() {
+            Err(Error::OutOfMemory)
+        } else if ok == ffi::BROTLI_TRUE {
             Ok(())
         } else {
             Err(Error::Encoder)
@@ -534,7 +549,10 @@ unsafe impl Send for Decoder<'_> {}
 impl<'d> Decoder<'d> {
     /// A new decoder.
     pub fn new() -> Result<Self, Error> {
-        let counter = Box::<Counter>::default();
+        Self::with_counter(Box::default())
+    }
+
+    fn with_counter(counter: Box<Counter>) -> Result<Self, Error> {
         let (alloc, free) = alloc::FUNCTIONS;
         // SAFETY: the memory functions get the opaque of `counter`, which
         // `self` keeps in its box for as long as the state lives.
@@ -653,5 +671,47 @@ impl fmt::Debug for Decoder<'_> {
         f.debug_struct("Decoder")
             .field("dictionaries", &self.dictionaries.len())
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Text of `len` bytes that compresses, but not trivially.
+    fn text(len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|i| b"comprs compresses brotli with libbrotli "[i % 40] ^ (i / 997) as u8)
+            .collect()
+    }
+
+    // The build defines BROTLI_ENCODER_CLEANUP_ON_OOM: without it, the
+    // encoder would end the process here.
+    #[test]
+    fn an_encoder_that_runs_out_of_memory_fails() {
+        let mut encoder = Encoder::with_counter(Box::new(Counter::limited(256 * 1024))).unwrap();
+        encoder.set_quality(11).unwrap();
+        let mut output = Vec::new();
+        let result = encoder.compress_all(Operation::Finish, &text(1 << 20), &mut output);
+        assert_eq!(result, Err(Error::OutOfMemory));
+        let result = encoder.compress(Operation::Finish, &mut &b""[..], &mut output);
+        assert_eq!(result, Err(Error::OutOfMemory));
+    }
+
+    #[test]
+    fn a_decoder_that_runs_out_of_memory_fails() {
+        let input = text(1 << 20);
+        let mut encoder = Encoder::new().unwrap();
+        encoder.set_quality(1).unwrap();
+        let mut compressed = Vec::new();
+        encoder
+            .compress_all(Operation::Finish, &input, &mut compressed)
+            .unwrap();
+        let mut decoder = Decoder::with_counter(Box::new(Counter::limited(64 * 1024))).unwrap();
+        let mut output = Vec::with_capacity(input.len());
+        let err = decoder
+            .decompress(&mut &compressed[..], &mut output)
+            .unwrap_err();
+        assert!(err.is_out_of_memory(), "{err:?}");
     }
 }

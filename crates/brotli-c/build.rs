@@ -9,6 +9,10 @@ fn main() {
 
     let mut build = cc::Build::new();
     build.include(root.join("include")).warnings(false);
+    // Without it, the encoder calls exit() when an allocation fails
+    // (brotli/c/enc/memory.h), which would end the process that loads
+    // comprs; with it, the call fails and the encoder frees what it holds.
+    build.define("BROTLI_ENCODER_CLEANUP_ON_OOM", None);
     // MSVC warns that the CRT functions that libbrotli calls, such as
     // memcpy, are unsafe; libbrotli's own CMake build turns that off too.
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
