@@ -46,8 +46,8 @@ pub fn brotli_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<B
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi]
 pub fn brotli_decompress_with_capacity(
     env: Env,
@@ -111,8 +111,8 @@ pub fn brotli_decompress_async(
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -140,8 +140,8 @@ pub fn brotli_decompress_with_capacity_async(
 /// is 6.
 ///
 /// @deprecated Use `compressSync(data, { format: 'brotli', dictionary: dict, level: quality })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi]
 pub fn brotli_compress_with_dict(
     env: Env,
@@ -167,8 +167,8 @@ pub fn brotli_compress_with_dict(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi]
 pub fn brotli_decompress_with_dict(
     env: Env,
@@ -189,8 +189,8 @@ pub fn brotli_decompress_with_dict(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi]
 pub fn brotli_decompress_with_dict_with_capacity(
     env: Env,
@@ -218,8 +218,8 @@ pub fn brotli_decompress_with_dict_with_capacity(
 /// is 6.
 ///
 /// @deprecated Use `await compress(data, { format: 'brotli', dictionary: dict, level: quality })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null",
     ts_return_type = "Promise<Buffer>"
@@ -248,8 +248,8 @@ pub fn brotli_compress_with_dict_async(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"
@@ -277,8 +277,8 @@ pub fn brotli_decompress_with_dict_async(
 /// The same dictionary used for compression must be provided.
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
-/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
-/// migration table in the README).
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

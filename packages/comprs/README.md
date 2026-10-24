@@ -27,7 +27,7 @@ Bundlers that target browsers get the WebAssembly build, as they do with `@derod
 
 In version 3.0, the code moves to this package, and `@derodero24/comprs` becomes the one that re-exports it ([#752](https://github.com/derodero24/comprs/issues/752)).
 
-See the [documentation on GitHub](https://github.com/derodero24/comprs#readme) for the API, the supported platforms, browser usage, migration guides and benchmarks, and try it in the [playground](https://derodero24.github.io/comprs/).
+See the [documentation](https://derodero24.github.io/comprs/) for the API, the supported platforms, browser usage, migration guides and benchmarks, and try it in the [playground](https://derodero24.github.io/comprs/playground/).
 
 ## License
 
