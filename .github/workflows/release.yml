@@ -542,7 +542,33 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          if git merge origin/main --no-edit; then
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "develop already contains main"
+            exit 0
+          fi
+
+          # main holds the squashed release PR, whose tree is that of a
+          # develop commit when main was merged back after the last release.
+          # Later commits on develop then conflict with main for no reason,
+          # so record the merge with develop's tree. Anything else, such as a
+          # fix pushed to main, goes through a normal merge.
+          main_tree=$(git rev-parse 'origin/main^{tree}')
+          snapshot=false
+          # grep reads all of git log: with -q, an early exit would fail the
+          # pipeline under pipefail.
+          if git log --format=%T HEAD | grep -xF "$main_tree" >/dev/null; then
+            snapshot=true
+            git merge -s ours --no-edit -m "chore(release): merge main into develop" origin/main
+            merged=true
+          elif git merge origin/main --no-edit; then
+            merged=true
+          else
+            git merge --abort
+            merged=false
+            reason="the merge conflicts"
+          fi
+
+          if [ "$merged" = true ]; then
             if git push origin HEAD:develop; then
               exit 0
             fi
@@ -555,24 +581,35 @@ jobs:
             fi
             # Branch protection on develop, or a concurrent push.
             reason="develop rejected the push"
-          else
-            git merge --abort
-            reason="the merge conflicts"
           fi
 
-          # Hand the merge to a maintainer through a pull request instead of
-          # leaving develop behind main. The branch points at main itself, not
-          # at a merge commit, so re-running the job pushes the same commit.
+          # Hand the merge to a pull request instead of leaving develop
+          # behind main. The branch carries the merge commit when there is
+          # one, and main itself when the merge conflicts, for a maintainer to
+          # resolve. A re-run reuses the branch and the pull request.
           branch="chore/merge-main-$(git rev-parse --short origin/main)"
           url=$(gh pr list --base develop --head "$branch" --json url --jq '.[0].url // empty')
           if [ -z "$url" ]; then
-            git push origin "origin/main:refs/heads/${branch}"
+            if [ -z "$(git ls-remote --heads origin "$branch")" ]; then
+              if [ "$merged" = true ]; then
+                git push origin "HEAD:refs/heads/${branch}"
+              else
+                git push origin "origin/main:refs/heads/${branch}"
+              fi
+            fi
+            if [ "$snapshot" = true ]; then
+              steps="- This branch already merges \`main\` into \`develop\`, keeping the tree of \`develop\`: \`main\` holds a release of it."
+            elif [ "$merged" = true ]; then
+              steps="- This branch already merges \`main\` into \`develop\`."
+            else
+              steps="- Resolve the conflicts on this branch, for example by merging \`develop\` into it."
+            fi
             url=$(gh pr create --base develop --head "$branch" \
               --title "chore(release): merge main into develop" \
               --body-file - <<EOF
           The [release run](${RUN_URL}) could not merge \`main\` into \`develop\`: ${reason}.
 
-          - Resolve any conflicts on this branch, for example by merging \`develop\` into it.
+          ${steps}
           - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
           EOF
             )
@@ -583,4 +620,13 @@ jobs:
           # its checks show on the pull request. A re-run dispatches again,
           # for the same commit.
           gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          if [ "$merged" = true ]; then
+            # Nothing is left for a maintainer: merge once CI passes.
+            if gh pr merge "$url" --auto --merge; then
+              echo "Merges ${url} once CI passes"
+              exit 0
+            fi
+            echo "::warning::Could not enable auto-merge on ${url}; merge it with a merge commit once CI passes"
+            exit 0
+          fi
           echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"
