@@ -48,6 +48,7 @@ comprs/
 ├── e2e/             ← Tests of the packed package in Node.js, Deno, Bun and browsers
 ├── npm/             ← Platform-specific binary packages
 ├── packages/
+│   ├── comprs/      ← The unscoped `comprs` package, which re-exports @derodero24/comprs (see Changesets)
 │   └── middleware/  ← HTTP compression middleware (@derodero24/comprs-middleware)
 ├── playground/      ← Interactive playground (GitHub Pages)
 ├── scripts/         ← Build, packaging, optimization and benchmark report scripts
@@ -209,12 +210,15 @@ A pull request that changes a published package in a way its users can notice ad
 | ------- | ----- |
 | `@derodero24/comprs` | `crates/core-lib/src/`, `crates/core/`, `crates/wasm/`, `src/`, `browser/`, `index.js`, `index.d.ts` |
 | `@derodero24/comprs-middleware` | `packages/middleware/src/` |
+| `comprs` | `packages/comprs/` |
 
 A change elsewhere can reach users too, such as a dependency update in `Cargo.lock`, the `exports` of a `package.json`, or a build setting of the native binaries. To add a changeset:
 
 ```bash
 pnpm changeset
 ```
+
+`comprs` is the same library under an unscoped name ([#752](https://github.com/derodero24/comprs/issues/752)): each entry point of `packages/comprs` re-exports the one of `@derodero24/comprs` with the same subpath, and the package depends on exactly the core release of its own version (`workspace:*`, which `pnpm pack` replaces with the version). `.changeset/config.json` puts both in a `fixed` group, so a changeset for either one releases both at the same version, and a core changeset needs no entry for `comprs`. `__test__/unscoped-package.spec.ts` checks that the package stays a faithful copy: the same version, subpaths and conditions, the same values from `require()` and `import`, and the browser entries under the `browser` condition; `pnpm run test:types` checks that its declarations give the same types. A new entry point of the core package needs one in `packages/comprs` too, which these tests ask for. The package has no `sideEffects` field: its modules only re-export, and a bundler still applies the `sideEffects` of `@derodero24/comprs` to the modules they lead to.
 
 `@derodero24/comprs-middleware` has `@derodero24/comprs` as a peer dependency. `.changeset/config.json` sets `onlyUpdatePeerDependentsWhenOutOfRange`, so a core release that the middleware's peer range still covers leaves the middleware alone. A core release outside that range, such as a new major, makes `changeset version` release the middleware as a patch with its peer range moved to the new version, which breaks installs that keep the older core. With a breaking core change, add a `major` changeset for `@derodero24/comprs-middleware` as well.
 
@@ -250,18 +254,18 @@ This section is for maintainers. Releases go through `.github/workflows/release.
 1. Pull requests into `develop` add [changesets](#changesets).
 2. On each push to `develop`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
 3. Once it is merged, no changeset is left, and the Version job opens or updates the release pull request from `develop` into `main`, which lists the versions to publish.
-4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
+4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, and the Publish Unscoped job the unscoped `comprs` package, each if its version is new.
 5. The Merge Back job merges `main` into `develop`, or opens a pull request for that when it cannot.
 
 The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. CI therefore never runs on the Version Packages pull request on its own, and those runs are not a failure of the pull request: before merging it, run the CI workflow on its branch, `changeset-release/develop`, from the Actions tab (**CI** → **Run workflow**). The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
 
-Both publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
+The publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
 
 ### Trusted publishing
 
 Every package publishes through [trusted publishing](https://docs.npmjs.com/trusted-publishers) ([#584](https://github.com/derodero24/comprs/issues/584)). npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), exchange the job's OIDC token for a short-lived token that can publish the package, when the package has a trusted publisher that matches the workflow. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages publish the same way. The publish steps pass no npm token, so a package without a matching trusted publisher fails to publish instead of falling back to a token.
 
-- Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
+- Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, `@derodero24/comprs-middleware` and `comprs`.
 - Settings of each trusted publisher: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`, with `npm publish` allowed, not only `npm stage publish`: the release publishes directly.
 - The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. The deployment branches of the `npm-publish` environment should be limited to `main`.
 - After a release, `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish. With no token in use, each package's **Publishing access** can be set to "Require two-factor authentication and disallow tokens".
@@ -270,6 +274,14 @@ A new package name, such as the platform package of a new napi target, needs a f
 
 ```bash
 npm trust github "@derodero24/<package>" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
+```
+
+For the unscoped `comprs` package, pack it with pnpm, which writes the version of `@derodero24/comprs` in place of `workspace:*`, and publish the tarball of a version whose core release is on npm already:
+
+```bash
+pnpm --dir packages/comprs pack --out comprs.tgz
+npm publish comprs.tgz --access public
+npm trust github comprs --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
 ```
 
 A new trusted publisher expires unless a publish through it succeeds within 2 days, so add it shortly before a release that publishes the package. A trusted publisher cannot be changed, so an expired one is deleted (`npm trust list`, then `npm trust revoke --id`) and added again. `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.

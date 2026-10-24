@@ -1,0 +1,127 @@
+{
+  "name": "comprs",
+  "version": "2.1.0",
+  "description": "Rust-powered universal compression for JavaScript/TypeScript: zstd, gzip, brotli and lz4 in one package. The unscoped name of @derodero24/comprs.",
+  "license": "MIT",
+  "author": "derodero24",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derodero24/comprs.git",
+    "directory": "packages/comprs"
+  },
+  "homepage": "https://github.com/derodero24/comprs",
+  "bugs": {
+    "url": "https://github.com/derodero24/comprs/issues"
+  },
+  "keywords": [
+    "compress",
+    "compression",
+    "decompress",
+    "zstd",
+    "zstandard",
+    "gzip",
+    "brotli",
+    "deflate",
+    "lz4",
+    "wasm",
+    "wasm-bindgen",
+    "rust",
+    "napi-rs",
+    "native",
+    "typescript",
+    "streaming",
+    "web-streams"
+  ],
+  "type": "commonjs",
+  "main": "index.js",
+  "module": "index.mjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "import": {
+          "types": "./index.d.mts",
+          "default": "./index.mjs"
+        }
+      },
+      "import": {
+        "types": "./index.d.mts",
+        "default": "./index.mjs"
+      },
+      "require": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      }
+    },
+    "./streams": {
+      "browser": {
+        "import": {
+          "types": "./streams.d.mts",
+          "default": "./streams.mjs"
+        }
+      },
+      "import": {
+        "types": "./streams.d.ts",
+        "default": "./streams.js"
+      },
+      "require": {
+        "types": "./streams.d.ts",
+        "default": "./streams.js"
+      }
+    },
+    "./node": {
+      "import": {
+        "types": "./node.d.ts",
+        "default": "./node.js"
+      },
+      "require": {
+        "types": "./node.d.ts",
+        "default": "./node.js"
+      }
+    },
+    "./next": {
+      "browser": {
+        "import": {
+          "types": "./next/index.d.mts",
+          "default": "./next/index.mjs"
+        }
+      },
+      "import": {
+        "types": "./next/index.d.mts",
+        "default": "./next/index.mjs"
+      },
+      "require": {
+        "types": "./next/index.d.ts",
+        "default": "./next/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "index.d.mts",
+    "streams.js",
+    "streams.mjs",
+    "streams.d.ts",
+    "streams.d.mts",
+    "node.js",
+    "node.d.ts",
+    "next"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "attw": "attw --pack .",
+    "publint": "publint"
+  },
+  "dependencies": {
+    "@derodero24/comprs": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

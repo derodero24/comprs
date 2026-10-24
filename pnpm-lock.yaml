@@ -218,6 +218,12 @@ importers:
         specifier: ^5.0.0
         version: 5.0.5(@types/node@24.19.2)(@vitest/coverage-v8@5.0.5)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.6.1)(yaml@2.9.1))
 
+  packages/comprs:
+    dependencies:
+      '@derodero24/comprs':
+        specifier: workspace:*
+        version: link:../..
+
   packages/middleware:
     dependencies:
       fastify-plugin:
