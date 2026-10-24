@@ -215,8 +215,12 @@ fn a_dictionary_keeps_its_own_copy_of_the_bytes() {
 
 #[test]
 fn dictionaries_report_their_memory() {
+    // libbrotli hashes the bytes into about 270 KB of tables, and 4 bytes
+    // more for each byte, which refer to the bytes rather than copy them.
     let brotli = Dictionary::new(&TRAINED, DictionaryFormat::Brotli, None).unwrap();
-    assert_eq!(brotli.memory_usage(), TRAINED.len());
+    let tables = brotli.memory_usage() - TRAINED.len();
+    assert!(tables > 4 * TRAINED.len(), "{tables} bytes");
+    assert!(tables < 300_000 + 5 * TRAINED.len(), "{tables} bytes");
 
     // zstd keeps copies of the bytes in its compression and decompression
     // dictionaries, along with their tables.

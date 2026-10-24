@@ -3,9 +3,10 @@
 
 use std::sync::Arc;
 
-use comprs_brotli::{Decoder, Encoder, Operation, Status};
+use comprs_brotli::{Decoder, Encoder, Operation, PreparedDictionary, Status};
 
 use crate::brotli::{DEFAULT_QUALITY, QUALITY, decoder_error, invalid_data, operation_error};
+use crate::dictionary::Dictionary;
 use crate::limited::LimitedVec;
 use crate::{ComprsError, MemoryUsage};
 
@@ -30,7 +31,7 @@ pub struct CompressContext {
 impl CompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self, ComprsError> {
         let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-        let encoder = StreamEncoder::new(quality, &[])
+        let encoder = StreamEncoder::new(quality, None, 0)
             .map_err(|e| operation_error("brotli stream compress", e))?;
         Ok(Self {
             encoder: Some(encoder),
@@ -158,7 +159,7 @@ enum DictState {
     /// The dictionary and the input so far, which the context holds until
     /// `finish` or, in incremental mode, until the input grows past
     /// [`DICT_REACH`] bytes.
-    Holding { dict: Vec<u8>, input: Vec<u8> },
+    Holding { dict: HeldDict, input: Vec<u8> },
     /// The encoder, which has taken the input so far.
     Streaming(Box<StreamEncoder>),
     /// A call failed with this error, which the later calls report again.
@@ -167,20 +168,61 @@ enum DictState {
     Finished,
 }
 
+/// The dictionary of a [`CompressDictContext`] that has not started to
+/// compress.
+enum HeldDict {
+    /// Its bytes, empty for none, which the context prepares when it starts
+    /// to compress.
+    Bytes(Vec<u8>),
+    /// Prepared by a [`Dictionary`], which reports its memory.
+    Prepared(Arc<PreparedDictionary<'static>>),
+}
+
+impl HeldDict {
+    /// The prepared dictionary, if any, and the memory of it that the
+    /// context reports.
+    fn prepare(self) -> Result<(Option<Arc<PreparedDictionary<'static>>>, usize), ComprsError> {
+        match self {
+            HeldDict::Bytes(bytes) if bytes.is_empty() => Ok((None, 0)),
+            HeldDict::Bytes(bytes) => {
+                let prepared = crate::brotli::prepared_dictionary(&bytes)
+                    .map_err(|e| operation_error(DICT_COMPRESS, e))?;
+                let memory = prepared.bytes().len() + prepared.memory_usage();
+                Ok((Some(prepared), memory))
+            }
+            HeldDict::Prepared(prepared) => Ok((Some(prepared), 0)),
+        }
+    }
+}
+
 impl CompressDictContext {
     /// A buffered context, which compresses all its input on `finish`.
     pub fn new(dict: &[u8], quality: Option<u32>) -> Result<Self, ComprsError> {
-        Self::with_max_held(dict, quality, usize::MAX)
+        Self::with_max_held(HeldDict::Bytes(dict.to_vec()), quality, usize::MAX)
     }
 
     /// An incremental context, which holds at most [`DICT_REACH`] bytes of
     /// input and then streams.
     pub fn incremental(dict: &[u8], quality: Option<u32>) -> Result<Self, ComprsError> {
-        Self::with_max_held(dict, quality, DICT_REACH)
+        Self::with_max_held(HeldDict::Bytes(dict.to_vec()), quality, DICT_REACH)
+    }
+
+    /// An incremental context with a prepared [`Dictionary`], which it
+    /// shares rather than copies or prepares again: its output is that of
+    /// [`incremental`](Self::incremental) with the bytes of the dictionary.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary, then
+    /// for an invalid `quality`.
+    pub fn incremental_prepared(
+        dict: &Dictionary,
+        quality: Option<u32>,
+    ) -> Result<Self, ComprsError> {
+        let prepared = Arc::clone(dict.brotli_prepared()?);
+        Self::with_max_held(HeldDict::Prepared(prepared), quality, DICT_REACH)
     }
 
     fn with_max_held(
-        dict: &[u8],
+        dict: HeldDict,
         quality: Option<u32>,
         max_held: usize,
     ) -> Result<Self, ComprsError> {
@@ -189,7 +231,7 @@ impl CompressDictContext {
             quality,
             max_held,
             state: DictState::Holding {
-                dict: dict.to_vec(),
+                dict,
                 input: Vec::new(),
             },
         })
@@ -219,15 +261,23 @@ impl CompressDictContext {
         // holds with the dictionary, then the rest of the chunk. An empty
         // dictionary is none, as for `compress_with_dict`.
         let input = std::mem::take(input);
-        let dict = std::mem::take(dict);
-        let output = StreamEncoder::new(self.quality, &dict).and_then(|mut encoder| {
-            let mut output = encoder.run(Operation::Flush, &input)?;
+        let dict = std::mem::replace(dict, HeldDict::Bytes(Vec::new()));
+        let output = dict.prepare().and_then(|(dict, dict_memory)| {
+            let mut encoder = StreamEncoder::new(self.quality, dict, dict_memory)
+                .map_err(|e| operation_error(DICT_COMPRESS, e))?;
+            let mut output = encoder
+                .run(Operation::Flush, &input)
+                .map_err(|e| operation_error(DICT_COMPRESS, e))?;
             drop(input);
-            output.extend(encoder.run(Operation::Process, rest)?);
+            output.extend(
+                encoder
+                    .run(Operation::Process, rest)
+                    .map_err(|e| operation_error(DICT_COMPRESS, e))?,
+            );
             self.state = DictState::Streaming(Box::new(encoder));
             Ok(output)
         });
-        self.settle(output)
+        self.settle_checked(output)
     }
 
     /// While the context holds its input, return an empty Vec. Otherwise
@@ -250,7 +300,13 @@ impl CompressDictContext {
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
         match std::mem::replace(&mut self.state, DictState::Finished) {
             DictState::Holding { dict, input } => {
-                crate::brotli::compress_with_dict_inner(&input, &dict, self.quality, DICT_COMPRESS)
+                let (dict, _) = dict.prepare()?;
+                crate::brotli::compress_with_prepared_inner(
+                    &input,
+                    dict,
+                    self.quality,
+                    DICT_COMPRESS,
+                )
             }
             DictState::Streaming(mut encoder) => encoder
                 .run(Operation::Finish, &[])
@@ -266,11 +322,16 @@ impl CompressDictContext {
         &mut self,
         output: Result<Vec<u8>, comprs_brotli::Error>,
     ) -> Result<Vec<u8>, ComprsError> {
-        output.map_err(|e| {
-            let error = operation_error(DICT_COMPRESS, e);
-            self.state = DictState::Failed(error.duplicate());
-            error
-        })
+        self.settle_checked(output.map_err(|e| operation_error(DICT_COMPRESS, e)))
+    }
+
+    /// [`settle`](Self::settle) for an error that is already a
+    /// [`ComprsError`].
+    fn settle_checked(
+        &mut self,
+        output: Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, ComprsError> {
+        output.inspect_err(|error| self.state = DictState::Failed(error.duplicate()))
     }
 }
 
@@ -279,7 +340,13 @@ impl MemoryUsage for CompressDictContext {
     /// state, with its window, its hash tables and the prepared dictionary.
     fn memory_usage(&self) -> usize {
         match &self.state {
-            DictState::Holding { dict, input } => dict.capacity() + input.capacity(),
+            DictState::Holding { dict, input } => {
+                let dict = match dict {
+                    HeldDict::Bytes(bytes) => bytes.capacity(),
+                    HeldDict::Prepared(_) => 0,
+                };
+                dict + input.capacity()
+            }
             DictState::Streaming(encoder) => encoder.memory_usage(),
             DictState::Failed(_) | DictState::Finished => 0,
         }
@@ -320,7 +387,8 @@ const FEED: usize = 64 * 1024;
 struct StreamEncoder {
     /// Holds the prepared dictionary that it is attached to, if any.
     encoder: Encoder<'static>,
-    /// The memory of the prepared dictionary, its bytes included.
+    /// The memory of the prepared dictionary, its bytes included, unless a
+    /// [`Dictionary`] reports it.
     dict_memory: usize,
     /// Input that the encoder has not taken yet: less than [`FEED`] bytes,
     /// which [`Self::run`] passes on once they make [`FEED`] bytes, or to
@@ -336,15 +404,16 @@ thread_local! {
 }
 
 impl StreamEncoder {
-    /// An encoder at `quality`, with the raw dictionary `dict`, empty for
-    /// none.
-    fn new(quality: u32, dict: &[u8]) -> Result<Self, comprs_brotli::Error> {
+    /// An encoder at `quality`, with the prepared raw dictionary `dict`, if
+    /// any, which holds `dict_memory` bytes that the encoder reports.
+    fn new(
+        quality: u32,
+        dict: Option<Arc<PreparedDictionary<'static>>>,
+        dict_memory: usize,
+    ) -> Result<Self, comprs_brotli::Error> {
         let mut encoder = crate::brotli::encoder(quality)?;
-        let mut dict_memory = 0;
-        if !dict.is_empty() {
-            let prepared = crate::brotli::prepared_dictionary(dict)?;
-            dict_memory = prepared.bytes().len() + prepared.memory_usage();
-            encoder.attach_shared(prepared)?;
+        if let Some(dict) = dict {
+            encoder.attach_shared(dict)?;
         }
         Ok(Self {
             encoder,
@@ -412,6 +481,26 @@ impl DecompressDictContext {
         Ok(Self {
             inner: StreamDecoder::new(
                 (!dict.is_empty()).then(|| Arc::from(dict)),
+                LimitedVec::new(max_size, "brotli dict stream decompress"),
+                "brotli dict stream",
+            )?,
+        })
+    }
+
+    /// Create a context for a prepared [`Dictionary`], whose bytes it shares
+    /// rather than copies.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary, then
+    /// for an invalid `max_output_size`.
+    pub fn with_prepared(
+        dict: &Dictionary,
+        max_output_size: Option<f64>,
+    ) -> Result<Self, ComprsError> {
+        let dict = dict.brotli_raw()?;
+        let max_size = crate::validate_max_output_size(max_output_size)?;
+        Ok(Self {
+            inner: StreamDecoder::new(
+                Some(dict),
                 LimitedVec::new(max_size, "brotli dict stream decompress"),
                 "brotli dict stream",
             )?,
@@ -1081,13 +1170,85 @@ mod tests {
         assert!(!ctx.inner.ended);
     }
 
+    // A context with a prepared Dictionary writes the stream of one with its
+    // bytes, whether it holds the input until `finish` or streams it, and a
+    // decompression context with the Dictionary reads it.
+    #[test]
+    fn dict_contexts_with_a_prepared_dictionary_match_those_with_its_bytes() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let bytes = english_dict();
+        let dict = Dictionary::new(&bytes, DictionaryFormat::Brotli, None).unwrap();
+        for len in [1000, DICT_REACH + 100_000] {
+            let input = english(len);
+            let mut with_bytes = CompressDictContext::incremental(&bytes, Some(5)).unwrap();
+            let mut prepared = CompressDictContext::incremental_prepared(&dict, Some(5)).unwrap();
+            let mut expected = Vec::new();
+            let mut output = Vec::new();
+            for chunk in input.chunks(300_000) {
+                expected.extend(with_bytes.transform(chunk).unwrap());
+                output.extend(prepared.transform(chunk).unwrap());
+            }
+            expected.extend(with_bytes.finish().unwrap());
+            output.extend(prepared.finish().unwrap());
+            assert!(output == expected, "{len} bytes");
+
+            let mut ctx = DecompressDictContext::with_prepared(&dict, None).unwrap();
+            let mut restored = ctx.transform(&output).unwrap();
+            restored.extend(ctx.finish().unwrap());
+            assert!(restored == input, "{len} bytes");
+        }
+    }
+
+    // The Dictionary reports the memory of what it prepared, so a context
+    // that shares it reports only its own.
+    #[test]
+    fn dict_contexts_leave_the_memory_of_a_prepared_dictionary_to_it() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let bytes = english_dict();
+        let dict = Dictionary::new(&bytes, DictionaryFormat::Brotli, None).unwrap();
+        let mut with_bytes = CompressDictContext::incremental(&bytes, Some(5)).unwrap();
+        let mut prepared = CompressDictContext::incremental_prepared(&dict, Some(5)).unwrap();
+        assert_eq!(
+            with_bytes.memory_usage() - prepared.memory_usage(),
+            bytes.capacity().max(bytes.len())
+        );
+        let input = english(DICT_REACH + 1);
+        with_bytes.transform(&input).unwrap();
+        prepared.transform(&input).unwrap();
+        let tables = dict.brotli_prepared().unwrap().memory_usage();
+        assert_eq!(
+            with_bytes.memory_usage() - prepared.memory_usage(),
+            bytes.len() + tables
+        );
+    }
+
+    #[test]
+    fn dict_contexts_reject_a_zstd_dictionary() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let dict = Dictionary::new(&english_dict(), DictionaryFormat::Zstd, None).unwrap();
+        let errors = [
+            CompressDictContext::incremental_prepared(&dict, None).map(drop),
+            DecompressDictContext::with_prepared(&dict, None).map(drop),
+        ];
+        for error in errors {
+            assert!(
+                matches!(&error, Err(ComprsError::InvalidArg(message)) if message == "this Dictionary is for zstd"),
+                "{error:?}"
+            );
+        }
+    }
+
     #[test]
     fn decompress_dict_context_returns_all_the_output_of_a_flushed_chunk() {
         let dict = english_dict();
         let input = english(100_000);
         // `CompressDictContext` holds input of this size until `finish`, so
         // drive the encoder with the dictionary directly.
-        let mut encoder = super::StreamEncoder::new(5, &dict).unwrap();
+        let prepared = crate::brotli::prepared_dictionary(&dict).unwrap();
+        let mut encoder = super::StreamEncoder::new(5, Some(prepared), 0).unwrap();
         let compressed = encoder.run(FLUSH, &input).unwrap();
         let mut ctx = DecompressDictContext::new(&dict, None).unwrap();
         let output = ctx.transform(&compressed).unwrap();
@@ -1455,7 +1616,7 @@ mod tests {
         let quality = 5;
         let mut input = vec![0; DICT_REACH];
         input.extend(english(64 * KIB));
-        let mut encoder = super::StreamEncoder::new(quality, &[]).unwrap();
+        let mut encoder = super::StreamEncoder::new(quality, None, 0).unwrap();
         let mut expected = encoder.run(FLUSH, &input[..DICT_REACH]).unwrap();
         expected.extend(encoder.run(PROCESS, &input[DICT_REACH..]).unwrap());
         expected.extend(encoder.run(FINISH, &[]).unwrap());

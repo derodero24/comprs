@@ -31,7 +31,7 @@ sidebar:
 | `unzipSync(data)` (gzip or zlib) | `decompressSync(data)`, which detects every format but raw deflate | `decompress(data)` |
 | `gzip(data, callback)`, `promisify(gzip)` | `await compress(data, { format: 'gzip' })` | `await gzipCompressAsync(data)` |
 | `createGzip()` | `new CompressionStream('gzip')` | `createGzipCompressTransform()` from `@derodero24/comprs/node` |
-| `{ maxOutputLength }` | `{ maxOutputSize }` | `gzipDecompressWithCapacity(data, capacity)` |
+| `{ maxOutputLength }` | `{ maxOutputSize }` | `decompress(data, maxOutputSize)` |
 
 - **Brotli quality.** `node:zlib` compresses brotli at quality 11 by default; comprs at 6, which is much faster. Pass `level: 11` for the output of `node:zlib`.
 - **Limits.** `node:zlib` decompresses up to `buffer.kMaxLength` by default; comprs stops at 256 MiB unless you raise `maxOutputSize`, so that a small malicious input cannot exhaust memory.

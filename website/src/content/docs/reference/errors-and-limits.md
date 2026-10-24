@@ -28,12 +28,13 @@ The functions of the package root keep the codes of comprs 2.x: `InvalidArg` or 
 
 ## Decompression limit
 
-All decompression stops at 256 MiB of output by default, so that a small malicious input cannot expand to gigabytes. Raise the limit with `maxOutputSize` in the unified API and the streams, or with the `*WithCapacity()` functions and the `maxOutputSize` argument of `decompress()` in the package root:
+All decompression stops at 256 MiB of output by default, so that a small malicious input cannot expand to gigabytes. Raise the limit with `maxOutputSize` in the unified API and the streams, or with the `maxOutputSize` argument of `decompress()` in the package root:
 
 ```ts
 decompressSync(data, { maxOutputSize: 1024 * 1024 * 1024 }); // 1 GiB
-zstdDecompressWithCapacity(data, 1024 * 1024 * 1024);
 ```
+
+The `*WithCapacity()` functions of the package root take the limit too, but are [deprecated](/comprs/reference/classic-api/#deprecated-functions).
 
 The limit is not an allocation size: output buffers grow with the decompressed data, so a large limit reserves no memory up front, and size fields in the input, such as the zstd frame content size or the gzip size trailer, are trusted only as far as the input can expand. Streams enforce the limit while they decode: memory stays near the limit even when a single small chunk would expand to gigabytes.
 

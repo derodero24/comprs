@@ -22,21 +22,21 @@ In the native addon, the functions return a Node.js `Buffer`; in the WebAssembly
 | --- | --- |
 | `zstdCompress(data, level?)` | zstd, level -131072 to 22 (default 3) |
 | `zstdDecompress(data)` | zstd, up to 256 MB of output |
-| `zstdDecompressWithCapacity(data, capacity)` | zstd, with an explicit output limit |
+| `zstdDecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Zstd, with an explicit output limit |
 | `gzipCompress(data, level?)` | gzip, level 0 to 9 (default 6) |
 | `gzipCompressWithHeader(data, header, level?)` | gzip with a header: `filename`, `mtime` |
 | `gzipReadHeader(data)` | The gzip header, without decompressing |
 | `gzipDecompress(data)` | gzip |
-| `gzipDecompressWithCapacity(data, capacity)` | gzip, with an explicit output limit |
+| `gzipDecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Gzip, with an explicit output limit |
 | `deflateCompress(data, level?)` | Raw deflate (RFC 1951), level 0 to 9 (default 6) |
 | `deflateDecompress(data)` | Raw deflate |
-| `deflateDecompressWithCapacity(data, capacity)` | Raw deflate, with an explicit output limit |
+| `deflateDecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Raw deflate, with an explicit output limit |
 | `brotliCompress(data, quality?)` | brotli, quality 0 to 11 (default 6) |
 | `brotliDecompress(data)` | brotli, up to 256 MB of output |
-| `brotliDecompressWithCapacity(data, capacity)` | brotli, with an explicit output limit |
+| `brotliDecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Brotli, with an explicit output limit |
 | `lz4Compress(data)` | LZ4 frame format, with a content checksum |
 | `lz4Decompress(data)` | LZ4, including concatenated, skippable and legacy frames, up to 256 MB of output |
-| `lz4DecompressWithCapacity(data, capacity)` | LZ4, with an explicit output limit |
+| `lz4DecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). LZ4, with an explicit output limit |
 | `decompress(data, maxOutputSize?)` | zstd, gzip, brotli or LZ4, detected from the data |
 | `detectFormat(data)` | A `CompressionFormat`: `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` or `'unknown'` |
 | `crc32(data, initialValue?)` | CRC-32, incrementally from `initialValue` |
@@ -49,18 +49,43 @@ In the native addon, the functions return a Node.js `Buffer`; in the WebAssembly
 | Function | Description |
 | --- | --- |
 | `zstdTrainDictionary(samples, maxDictSize?)` | Train a zstd dictionary (default up to 110 KB, at most 16 MB) |
-| `zstdCompressWithDict(data, dict, level?)` | zstd with a dictionary |
-| `zstdDecompressWithDict(data, dict)` | zstd with a dictionary |
-| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | zstd with a dictionary and an explicit output limit |
-| `brotliCompressWithDict(data, dict, quality?)` | brotli with a custom dictionary |
-| `brotliDecompressWithDict(data, dict)` | brotli with a custom dictionary |
-| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | brotli with a custom dictionary and an explicit output limit |
+| `zstdCompressWithDict(data, dict, level?)` | **Deprecated** ([replacement](#deprecated-functions)). Zstd with a dictionary |
+| `zstdDecompressWithDict(data, dict)` | **Deprecated** ([replacement](#deprecated-functions)). Zstd with a dictionary |
+| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Zstd with a dictionary and an explicit output limit |
+| `brotliCompressWithDict(data, dict, quality?)` | **Deprecated** ([replacement](#deprecated-functions)). Brotli with a custom dictionary |
+| `brotliDecompressWithDict(data, dict)` | **Deprecated** ([replacement](#deprecated-functions)). Brotli with a custom dictionary |
+| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Brotli with a custom dictionary and an explicit output limit |
 
 See [Dictionaries](/comprs/guides/dictionaries/) for prepared dictionaries, which are much faster for small messages.
 
+## Deprecated functions
+
+The `*WithCapacity`, `*WithDict` and `*WithDictWithCapacity` functions of the package root, and their `*Async` forms, are deprecated in favor of options of the unified API ([#577](https://github.com/derodero24/comprs/issues/577)). They keep working in 2.x, and editors show them struck through. Each maps to a call of [`@derodero24/comprs/next`](/comprs/guides/unified-api/):
+
+| Deprecated | Replacement |
+| --- | --- |
+| `zstdDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })` |
+| `gzipDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'gzip', maxOutputSize: capacity })` |
+| `deflateDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'deflate-raw', maxOutputSize: capacity })` |
+| `brotliDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'brotli', maxOutputSize: capacity })` |
+| `lz4DecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'lz4', maxOutputSize: capacity })` |
+| `zstdCompressWithDict(data, dict, level?)` | `compressSync(data, { format: 'zstd', dictionary: dict, level })` |
+| `zstdDecompressWithDict(data, dict)` | `decompressSync(data, { format: 'zstd', dictionary: dict })` |
+| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })` |
+| `brotliCompressWithDict(data, dict, quality?)` | `compressSync(data, { format: 'brotli', dictionary: dict, level: quality })` |
+| `brotliDecompressWithDict(data, dict)` | `decompressSync(data, { format: 'brotli', dictionary: dict })` |
+| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | `decompressSync(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })` |
+
+The `*Async` form of each maps to `await compress(...)` or `await decompress(...)` with the same options, which also take an `AbortSignal`. Each side decompresses what the other compresses. The replacements differ in these ways:
+
+- They return a `Uint8Array` rather than a `Buffer` in Node.js. Where a `Buffer` is needed, `Buffer.from(result.buffer, result.byteOffset, result.byteLength)` wraps it without a copy.
+- An empty dictionary, which the deprecated functions take as no dictionary, fails with `ERR_COMPRS_INVALID_ARG`: leave `dictionary` out instead.
+- Errors carry the codes of the unified API (see [Errors and limits](/comprs/reference/errors-and-limits/)).
+- For many small messages, a `Dictionary` in place of the bytes digests a zstd dictionary once rather than on every call (see [Prepared dictionaries](/comprs/guides/dictionaries/)).
+
 ## Async functions
 
-Every one-shot and dictionary function has an `Async` variant, such as `zstdCompressAsync(data, level?)`, `brotliDecompressWithDictWithCapacityAsync(data, dict, capacity)`, `zstdTrainDictionaryAsync(samples, maxDictSize?)` and `decompressAsync(data, maxOutputSize?)`, except `gzipCompressWithHeader()`, `gzipReadHeader()`, `detectFormat()`, `crc32()` and `version()`. In the native addon they run on the libuv thread pool; in browsers, on the calling thread.
+Every one-shot and dictionary function has an `Async` variant, such as `zstdCompressAsync(data, level?)`, `brotliDecompressAsync(data)`, `zstdTrainDictionaryAsync(samples, maxDictSize?)` and `decompressAsync(data, maxOutputSize?)`, except `gzipCompressWithHeader()`, `gzipReadHeader()`, `detectFormat()`, `crc32()` and `version()`. In the native addon they run on the libuv thread pool; in browsers, on the calling thread.
 
 ```ts
 const compressed = await zstdCompressAsync(data, 19);

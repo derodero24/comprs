@@ -36,7 +36,7 @@ As in the Compression Streams standard, HTTP's `Content-Encoding: deflate` and `
 | **Sync** (`compressSync()`, `zstdCompress()`) | Small data (under 1 MB), low latency, scripts |
 | **Async** (`compress()`, `zstdCompressAsync()`) | Large data, or a server whose event loop must stay free. Browsers run them on the calling thread |
 | **Streams** (`CompressionStream`, `createZstdCompressStream()`) | Data of unknown or unbounded size, or bounded memory |
-| **Dictionaries** (`Dictionary`, `zstdCompressWithDict()`) | Many small, structurally similar items |
+| **Dictionaries** (`Dictionary`, the `dictionary` option) | Many small, structurally similar items |
 | **Workers** (`compress()` with `workers`) | Large zstd inputs, compressed on several threads (native addon only) |
 
 ### Threads and the event loop
