@@ -4,7 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
-use crate::convert::{sync_decoded, sync_result};
+use crate::convert::{BufferKind, sync_decoded, sync_result};
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -82,13 +82,17 @@ pub fn zstd_decompress_async(
 /// `zstdDecompressWithCapacity` for larger data.
 #[napi]
 pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    sync_decoded(&env, |allocate| {
-        comprs_core::zstd::decompress_into(
-            crate::as_bytes(&data),
-            comprs_core::MAX_DECOMPRESSED_SIZE,
-            allocate,
-        )
-    })
+    sync_decoded::<BufferKind>(
+        &env,
+        |allocate| {
+            comprs_core::zstd::decompress_into(
+                crate::as_bytes(&data),
+                comprs_core::MAX_DECOMPRESSED_SIZE,
+                allocate,
+            )
+        },
+        to_napi_error,
+    )
 }
 
 /// Decompress Zstandard-compressed data with explicit capacity.
@@ -112,9 +116,11 @@ pub fn zstd_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    sync_decoded(&env, |allocate| {
-        comprs_core::zstd::decompress_into(crate::as_bytes(&data), cap, allocate)
-    })
+    sync_decoded::<BufferKind>(
+        &env,
+        |allocate| comprs_core::zstd::decompress_into(crate::as_bytes(&data), cap, allocate),
+        to_napi_error,
+    )
 }
 
 /// Train a zstd dictionary from sample data.
@@ -188,14 +194,18 @@ pub fn zstd_decompress_with_dict(
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
 ) -> Result<Buffer> {
-    sync_decoded(&env, |allocate| {
-        comprs_core::zstd::decompress_with_dict_into(
-            crate::as_bytes(&data),
-            crate::as_bytes(&dict),
-            comprs_core::MAX_DECOMPRESSED_SIZE,
-            allocate,
-        )
-    })
+    sync_decoded::<BufferKind>(
+        &env,
+        |allocate| {
+            comprs_core::zstd::decompress_with_dict_into(
+                crate::as_bytes(&data),
+                crate::as_bytes(&dict),
+                comprs_core::MAX_DECOMPRESSED_SIZE,
+                allocate,
+            )
+        },
+        to_napi_error,
+    )
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary,
@@ -222,14 +232,18 @@ pub fn zstd_decompress_with_dict_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    sync_decoded(&env, |allocate| {
-        comprs_core::zstd::decompress_with_dict_into(
-            crate::as_bytes(&data),
-            crate::as_bytes(&dict),
-            cap,
-            allocate,
-        )
-    })
+    sync_decoded::<BufferKind>(
+        &env,
+        |allocate| {
+            comprs_core::zstd::decompress_with_dict_into(
+                crate::as_bytes(&data),
+                crate::as_bytes(&dict),
+                cap,
+                allocate,
+            )
+        },
+        to_napi_error,
+    )
 }
 
 /// Asynchronously decompress Zstandard-compressed data with explicit capacity.
