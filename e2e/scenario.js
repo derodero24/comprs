@@ -311,8 +311,11 @@ export async function checkPackage(comprs) {
       .pipeThrough(new gzip.CompressionStream('gzip'))
       .pipeThrough(new zstd.DecompressionStream('auto'));
     assertBytes(new Uint8Array(await new Response(gzipStream).arrayBuffer()), sample);
+    // The types of an entry list only the formats of its family, but
+    // detection reaches every loaded family.
+    assertBytes(zstd.decompressSync(gzip.compressSync(sample, { format: 'gzip' })), sample);
     const raw = gzip.compressSync(sample, { format: 'deflate-raw' });
-    assertBytes(zstd.decompressSync(raw, { format: 'deflate-raw' }), sample);
+    assertBytes(await gzip.decompress(raw, { format: 'deflate-raw' }), sample);
   });
   await run('stream round trip', async () => {
     const stream = new Blob([data])
