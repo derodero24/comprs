@@ -37,13 +37,14 @@
  *      browser/wasm.js, which browser/index.js imports to load the
  *      WebAssembly module (browserEntryProblems() in release-utils.mjs);
  *   6. publint and attw accept that tarball;
- *   7. the root package, every platform package and the middleware package
- *      name the same GitHub repository in `repository`. They are published
- *      with provenance, and npm rejects a package (E422) whose
- *      `repository.url` does not match the repository that the provenance
- *      names. `napi prepublish` publishes the platform packages before the
- *      root package, and the middleware is published last, so a mismatch in
- *      any of them would fail the release halfway;
+ *   7. the root package, every platform package, the middleware package
+ *      and the unscoped `comprs` package name the same GitHub repository in
+ *      `repository`. They are published with provenance, and npm rejects a
+ *      package (E422) whose `repository.url` does not match the repository
+ *      that the provenance names. `napi prepublish` publishes the platform
+ *      packages before the root package, and the middleware and the unscoped
+ *      package are published after it, so a mismatch in any of them would
+ *      fail the release halfway;
  *   8. the license notices are current: each platform package's LICENSE is
  *      the root LICENSE, and the THIRD_PARTY_LICENSES of the root package
  *      and of each platform package equal a fresh generation by
@@ -295,7 +296,11 @@ function checkRepositoryUrls(release) {
   const platformManifests = release.targets
     .map((target) => join(target.packageDir, 'package.json'))
     .filter((path) => existsSync(path));
-  const otherManifests = [...platformManifests, join(ROOT, 'packages/middleware/package.json')];
+  const otherManifests = [
+    ...platformManifests,
+    join(ROOT, 'packages/middleware/package.json'),
+    join(ROOT, 'packages/comprs/package.json'),
+  ];
   const manifests = [
     { path: 'package.json', json: release.packageJson },
     ...otherManifests.map((path) => ({ path: relative(ROOT, path), json: readJson(path) })),
