@@ -74,8 +74,8 @@ function msPerBytePrior(op, level) {
  * before it compresses any of it, as measured: zstd compresses blocks of
  * 128 KiB, and brotli blocks of 16 KiB at qualities 2 and 3, 64 KiB at 4 to
  * 8 and 256 KiB from 9 on. The brotli contexts pass their input to the
- * encoder in blocks of 64 KiB at qualities 0 and 1 (#731), and the gzip,
- * zlib and raw deflate contexts in blocks of 32 KiB (#724). The transform()
+ * encoder in blocks of 64 KiB (#731, #563), and the gzip, zlib and raw
+ * deflate contexts in blocks of 32 KiB (#724). The transform()
  * whose input completes a block compresses all of the block, however small
  * its own chunk: 256 KiB at brotli quality 9 take about 70 ms. 0 for the
  * other codecs, which compress their input as it comes or in blocks that
@@ -87,12 +87,6 @@ function blockBytes(op, level) {
             return 128 * 1024;
         case 'brotli-compress': {
             const quality = typeof level === 'number' && !Number.isNaN(level) ? Math.trunc(level) : DEFAULT_QUALITY;
-            if (quality < 2) {
-                return 64 * 1024;
-            }
-            if (quality < 4) {
-                return 16 * 1024;
-            }
             return quality < 9 ? 64 * 1024 : 256 * 1024;
         }
         case 'gzip-compress':

@@ -22,7 +22,7 @@ default = []
 zstdmt = ["zstd/zstdmt", "zstd/experimental"]
 
 [dependencies]
-brotli = { workspace = true }
+comprs-brotli = { path = "../brotli-c" }
 zstd = { workspace = true }
 flate2 = { workspace = true }
 lz4_flex = { workspace = true }
@@ -31,4 +31,8 @@ twox-hash = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# The Rust port of brotli, which comprs used before libbrotli: the tests
+# make Large Window Brotli streams with it, which libbrotli's interface in
+# comprs-brotli does not.
+brotli = { workspace = true }
 proptest = { version = "1.11", default-features = false, features = ["std"] }

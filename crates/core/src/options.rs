@@ -19,7 +19,7 @@ pub struct StreamContextOptions {
     /// more, and `maxOutputSize` limits the output of the whole stream;
     /// `BrotliCompressDictContext` holds at most the first 4 MiB less
     /// 16 bytes of input (4,194,288 bytes), then compresses each chunk as it
-    /// arrives, without the dictionary.
+    /// arrives.
     /// Without it, the context keeps the behaviour that it has always had.
     /// The stream helpers of `@derodero24/comprs/streams` and
     /// `@derodero24/comprs/node` set it.

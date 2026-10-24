@@ -32,8 +32,9 @@ const WASM_FILE = 'browser/comprs-wasm_bg.wasm';
 // classes of `@derodero24/comprs/next` (#344) raised it to 1,940,000 and
 // 822,000 bytes; it went back once the brotli encoders shared one allocator
 // (#707), which made the binary 85,658 bytes smaller raw and 18,099 bytes
-// with gzip.
-const BUDGET = { raw: 1_925_000, gzip: 815_000 };
+// with gzip. Moving brotli to libbrotli (#563) brought the build down to
+// 1,515,659 bytes raw and 566,722 bytes with gzip, and the budget with it.
+const BUDGET = { raw: 1_560_000, gzip: 585_000 };
 
 const { values } = parseArgs({ options: { markdown: { type: 'string' } } });
 
