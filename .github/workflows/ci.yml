@@ -5,9 +5,7 @@ name: CI
 # check; see the changes job). That includes .gitignore, whose files Biome
 # skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
 # through its prepare script (lefthook install), and README.md, which the
-# package includes and the benchmark smoke test parses
-# (scripts/bench-report.mjs fails when its bench markers are missing or
-# duplicated).
+# package includes.
 on:
   push:
     branches: [develop]
@@ -607,9 +605,10 @@ jobs:
       # benchmarks of comprs alone; scripts/bench-report.mjs runs the
       # comparisons as the Bench Report workflow does, through Vitest's JSON
       # reporter and the sizes that the benchmarks record, and renders them
-      # into README.md and the charts of this checkout. A Vitest release that
-      # changes the JSON report, or a comparison that records no sizes, then
-      # fails here instead of in the next Bench Report run.
+      # into the report of the website and the charts of this checkout. A
+      # Vitest release that changes the JSON report, or a comparison that
+      # records no sizes, then fails here instead of in the next Bench Report
+      # run.
       - name: Benchmark smoke test
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         env:
