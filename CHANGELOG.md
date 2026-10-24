@@ -1,5 +1,23 @@
 # comprs
 
+## 2.2.0
+
+### Minor Changes
+
+- 52477cf: Deprecate the `*WithCapacity`, `*WithDict` and `*WithDictWithCapacity` functions of the package root and their `*Async` forms, in favor of the `maxOutputSize` and `dictionary` options of `compressSync()`, `decompressSync()`, `compress()` and `decompress()` of `@derodero24/comprs/next` (#577). They keep working in 2.x. Their declarations carry a `@deprecated` tag that names the replacement, so editors show them struck through, and link to the table of replacements on the website (https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
+- 889f64a: Brotli now runs on Google's brotli C library, libbrotli 1.2.1, in every build, including the WebAssembly one, instead of the Rust port. `node:zlib` uses the same library, in a release that depends on the Node.js version. Compression writes the same bytes as `node:zlib` at every quality (checked against Node.js 22, which bundles libbrotli 1.1.0) and is as fast: on x86-64 Linux, 1 MB of JSON at the default quality compresses in 19.5 ms instead of 29.1 ms, and 150 bytes in 0.016 ms instead of 0.088 ms. Decompression is as fast as before or faster. The WebAssembly module is 29% smaller with gzip (567 KB instead of 801 KB at level 9) and 18% smaller raw (1.52 MB instead of 1.84 MB).
+  
+  Dictionary compression (`brotliCompressWithDict()`, its async and streaming forms, and dictionary contexts) now uses the dictionary for inputs of any length: it used to compress inputs longer than 8 MiB, and the input of incremental dictionary contexts and streams past their first 4 MiB, without it, and to compress some inputs at qualities 2 to 9 twice to recover from a panic of the Rust encoder (#623, #703). Each thread keeps the last four dictionaries of up to 256 KiB that it prepared, so repeated calls with the same dictionary no longer prepare it again: compressing 150 bytes with a 4 KiB dictionary takes 0.017 ms instead of 0.07 ms.
+  
+  Decompression of large-window brotli streams is still rejected, as before.
+
+### Patch Changes
+
+- d9dce57: A brotli `Dictionary` of `@derodero24/comprs/next` is now hashed for compression once, when it is created, and the calls and streams that take it share that, along with its bytes (#707). Before, brotli hashed it again on every call unless it was one of the last 4 dictionaries of up to 256 KiB that the thread had used: with a 512 KiB dictionary, compressing a 150-byte message at quality 5 took 2.7 ms, and now takes 0.017 ms. A brotli `Dictionary` now holds about 270 KB of tables, plus 4 bytes for each byte of the dictionary, which it reports to V8. The output is unchanged.
+- 6f95302: Speed up the musl builds (`linux-x64-musl` and `linux-arm64-musl`, as on Alpine Linux) by allocating the native addon's memory with mimalloc instead of musl's allocator. On x86-64 Alpine Linux with 64 KiB of input, brotli and LZ4 decompression became about twice as fast, brotli compression 1.8 times and gzip decompression 1.5 times. Results of 128 KiB to 2 MiB, which the synchronous functions copy into memory that V8 allocates, also take less extra time to copy. The glibc, macOS and Windows builds are unchanged.
+- 39857d7: The README is now an overview, and the documentation lives on the website, https://derodero24.github.io/comprs/, which is also the `homepage` of the package.
+- 650ff65: The synchronous zstd decompression functions (`zstdDecompress()`, `zstdDecompressWithCapacity()`, `zstdDecompressWithDict()` and `zstdDecompressWithDictWithCapacity()`) decode frames that declare their content size, as `zstdCompress()` writes them, straight into memory that V8 allocates, without the copy that results of up to 2 MiB took, which makes calls that return 512 KiB to 2 MiB up to 1.5 times as fast. Results larger than 2 MiB are now freed as soon as V8 collects them, so a synchronous loop no longer holds their memory until it yields, and they can be transferred to a worker: on x86-64 Linux, a loop of calls that return 4 MiB each runs about 3 times as fast and grows the resident set by 8 MiB instead of 800 MiB. The musl builds (as on Alpine Linux) keep results larger than 2 MiB in the addon's memory, where decoding into V8's memory made programs that yield between calls 3 times as slow.
+
 ## 2.1.0
 
 ### Minor Changes
