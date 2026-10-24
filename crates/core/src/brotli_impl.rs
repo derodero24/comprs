@@ -47,7 +47,7 @@ pub fn brotli_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<B
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', maxOutputSize: capacity })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn brotli_decompress_with_capacity(
     env: Env,
@@ -112,7 +112,7 @@ pub fn brotli_decompress_async(
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', maxOutputSize: capacity })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -141,7 +141,7 @@ pub fn brotli_decompress_with_capacity_async(
 ///
 /// @deprecated Use `compressSync(data, { format: 'brotli', dictionary: dict, level: quality })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn brotli_compress_with_dict(
     env: Env,
@@ -168,7 +168,7 @@ pub fn brotli_compress_with_dict(
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn brotli_decompress_with_dict(
     env: Env,
@@ -190,7 +190,7 @@ pub fn brotli_decompress_with_dict(
 ///
 /// @deprecated Use `decompressSync(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn brotli_decompress_with_dict_with_capacity(
     env: Env,
@@ -219,7 +219,7 @@ pub fn brotli_decompress_with_dict_with_capacity(
 ///
 /// @deprecated Use `await compress(data, { format: 'brotli', dictionary: dict, level: quality })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, quality?: number | undefined | null",
     ts_return_type = "Promise<Buffer>"
@@ -249,7 +249,7 @@ pub fn brotli_compress_with_dict_async(
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"
@@ -278,7 +278,7 @@ pub fn brotli_decompress_with_dict_async(
 ///
 /// @deprecated Use `await decompress(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })`
 /// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
-/// https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
