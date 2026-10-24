@@ -1,13 +1,11 @@
 name: CI
 
 # CI checks the files that it builds, tests, checks or installs with (pushes
-# to develop leave out the playground and some files that only the lint jobs
+# to develop leave out the website and some files that only the lint jobs
 # check; see the changes job). That includes .gitignore, whose files Biome
 # skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
 # through its prepare script (lefthook install), and README.md, which the
-# package includes and the benchmark smoke test parses
-# (scripts/bench-report.mjs fails when its bench markers are missing or
-# duplicated).
+# package includes.
 on:
   push:
     branches: [develop]
@@ -55,17 +53,17 @@ on:
   # each of them; the changes job decides whether the other jobs run (see
   # CI_PATHS there). Its list also names files that the push list leaves out,
   # so that a change to them is checked before it is merged: every workflow,
-  # which Workflow Lint checks, the playground, which the playground job
-  # builds, and the chart images and the configuration files that Biome
+  # which Workflow Lint checks, the website, which the website job builds, and the chart images and the configuration files that Biome
   # checks. Pushes to develop leave these out, apart from the workflows that
   # CI calls or mirrors, so that a merge that changes only those does not run
-  # the full matrix; playground.yml builds the playground on such a push when
-  # it deploys it.
+  # the full matrix; website.yml builds the website on such a push when it
+  # deploys it.
   pull_request:
   # Maintainers can run CI on any branch from the Actions tab, such as the
   # branch of the Version Packages pull request, which changesets/action opens
   # with GITHUB_TOKEN and which therefore starts no workflow on its own
-  # (#574). release.yml will dispatch it on the bot pull requests.
+  # (#574). The Version job of release.yml dispatches it there after each
+  # update of that pull request.
   workflow_dispatch:
 
 # A newer push to a pull request cancels its running CI. Dispatched runs group
@@ -110,7 +108,7 @@ jobs:
           # on the paths from the repository root.
           CI_PATHS=(
             '^crates/' '^__test__/' '^e2e/' '^browser/' '^src/' '^next/'
-            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^playground/'
+            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^website/'
             '^\.devcontainer/' '^\.github/assets/' '^\.github/workflows/'
             '^package\.json$' '^pnpm-lock\.yaml$' '^pnpm-workspace\.yaml$'
             '^README\.md$' '^Cargo\.toml$' '^Cargo\.lock$' '^deny\.toml$'
@@ -357,10 +355,22 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
+      # crates/brotli-c/brotli must be, byte for byte, the libbrotli release
+      # that scripts/vendor-brotli.mjs names: a Renovate update of that
+      # version fails here until the script has vendored it.
+      - name: Check the vendored libbrotli
+        run: node scripts/vendor-brotli.mjs --check
       # Any warning fails the job, rustc's as well as clippy's. A new stable
       # Rust can bring new lints, so the job can fail without a change to the
       # code: fix what it reports.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # comprs-core also builds with one family of formats alone, as the
+      # per-format WebAssembly builds do (#342).
+      - name: Clippy for each family of formats alone
+        run: |
+          for family in zstd gzip brotli lz4; do
+            cargo clippy -p comprs-core --all-targets --no-default-features --features "$family" -- -D warnings
+          done
       # The same for rustdoc: a doc comment that links to an item that the
       # documentation does not show, or that reads as HTML, such as `<name>`
       # outside a code span, which the doc comments of napi-rs functions also
@@ -374,7 +384,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -389,12 +399,20 @@ jobs:
       # comprs-core builds without it, as the WebAssembly build does: this
       # run tests that such builds reject zstd workers.
       - run: cargo test -p comprs-core
+      # Each family of formats alone, as for clippy in the Rust Lint job:
+      # the unified API must reject the formats that the build leaves out.
+      - name: Test each family of formats alone
+        run: |
+          for family in zstd gzip brotli lz4; do
+            cargo test -p comprs-core --no-default-features --features "$family"
+          done
 
   # Checks the workspace with the oldest Rust it supports, the rust-version in
   # Cargo.toml; the other jobs use the latest stable. Cargo refuses a
   # dependency that declares a newer rust-version, so an update that raises
   # the minimum fails here until rust-version is raised with it. The
-  # WebAssembly crate is checked for wasm32 too, where its dependencies differ.
+  # WebAssembly crate is checked for wasm32 too, where its dependencies differ,
+  # and so is comprs-brotli, which builds libbrotli there with wasm-shim.
   # Each cargo call names the toolchain, so the job cannot pass on the stable
   # toolchain that the runner image already has.
   rust-msrv:
@@ -422,7 +440,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo +"$MSRV" check --workspace --all-targets --locked
-      - run: cargo +"$MSRV" check -p comprs-wasm --target wasm32-unknown-unknown --locked
+      - run: cargo +"$MSRV" check -p comprs-wasm -p comprs-brotli --target wasm32-unknown-unknown --locked
 
   # Builds the native binaries with build.yml, as release.yml does, so the
   # test jobs load the binaries the release would publish.
@@ -496,12 +514,13 @@ jobs:
           path: wasm-size-report/
           if-no-files-found: error
 
-  # Builds the playground with the commands with which playground.yml builds
-  # the site that it deploys from develop, on the WebAssembly build of
-  # build-wasm-bindgen. It is a job of its own so that a playground failure
-  # fails CI Complete without skipping the jobs that need build-wasm-bindgen.
-  playground:
-    name: Build playground
+  # Builds the website, the documentation and the playground, with the
+  # commands with which website.yml builds the site that it deploys from
+  # develop, on the WebAssembly build of build-wasm-bindgen. It is a job of
+  # its own so that a website failure fails CI Complete without skipping the
+  # jobs that need build-wasm-bindgen.
+  website:
+    name: Build website
     needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -516,20 +535,21 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            playground/pnpm-lock.yaml
+            website/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      # Before the playground install: the file:.. dependency installs the
-      # package with the files that exist at install time, and the playground
-      # build fails without the binary.
+      # Before the website install: the file:.. dependency installs the
+      # package with the files that exist at install time, and the build of
+      # the playground page fails without the binary.
       - name: Download wasm-bindgen bindings
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bindings-wasm-bindgen
           path: browser
-      - name: Build playground
+      - name: Build website
         run: |
-          pnpm --dir playground install --frozen-lockfile
-          pnpm --dir playground run build
+          pnpm --dir website install --frozen-lockfile
+          pnpm --dir website run check
+          pnpm --dir website run build
 
   test:
     name: Test - Node ${{ matrix.node }} / ${{ matrix.target }}
@@ -594,9 +614,10 @@ jobs:
       # benchmarks of comprs alone; scripts/bench-report.mjs runs the
       # comparisons as the Bench Report workflow does, through Vitest's JSON
       # reporter and the sizes that the benchmarks record, and renders them
-      # into README.md and the charts of this checkout. A Vitest release that
-      # changes the JSON report, or a comparison that records no sizes, then
-      # fails here instead of in the next Bench Report run.
+      # into the report of the website and the charts of this checkout. A
+      # Vitest release that changes the JSON report, or a comparison that
+      # records no sizes, then fails here instead of in the next Bench Report
+      # run.
       - name: Benchmark smoke test
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         env:
@@ -943,11 +964,11 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       # The publish jobs of release.yml set up Node.js from .nvmrc like this
-      # job. npm uses trusted publishing (OIDC) from version 11.5.1 on; with
-      # an older npm, they would keep publishing with NODE_AUTH_TOKEN without
-      # a word. The check runs here rather than in the publish jobs, where it
-      # would block the token publishes that work today, or in
-      # check-release.mjs, which contributors run with npm 10.
+      # job and publish only through trusted publishing (OIDC), which npm
+      # supports from version 11.5.1 on; with an older npm, every publish
+      # would fail. The check runs here, so that such a .nvmrc fails CI
+      # before it reaches a release, rather than in check-release.mjs, which
+      # contributors run with npm 10.
       - name: Check that npm supports trusted publishing
         run: |
           node -e '
@@ -999,7 +1020,7 @@ jobs:
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, playground, test, test-wasm, test-package, coverage, release-dry-run]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, website, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

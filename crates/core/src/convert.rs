@@ -1,9 +1,11 @@
 //! Conversion of the output of comprs-core into the `Buffer`s and the
 //! `Uint8Array`s that the bindings return.
 
-use std::ptr;
+use std::cell::Cell;
+use std::ptr::{self, NonNull};
 
 use comprs_core::ComprsError;
+use comprs_core::zstd::{Decoded, WriteBuf};
 use napi::bindgen_prelude::{Buffer, BufferSlice, Env, FromNapiValue, Uint8Array};
 use napi::{check_status, sys};
 
@@ -32,8 +34,18 @@ use crate::error::to_napi_error;
 /// longer, 8 MiB 70% and 16 MiB 2.7 times as long.
 ///
 /// These figures, and so the limit, come from Node.js 22 on x86-64 Linux
-/// with glibc. Other allocators, such as musl's mallocng and the Windows
-/// heap, serve large blocks from fresh mappings, and were not measured.
+/// with glibc. musl's mallocng, which Node.js uses on musl, serves blocks
+/// above 128 KiB from fresh mappings, so there the copy makes calls that
+/// return 128 KiB to 2 MiB take 1.2–1.5 times as long, with mimalloc for the
+/// addon's own memory (see lib.rs; 1.5–2 times without it), measured with
+/// Node.js 24 on x86-64 Alpine Linux. It still keeps a synchronous loop
+/// that gets results of 1 MiB at a quarter of the memory, and is kept for
+/// that (#679). The Windows heap was not measured.
+/// `scripts/bench-result-memory.mjs` repeats these measurements.
+///
+/// The zstd functions decode frames that declare their content sizes into
+/// memory that V8 allocates instead, which needs no copy, up to
+/// [`DIRECT_DECODE_LIMIT`] (see [`sync_decoded`]).
 ///
 /// `src/streams.ts` mirrors this value: the Web streams enqueue the results
 /// of the stream contexts up to this size without copying them again.
@@ -64,6 +76,203 @@ pub(crate) fn to_buffer(env: &Env, data: Vec<u8>, limit: usize) -> napi::Result<
 /// error to throw.
 pub(crate) fn sync_result(env: &Env, result: Result<Vec<u8>, ComprsError>) -> napi::Result<Buffer> {
     to_buffer(env, result.map_err(to_napi_error)?, SYNC_COPY_LIMIT)
+}
+
+/// Largest output, in bytes, that the synchronous zstd functions decode
+/// straight into memory that V8 allocates (see [`sync_decoded`]): `None`
+/// for any size, which all builds but the musl builds take.
+///
+/// Decoding into V8's memory needs no copy, so up to [`SYNC_COPY_LIMIT`] it
+/// is faster than the copy everywhere. Above it, V8 frees a result as soon
+/// as it collects it, so a synchronous loop that gets results of 4 MiB
+/// grows the resident set by 8 MiB instead of 800 MiB, and runs 3 times as
+/// fast, on glibc and musl alike. Elsewhere V8 allocates from the same heap
+/// as the addon, so a program that yields to the event loop between calls
+/// loses nothing either (Node.js 22 on x86-64 glibc Linux: as fast at
+/// 16 MiB and 64 MiB, faster below). In the musl builds, though, the addon
+/// allocates with mimalloc (see lib.rs), which reuses the memory of the
+/// results that the event loop frees, while musl's mallocng, which V8 uses,
+/// maps fresh memory for every block: there, calls that return 4 to 16 MiB
+/// took 3 times as long in a yielding loop, measured with Node.js 24 on
+/// x86-64 Alpine Linux, so larger results stay in the addon's memory, as
+/// [`SYNC_COPY_LIMIT`] chooses for the copy (#679).
+#[cfg(not(target_env = "musl"))]
+pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = None;
+#[cfg(target_env = "musl")]
+pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = Some(SYNC_COPY_LIMIT);
+
+/// Return the result of a synchronous zstd decompression as a `Buffer`, or
+/// its error as the error to throw. `decode` decodes with one of the
+/// `*_into` functions of `comprs_core::zstd`, passing on the allocator that
+/// it gets.
+///
+/// The output of frames that declare their content sizes is decoded
+/// straight into a `Buffer` that V8 allocates, up to
+/// [`DIRECT_DECODE_LIMIT`]: unlike [`sync_result`], this needs no copy, and
+/// results larger than [`SYNC_COPY_LIMIT`] are freed as soon as V8 collects
+/// them too (#679). Other output is returned as [`sync_result`] returns it.
+pub(crate) fn sync_decoded(
+    env: &Env,
+    decode: impl FnOnce(
+        &dyn Fn(usize) -> Result<ZstdOutput, ComprsError>,
+    ) -> Result<Decoded<ZstdOutput>, ComprsError>,
+) -> napi::Result<Buffer> {
+    // A failed allocation leaves a pending JavaScript exception, such as
+    // `ERR_BUFFER_TOO_LARGE`, which the error of napi-rs keeps rather than
+    // the error of comprs-core that stands in for it.
+    let allocation_error = Cell::new(None);
+    let allocate = |size| {
+        if DIRECT_DECODE_LIMIT.is_some_and(|limit| size > limit) {
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(size)
+                .map_err(|err| ComprsError::Operation {
+                    context: "zstd decompress",
+                    source: err.into(),
+                })?;
+            return Ok(ZstdOutput::Addon(output));
+        }
+        V8Buffer::new(env, size).map(ZstdOutput::V8).map_err(|err| {
+            allocation_error.set(Some(err));
+            ComprsError::Operation {
+                context: "zstd decompress",
+                source: "failed to allocate the output".into(),
+            }
+        })
+    };
+    match decode(&allocate) {
+        Ok(Decoded::Allocated(ZstdOutput::V8(output))) => output.into_buffer(env),
+        Ok(Decoded::Allocated(ZstdOutput::Addon(output)) | Decoded::Grown(output)) => {
+            to_buffer(env, output, SYNC_COPY_LIMIT)
+        }
+        Err(err) => Err(allocation_error
+            .take()
+            .unwrap_or_else(|| to_napi_error(err))),
+    }
+}
+
+/// The memory that [`sync_decoded`] decodes the output of frames with
+/// content sizes into.
+pub(crate) enum ZstdOutput {
+    /// Memory that V8 allocates, up to [`DIRECT_DECODE_LIMIT`].
+    V8(V8Buffer),
+    /// The addon's memory, reserved for the whole output, for larger output.
+    Addon(Vec<u8>),
+}
+
+// SAFETY: each variant upholds the contract of `WriteBuf` itself, and every
+// method passes the call on to the same variant.
+unsafe impl WriteBuf for ZstdOutput {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::V8(output) => output.as_slice(),
+            Self::Addon(output) => output.as_slice(),
+        }
+    }
+
+    fn capacity(&self) -> usize {
+        match self {
+            Self::V8(output) => output.capacity(),
+            Self::Addon(output) => output.capacity(),
+        }
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        match self {
+            Self::V8(output) => output.as_mut_ptr(),
+            Self::Addon(output) => output.as_mut_ptr(),
+        }
+    }
+
+    unsafe fn filled_until(&mut self, n: usize) {
+        // SAFETY: the caller promises that the first `n` bytes are written.
+        unsafe {
+            match self {
+                Self::V8(output) => output.filled_until(n),
+                Self::Addon(output) => output.filled_until(n),
+            }
+        }
+    }
+}
+
+/// A new `Buffer` that V8 allocates, which a zstd decoder writes into
+/// through [`WriteBuf`] before JavaScript code can reach it.
+pub(crate) struct V8Buffer {
+    value: sys::napi_value,
+    memory: NonNull<u8>,
+    capacity: usize,
+    len: usize,
+}
+
+impl V8Buffer {
+    /// A `Buffer` of `size` bytes, of which none is written yet.
+    fn new(env: &Env, size: usize) -> napi::Result<Self> {
+        let mut memory = ptr::null_mut();
+        let mut value = ptr::null_mut();
+        // SAFETY: `env` is the environment of the current call, and the
+        // pointers are to locals.
+        check_status!(unsafe {
+            sys::napi_create_buffer(env.raw(), size, &mut memory, &mut value)
+        })?;
+        // Node-API does not promise memory for an empty `Buffer`.
+        let memory = match NonNull::new(memory.cast::<u8>()) {
+            Some(memory) => memory,
+            None if size == 0 => NonNull::dangling(),
+            None => {
+                return Err(napi::Error::new(
+                    napi::Status::GenericFailure,
+                    "napi_create_buffer returned no memory",
+                ));
+            }
+        };
+        Ok(Self {
+            value,
+            memory,
+            capacity: size,
+            len: 0,
+        })
+    }
+
+    /// The `Buffer`, which must be written in full: its unwritten memory
+    /// would show JavaScript code what that memory held before.
+    fn into_buffer(self, env: &Env) -> napi::Result<Buffer> {
+        if self.len != self.capacity {
+            return Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                format!(
+                    "zstd decompress wrote {} of the {} bytes that the frames declare",
+                    self.len, self.capacity
+                ),
+            ));
+        }
+        // SAFETY: `value` is a `Buffer` of the current call's environment,
+        // which the handle scope of the call keeps alive.
+        unsafe { Buffer::from_napi_value(env.raw(), self.value) }
+    }
+}
+
+// SAFETY: `memory` starts the `capacity` bytes of the `Buffer`, which stay
+// allocated while the call's handle scope holds `value`, and no other code
+// reads or writes them before `into_buffer` hands the `Buffer` to
+// JavaScript. `len` counts the bytes from the start that a decoder has
+// written, as `filled_until` tells.
+unsafe impl WriteBuf for V8Buffer {
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: the first `len` bytes are written, as above.
+        unsafe { std::slice::from_raw_parts(self.memory.as_ptr(), self.len) }
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.memory.as_ptr()
+    }
+
+    unsafe fn filled_until(&mut self, n: usize) {
+        self.len = n;
+    }
 }
 
 /// Return `data` as a plain `Uint8Array`: a copy in memory that V8

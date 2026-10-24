@@ -1,6 +1,6 @@
 [package]
 name = "comprs-core"
-version = "2.1.0"
+version = "2.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,7 +11,16 @@ publish = false
 crate-type = ["lib"]
 
 [features]
-default = []
+# Every format. Each feature below builds one family of formats, with its
+# per-format functions and stream contexts and its part of the unified API
+# (crate::unified); the unified API rejects the formats of the others. The
+# per-format WebAssembly builds (#342) take one each.
+default = ["zstd", "gzip", "brotli", "lz4"]
+zstd = ["dep:zstd"]
+# gzip, deflate (zlib) and deflate-raw.
+gzip = ["dep:flate2"]
+brotli = ["dep:comprs-brotli"]
+lz4 = ["dep:lz4_flex", "dep:twox-hash"]
 # Builds libzstd with multi-threading, so that zstd can compress on worker
 # threads (zstd::WORKERS). Without it, only 0 workers are accepted.
 # zstd/experimental binds ZSTD_getFrameProgression, which tells a stream
@@ -19,16 +28,70 @@ default = []
 # memory only then. It changes no code path that comprs-core takes; in the
 # zstd crate, it only lets zstd::bulk::Decompressor bound its output by the
 # frame headers.
-zstdmt = ["zstd/zstdmt", "zstd/experimental"]
+zstdmt = ["zstd", "zstd/zstdmt", "zstd/experimental"]
 
 [dependencies]
-brotli = { workspace = true }
-zstd = { workspace = true }
-flate2 = { workspace = true }
-lz4_flex = { workspace = true }
+comprs-brotli = { path = "../brotli-c", optional = true }
+zstd = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+lz4_flex = { workspace = true, optional = true }
 crc32fast = { workspace = true }
-twox-hash = { workspace = true }
+twox-hash = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# The Rust port of brotli, which comprs used before libbrotli: the tests
+# make Large Window Brotli streams with it, which libbrotli's interface in
+# comprs-brotli does not.
+brotli = { workspace = true }
 proptest = { version = "1.11", default-features = false, features = ["std"] }
+
+# The tests that mix formats, through tests/common, need every format.
+
+[[test]]
+name = "brotli_alloc"
+required-features = ["brotli"]
+
+[[test]]
+name = "contexts"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "dictionary"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "error_codes"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "gzip_header"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "lz4_alloc"
+required-features = ["lz4"]
+
+[[test]]
+name = "lz4_error_golden"
+required-features = ["lz4"]
+
+[[test]]
+name = "one_shot"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "prop_round_trip"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "strict_flate"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "unified"
+required-features = ["zstd", "gzip", "brotli", "lz4"]
+
+[[test]]
+name = "validate"
+required-features = ["zstd", "gzip", "brotli", "lz4"]

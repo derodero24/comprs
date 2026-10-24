@@ -7,8 +7,10 @@ import {
   zstdTrainDictionary,
 } from '../index.js';
 import {
+  CompressionStream,
   compress,
   compressSync,
+  DecompressionStream,
   type DecompressOptions,
   Dictionary,
   type DictionaryOptions,
@@ -236,6 +238,30 @@ describe('compression with a Dictionary', () => {
         expect(await decompress(expected, { dictionary })).toEqual(input);
       }
     }
+  });
+
+  // A brotli Dictionary is hashed once, when it is created (#707), however
+  // large: brotli keeps the hashes of the bytes of dictionaries of up to 256
+  // KiB only, per thread. The streams share it too.
+  it('writes the stream of its bytes in brotli, with a dictionary of more than 256 KiB', async () => {
+    const bytes = lines(300 * 1024, 500_000);
+    const dictionary = Dictionary.from(bytes, { format: 'brotli' });
+    const input = lines(64 * 1024, 600_000);
+    const expected = plain(brotliCompressWithDict(input, bytes, 5));
+    const options = { format: 'brotli', dictionary, level: 5 } as const;
+    expect(compressSync(input, options)).toEqual(expected);
+    const compressing = compress(input, options);
+    const streamed = new Blob([input])
+      .stream()
+      .pipeThrough(new CompressionStream('brotli', { dictionary, level: 5 }));
+    const restored = new Blob([expected])
+      .stream()
+      .pipeThrough(new DecompressionStream('brotli', { dictionary }));
+    // The calls and streams under way keep what they need of it.
+    dictionary.close();
+    expect(await compressing).toEqual(expected);
+    expect(new Uint8Array(await new Response(streamed).arrayBuffer())).toEqual(expected);
+    expect(new Uint8Array(await new Response(restored).arrayBuffer())).toEqual(input);
   });
 
   it('compresses at its level by default, and at any other level', () => {

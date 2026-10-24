@@ -49,7 +49,7 @@
  *      and of each platform package equal a fresh generation by
  *      third-party-licenses.mjs, which needs `cargo`. A stale or edited
  *      notice fails, and so does a generated one whose index lacks zstd-sys
- *      or brotli, which every build links.
+ *      or libbrotli, which every build links.
  *
  * Usage:
  *   node scripts/check-release.mjs [--allow-missing-targets]
@@ -107,10 +107,10 @@ const MAX_GLIBC = { major: 2, minor: 17 };
 const DYNAMIC_CRT_DLL = /\b(?:vcruntime\d+|msvcp\d+|ucrtbased?|api-ms-win-crt-[a-z\d-]+)\.dll\b/gi;
 
 /**
- * Crates that every build links, which the index of each notice must name,
- * in case the generator starts to leave crates out.
+ * Crates and vendored libraries that every build links, which the index of
+ * each notice must name, in case the generator starts to leave them out.
  */
-const NOTICE_CRATES = ['zstd-sys', 'brotli'];
+const NOTICE_CRATES = ['zstd-sys', 'libbrotli'];
 
 /**
  * The license files that the root package and every platform package must

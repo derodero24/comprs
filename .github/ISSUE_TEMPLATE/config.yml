@@ -1,0 +1,7 @@
+# Points reporters of vulnerabilities to the private form before they open
+# a public issue (see SECURITY.md).
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/derodero24/comprs/security/advisories/new
+    about: Report it privately, as SECURITY.md describes, not in a public issue.

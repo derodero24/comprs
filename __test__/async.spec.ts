@@ -455,7 +455,7 @@ describe('brotliDecompressWithCapacityAsync', () => {
 });
 
 // The *Async functions copy their byte array arguments before they return
-// and keep no reference to them (README, Async): what the caller does with an
+// and keep no reference to them (the Classic API page of the website, Async functions): what the caller does with an
 // argument afterwards cannot change the result. A task that read the caller's
 // memory on the thread pool instead would race with writes to it, and with a
 // transfer of its ArrayBuffer, whose new owner may overwrite or free that

@@ -870,12 +870,15 @@ function bindingErrorCodes(): unknown {
   return Reflect.apply(errorCodes, binding, []);
 }
 
-/** The codes that the table of the README's section on ./next lists. */
+/** The codes that the table of the website's page on errors lists. */
 function documentedErrorCodes(): string[] {
-  const readme = readFileSync(resolve(__dirname, '../README.md'), 'utf8');
-  const section = readme.split(/^## /m).find((part) => part.startsWith('Unified API'));
+  const page = readFileSync(
+    resolve(__dirname, '../website/src/content/docs/reference/errors-and-limits.md'),
+    'utf8',
+  );
+  const section = page.split(/^## /m).find((part) => part.startsWith('Error codes'));
   if (section === undefined) {
-    throw new Error('the README has no section on the unified API');
+    throw new Error('the page on errors has no section on error codes');
   }
   return [...section.matchAll(/^\| `(ERR_COMPRS_\w+)` \|/gm)].flatMap((match) => match[1] ?? []);
 }
@@ -885,7 +888,7 @@ describe('errors', () => {
     expect(declaredErrorCodes()).toEqual(bindingErrorCodes());
   });
 
-  it('are those that the README lists', () => {
+  it('are those that the website lists', () => {
     expect(documentedErrorCodes()).toEqual(bindingErrorCodes());
   });
 

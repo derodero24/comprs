@@ -1,295 +1,71 @@
-//! Brotli streaming compression and decompression.
+//! Brotli streaming compression and decompression, with libbrotli through
+//! comprs-brotli (#563).
 
-use std::any::{Any, TypeId};
-use std::cell::RefCell;
-use std::io::Write;
-use std::panic::{AssertUnwindSafe, UnwindSafe};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use brotli::enc::encode::{BrotliEncoderOperation, BrotliEncoderStateStruct};
-use brotli::enc::interface::{PredictionModeContextMap, StaticCommand};
-use brotli::enc::writer::CompressorWriterCustomAlloc;
-use brotli::enc::{Allocator, BrotliAlloc, BrotliEncoderParams, SliceWrapper, StandardAlloc};
-use brotli::{BrotliDecompressStream, BrotliResult, BrotliState, InputPair, InputReferenceMut};
+use comprs_brotli::{Decoder, Encoder, Operation, PreparedDictionary, Status};
 
-use crate::blocks::Blocks;
-use crate::brotli::{BUFFER_SIZE, DEFAULT_QUALITY, LG_WINDOW_SIZE, QUALITY};
+use crate::brotli::{DEFAULT_QUALITY, QUALITY, decoder_error, invalid_data, operation_error};
+use crate::dictionary::Dictionary;
 use crate::limited::LimitedVec;
 use crate::{ComprsError, MemoryUsage};
 
-/// Allocator for the brotli encoder and decoder states that counts the bytes
-/// they hold, which the brotli crate does not report otherwise. Clones share
-/// the count.
-///
-/// The states take all their memory from the allocator and return it with
-/// `free_cell`, so the count follows them as they grow: the encoder holds a
-/// few kilobytes before the first block and tens of megabytes at high
-/// qualities, the decoder sizes its ring buffer from the stream's window.
-///
-/// The allocator of an encoder of a small input, [`CountingAlloc::for_input`],
-/// also recycles the ring buffer of the encoder, as [`RING_BUFFER`]
-/// describes.
-#[derive(Clone, Default)]
-pub(crate) struct CountingAlloc {
-    allocated: Arc<AtomicUsize>,
-    /// Whether the allocator is the encoder's of a small input, which takes
-    /// its ring buffer from [`RING_BUFFER`] and gives it back there.
-    recycles: bool,
-}
-
-impl CountingAlloc {
-    /// The allocator of an encoder that compresses `len` bytes, its custom
-    /// dictionary included, in one go: it recycles the ring buffer of the
-    /// encoder through [`RING_BUFFER`] if they are at most
-    /// [`RECYCLED_INPUT`] bytes. The encoders of streams, whose input is not
-    /// known when they start, take [`CountingAlloc::default`], which does
-    /// not.
-    pub(crate) fn for_input(len: usize) -> Self {
-        Self {
-            recycles: len <= RECYCLED_INPUT,
-            ..Self::default()
-        }
-    }
-
-    /// Bytes allocated and not freed yet.
-    fn allocated(&self) -> usize {
-        self.allocated.load(Ordering::Relaxed)
-    }
-
-    fn add(&self, bytes: usize) {
-        self.allocated.fetch_add(bytes, Ordering::Relaxed);
-    }
-
-    /// Whether this allocator recycles `len` elements of `T`: the ring
-    /// buffer of an encoder of a small input, the only array of bytes of at
-    /// least [`RECYCLED_BYTES`] that an encoder allocates.
-    fn recycles<T: 'static>(&self, len: usize) -> bool {
-        self.recycles && len >= RECYCLED_BYTES && TypeId::of::<T>() == TypeId::of::<u8>()
-    }
-}
-
-/// Size from which an encoder's array of bytes is its ring buffer, which
-/// [`RING_BUFFER`] recycles.
-///
-/// The encoder keeps 2^(1 + max(lgwin, lgblock)) bytes of input in its ring
-/// buffer, and a tail of one block and 9 bytes of slack: 8 MiB and up to
-/// 256 KiB with the window of [`LG_WINDOW_SIZE`] and its blocks of at most
-/// 2^18 bytes. Its other arrays of bytes hold the output of one block and
-/// are far smaller.
-const RECYCLED_BYTES: usize = 1 << (LG_WINDOW_SIZE + 1);
-
-/// The most input, in bytes, of an encoder that recycles its ring buffer,
-/// its custom dictionary included (#727).
-///
-/// Recycling saves the 0.33 ms of zero-filling a fresh ring buffer (see
-/// [`RING_BUFFER`]), most of the time of compressing a small input. On a
-/// large one, it saves a small part of the time, and with glibc it costs
-/// more: an encoder that does not free its ring buffer changes when glibc
-/// grows and trims its heap, and the other arrays of the encoder then
-/// page-fault on every call. That made compressing 1 to 10 MB 8% to 71%
-/// slower at quality 6, while inputs of up to 256 KiB were all faster or
-/// within 4%.
-const RECYCLED_INPUT: usize = 256 * 1024;
-
-thread_local! {
-    /// The ring buffer that an encoder of a small input last freed on this
-    /// thread, which the next such encoder of this thread takes if it is of
-    /// the size that it needs (#707): see [`CountingAlloc::for_input`]. It
-    /// holds the memory of a `CountingAlloc` array of bytes, as a
-    /// `Box<dyn Any>` because the allocator is generic over the type of its
-    /// elements.
-    ///
-    /// The encoder allocates its ring buffer once the input, a custom
-    /// dictionary included, outgrows one block: on every call that
-    /// compresses with a dictionary. With glibc, a fresh allocation of
-    /// those 8 MiB comes from the heap once one has been freed, which raises
-    /// its threshold for `mmap`, and zeroing it then took 330 us: 90% of the
-    /// time of compressing a 100-byte message with a dictionary at
-    /// quality 5.
-    ///
-    /// A recycled ring buffer holds the bytes of an earlier stream, not
-    /// zeros. The encoder does not read them: brotli's C encoder allocates
-    /// its ring buffer without initializing it and writes every byte that
-    /// it reads, the input, two bytes before it and the slack after it, as
-    /// the Rust port does in `RingBufferInitBuffer` and `RingBufferWrite`.
-    /// The tests compress with a ring buffer full of other bytes and get the
-    /// same output. The ring buffer stays with the thread, at most 8.3 MiB of
-    /// memory that the bindings do not report.
-    static RING_BUFFER: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
-}
-
-/// The ring buffer of [`RING_BUFFER`], if it holds `len` elements of `T`,
-/// which it then no longer holds.
-fn take_ring_buffer<T: 'static>(
-    len: usize,
-) -> Option<<StandardAlloc as Allocator<T>>::AllocatedMemory>
-where
-    StandardAlloc: Allocator<T>,
-{
-    RING_BUFFER.with(|kept| {
-        let mut kept = kept.borrow_mut();
-        let memory = kept
-            .take()?
-            .downcast::<<StandardAlloc as Allocator<T>>::AllocatedMemory>()
-            .ok()?;
-        if memory.slice().len() == len {
-            return Some(*memory);
-        }
-        *kept = Some(memory);
-        None
-    })
-}
-
-impl<T: Clone + Default + 'static> Allocator<T> for CountingAlloc {
-    type AllocatedMemory = <StandardAlloc as Allocator<T>>::AllocatedMemory;
-
-    fn alloc_cell(&mut self, len: usize) -> Self::AllocatedMemory {
-        self.add(len.saturating_mul(size_of::<T>()));
-        if self.recycles::<T>(len)
-            && let Some(memory) = take_ring_buffer::<T>(len)
-        {
-            return memory;
-        }
-        StandardAlloc::default().alloc_cell(len)
-    }
-
-    fn free_cell(&mut self, data: Self::AllocatedMemory) {
-        let bytes = size_of_val(data.slice());
-        // Saturate rather than wrap should a state ever free memory that it
-        // did not allocate here. This is the loop that `fetch_update` runs,
-        // written out: Rust 1.99 deprecates `fetch_update` for `try_update`,
-        // which needs Rust 1.95, newer than the rust-version in Cargo.toml.
-        let mut allocated = self.allocated.load(Ordering::Relaxed);
-        while let Err(current) = self.allocated.compare_exchange_weak(
-            allocated,
-            allocated.saturating_sub(bytes),
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
-            allocated = current;
-        }
-        if self.recycles::<T>(data.slice().len()) {
-            RING_BUFFER.with(|kept| *kept.borrow_mut() = Some(Box::new(data)));
-        }
-    }
-}
-
-impl BrotliAlloc for CountingAlloc {}
-
-/// The writer of the compressing contexts and of
-/// [`crate::brotli::compress`], whose allocator counts the memory of its
-/// encoder.
-pub(crate) type Compressor = CompressorWriterCustomAlloc<
-    Vec<u8>,
-    <CountingAlloc as Allocator<u8>>::AllocatedMemory,
-    CountingAlloc,
->;
-
-/// A [`Compressor`] at `quality`, which writes to `output` and allocates
-/// with `alloc`.
-pub(crate) fn compressor(output: Vec<u8>, mut alloc: CountingAlloc, quality: u32) -> Compressor {
-    let buffer = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut alloc, BUFFER_SIZE);
-    Compressor::new(output, buffer, alloc, quality, LG_WINDOW_SIZE)
-}
+/// Room, in bytes, that the decompression contexts give the decoder in an
+/// empty output buffer, which then doubles as it fills.
+const OUTPUT_ROOM: usize = crate::brotli::BUFFER_SIZE;
 
 /// Streaming brotli compression context.
 ///
-/// At qualities 0 and 1, the encoder compresses the input of each call on
-/// its own, with nothing that refers back to earlier calls, so the context
-/// passes it the input in blocks of 64 KiB, whatever the chunks (#731):
-/// `transform` holds the input that does not complete a block, and
-/// `flush` and `finish` pass it on first. In chunks of 100 bytes, text that
-/// compresses to 120 bytes in one call took 204,335 at quality 1. The other
-/// qualities collect blocks of input themselves, and get each chunk as it
-/// comes.
+/// The encoder gets the input `FEED` bytes at a time, whatever the chunks
+/// (see `StreamEncoder`): `transform` holds the input that does not make
+/// that much yet, and `flush` and `finish` pass it on first. At qualities 0
+/// and 1, the encoder compresses the input of each call on its own, with
+/// nothing that refers back to earlier calls: in chunks of 100 bytes, text
+/// that compresses to 120 bytes in one call took 204,335 at quality 1
+/// (#731).
 pub struct CompressContext {
-    compressor: Option<Compressor>,
-    /// Shares its count with the compressor's allocator.
-    alloc: CountingAlloc,
-    /// The input after the last block, at qualities 0 and 1.
-    blocks: Option<Blocks>,
+    /// `None` once the stream is finished.
+    encoder: Option<StreamEncoder>,
 }
 
 impl CompressContext {
     pub fn new(quality: Option<u32>) -> Result<Self, ComprsError> {
         let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-        let alloc = CountingAlloc::default();
-        let compressor = compressor(Vec::new(), alloc.clone(), quality);
+        let encoder = StreamEncoder::new(quality, None, 0)
+            .map_err(|e| operation_error("brotli stream compress", e))?;
         Ok(Self {
-            compressor: Some(compressor),
-            alloc,
-            blocks: (quality < 2).then(|| Blocks::new(FEED)),
+            encoder: Some(encoder),
         })
     }
 
     pub fn transform(&mut self, chunk: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        let compressor = self
-            .compressor
+        self.encoder
             .as_mut()
-            .ok_or(ComprsError::StreamFinished("brotli stream"))?;
-
-        match &mut self.blocks {
-            Some(blocks) => blocks.write(chunk, |block| compressor.write_all(block)),
-            None => compressor.write_all(chunk),
-        }
-        .map_err(|e| ComprsError::Operation {
-            context: "brotli stream compress",
-            source: e.into(),
-        })?;
-
-        // Drain whatever the compressor has flushed to the inner Vec
-        let data = std::mem::take(compressor.get_mut());
-        Ok(data)
+            .ok_or(ComprsError::StreamFinished("brotli stream"))?
+            .run(Operation::Process, chunk)
+            .map_err(|e| operation_error("brotli stream compress", e))
     }
 
     pub fn flush(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let compressor = self
-            .compressor
+        self.encoder
             .as_mut()
-            .ok_or(ComprsError::StreamFinished("brotli stream"))?;
-
-        self.blocks
-            .as_mut()
-            .map_or(Ok(()), |blocks| {
-                blocks.drain(|held| compressor.write_all(held))
-            })
-            .and_then(|()| compressor.flush())
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli stream flush",
-                source: e.into(),
-            })?;
-
-        let data = std::mem::take(compressor.get_mut());
-        Ok(data)
+            .ok_or(ComprsError::StreamFinished("brotli stream"))?
+            .run(Operation::Flush, &[])
+            .map_err(|e| operation_error("brotli stream flush", e))
     }
 
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
-        let mut compressor = self
-            .compressor
+        self.encoder
             .take()
-            .ok_or(ComprsError::StreamFinished("brotli stream"))?;
-        let held = self.blocks.as_mut().map(Blocks::take).unwrap_or_default();
-
-        compressor
-            .write_all(&held)
-            .map_err(|e| ComprsError::Operation {
-                context: "brotli stream compress",
-                source: e.into(),
-            })?;
-        // into_inner drops the CompressorWriter, which flushes remaining data
-        // and writes the brotli stream end marker
-        Ok(compressor.into_inner())
+            .ok_or(ComprsError::StreamFinished("brotli stream"))?
+            .run(Operation::Finish, &[])
+            .map_err(|e| operation_error("brotli stream compress", e))
     }
 }
 
 impl MemoryUsage for CompressContext {
     fn memory_usage(&self) -> usize {
-        self.compressor.as_ref().map_or(0, |compressor| {
-            self.alloc.allocated()
-                + compressor.get_ref().capacity()
-                + self.blocks.as_ref().map_or(0, Blocks::capacity)
-        })
+        self.encoder.as_ref().map_or(0, StreamEncoder::memory_usage)
     }
 }
 
@@ -303,10 +79,10 @@ impl DecompressContext {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         Ok(Self {
             inner: StreamDecoder::new(
-                Vec::new(),
+                None,
                 LimitedVec::new(max_size, "brotli stream decompress"),
                 "brotli stream",
-            ),
+            )?,
         })
     }
 
@@ -336,14 +112,14 @@ impl MemoryUsage for DecompressContext {
 /// Most input that an incremental [`CompressDictContext`] holds before it
 /// starts to compress: 4 MiB less 16 bytes (4,194,288), the longest
 /// distance that brotli's encoder refers back with a window of
-/// 2^[`LG_WINDOW_SIZE`] bytes.
+/// 2^[`crate::brotli::LG_WINDOW_SIZE`] bytes.
 ///
 /// The encoder takes a custom dictionary as data that precedes the input,
 /// so from input position p, the last byte of the dictionary is p + 1 bytes
 /// back: only the first `DICT_REACH` bytes of input can refer to the
-/// dictionary. A stream that ends within them gets all that the dictionary
-/// can give.
-pub const DICT_REACH: usize = (1 << LG_WINDOW_SIZE) - 16;
+/// dictionary. A stream that ends within them gets the output of
+/// [`crate::brotli::compress_with_dict`].
+pub const DICT_REACH: usize = (1 << crate::brotli::LG_WINDOW_SIZE) - 16;
 
 /// The name that [`ComprsError::StreamFinished`] reports for a
 /// [`CompressDictContext`].
@@ -352,47 +128,25 @@ const DICT_STREAM: &str = "brotli dict stream";
 /// The context of the errors of a [`CompressDictContext`].
 const DICT_COMPRESS: &str = "brotli dict stream compress";
 
-/// Streaming brotli compression context with custom dictionary.
-///
-/// brotli's `CompressorWriter`, which [`CompressContext`] uses, takes no
-/// dictionary, so this context uses the low-level encoder of
-/// [`crate::brotli::compress_with_dict`]. It works in one of two modes:
+/// Streaming brotli compression context with custom dictionary, in one of
+/// two modes:
 ///
 /// - Buffered, as [`CompressDictContext::new`] creates it: `transform` keeps
 ///   the input and returns an empty Vec, as `flush` does, and `finish`
 ///   compresses all of it, into the output of
-///   [`crate::brotli::compress_with_dict`], which compresses an input of
-///   more than [`crate::brotli::DICT_INPUT_LIMIT`] bytes without
-///   dictionaries, for the reason below.
+///   [`crate::brotli::compress_with_dict`].
 /// - Incremental, as [`CompressDictContext::incremental`] creates it: it
 ///   holds the first [`DICT_REACH`] bytes of input in the same way, and a
 ///   stream of at most that many bytes gets the same output on `finish`.
 ///   The `transform` that takes the input past [`DICT_REACH`] bytes
-///   compresses the input held so far, flushes it and drops it, then passes
-///   the rest of its chunk on. From then on, the encoder takes the input as
-///   it arrives, 64 KiB at a time: `transform` returns the output that the
-///   encoder has emitted, `flush` all the output of the input so far, and
-///   `finish` ends the stream.
+///   compresses the input held so far with the dictionary, flushes it and
+///   drops it, then passes the rest of its chunk on. From then on, the
+///   encoder takes the input as it arrives, `FEED` bytes at a time:
+///   `transform` returns the output that the encoder has emitted, `flush`
+///   all the output of the input so far, and `finish` ends the stream.
 ///
-/// The stream of a longer input is compressed with neither the custom
-/// dictionary nor brotli's built-in one, as the fallback of
-/// [`crate::brotli::compress_with_dict`] is, and decodes the same with or
-/// without the dictionary (an empty dictionary stands for none, and keeps
-/// the built-in one): brotli 9.0.0's encoder is not safe with a custom
-/// dictionary on a long stream. It marks the end of the dictionary in its
-/// ring buffer of 2^([`LG_WINDOW_SIZE`] + 1) bytes, and once the input has
-/// wrapped around the ring buffer, every 8 MiB, it still cuts the matches
-/// that cross the mark, and panics when that leaves one byte, as it does at
-/// the end of the dictionary itself (#623). The dictionary only helps the
-/// start of a stream, before the stream's own data has the strings that it
-/// holds, so its loss past [`DICT_REACH`] bytes costs little: on 4.06 to
-/// 16 MiB of JSON lines with a 2 KiB dictionary, in chunks of 4 KiB or of
-/// 64 KiB, the stream came out from 5.5% smaller to 2.2% larger than the
-/// output of [`crate::brotli::compress_with_dict`] with the dictionary, and
-/// at most 0.8% larger at qualities 1 to 11.
-///
-/// An error of the encoder, which no input is known to cause, ends the
-/// stream: the later calls fail with it too.
+/// An error of the encoder, such as a failed allocation, ends the stream:
+/// the later calls fail with it too.
 pub struct CompressDictContext {
     quality: u32,
     /// Most input that the context holds: [`DICT_REACH`] bytes in
@@ -405,7 +159,7 @@ enum DictState {
     /// The dictionary and the input so far, which the context holds until
     /// `finish` or, in incremental mode, until the input grows past
     /// [`DICT_REACH`] bytes.
-    Holding { dict: Vec<u8>, input: Vec<u8> },
+    Holding { dict: HeldDict, input: Vec<u8> },
     /// The encoder, which has taken the input so far.
     Streaming(Box<StreamEncoder>),
     /// A call failed with this error, which the later calls report again.
@@ -414,20 +168,61 @@ enum DictState {
     Finished,
 }
 
+/// The dictionary of a [`CompressDictContext`] that has not started to
+/// compress.
+enum HeldDict {
+    /// Its bytes, empty for none, which the context prepares when it starts
+    /// to compress.
+    Bytes(Vec<u8>),
+    /// Prepared by a [`Dictionary`], which reports its memory.
+    Prepared(Arc<PreparedDictionary<'static>>),
+}
+
+impl HeldDict {
+    /// The prepared dictionary, if any, and the memory of it that the
+    /// context reports.
+    fn prepare(self) -> Result<(Option<Arc<PreparedDictionary<'static>>>, usize), ComprsError> {
+        match self {
+            HeldDict::Bytes(bytes) if bytes.is_empty() => Ok((None, 0)),
+            HeldDict::Bytes(bytes) => {
+                let prepared = crate::brotli::prepared_dictionary(&bytes)
+                    .map_err(|e| operation_error(DICT_COMPRESS, e))?;
+                let memory = prepared.bytes().len() + prepared.memory_usage();
+                Ok((Some(prepared), memory))
+            }
+            HeldDict::Prepared(prepared) => Ok((Some(prepared), 0)),
+        }
+    }
+}
+
 impl CompressDictContext {
     /// A buffered context, which compresses all its input on `finish`.
     pub fn new(dict: &[u8], quality: Option<u32>) -> Result<Self, ComprsError> {
-        Self::with_max_held(dict, quality, usize::MAX)
+        Self::with_max_held(HeldDict::Bytes(dict.to_vec()), quality, usize::MAX)
     }
 
     /// An incremental context, which holds at most [`DICT_REACH`] bytes of
     /// input and then streams.
     pub fn incremental(dict: &[u8], quality: Option<u32>) -> Result<Self, ComprsError> {
-        Self::with_max_held(dict, quality, DICT_REACH)
+        Self::with_max_held(HeldDict::Bytes(dict.to_vec()), quality, DICT_REACH)
+    }
+
+    /// An incremental context with a prepared [`Dictionary`], which it
+    /// shares rather than copies or prepares again: its output is that of
+    /// [`incremental`](Self::incremental) with the bytes of the dictionary.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary, then
+    /// for an invalid `quality`.
+    pub fn incremental_prepared(
+        dict: &Dictionary,
+        quality: Option<u32>,
+    ) -> Result<Self, ComprsError> {
+        let prepared = Arc::clone(dict.brotli_prepared()?);
+        Self::with_max_held(HeldDict::Prepared(prepared), quality, DICT_REACH)
     }
 
     fn with_max_held(
-        dict: &[u8],
+        dict: HeldDict,
         quality: Option<u32>,
         max_held: usize,
     ) -> Result<Self, ComprsError> {
@@ -436,7 +231,7 @@ impl CompressDictContext {
             quality,
             max_held,
             state: DictState::Holding {
-                dict: dict.to_vec(),
+                dict,
                 input: Vec::new(),
             },
         })
@@ -449,8 +244,7 @@ impl CompressDictContext {
         let (dict, input) = match &mut self.state {
             DictState::Holding { dict, input } => (dict, input),
             DictState::Streaming(encoder) => {
-                let output =
-                    encoder.stream(BrotliEncoderOperation::BROTLI_OPERATION_PROCESS, chunk);
+                let output = encoder.run(Operation::Process, chunk);
                 return self.settle(output);
             }
             DictState::Failed(error) => return Err(error.duplicate()),
@@ -464,23 +258,26 @@ impl CompressDictContext {
         }
 
         // The input has grown past what the context holds: compress what it
-        // holds, then the rest of the chunk, without the dictionary. An empty
-        // dictionary is none, as for `compress_with_dict`, so the encoder
-        // keeps brotli's built-in dictionary then.
-        let params = crate::brotli::encoder_params(self.quality, dict.is_empty());
-        let mut encoder = StreamEncoder::new(&params);
-        let output = encoder
-            .stream(BrotliEncoderOperation::BROTLI_OPERATION_FLUSH, input)
-            .and_then(|mut output| {
-                output.extend(
-                    encoder.stream(BrotliEncoderOperation::BROTLI_OPERATION_PROCESS, rest)?,
-                );
-                Ok(output)
-            });
-        if output.is_ok() {
-            self.state = DictState::Streaming(encoder);
-        }
-        self.settle(output)
+        // holds with the dictionary, then the rest of the chunk. An empty
+        // dictionary is none, as for `compress_with_dict`.
+        let input = std::mem::take(input);
+        let dict = std::mem::replace(dict, HeldDict::Bytes(Vec::new()));
+        let output = dict.prepare().and_then(|(dict, dict_memory)| {
+            let mut encoder = StreamEncoder::new(self.quality, dict, dict_memory)
+                .map_err(|e| operation_error(DICT_COMPRESS, e))?;
+            let mut output = encoder
+                .run(Operation::Flush, &input)
+                .map_err(|e| operation_error(DICT_COMPRESS, e))?;
+            drop(input);
+            output.extend(
+                encoder
+                    .run(Operation::Process, rest)
+                    .map_err(|e| operation_error(DICT_COMPRESS, e))?,
+            );
+            self.state = DictState::Streaming(Box::new(encoder));
+            Ok(output)
+        });
+        self.settle_checked(output)
     }
 
     /// While the context holds its input, return an empty Vec. Otherwise
@@ -489,7 +286,7 @@ impl CompressDictContext {
         match &mut self.state {
             DictState::Holding { .. } => Ok(Vec::new()),
             DictState::Streaming(encoder) => {
-                let output = encoder.stream(BrotliEncoderOperation::BROTLI_OPERATION_FLUSH, &[]);
+                let output = encoder.run(Operation::Flush, &[]);
                 self.settle(output)
             }
             DictState::Failed(error) => Err(error.duplicate()),
@@ -503,11 +300,17 @@ impl CompressDictContext {
     pub fn finish(&mut self) -> Result<Vec<u8>, ComprsError> {
         match std::mem::replace(&mut self.state, DictState::Finished) {
             DictState::Holding { dict, input } => {
-                crate::brotli::compress_with_dict_inner(&input, &dict, self.quality, DICT_COMPRESS)
+                let (dict, _) = dict.prepare()?;
+                crate::brotli::compress_with_prepared_inner(
+                    &input,
+                    dict,
+                    self.quality,
+                    DICT_COMPRESS,
+                )
             }
-            DictState::Streaming(mut encoder) => {
-                encoder.stream(BrotliEncoderOperation::BROTLI_OPERATION_FINISH, &[])
-            }
+            DictState::Streaming(mut encoder) => encoder
+                .run(Operation::Finish, &[])
+                .map_err(|e| operation_error(DICT_COMPRESS, e)),
             DictState::Failed(error) => Err(error),
             DictState::Finished => Err(ComprsError::StreamFinished(DICT_STREAM)),
         }
@@ -515,20 +318,35 @@ impl CompressDictContext {
 
     /// Pass on the `output` of a call that ran the encoder, and end the
     /// stream if it is an error: an encoder that failed cannot go on.
-    fn settle(&mut self, output: Result<Vec<u8>, ComprsError>) -> Result<Vec<u8>, ComprsError> {
-        if let Err(error) = &output {
-            self.state = DictState::Failed(error.duplicate());
-        }
-        output
+    fn settle(
+        &mut self,
+        output: Result<Vec<u8>, comprs_brotli::Error>,
+    ) -> Result<Vec<u8>, ComprsError> {
+        self.settle_checked(output.map_err(|e| operation_error(DICT_COMPRESS, e)))
+    }
+
+    /// [`settle`](Self::settle) for an error that is already a
+    /// [`ComprsError`].
+    fn settle_checked(
+        &mut self,
+        output: Result<Vec<u8>, ComprsError>,
+    ) -> Result<Vec<u8>, ComprsError> {
+        output.inspect_err(|error| self.state = DictState::Failed(error.duplicate()))
     }
 }
 
 impl MemoryUsage for CompressDictContext {
     /// The dictionary and the input that the context holds, or the encoder
-    /// state, with its window and hash tables.
+    /// state, with its window, its hash tables and the prepared dictionary.
     fn memory_usage(&self) -> usize {
         match &self.state {
-            DictState::Holding { dict, input } => dict.capacity() + input.capacity(),
+            DictState::Holding { dict, input } => {
+                let dict = match dict {
+                    HeldDict::Bytes(bytes) => bytes.capacity(),
+                    HeldDict::Prepared(_) => 0,
+                };
+                dict + input.capacity()
+            }
             DictState::Streaming(encoder) => encoder.memory_usage(),
             DictState::Failed(_) | DictState::Finished => 0,
         }
@@ -547,52 +365,31 @@ fn hold(input: &mut Vec<u8>, chunk: &[u8], max_held: usize) {
     input.extend_from_slice(chunk);
 }
 
-/// Run `f`, which runs the encoder of a streaming [`CompressDictContext`],
-/// under [`std::panic::catch_unwind`], and report its error or its panic as
-/// an error of the context.
+/// Input that [`StreamEncoder`] passes to each call of the encoder: it holds
+/// smaller chunks until they make this much, and passes what is left to the
+/// call that flushes or ends the stream.
 ///
-/// The encoder has no custom dictionary, so no input is known to make it
-/// panic: unlike the panics that [`crate::brotli::compress_with_dict`]
-/// recovers from, these do not run under [`crate::panic_guard::catch`], and
-/// the panic hook reports them.
-fn catch_encoder_panic<T>(
-    f: impl FnOnce() -> std::io::Result<T> + UnwindSafe,
-) -> Result<T, ComprsError> {
-    match std::panic::catch_unwind(f) {
-        Ok(result) => result.map_err(|e| ComprsError::Operation {
-            context: DICT_COMPRESS,
-            source: e.into(),
-        }),
-        Err(_) => Err(ComprsError::Operation {
-            context: DICT_COMPRESS,
-            source: "the encoder panicked".into(),
-        }),
-    }
-}
-
-type EncoderState = BrotliEncoderStateStruct<CountingAlloc>;
-
-/// Input that [`StreamEncoder`], and [`CompressContext`] at qualities 0
-/// and 1, pass to each call of the encoder: they hold smaller chunks until
-/// they make this much, and pass what is left to the call that flushes or
-/// ends the stream.
-///
-/// The encoder takes the input of its first block, with what the call
-/// holds past it, as a hint of the size of the stream, and tries a more
-/// complex model of the literals above 1 MiB: given the 4 MiB that the
-/// start of a stream holds at once, it made a stream of JSON lines 2% larger
-/// at qualities 6 and 9 than [`crate::brotli::compress_with_dict`], which
-/// passes 4 KiB at a time. At qualities 0 and 1, the encoder compresses the
-/// input of each call on its own, in an output buffer twice its size: 4 KiB
-/// calls made the stream half again as large, and 4 MiB calls held 8 MiB.
-/// Calls of 64 KiB gave about the size of the one-shot function's output at
-/// qualities 6 and 9, and a smaller one at 0 and 1.
+/// The encoder takes the input of its first call, with what it holds past
+/// it, as a hint of the size of the stream, and tries a more complex model
+/// of the literals above 1 MiB: given the 4 MiB that the start of a stream
+/// holds at once, it made a stream of JSON lines 2% larger at qualities 6
+/// and 9 than [`crate::brotli::compress_with_dict`]. At qualities 0 and 1,
+/// the encoder compresses the input of each call on its own: 4 KiB calls
+/// made the stream half again as large, and 4 MiB calls held 8 MiB. Calls
+/// of 64 KiB gave about the size of the one-shot function's output at
+/// qualities 6 and 9, and a smaller one at 0 and 1. Fed in calls of this
+/// size, the encoder gives the same output however the stream's input is
+/// split into chunks.
 const FEED: usize = 64 * 1024;
 
-/// brotli's low-level encoder, driven one operation at a time for a
-/// streaming [`CompressDictContext`].
+/// libbrotli's encoder, driven one operation at a time for the streaming
+/// compression contexts.
 struct StreamEncoder {
-    state: EncoderState,
+    /// Holds the prepared dictionary that it is attached to, if any.
+    encoder: Encoder<'static>,
+    /// The memory of the prepared dictionary, its bytes included, unless a
+    /// [`Dictionary`] reports it.
+    dict_memory: usize,
     /// Input that the encoder has not taken yet: less than [`FEED`] bytes,
     /// which [`Self::run`] passes on once they make [`FEED`] bytes, or to
     /// flush or end the stream.
@@ -601,123 +398,75 @@ struct StreamEncoder {
 
 #[cfg(test)]
 thread_local! {
-    /// The operation on which [`StreamEncoder::run`] panics in this thread,
+    /// The operation on which [`StreamEncoder::run`] fails in this thread,
     /// for the tests of an encoder that fails.
-    static FAULT: std::cell::Cell<Option<BrotliEncoderOperation>> =
-        const { std::cell::Cell::new(None) };
+    static FAULT: std::cell::Cell<Option<Operation>> = const { std::cell::Cell::new(None) };
 }
 
 impl StreamEncoder {
-    /// An encoder with `params` and no custom dictionary. The state is
-    /// boxed, as it holds several kilobytes of tables itself.
-    fn new(params: &BrotliEncoderParams) -> Box<Self> {
-        let mut encoder = Box::new(Self {
-            state: EncoderState::new(CountingAlloc::default()),
+    /// An encoder at `quality`, with the prepared raw dictionary `dict`, if
+    /// any, which holds `dict_memory` bytes that the encoder reports.
+    fn new(
+        quality: u32,
+        dict: Option<Arc<PreparedDictionary<'static>>>,
+        dict_memory: usize,
+    ) -> Result<Self, comprs_brotli::Error> {
+        let mut encoder = crate::brotli::encoder(quality)?;
+        if let Some(dict) = dict {
+            encoder.attach_shared(dict)?;
+        }
+        Ok(Self {
+            encoder,
+            dict_memory,
             pending: Vec::new(),
-        });
-        encoder.state.params = params.clone();
-        encoder
-    }
-
-    /// [`Self::run`], with a panic turned into an error by
-    /// [`catch_encoder_panic`].
-    fn stream(&mut self, op: BrotliEncoderOperation, input: &[u8]) -> Result<Vec<u8>, ComprsError> {
-        // The context drops the encoder after an error, so nothing sees the
-        // state that a panic left it in.
-        catch_encoder_panic(AssertUnwindSafe(|| self.run(op, input)))
+        })
     }
 
     /// Run `op` on all of `input` and return the output: what the encoder
-    /// has emitted so far for `BROTLI_OPERATION_PROCESS`, all the output of
-    /// the input so far for `BROTLI_OPERATION_FLUSH`, and the rest of the
-    /// stream for `BROTLI_OPERATION_FINISH`.
+    /// has emitted so far for [`Operation::Process`], all the output of the
+    /// input so far for [`Operation::Flush`], and the rest of the stream for
+    /// [`Operation::Finish`].
     ///
     /// The encoder takes the input [`FEED`] bytes at a time, whatever the
     /// chunks it arrives in: the input short of that waits in
     /// [`Self::pending`] for more, a flush or the end of the stream.
-    fn run(&mut self, op: BrotliEncoderOperation, mut input: &[u8]) -> std::io::Result<Vec<u8>> {
+    fn run(&mut self, op: Operation, mut input: &[u8]) -> Result<Vec<u8>, comprs_brotli::Error> {
         #[cfg(test)]
         if FAULT.get() == Some(op) {
-            // Unlike `panic!`, `resume_unwind` does not run the panic hook,
-            // which would print the panic.
-            std::panic::resume_unwind(Box::new("an injected encoder panic"));
+            return Err(comprs_brotli::Error::Encoder);
         }
-        let process = BrotliEncoderOperation::BROTLI_OPERATION_PROCESS;
         let mut output = Vec::new();
         if !self.pending.is_empty() {
             let (head, rest) = input.split_at(input.len().min(FEED - self.pending.len()));
             self.pending.extend_from_slice(head);
             input = rest;
             if self.pending.len() == FEED {
-                Self::call(&mut self.state, process, &self.pending, &mut output)?;
+                self.encoder
+                    .compress_all(Operation::Process, &self.pending, &mut output)?;
                 self.pending.clear();
             }
         }
         // Either `pending` is empty now, or so is `input`.
         let (pieces, rest) = input.as_chunks::<FEED>();
         for piece in pieces {
-            Self::call(&mut self.state, process, piece, &mut output)?;
+            self.encoder
+                .compress_all(Operation::Process, piece, &mut output)?;
         }
         if !rest.is_empty() {
             self.pending.reserve_exact(FEED);
             self.pending.extend_from_slice(rest);
         }
-        if op != process {
-            Self::call(&mut self.state, op, &self.pending, &mut output)?;
+        if op != Operation::Process {
+            self.encoder.compress_all(op, &self.pending, &mut output)?;
             self.pending.clear();
         }
         Ok(output)
     }
 
-    /// Run `op` on `input`, which is at most [`FEED`] bytes, in one call of
-    /// the encoder `state`, and append its output to `output`.
-    fn call(
-        state: &mut EncoderState,
-        op: BrotliEncoderOperation,
-        input: &[u8],
-        output: &mut Vec<u8>,
-    ) -> std::io::Result<()> {
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let mut available_in = input.len();
-        let mut input_offset = 0;
-        let mut nop = |_: &mut PredictionModeContextMap<InputReferenceMut>,
-                       _: &mut [StaticCommand],
-                       _: InputPair,
-                       _: &mut CountingAlloc| {};
-        loop {
-            let mut available_out = buffer.len();
-            let mut output_offset = 0;
-            let ok = state.compress_stream(
-                op,
-                &mut available_in,
-                input,
-                &mut input_offset,
-                &mut available_out,
-                &mut buffer,
-                &mut output_offset,
-                &mut None,
-                &mut nop,
-            );
-            output.extend_from_slice(&buffer[..output_offset]);
-            if !ok {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Invalid Data",
-                ));
-            }
-            if available_in == 0
-                && !state.has_more_output()
-                && (op != BrotliEncoderOperation::BROTLI_OPERATION_FINISH || state.is_finished())
-            {
-                return Ok(());
-            }
-        }
-    }
-
-    /// The memory of the encoder state, including its window and its hash
-    /// tables, and of the input that waits for it.
+    /// The memory of the encoder, including its window, its hash tables and
+    /// its dictionary, and of the input that waits for it.
     fn memory_usage(&self) -> usize {
-        self.state.m8.allocated() + self.pending.capacity()
+        self.encoder.memory_usage() + self.dict_memory + self.pending.capacity()
     }
 }
 
@@ -731,10 +480,30 @@ impl DecompressDictContext {
         let max_size = crate::validate_max_output_size(max_output_size)?;
         Ok(Self {
             inner: StreamDecoder::new(
-                dict.to_vec(),
+                (!dict.is_empty()).then(|| Arc::from(dict)),
                 LimitedVec::new(max_size, "brotli dict stream decompress"),
                 "brotli dict stream",
-            ),
+            )?,
+        })
+    }
+
+    /// Create a context for a prepared [`Dictionary`], whose bytes it shares
+    /// rather than copies.
+    ///
+    /// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary, then
+    /// for an invalid `max_output_size`.
+    pub fn with_prepared(
+        dict: &Dictionary,
+        max_output_size: Option<f64>,
+    ) -> Result<Self, ComprsError> {
+        let dict = dict.brotli_raw()?;
+        let max_size = crate::validate_max_output_size(max_output_size)?;
+        Ok(Self {
+            inner: StreamDecoder::new(
+                Some(dict),
+                LimitedVec::new(max_size, "brotli dict stream decompress"),
+                "brotli dict stream",
+            )?,
         })
     }
 
@@ -762,56 +531,32 @@ impl MemoryUsage for DecompressDictContext {
     }
 }
 
-type DecoderState = BrotliState<CountingAlloc, CountingAlloc, CountingAlloc>;
-
-/// A decoder state with the custom dictionary `dict` (empty for none), whose
-/// allocations `alloc` counts.
-fn decoder_state(dict: Vec<u8>, alloc: &CountingAlloc) -> DecoderState {
-    // The state owns the dictionary and frees it with the allocator.
-    alloc.add(dict.len());
-    let mut state = DecoderState::new_with_custom_dictionary(
-        alloc.clone(),
-        alloc.clone(),
-        alloc.clone(),
-        dict.into(),
-    );
-    // Decode RFC 7932 streams only: see `crate::brotli::reject_large_window`.
-    state.large_window = false;
-    state
-}
-
-/// Most output that one decoder call of [`decompress_all`] writes. The
-/// output buffer is zeroed just before the decoder writes to it, a part of
-/// this size at a time, so the zeroed part is still in the cache when the
-/// decoder overwrites it.
-const DECOMPRESS_ALL_CHUNK: usize = 64 * 1024;
-
 /// Decompress the brotli stream at the start of `input`, with the custom
 /// dictionary `dict` (empty for none), in one call.
 ///
 /// The decoder gets all of `input` at once, so it sees how much output a
 /// stream shorter than its window holds and sizes its ring buffer for that
 /// rather than for the whole window (4 MiB at the default window size). It
-/// writes straight into the output buffer, which starts with room for four
-/// times the input and grows geometrically, but never past
-/// `max_output_size` plus one byte. A failure to allocate that first
-/// buffer is reported as an error, as in [`crate::decompress_with_limit`].
+/// writes into the output buffer, which starts with room for four times the
+/// input and grows geometrically, but never past `max_output_size` plus one
+/// byte. A failure to allocate that first buffer is reported as an error, as
+/// in [`crate::decompress_with_limit`].
 ///
 /// Invalid input fails with "Invalid Data", prefixed by `context`, and
 /// exceeding `max_output_size` with [`ComprsError::SizeLimit`]. `end` sets
 /// how the end of the input is checked:
 ///
-/// - [`End::Lenient`]: like `brotli::Decompressor`, data after the end of
-///   the stream is ignored, and truncated input fails with "Invalid Data" as
-///   well. Both are [`ComprsError::Corrupt`]: the one-shot functions keep
-///   that message for truncated input, so unlike the decompression contexts
-///   they do not report it as [`ComprsError::Truncated`].
+/// - [`End::Lenient`]: data after the end of the stream is ignored, and
+///   truncated input fails with "Invalid Data" as well. Both are
+///   [`ComprsError::Corrupt`]: the one-shot functions keep that message for
+///   truncated input, so unlike the decompression contexts they do not
+///   report it as [`ComprsError::Truncated`].
 /// - [`End::Strict`]: like the decompression contexts, input that ends
 ///   before the end of the stream fails with [`ComprsError::Truncated`], and
 ///   data after the end of the stream with [`ComprsError::Corrupt`].
 pub(crate) fn decompress_all(
     input: &[u8],
-    dict: Vec<u8>,
+    dict: &[u8],
     max_output_size: usize,
     context: &'static str,
     end: End,
@@ -823,47 +568,32 @@ pub(crate) fn decompress_all(
             context,
             source: e.into(),
         })?;
-    let mut state = decoder_state(dict, &CountingAlloc::default());
-    let mut available_in = input.len();
-    let mut input_offset = 0;
-    let mut total_out = 0;
+    let mut decoder = Decoder::new().map_err(|e| operation_error(context, e))?;
+    if !dict.is_empty() {
+        decoder
+            .attach(dict)
+            .map_err(|e| operation_error(context, e))?;
+    }
+    let mut rest = input;
     loop {
         let result = output
             .append_with(input.len().saturating_mul(4), |buf| {
-                let start = buf.len();
-                let mut available_out = (buf.capacity() - start).min(DECOMPRESS_ALL_CHUNK);
-                buf.resize(start + available_out, 0);
-                let mut output_offset = start;
-                let result = BrotliDecompressStream(
-                    &mut available_in,
-                    &mut input_offset,
-                    input,
-                    &mut available_out,
-                    &mut output_offset,
-                    buf,
-                    &mut total_out,
-                    &mut state,
-                );
-                buf.truncate(output_offset);
-                Ok(result)
+                Ok(decoder.decompress(&mut rest, buf))
             })
             .map_err(|e| output.error(e, context))?;
         match (result, end) {
-            (BrotliResult::NeedsMoreOutput, _) => {}
-            (BrotliResult::ResultSuccess, End::Strict) if input_offset < input.len() => {
+            (Ok(Status::NeedsMoreOutput), _) => {}
+            (Ok(Status::Finished), End::Strict) if !rest.is_empty() => {
                 return Err(data_after_the_stream(context));
             }
-            (BrotliResult::ResultSuccess, _) => return Ok(crate::finish_output(output.take())),
-            (BrotliResult::NeedsMoreInput, End::Strict) => {
+            (Ok(Status::Finished), _) => return Ok(crate::finish_output(output.take())),
+            (Ok(Status::NeedsMoreInput), End::Strict) => {
                 return Err(ComprsError::Truncated("brotli"));
             }
-            (BrotliResult::NeedsMoreInput | BrotliResult::ResultFailure, _) => {
-                return Err(ComprsError::Corrupt {
-                    context,
-                    source: std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid Data")
-                        .into(),
-                });
+            (Ok(Status::NeedsMoreInput), End::Lenient) => {
+                return Err(invalid_data(context));
             }
+            (Err(e), _) => return Err(decoder_error(context, e)),
         }
     }
 }
@@ -887,22 +617,16 @@ fn data_after_the_stream(context: &'static str) -> ComprsError {
     }
 }
 
-/// Decoder state shared by [`DecompressContext`] and [`DecompressDictContext`].
-///
-/// Drives `BrotliDecompressStream` directly rather than through
-/// `brotli::DecompressorWriter`, whose `close()` cannot tell a complete stream
-/// from one whose error it has already reported.
+/// Decoder shared by [`DecompressContext`] and [`DecompressDictContext`].
 struct StreamDecoder {
-    /// `None` once the stream is finished, or a call failed.
-    state: Option<DecoderState>,
+    /// `None` once the stream is finished, or a call failed. Holds the
+    /// dictionary that it is attached to, if any.
+    decoder: Option<Decoder<'static>>,
+    /// The bytes of the dictionary.
+    dict_len: usize,
     /// The error of a call that failed, which the later calls report again
     /// until `finish`.
     failed: Option<ComprsError>,
-    /// Shares its count with the allocators of `state`.
-    alloc: CountingAlloc,
-    /// Buffer each decoder call fills before its output moves to `output`.
-    buffer: Vec<u8>,
-    total_out: usize,
     output: LimitedVec,
     /// Whether the decoder has reached the end of the brotli stream.
     ended: bool,
@@ -911,18 +635,26 @@ struct StreamDecoder {
 }
 
 impl StreamDecoder {
-    fn new(dict: Vec<u8>, output: LimitedVec, name: &'static str) -> Self {
-        let alloc = CountingAlloc::default();
-        Self {
-            state: Some(decoder_state(dict, &alloc)),
+    fn new(
+        dict: Option<Arc<[u8]>>,
+        output: LimitedVec,
+        name: &'static str,
+    ) -> Result<Self, ComprsError> {
+        let mut decoder = Decoder::new().map_err(|e| operation_error(name, e))?;
+        let dict_len = dict.as_ref().map_or(0, |dict| dict.len());
+        if let Some(dict) = dict {
+            decoder
+                .attach_shared(dict)
+                .map_err(|e| operation_error(name, e))?;
+        }
+        Ok(Self {
+            decoder: Some(decoder),
+            dict_len,
             failed: None,
-            alloc,
-            buffer: vec![0; BUFFER_SIZE],
-            total_out: 0,
             output,
             ended: false,
             name,
-        }
+        })
     }
 
     /// Decompress `input`, returning all the output of the input so far.
@@ -944,7 +676,7 @@ impl StreamDecoder {
         match result {
             Ok(()) => Ok(output),
             Err(error) => {
-                self.state = None;
+                self.decoder = None;
                 self.failed = Some(error.duplicate());
                 Err(error)
             }
@@ -953,32 +685,27 @@ impl StreamDecoder {
 
     /// Feed `input` to the decoder, which writes all the output of the input
     /// so far to `output`.
-    fn run(&mut self, input: &[u8], context: &'static str) -> Result<(), ComprsError> {
-        let state = self
-            .state
+    fn run(&mut self, mut input: &[u8], context: &'static str) -> Result<(), ComprsError> {
+        let decoder = self
+            .decoder
             .as_mut()
             .ok_or(ComprsError::StreamFinished(self.name))?;
-
-        let mut available_in = input.len();
-        let mut input_offset = 0;
+        if self.ended {
+            if input.is_empty() {
+                return Ok(());
+            }
+            return Err(data_after_the_stream(context));
+        }
         loop {
-            let mut available_out = self.buffer.len();
-            let mut output_offset = 0;
-            let result = BrotliDecompressStream(
-                &mut available_in,
-                &mut input_offset,
-                input,
-                &mut available_out,
-                &mut output_offset,
-                &mut self.buffer,
-                &mut self.total_out,
-                state,
-            );
-            self.output
-                .write_all(&self.buffer[..output_offset])
+            let (result, filled) = self
+                .output
+                .append_with(OUTPUT_ROOM, |buf| {
+                    let result = decoder.decompress(&mut input, buf);
+                    Ok((result, buf.len() == buf.capacity()))
+                })
                 .map_err(|e| self.output.error(e, context))?;
-            match result {
-                BrotliResult::NeedsMoreOutput => {}
+            match result.map_err(|e| decoder_error(context, e))? {
+                Status::NeedsMoreOutput => {}
                 // Out of input, the decoder writes the output that it holds
                 // in its ring buffer, as much as fits into the buffer, and
                 // asks for more input even if some is left: call it again
@@ -987,25 +714,17 @@ impl StreamDecoder {
                 // that goes on wrote a full buffer of the output of the
                 // input so far, which is finite, so the loop ends; and the
                 // output limit, checked on each call, stops it sooner.
-                BrotliResult::NeedsMoreInput if available_out == 0 => {}
-                BrotliResult::NeedsMoreInput => break,
-                BrotliResult::ResultSuccess => {
+                Status::NeedsMoreInput if filled => {}
+                Status::NeedsMoreInput => return Ok(()),
+                Status::Finished => {
                     self.ended = true;
-                    if input_offset < input.len() {
+                    if !input.is_empty() {
                         return Err(data_after_the_stream(context));
                     }
-                    break;
-                }
-                BrotliResult::ResultFailure => {
-                    return Err(ComprsError::Corrupt {
-                        context,
-                        source: "Invalid Data".into(),
-                    });
+                    return Ok(());
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Drain the decoder and end the stream, failing unless the decoder
@@ -1018,7 +737,7 @@ impl StreamDecoder {
             return Err(error);
         }
         let output = self.decompress(&[], context);
-        self.state = None;
+        self.decoder = None;
         self.failed = None;
         let output = output?;
         if !self.ended {
@@ -1027,94 +746,28 @@ impl StreamDecoder {
         Ok(output)
     }
 
-    /// The memory of the decoder state, including its ring buffer and the
-    /// dictionary, and of the output buffers.
+    /// The memory of the decoder, including its ring buffer, of the
+    /// dictionary and of the output buffer.
     fn memory_usage(&self) -> usize {
-        self.alloc.allocated() + self.buffer.capacity() + self.output.capacity()
+        self.decoder
+            .as_ref()
+            .map_or(0, |decoder| decoder.memory_usage() + self.dict_len)
+            + self.output.capacity()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use brotli::enc::encode::BrotliEncoderOperation::{
-        self, BROTLI_OPERATION_FINISH as FINISH, BROTLI_OPERATION_FLUSH as FLUSH,
-        BROTLI_OPERATION_PROCESS as PROCESS,
-    };
-    use brotli::enc::{Allocator, SliceWrapper, SliceWrapperMut, StandardAlloc};
+    use comprs_brotli::Operation::{self, Finish as FINISH, Flush as FLUSH, Process as PROCESS};
 
     use super::{
-        CompressContext, CompressDictContext, CountingAlloc, DICT_REACH, DecompressContext,
-        DecompressDictContext,
+        CompressContext, CompressDictContext, DICT_REACH, DecompressContext, DecompressDictContext,
     };
-    use crate::brotli::{BUFFER_SIZE, TEXT, compress_with_dict, decompress, decompress_with_dict};
+    use crate::brotli::{TEXT, compress_with_dict, decompress, decompress_with_dict};
     use crate::{ComprsError, MemoryUsage};
 
     /// Decompression limit used by the size-limit tests.
     const LIMIT: usize = 64 * 1024;
-
-    /// The length and the address of the ring buffer that [`super::RING_BUFFER`]
-    /// keeps, if any.
-    fn kept_ring_buffer() -> Option<(usize, usize)> {
-        super::RING_BUFFER.with(|kept| {
-            let kept = kept.borrow();
-            let memory = kept
-                .as_ref()?
-                .downcast_ref::<<StandardAlloc as Allocator<u8>>::AllocatedMemory>()?;
-            Some((memory.slice().len(), memory.slice().as_ptr() as usize))
-        })
-    }
-
-    /// Fill the ring buffer that [`super::RING_BUFFER`] keeps with bytes
-    /// that no stream holds, which the encoder must not read.
-    fn scramble_kept_ring_buffer() {
-        super::RING_BUFFER.with(|kept| {
-            let mut kept = kept.borrow_mut();
-            let memory = kept
-                .as_mut()
-                .and_then(|memory| {
-                    memory.downcast_mut::<<StandardAlloc as Allocator<u8>>::AllocatedMemory>()
-                })
-                .expect("a ring buffer is kept");
-            let mut state = 0x9e37_79b9_u32;
-            for byte in memory.slice_mut() {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                *byte = state as u8;
-            }
-        });
-    }
-
-    /// Drop the ring buffer that [`super::RING_BUFFER`] keeps.
-    fn drop_kept_ring_buffer() {
-        super::RING_BUFFER.with(|kept| kept.borrow_mut().take());
-    }
-
-    /// What `compress` returns with a fresh ring buffer, and with a
-    /// recycled one full of other bytes: the same output, or the test fails.
-    ///
-    /// An encoder that allocates no ring buffer, as at qualities 0 and 1,
-    /// which ignore a custom dictionary, leaves nothing to recycle, so
-    /// `compress` then runs once; `recycles` says whether it must allocate
-    /// one.
-    fn compress_with_recycled_ring_buffer(
-        label: &str,
-        recycles: bool,
-        compress: impl Fn() -> Vec<u8>,
-    ) -> Vec<u8> {
-        drop_kept_ring_buffer();
-        let fresh = compress();
-        if kept_ring_buffer().is_none() {
-            assert!(!recycles, "the encoder kept no ring buffer: {label}");
-            return fresh;
-        }
-        scramble_kept_ring_buffer();
-        assert!(
-            compress() == fresh,
-            "a recycled ring buffer changed the output: {label}"
-        );
-        fresh
-    }
 
     /// `size` bytes of text that compresses about as well as prose.
     fn prose(size: usize) -> Vec<u8> {
@@ -1136,7 +789,7 @@ mod tests {
             err.to_string(),
             "brotli stream decompress exceeded maximum size of 65536 bytes"
         );
-        // The output never grew past the limit (brotli adds one 4 KiB buffer).
+        // The output never grew past the limit.
         assert!(ctx.inner.output.capacity() <= LIMIT);
     }
 
@@ -1201,14 +854,11 @@ mod tests {
 
         strong.finish().unwrap();
         assert_eq!(strong.memory_usage(), 0);
-        // The encoder returned all its memory to the allocator, except the
-        // buffer of the writer, which drops it.
-        assert_eq!(strong.alloc.allocated(), BUFFER_SIZE);
     }
 
-    /// At qualities 0 and 1, the encoder compresses the input of each call
-    /// on its own; the context passes it [`super::FEED`] bytes at a time, so
-    /// that the output does not depend on the chunks (#731).
+    /// The context passes the encoder [`super::FEED`] bytes at a time, so
+    /// that the output does not depend on the chunks: at qualities 0 and 1,
+    /// the encoder compresses the input of each call on its own (#731).
     #[test]
     fn compress_context_output_does_not_depend_on_the_chunks() {
         let mut input = prose(150 * 1024);
@@ -1291,8 +941,7 @@ mod tests {
         assert!(ctx.memory_usage() > empty + data.len());
 
         ctx.finish().unwrap();
-        // Dropping the state returned all its memory to the allocator.
-        assert_eq!(ctx.inner.alloc.allocated(), 0);
+        assert_eq!(ctx.memory_usage(), 0);
     }
 
     #[test]
@@ -1304,26 +953,7 @@ mod tests {
 
         assert_eq!(ctx.transform(&compressed).unwrap(), dict);
         ctx.finish().unwrap();
-        assert_eq!(ctx.inner.alloc.allocated(), 0);
-    }
-
-    #[test]
-    fn counting_alloc_clamps_the_count_at_zero() {
-        let mut alloc = CountingAlloc::default();
-        let small = <CountingAlloc as Allocator<u32>>::alloc_cell(&mut alloc, 2);
-        let large = <CountingAlloc as Allocator<u32>>::alloc_cell(&mut alloc, 8);
-        assert_eq!(alloc.allocated(), 40);
-
-        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, small);
-        assert_eq!(alloc.allocated(), 32);
-        // Freeing memory that another allocator handed out stops at zero
-        // instead of wrapping around.
-        let foreign =
-            <StandardAlloc as Allocator<u32>>::alloc_cell(&mut StandardAlloc::default(), 16);
-        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, foreign);
-        assert_eq!(alloc.allocated(), 0);
-        <CountingAlloc as Allocator<u32>>::free_cell(&mut alloc, large);
-        assert_eq!(alloc.allocated(), 0);
+        assert_eq!(ctx.memory_usage(), 0);
     }
 
     #[test]
@@ -1361,7 +991,7 @@ mod tests {
             let message =
                 format!("{name} decompress failed: unexpected data after the end of the stream");
             assert_eq!(ctx.transform(&input).unwrap_err().to_string(), message);
-            assert_eq!(ctx.memory_usage(), BUFFER_SIZE, "{name}");
+            assert_eq!(ctx.memory_usage(), 0, "{name}");
             assert_eq!(ctx.transform(b"more").unwrap_err().to_string(), message);
             assert_eq!(ctx.flush().unwrap_err().to_string(), message);
             assert_eq!(ctx.finish().unwrap_err().to_string(), message);
@@ -1540,15 +1170,87 @@ mod tests {
         assert!(!ctx.inner.ended);
     }
 
+    // A context with a prepared Dictionary writes the stream of one with its
+    // bytes, whether it holds the input until `finish` or streams it, and a
+    // decompression context with the Dictionary reads it.
+    #[test]
+    fn dict_contexts_with_a_prepared_dictionary_match_those_with_its_bytes() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let bytes = english_dict();
+        let dict = Dictionary::new(&bytes, DictionaryFormat::Brotli, None).unwrap();
+        for len in [1000, DICT_REACH + 100_000] {
+            let input = english(len);
+            let mut with_bytes = CompressDictContext::incremental(&bytes, Some(5)).unwrap();
+            let mut prepared = CompressDictContext::incremental_prepared(&dict, Some(5)).unwrap();
+            let mut expected = Vec::new();
+            let mut output = Vec::new();
+            for chunk in input.chunks(300_000) {
+                expected.extend(with_bytes.transform(chunk).unwrap());
+                output.extend(prepared.transform(chunk).unwrap());
+            }
+            expected.extend(with_bytes.finish().unwrap());
+            output.extend(prepared.finish().unwrap());
+            assert!(output == expected, "{len} bytes");
+
+            let mut ctx = DecompressDictContext::with_prepared(&dict, None).unwrap();
+            let mut restored = ctx.transform(&output).unwrap();
+            restored.extend(ctx.finish().unwrap());
+            assert!(restored == input, "{len} bytes");
+        }
+    }
+
+    // The Dictionary reports the memory of what it prepared, so a context
+    // that shares it reports only its own.
+    #[test]
+    fn dict_contexts_leave_the_memory_of_a_prepared_dictionary_to_it() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let bytes = english_dict();
+        let dict = Dictionary::new(&bytes, DictionaryFormat::Brotli, None).unwrap();
+        let mut with_bytes = CompressDictContext::incremental(&bytes, Some(5)).unwrap();
+        let mut prepared = CompressDictContext::incremental_prepared(&dict, Some(5)).unwrap();
+        assert_eq!(
+            with_bytes.memory_usage() - prepared.memory_usage(),
+            bytes.capacity().max(bytes.len())
+        );
+        let input = english(DICT_REACH + 1);
+        with_bytes.transform(&input).unwrap();
+        prepared.transform(&input).unwrap();
+        let tables = dict.brotli_prepared().unwrap().memory_usage();
+        assert_eq!(
+            with_bytes.memory_usage() - prepared.memory_usage(),
+            bytes.len() + tables
+        );
+    }
+
+    #[cfg(feature = "zstd")]
+    #[test]
+    fn dict_contexts_reject_a_zstd_dictionary() {
+        use crate::dictionary::{Dictionary, DictionaryFormat};
+
+        let dict = Dictionary::new(&english_dict(), DictionaryFormat::Zstd, None).unwrap();
+        let errors = [
+            CompressDictContext::incremental_prepared(&dict, None).map(drop),
+            DecompressDictContext::with_prepared(&dict, None).map(drop),
+        ];
+        for error in errors {
+            assert!(
+                matches!(&error, Err(ComprsError::InvalidArg(message)) if message == "this Dictionary is for zstd"),
+                "{error:?}"
+            );
+        }
+    }
+
     #[test]
     fn decompress_dict_context_returns_all_the_output_of_a_flushed_chunk() {
         let dict = english_dict();
         let input = english(100_000);
         // `CompressDictContext` holds input of this size until `finish`, so
-        // drive brotli's encoder with the dictionary directly.
-        let mut encoder = super::StreamEncoder::new(&crate::brotli::encoder_params(5, true));
-        encoder.state.set_custom_dictionary(dict.len(), &dict);
-        let compressed = encoder.stream(FLUSH, &input).unwrap();
+        // drive the encoder with the dictionary directly.
+        let prepared = crate::brotli::prepared_dictionary(&dict).unwrap();
+        let mut encoder = super::StreamEncoder::new(5, Some(prepared), 0).unwrap();
+        let compressed = encoder.run(FLUSH, &input).unwrap();
         let mut ctx = DecompressDictContext::new(&dict, None).unwrap();
         let output = ctx.transform(&compressed).unwrap();
         assert_eq!(output.len(), input.len());
@@ -1575,8 +1277,9 @@ mod tests {
         assert!(ctx.inner.output.capacity() <= LIMIT);
     }
 
-    /// The dictionary stream compresses on `finish` through the same encoder
-    /// path as `compress_with_dict`, so it hits the same brotli 9.0.0 panic.
+    /// The dictionary stream compresses on `finish` as `compress_with_dict`
+    /// does, which the input on which brotli 9.0.0, the Rust port that
+    /// comprs used before libbrotli, panicked (#623) round-trips through.
     #[test]
     fn compress_dict_context_survives_encoder_panic() {
         let data = [
@@ -1590,8 +1293,8 @@ mod tests {
         assert_eq!(decompressed, data);
     }
 
-    /// The fallback that `finish` takes when the encoder fails decodes with
-    /// the dictionary (#642).
+    /// The input on which the Rust port failed with a dictionary (#642)
+    /// decodes with the dictionary at every quality.
     #[test]
     fn compress_dict_context_fallback_decodes_with_the_dictionary() {
         let data = crate::brotli::dict_fallback_input();
@@ -1630,8 +1333,8 @@ mod tests {
     }
 
     /// `len` bytes of English text, [`TEXT`] repeated, which brotli encodes
-    /// with references to the dictionary of [`english_dict`] at first, and
-    /// to the built-in dictionary without one.
+    /// with references to the dictionary of [`english_dict`], and to the
+    /// built-in dictionary without one.
     fn english(len: usize) -> Vec<u8> {
         TEXT.iter().copied().cycle().take(len).collect()
     }
@@ -1678,8 +1381,7 @@ mod tests {
     /// Check that an incremental context compresses `input`, in chunks of
     /// each of `chunk_sizes`, into a stream that decodes with `dict`: into
     /// the output of [`compress_with_dict`] if the context holds all of the
-    /// input, and otherwise with output before `finish`, into a stream that
-    /// refers to no dictionary and decodes the same without `dict`.
+    /// input, and otherwise with output before `finish`.
     fn check_incremental(dict: &[u8], quality: u32, input: &[u8], chunk_sizes: &[usize]) {
         let one_shot = (input.len() <= DICT_REACH)
             .then(|| compress_with_dict(input, dict, Some(quality)).unwrap());
@@ -1694,10 +1396,6 @@ mod tests {
                 assert!(before_finish.is_empty(), "{context}");
             } else {
                 assert!(!before_finish.is_empty(), "{context}");
-                // Text that brotli's built-in dictionary covers decodes into
-                // other bytes with a custom dictionary if the stream refers
-                // to the built-in one (#642).
-                assert!(decompress(&output).unwrap() == input, "{context}");
             }
             let decompressed = decompress_with_dict(&output, dict).unwrap();
             assert!(decompressed == input, "{context}");
@@ -1796,8 +1494,8 @@ mod tests {
     /// Most of the output comes before `finish`: the output of the first
     /// [`DICT_REACH`] bytes when the input passes them, then what the
     /// encoder emits as the rest arrives. The buffered context emits nothing
-    /// before `finish`. The stream, which does not use the dictionary, is
-    /// about as large as the output of [`compress_with_dict`].
+    /// before `finish`. The stream is about as large as the output of
+    /// [`compress_with_dict`].
     #[test]
     #[ignore = "slow without optimizations"]
     fn incremental_dict_context_emits_most_of_its_output_before_finish() {
@@ -1812,7 +1510,7 @@ mod tests {
             one_shot.len()
         );
         assert!(before_finish.len() * 10 >= output.len() * 4, "{sizes}");
-        assert!(output.len() * 1000 <= one_shot.len() * 1005, "{sizes}");
+        assert!(output.len() * 100 <= one_shot.len() * 101, "{sizes}");
         assert!(decompress_with_dict(&output, &dict).unwrap() == input);
     }
 
@@ -1877,8 +1575,8 @@ mod tests {
     }
 
     /// Streams of at most [`DICT_REACH`] bytes compress into the output of
-    /// [`compress_with_dict`] at every quality, also when that takes the
-    /// fallback for brotli 9.0.0's dictionary bugs.
+    /// [`compress_with_dict`] at every quality, also for the input on which
+    /// the Rust port failed with a dictionary (#642).
     #[test]
     fn incremental_dict_context_gives_the_one_shot_output_up_to_the_reach() {
         let fallback = crate::brotli::dict_fallback_input();
@@ -1899,10 +1597,9 @@ mod tests {
         }
     }
 
-    /// brotli 9.0.0's encoder fails on the start of this stream with the
-    /// dictionary, as it does on [`crate::brotli::dict_fallback_input`]:
-    /// past [`DICT_REACH`] bytes, the context compresses it without the
-    /// dictionary.
+    /// A stream that starts with [`crate::brotli::dict_fallback_input`], on
+    /// which the Rust port failed with the dictionary, and goes past
+    /// [`DICT_REACH`] bytes.
     #[test]
     fn incremental_dict_context_compresses_the_dict_fallback_input_past_the_reach() {
         let dict = crate::brotli::FALLBACK_DICT;
@@ -1913,35 +1610,22 @@ mod tests {
     }
 
     /// An empty dictionary stands for none, as for [`compress_with_dict`]:
-    /// past [`DICT_REACH`] bytes, the stream keeps brotli's built-in
-    /// dictionary, which makes English text smaller.
+    /// past [`DICT_REACH`] bytes, the stream is that of an encoder without
+    /// a dictionary, which decodes with an empty one too.
     #[test]
-    fn incremental_dict_context_keeps_the_built_in_dictionary_for_an_empty_one() {
+    fn incremental_dict_context_takes_an_empty_dictionary_for_none() {
         let quality = 5;
         let mut input = vec![0; DICT_REACH];
         input.extend(english(64 * KIB));
-        // What the context makes of `input` past the reach, with or without
-        // brotli's built-in dictionary.
-        let stream = |use_dictionary| {
-            let params = crate::brotli::encoder_params(quality, use_dictionary);
-            let mut encoder = super::StreamEncoder::new(&params);
-            let mut output = encoder.stream(FLUSH, &input[..DICT_REACH]).unwrap();
-            output.extend(encoder.stream(PROCESS, &input[DICT_REACH..]).unwrap());
-            output.extend(encoder.stream(FINISH, &[]).unwrap());
-            output
-        };
+        let mut encoder = super::StreamEncoder::new(quality, None, 0).unwrap();
+        let mut expected = encoder.run(FLUSH, &input[..DICT_REACH]).unwrap();
+        expected.extend(encoder.run(PROCESS, &input[DICT_REACH..]).unwrap());
+        expected.extend(encoder.run(FINISH, &[]).unwrap());
         let mut ctx = CompressDictContext::incremental(&[], Some(quality)).unwrap();
         let mut output = ctx.transform(&input[..DICT_REACH]).unwrap();
         output.extend(ctx.transform(&input[DICT_REACH..]).unwrap());
         output.extend(ctx.finish().unwrap());
-        assert!(output == stream(true));
-        let without = stream(false);
-        assert!(
-            output.len() < without.len(),
-            "{} bytes, {} without the built-in dictionary",
-            output.len(),
-            without.len()
-        );
+        assert!(output == expected);
         assert!(decompress(&output).unwrap() == input);
         let mut decoder = DecompressDictContext::new(&[], None).unwrap();
         let mut decoded = decoder.transform(&output).unwrap();
@@ -1951,12 +1635,13 @@ mod tests {
 
     /// 8 MiB and 64 KiB of a period of 1000 bytes of noise, with two bytes
     /// changed, the second `changed` bytes past the match below, on which
-    /// brotli 9.0.0's encoder with a dictionary panics at quality 2 if
-    /// `changed` is 4, and at quality 5 if it is 3. Its ring buffer holds
-    /// 8 MiB, and once the input wraps around it, the encoder still takes
-    /// the position that marks the end of the dictionary for one, and cuts
-    /// a match that starts on the byte before it to one byte, which it
-    /// cannot encode, as at the end of the dictionary itself (#623).
+    /// brotli 9.0.0, the Rust port that comprs used before libbrotli,
+    /// panicked with a dictionary at quality 2 if `changed` is 4, and at
+    /// quality 5 if it is 3. Its ring buffer held 8 MiB, and once the input
+    /// wrapped around it, the encoder still took the position that marked
+    /// the end of the dictionary for one, and cut a match that started on
+    /// the byte before it to one byte, which it could not encode (#623,
+    /// #703).
     fn ring_buffer_input(changed: usize) -> Vec<u8> {
         let period = noise_from(0x1234_5679, 1000);
         let mut input: Vec<_> = period
@@ -1974,9 +1659,8 @@ mod tests {
         input
     }
 
-    /// Past [`DICT_REACH`] bytes, the context compresses without the
-    /// dictionary, so the bug of brotli 9.0.0's encoder that
-    /// [`ring_buffer_input`] triggers cannot end the stream with an error.
+    /// Past [`DICT_REACH`] bytes, the context keeps the dictionary, on the
+    /// input on which the Rust port panicked with one.
     #[test]
     fn incremental_dict_context_streams_past_the_ring_buffer() {
         let dict = b"a dictionary of a few words";
@@ -1988,69 +1672,16 @@ mod tests {
         }
     }
 
-    /// One-shot dictionary compression keeps an input of more than
-    /// [`DICT_INPUT_LIMIT`] bytes, such as [`ring_buffer_input`], away from
-    /// the encoder with the dictionary, which would panic on it (#703): it
-    /// compresses the input with neither dictionary, so the output does not
-    /// depend on the dictionary and decodes the same with or without it.
-    ///
-    /// [`DICT_INPUT_LIMIT`]: crate::brotli::DICT_INPUT_LIMIT
+    /// One-shot dictionary compression keeps the dictionary on an input of
+    /// more than 8 MiB, such as [`ring_buffer_input`], on which the Rust
+    /// port panicked with one, so that comprs compressed it without (#703).
     #[test]
-    fn dict_compress_takes_long_inputs_without_dictionaries() {
+    fn dict_compress_keeps_the_dictionary_on_long_inputs() {
         let dict = b"a dictionary of a few words";
         for (changed, quality) in [(4, 2), (3, 5)] {
             let input = ring_buffer_input(changed);
-            let before = crate::brotli::dict_encodes();
             let output = compress_with_dict(&input, dict, Some(quality)).unwrap();
-            assert_eq!(crate::brotli::dict_encodes(), before, "quality {quality}");
-            let other = compress_with_dict(&input, b"another dictionary", Some(quality)).unwrap();
-            assert!(output == other, "quality {quality}");
             assert!(decompress_with_dict(&output, dict).unwrap() == input);
-            assert!(decompress(&output).unwrap() == input);
-        }
-    }
-
-    /// An input of up to [`DICT_INPUT_LIMIT`] bytes is compressed with the
-    /// dictionary, as before, and one byte more without it.
-    ///
-    /// [`DICT_INPUT_LIMIT`]: crate::brotli::DICT_INPUT_LIMIT
-    #[test]
-    fn dict_compress_keeps_the_dictionary_up_to_the_limit() {
-        let limit = crate::brotli::DICT_INPUT_LIMIT;
-        let dict = english_dict();
-        let input = english(limit + 1);
-        for (len, encodes) in [(limit, 1), (limit + 1, 0)] {
-            let before = crate::brotli::dict_encodes();
-            let output = compress_with_dict(&input[..len], &dict, Some(2)).unwrap();
-            assert_eq!(
-                crate::brotli::dict_encodes() - before,
-                encodes,
-                "{len} bytes"
-            );
-            assert!(decompress_with_dict(&output, &dict).unwrap() == input[..len]);
-        }
-    }
-
-    /// The canary of `incremental_dict_context_streams_past_the_ring_buffer`,
-    /// which tests nothing unless brotli's encoder panics on
-    /// [`ring_buffer_input`] with a dictionary: brotli 9.0.0's does, as the
-    /// stream encoder would if it kept the dictionary past [`DICT_REACH`]
-    /// bytes. Once a brotli release no longer panics here (#623), this test
-    /// fails: if the release fixes the bug, delete this test and reconsider
-    /// keeping the dictionary in the stream; otherwise, change
-    /// [`ring_buffer_input`] to trigger the bug again.
-    #[test]
-    fn brotli_encoder_still_panics_past_the_ring_buffer_with_a_dictionary() {
-        let dict = b"a dictionary of a few words";
-        for (changed, quality) in [(4, 2), (3, 5)] {
-            let input = ring_buffer_input(changed);
-            let params = crate::brotli::encoder_params(quality, true);
-            let mut encoder = super::StreamEncoder::new(&params);
-            encoder.state.set_custom_dictionary(dict.len(), dict);
-            let encoded = crate::panic_guard::catch(std::panic::AssertUnwindSafe(|| {
-                encoder.run(FINISH, &input)
-            }));
-            assert!(encoded.is_err(), "quality {quality}");
         }
     }
 
@@ -2060,12 +1691,13 @@ mod tests {
     fn incremental_dict_context_reports_an_encoder_error_again() {
         let mut ctx = CompressDictContext::incremental(b"dictionary", Some(1)).unwrap();
         assert!(!ctx.transform(&vec![0; DICT_REACH + 1]).unwrap().is_empty());
-        let error = ComprsError::Operation {
-            context: super::DICT_COMPRESS,
-            source: "an injected encoder error".into(),
-        };
-        let message = "brotli dict stream compress failed: an injected encoder error";
-        assert_eq!(ctx.settle(Err(error)).unwrap_err().to_string(), message);
+        let message = "brotli dict stream compress failed: brotli encoder failed";
+        assert_eq!(
+            ctx.settle(Err(comprs_brotli::Error::Encoder))
+                .unwrap_err()
+                .to_string(),
+            message
+        );
         assert_eq!(ctx.memory_usage(), 0);
         assert_eq!(ctx.transform(b"more").unwrap_err().to_string(), message);
         assert_eq!(ctx.flush().unwrap_err().to_string(), message);
@@ -2076,12 +1708,12 @@ mod tests {
         ));
     }
 
-    /// Makes the encoders of this thread panic on an operation, until it is
+    /// Makes the encoders of this thread fail on an operation, until it is
     /// dropped.
     struct Fault;
 
     impl Fault {
-        fn on(op: BrotliEncoderOperation) -> Self {
+        fn on(op: Operation) -> Self {
             super::FAULT.set(Some(op));
             Self
         }
@@ -2093,20 +1725,20 @@ mod tests {
         }
     }
 
-    /// A panic of the encoder, in any call that runs it, ends the stream
-    /// with an error: the context drops the encoder, and every later call
-    /// fails with the error until `finish`, which ends the stream.
+    /// An error of the encoder, in any call that runs it, ends the stream:
+    /// the context drops the encoder, and every later call fails with the
+    /// error until `finish`, which ends the stream.
     #[test]
-    fn incremental_dict_context_reports_an_encoder_panic() {
+    fn incremental_dict_context_reports_an_encoder_failure() {
         type Call = fn(&mut CompressDictContext, &[u8]) -> Result<Vec<u8>, ComprsError>;
         // The name of a case, the input that the context takes first, then
-        // the operation on which the encoder panics, in the call that runs
-        // it on the last bytes.
-        type Case<'a> = (&'a str, &'a [u8], BrotliEncoderOperation, Call, &'a [u8]);
+        // the operation on which the encoder fails, in the call that runs it
+        // on the last bytes.
+        type Case<'a> = (&'a str, &'a [u8], Operation, Call, &'a [u8]);
         let transform: Call = |ctx, chunk| ctx.transform(chunk);
         let flush: Call = |ctx, _| ctx.flush();
         let finish: Call = |ctx, _| ctx.finish();
-        let message = "brotli dict stream compress failed: the encoder panicked";
+        let message = "brotli dict stream compress failed: brotli encoder failed";
         let input = mixed(DICT_REACH + 64 * KIB);
         let (start, rest) = input.split_at(DICT_REACH + 1);
         let cases: [Case; 4] = [
@@ -2141,24 +1773,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn catch_encoder_panic_reports_a_panic_as_an_error() {
-        let panicked = super::catch_encoder_panic(|| -> std::io::Result<()> {
-            panic!("an injected encoder panic")
-        });
-        assert_eq!(
-            panicked.unwrap_err().to_string(),
-            "brotli dict stream compress failed: the encoder panicked"
-        );
-        let failed = super::catch_encoder_panic(|| -> std::io::Result<()> {
-            Err(std::io::Error::other("e"))
-        });
-        assert_eq!(
-            failed.unwrap_err().to_string(),
-            "brotli dict stream compress failed: e"
-        );
     }
 
     /// An incremental context holds at most the dictionary and
@@ -2253,139 +1867,5 @@ mod tests {
         }
         output.extend(ctx.finish().unwrap());
         assert!(decompress_with_dict(&output, &dict).unwrap() == input);
-    }
-
-    #[test]
-    fn recycled_ring_buffers_give_the_output_of_fresh_ones() {
-        // The encoder allocates all of its ring buffer on every call with a
-        // dictionary, and once the input outgrows one block without one.
-        let dict = prose(4096);
-        let message = prose(100);
-        let text = prose(super::RECYCLED_INPUT);
-        for quality in 0..=11 {
-            // Qualities 0 and 1 ignore a custom dictionary, and compress
-            // 256 KiB without the ring buffer.
-            let with_dict = quality >= 2;
-            compress_with_recycled_ring_buffer(
-                &format!("a message with a dictionary at quality {quality}"),
-                with_dict,
-                || compress_with_dict(&message, &dict, Some(quality)).unwrap(),
-            );
-            compress_with_recycled_ring_buffer(
-                &format!("20 KB with a dictionary at quality {quality}"),
-                with_dict,
-                || compress_with_dict(&text[..20_000], &dict, Some(quality)).unwrap(),
-            );
-            if quality < 10 {
-                let output = compress_with_recycled_ring_buffer(
-                    &format!("256 KiB at quality {quality}"),
-                    quality >= 2,
-                    || crate::brotli::compress(&text, Some(quality)).unwrap(),
-                );
-                assert_eq!(decompress(&output).unwrap(), text);
-            }
-        }
-    }
-
-    /// The encoders of large inputs and of streams allocate a fresh ring
-    /// buffer and free it, and leave the one that the thread keeps (#727).
-    #[test]
-    fn only_encoders_of_small_inputs_recycle_the_ring_buffer() {
-        let dict = prose(4096);
-        let text = prose(super::RECYCLED_INPUT + 1);
-        drop_kept_ring_buffer();
-        crate::brotli::compress(&text, Some(5)).unwrap();
-        compress_with_dict(&text[dict.len()..], &dict, Some(5)).unwrap();
-        let mut ctx = CompressContext::new(Some(5)).unwrap();
-        for chunk in text.chunks(64 * 1024) {
-            ctx.transform(chunk).unwrap();
-        }
-        ctx.finish().unwrap();
-        let mut encoder = super::StreamEncoder::new(&crate::brotli::encoder_params(5, true));
-        encoder
-            .stream(BrotliEncoderOperation::BROTLI_OPERATION_FINISH, &text)
-            .unwrap();
-        drop(encoder);
-        assert_eq!(kept_ring_buffer(), None);
-
-        // An encoder of a small input keeps its ring buffer, which the others
-        // neither take nor replace.
-        compress_with_dict(&text[..100], &dict, Some(5)).unwrap();
-        let kept = kept_ring_buffer().expect("the encoder kept its ring buffer");
-        crate::brotli::compress(&text, Some(5)).unwrap();
-        compress_with_dict(&text[dict.len()..], &dict, Some(5)).unwrap();
-        assert_eq!(kept_ring_buffer(), Some(kept));
-        // Inputs of up to RECYCLED_INPUT bytes, the dictionary included,
-        // recycle it.
-        compress_with_dict(&text[dict.len() + 1..], &dict, Some(5)).unwrap();
-        assert_eq!(kept_ring_buffer(), Some(kept));
-        drop_kept_ring_buffer();
-        compress_with_dict(&text[dict.len() + 1..], &dict, Some(5)).unwrap();
-        assert!(kept_ring_buffer().is_some());
-    }
-
-    #[test]
-    fn encoders_reuse_the_ring_buffer_of_their_thread() {
-        let dict = prose(4096);
-        let message = prose(100);
-        drop_kept_ring_buffer();
-        compress_with_dict(&message, &dict, Some(5)).unwrap();
-        let kept = kept_ring_buffer().expect("the encoder kept its ring buffer");
-        assert!(kept.0 > super::RECYCLED_BYTES);
-        // The next encoder takes it, and gives it back.
-        compress_with_dict(&message, &dict, Some(5)).unwrap();
-        assert_eq!(kept_ring_buffer(), Some(kept));
-        // Another thread keeps its own.
-        std::thread::spawn(move || {
-            assert_eq!(kept_ring_buffer(), None);
-            compress_with_dict(&message, &dict, Some(5)).unwrap();
-            assert!(kept_ring_buffer().is_some());
-        })
-        .join()
-        .unwrap();
-        assert_eq!(kept_ring_buffer(), Some(kept));
-    }
-
-    #[test]
-    fn only_encoders_recycle_and_only_their_ring_buffer() {
-        drop_kept_ring_buffer();
-        // A decoder's allocator, and an encoder's array of other elements,
-        // free their memory.
-        let mut decoder = CountingAlloc::default();
-        let bytes =
-            <CountingAlloc as Allocator<u8>>::alloc_cell(&mut decoder, super::RECYCLED_BYTES);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut decoder, bytes);
-        assert_eq!(kept_ring_buffer(), None);
-        let mut encoder = CountingAlloc::for_input(0);
-        let words =
-            <CountingAlloc as Allocator<u32>>::alloc_cell(&mut encoder, super::RECYCLED_BYTES);
-        <CountingAlloc as Allocator<u32>>::free_cell(&mut encoder, words);
-        assert_eq!(kept_ring_buffer(), None);
-        // An encoder's smaller array of bytes too.
-        let small = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, 4096);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, small);
-        assert_eq!(kept_ring_buffer(), None);
-        // An encoder's ring buffer is kept, and goes to a request of its size
-        // only, counted as allocated as a fresh one is.
-        let len = super::RECYCLED_BYTES + 9;
-        let ring = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, ring);
-        let kept = kept_ring_buffer().expect("the ring buffer is kept");
-        let other = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len + 1);
-        assert_eq!(kept_ring_buffer(), Some(kept));
-        let same = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut encoder, len);
-        assert_eq!(kept_ring_buffer(), None);
-        assert_eq!(same.slice().as_ptr() as usize, kept.1);
-        assert_eq!(encoder.allocated(), 2 * len + 1);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, other);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut encoder, same);
-        assert_eq!(encoder.allocated(), 0);
-        assert_eq!(kept_ring_buffer().map(|(kept_len, _)| kept_len), Some(len));
-        // The allocator of a larger input neither takes it nor keeps its own.
-        let mut large = CountingAlloc::for_input(super::RECYCLED_INPUT + 1);
-        let ring = <CountingAlloc as Allocator<u8>>::alloc_cell(&mut large, len);
-        assert_ne!(ring.slice().as_ptr() as usize, kept.1);
-        <CountingAlloc as Allocator<u8>>::free_cell(&mut large, ring);
-        assert_eq!(kept_ring_buffer(), Some((len, kept.1)));
     }
 }

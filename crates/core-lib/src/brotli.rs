@@ -1,8 +1,14 @@
-//! Brotli compression and decompression.
+//! Brotli compression and decompression, with libbrotli, Google's C brotli
+//! library, through comprs-brotli (#563).
 
-use std::io::Write;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::sync::Arc;
 
-use crate::brotli_stream::{CountingAlloc, End, compressor};
+use comprs_brotli::{Encoder, Operation, PreparedDictionary};
+
+use crate::brotli_stream::End;
+use crate::dictionary::Dictionary;
 use crate::{ComprsError, IntArg};
 
 /// Default compression quality for brotli.
@@ -21,34 +27,14 @@ pub const BUFFER_SIZE: usize = 4096;
 /// Default log2 of the sliding window size for brotli.
 pub const LG_WINDOW_SIZE: u32 = 22;
 
-/// Longest input, 8 MiB, that [`compress_with_dict`] compresses with a
-/// custom dictionary; it compresses a longer one with neither dictionary.
-///
-/// brotli 9.0.0's encoder puts a custom dictionary at the start of its ring
-/// buffer, which holds 2^([`LG_WINDOW_SIZE`] + 1) bytes at every quality
-/// (the blocks of the encoder, of at most 2^18 bytes, are smaller than its
-/// window), and cuts every match whose source crosses the end of the
-/// dictionary there (#623). It tells where a source starts by its position
-/// in the ring buffer, so once the input has wrapped around the buffer, it
-/// also cuts the matches whose source crosses that position on a later lap,
-/// and panics on a cut that leaves one byte, which it cannot encode (#703).
-/// The source of such a match runs past the first
-/// 2^([`LG_WINDOW_SIZE`] + 1) bytes of input, so an input of at most this
-/// many bytes has none. wasm32 aborts on the panic, so it cannot be caught
-/// there, and the native build would encode the input twice.
-pub const DICT_INPUT_LIMIT: usize = 1 << (LG_WINDOW_SIZE + 1);
-
 /// Reject a stream that uses the Large Window Brotli extension.
 ///
 /// Such a stream starts with the seven bits 0010001 (`0x11` in the low bits
 /// of the first byte), a window size code that RFC 7932 leaves invalid; the
-/// next byte then picks a window of up to 1 GiB. brotli-decompressor accepts
-/// these streams unless told otherwise, and allocates its ring buffer at the
-/// window size whatever the output limit: 12 bytes of input made it allocate
-/// 512 MiB. Every decoder state here turns `large_window` off; the one-shot
-/// functions also check the header up front, so that they report this
-/// error rather than "Invalid Data". RFC 7932 decoders, Node's zlib among
-/// them, reject the same streams.
+/// next byte then picks a window of up to 1 GiB. Every decoder here rejects
+/// these streams, as RFC 7932 decoders, Node's zlib among them, do; the
+/// one-shot functions and the decompression contexts check the header up
+/// front, so that they report this error rather than "Invalid Data".
 pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<(), ComprsError> {
     if data.first().is_some_and(|&byte| byte & 0x7f == 0x11) {
         return Err(ComprsError::Corrupt {
@@ -59,22 +45,119 @@ pub(crate) fn reject_large_window(data: &[u8], context: &'static str) -> Result<
     Ok(())
 }
 
-/// Compress data using Brotli.
+/// The error of an encoder, or of a decoder that ran out of memory, with
+/// `context`.
+pub(crate) fn operation_error(context: &'static str, error: comprs_brotli::Error) -> ComprsError {
+    ComprsError::Operation {
+        context,
+        source: error.into(),
+    }
+}
+
+/// The error of a decoder with `context`: [`ComprsError::Operation`] when it
+/// ran out of memory, and otherwise [`ComprsError::Corrupt`] with the
+/// message "Invalid Data", which the decoders of comprs have always given.
+pub(crate) fn decoder_error(context: &'static str, error: comprs_brotli::Error) -> ComprsError {
+    if error.is_out_of_memory() {
+        operation_error(context, error)
+    } else {
+        invalid_data(context)
+    }
+}
+
+/// [`ComprsError::Corrupt`] with `context` and the message "Invalid Data".
+pub(crate) fn invalid_data(context: &'static str) -> ComprsError {
+    ComprsError::Corrupt {
+        context,
+        source: std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid Data").into(),
+    }
+}
+
+/// An encoder at `quality`, with a window of 2^[`LG_WINDOW_SIZE`] bytes.
+pub(crate) fn encoder<'d>(quality: u32) -> Result<Encoder<'d>, comprs_brotli::Error> {
+    let mut encoder = Encoder::new()?;
+    encoder.set_quality(quality)?;
+    encoder.set_window(LG_WINDOW_SIZE)?;
+    Ok(encoder)
+}
+
+/// The most dictionaries that a thread keeps prepared for
+/// [`prepared_dictionary`].
+const PREPARED_DICTIONARIES: usize = 4;
+
+/// The longest dictionary, in bytes, that a thread keeps prepared. A
+/// prepared dictionary holds about 270 KB of tables, and 4 bytes more for
+/// each byte of the dictionary, so a thread keeps at most about 5 MB.
+const MAX_KEPT_DICTIONARY: usize = 256 * 1024;
+
+thread_local! {
+    /// The dictionaries that [`prepared_dictionary`] prepared last on this
+    /// thread, the most recently used first.
+    ///
+    /// libbrotli hashes a dictionary before an encoder can refer to it,
+    /// which took 0.3 ms for a dictionary of 4 KiB, 40 times as long as
+    /// compressing a 150-byte message with it, and 2 to 4 ms for 256 KiB.
+    /// A [`Dictionary`] keeps its own, prepared when it is created.
+    /// The one-shot functions take the dictionary's bytes on every call, so
+    /// the thread keeps the last few prepared, as it is likely to get the
+    /// same again. The memory that they hold is not reported to the
+    /// engine.
+    static PREPARED: RefCell<VecDeque<Arc<PreparedDictionary<'static>>>> =
+        const { RefCell::new(VecDeque::new()) };
+}
+
+/// `dict` prepared for the encoder: one that this thread prepared before,
+/// if it kept it, or a new one, which it keeps if `dict` is short enough.
 ///
-/// The encoder of a small input recycles its ring buffer (see
-/// `brotli_stream::RING_BUFFER`).
+/// libbrotli prepares a raw dictionary the same way for every quality.
+pub(crate) fn prepared_dictionary(
+    dict: &[u8],
+) -> Result<Arc<PreparedDictionary<'static>>, comprs_brotli::Error> {
+    let prepare = || PreparedDictionary::shared(Arc::from(dict), QUALITY.max).map(Arc::new);
+    if dict.len() > MAX_KEPT_DICTIONARY {
+        return prepare();
+    }
+    PREPARED.with_borrow_mut(|kept| {
+        if let Some(index) = kept.iter().position(|kept| kept.bytes() == dict) {
+            let prepared = kept.remove(index).unwrap_or_else(|| unreachable!());
+            kept.push_front(Arc::clone(&prepared));
+            return Ok(prepared);
+        }
+        let prepared = prepare()?;
+        kept.truncate(PREPARED_DICTIONARIES - 1);
+        kept.push_front(Arc::clone(&prepared));
+        Ok(prepared)
+    })
+}
+
+/// Compress all of `input` at `quality` into one stream, with the prepared
+/// custom dictionary `dict`, if any.
+///
+/// The encoder gets the size of the input as a hint, as libbrotli's own
+/// one-shot `BrotliEncoderCompress` gives it, and the output starts with
+/// room for as many bytes as the input.
+fn encode(
+    input: &[u8],
+    dict: Option<Arc<PreparedDictionary<'static>>>,
+    quality: u32,
+) -> Result<Vec<u8>, comprs_brotli::Error> {
+    let mut encoder = encoder(quality)?;
+    if let Some(dict) = dict {
+        encoder.attach_shared(dict)?;
+    }
+    encoder.set_size_hint(input.len())?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(input.len())
+        .map_err(|_| comprs_brotli::Error::OutOfMemory)?;
+    encoder.compress_all(Operation::Finish, input, &mut output)?;
+    Ok(crate::finish_output(output))
+}
+
+/// Compress data using Brotli.
 pub fn compress(data: &[u8], quality: Option<u32>) -> Result<Vec<u8>, ComprsError> {
     let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
-    let output = Vec::with_capacity(data.len());
-    let mut compressor = compressor(output, CountingAlloc::for_input(data.len()), quality);
-    compressor
-        .write_all(data)
-        .map_err(|e| ComprsError::Operation {
-            context: "brotli compress",
-            source: e.into(),
-        })?;
-    // into_inner flushes the compressor and ends the stream.
-    Ok(crate::finish_output(compressor.into_inner()))
+    encode(data, None, quality).map_err(|e| operation_error("brotli compress", e))
 }
 
 /// Decompress Brotli-compressed data.
@@ -92,20 +175,12 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
     crate::require_input(data, "brotli")?;
     reject_large_window(data, "brotli decompress")?;
-    crate::brotli_stream::decompress_all(
-        data,
-        Vec::new(),
-        capacity,
-        "brotli decompress",
-        End::Lenient,
-    )
+    crate::brotli_stream::decompress_all(data, &[], capacity, "brotli decompress", End::Lenient)
 }
 
-/// Compress data with a custom dictionary using the brotli crate's low-level API.
-///
-/// An input of more than [`DICT_INPUT_LIMIT`] bytes is compressed with
-/// neither the custom dictionary nor brotli's built-in one, into a stream
-/// that decodes the same with or without the dictionary.
+/// Compress data with a custom dictionary: a raw (LZ77 prefix) dictionary,
+/// which the stream refers to as data that precedes it. An empty `dict`
+/// stands for none.
 pub fn compress_with_dict(
     input: &[u8],
     dict: &[u8],
@@ -115,140 +190,47 @@ pub fn compress_with_dict(
     compress_with_dict_inner(input, dict, quality, "brotli compress with dict")
 }
 
-/// Low-level dictionary compression implementation.
+/// Compress `input` with a prepared brotli dictionary, into the output of
+/// [`compress_with_dict`] with its bytes. The dictionary was prepared when
+/// it was created, so the call does not hash it again, nor look it up among
+/// those that the thread keeps (#707).
 ///
-/// brotli 9.0.0's encoder mishandles matches that would cross the end of a
-/// custom dictionary: for some inputs it panics at qualities 2-9 and, at
-/// qualities 10 and 11, emits copies that span the dictionary/data boundary,
-/// which the decoder rejects. This function catches the panic (on targets
-/// that unwind; wasm32 aborts on panic), checks quality 10-11 output by
-/// decoding it, and in either case compresses the input again with neither
-/// the custom dictionary nor brotli's built-in one
-/// (`encode_without_dictionaries`). That stream decodes with or without the
-/// dictionary. The encoder runs under [`crate::panic_guard::catch`], so that
-/// a panic hook can leave out the panics recovered from here. An input of
-/// more than [`DICT_INPUT_LIMIT`] bytes, on which the encoder can panic in
-/// another way, goes to that fallback without the encoder ever taking the
-/// dictionary.
-///
-/// Takes a checked `quality`, and reports encoder errors with `context`.
+/// Fails with [`ComprsError::InvalidArg`] for a zstd dictionary ("this
+/// Dictionary is for zstd"), then for an invalid `quality`.
+pub fn compress_prepared(
+    input: &[u8],
+    dictionary: &Dictionary,
+    quality: Option<u32>,
+) -> Result<Vec<u8>, ComprsError> {
+    let dict = Arc::clone(dictionary.brotli_prepared()?);
+    let quality = QUALITY.check(quality.unwrap_or(DEFAULT_QUALITY))?;
+    encode(input, Some(dict), quality).map_err(|e| operation_error("brotli compress with dict", e))
+}
+
+/// [`compress_with_dict`] with a checked `quality`, reporting encoder errors
+/// with `context`.
 pub(crate) fn compress_with_dict_inner(
     input: &[u8],
     dict: &[u8],
     quality: u32,
     context: &'static str,
 ) -> Result<Vec<u8>, ComprsError> {
-    // The encoder turns the built-in dictionary off when given a custom one.
-    let params = encoder_params(quality, true);
-    let output = if dict.is_empty() {
-        encode(input, dict, &params)
-    } else if input.len() > DICT_INPUT_LIMIT {
-        encode_without_dictionaries(input, quality)
-    } else {
-        #[cfg(test)]
-        DICT_ENCODES.with(|count| count.set(count.get() + 1));
-        match crate::panic_guard::catch(|| encode(input, dict, &params)) {
-            Ok(Ok(output)) if quality < 10 || decodes_to(&output, dict, input) => Ok(output),
-            Ok(Err(e)) => Err(e),
-            Ok(Ok(_)) | Err(_) => encode_without_dictionaries(input, quality),
-        }
-    };
-    output.map_err(|e| ComprsError::Operation {
-        context,
-        source: e.into(),
-    })
+    let dict = (!dict.is_empty())
+        .then(|| prepared_dictionary(dict))
+        .transpose()
+        .map_err(|e| operation_error(context, e))?;
+    compress_with_prepared_inner(input, dict, quality, context)
 }
 
-#[cfg(test)]
-thread_local! {
-    /// How many times [`compress_with_dict_inner`] gave the encoder a custom
-    /// dictionary on this thread, for the tests.
-    static DICT_ENCODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// How many times [`compress_with_dict_inner`] gave the encoder a custom
-/// dictionary on this thread.
-#[cfg(test)]
-pub(crate) fn dict_encodes() -> usize {
-    DICT_ENCODES.with(std::cell::Cell::get)
-}
-
-/// Compress `input` with neither a custom dictionary nor brotli's built-in
-/// one: the fallback of [`compress_with_dict_inner`].
-///
-/// A decoder treats a custom dictionary as data that precedes the stream:
-/// the distances that reach past the decoded data in the window point into
-/// it, and only those past its end into the built-in dictionary. A stream
-/// encoded without a custom dictionary refers to the built-in one with the
-/// distances just past the decoded data, which a decoder given a custom
-/// dictionary reads as copies from that dictionary or as other words: it
-/// returns different bytes, often without an error. With the built-in
-/// dictionary off, the stream decodes the same with or without a custom
-/// dictionary. Text that the built-in dictionary covers compresses less
-/// without it, a cost that only the inputs that take the fallback pay: rare
-/// ones, and those of more than [`DICT_INPUT_LIMIT`] bytes.
-fn encode_without_dictionaries(
+/// Compress `input` with the prepared dictionary `dict`, if any, as
+/// [`compress_with_dict_inner`] does with its bytes.
+pub(crate) fn compress_with_prepared_inner(
     input: &[u8],
+    dict: Option<Arc<PreparedDictionary<'static>>>,
     quality: u32,
-) -> std::result::Result<Vec<u8>, std::io::Error> {
-    encode(input, &[], &encoder_params(quality, false))
-}
-
-/// Whether `compressed` decodes with `dict` to exactly `expected`.
-fn decodes_to(compressed: &[u8], dict: &[u8], expected: &[u8]) -> bool {
-    decompress_with_dict_with_capacity(compressed, dict, expected.len())
-        .is_ok_and(|output| output == expected)
-}
-
-/// The parameters of the low-level encoder: `quality`, a window of
-/// 2^[`LG_WINDOW_SIZE`] bytes and, if `use_dictionary`, brotli's built-in
-/// dictionary.
-pub(crate) fn encoder_params(
-    quality: u32,
-    use_dictionary: bool,
-) -> brotli::enc::BrotliEncoderParams {
-    brotli::enc::BrotliEncoderParams {
-        quality: quality as i32,
-        lgwin: LG_WINDOW_SIZE as i32,
-        use_dictionary,
-        ..Default::default()
-    }
-}
-
-/// Run the brotli encoder; an empty `dict` means no custom dictionary.
-fn encode(
-    input: &[u8],
-    dict: &[u8],
-    params: &brotli::enc::BrotliEncoderParams,
-) -> std::result::Result<Vec<u8>, std::io::Error> {
-    use std::io::Cursor;
-
-    let mut r = Cursor::new(input);
-    let mut output = Vec::with_capacity(input.len());
-    let mut input_buffer = [0u8; BUFFER_SIZE];
-    let mut output_buffer = [0u8; BUFFER_SIZE];
-    // With a custom dictionary, the encoder allocates all of its ring
-    // buffer on every call, which the allocator recycles for a small input
-    // (see `brotli_stream::RING_BUFFER`).
-    let alloc = CountingAlloc::for_input(dict.len() + input.len());
-    let mut nop =
-        |_: &mut brotli::interface::PredictionModeContextMap<brotli::InputReferenceMut>,
-         _: &mut [brotli::interface::StaticCommand],
-         _: brotli::InputPair,
-         _: &mut CountingAlloc| {};
-
-    brotli::BrotliCompressCustomIoCustomDict(
-        &mut brotli::IoReaderWrapper(&mut r),
-        &mut brotli::IoWriterWrapper(&mut output),
-        &mut input_buffer[..],
-        &mut output_buffer[..],
-        params,
-        alloc,
-        &mut nop,
-        dict,
-        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected eof"),
-    )?;
-    Ok(crate::finish_output(output))
+    context: &'static str,
+) -> Result<Vec<u8>, ComprsError> {
+    encode(input, dict, quality).map_err(|e| operation_error(context, e))
 }
 
 /// Decompress Brotli-compressed data that was compressed with a custom dictionary.
@@ -271,7 +253,7 @@ pub fn decompress_with_dict_with_capacity(
     reject_large_window(data, "brotli decompress with dict")?;
     crate::brotli_stream::decompress_all(
         data,
-        dict.to_vec(),
+        dict,
         capacity,
         "brotli decompress with dict",
         End::Lenient,
@@ -307,7 +289,7 @@ pub fn decompress_strict(
     };
     crate::require_input(data, "brotli")?;
     reject_large_window(data, context)?;
-    crate::brotli_stream::decompress_all(data, dict.to_vec(), max_output, context, End::Strict)
+    crate::brotli_stream::decompress_all(data, dict, max_output, context, End::Strict)
 }
 
 /// `data` compressed as a Large Window Brotli stream with a window of
@@ -337,8 +319,9 @@ pub(crate) const TEXT: &[u8] =
 #[cfg(test)]
 pub(crate) const FALLBACK_DICT: [u8; 2] = [254, 255];
 
-/// An input that brotli 9.0.0 fails to encode with [`FALLBACK_DICT`] at
-/// qualities 5-11, so that [`compress_with_dict_inner`] takes its fallback,
+/// An input that brotli 9.0.0, the Rust port of brotli that comprs used
+/// before libbrotli, failed to encode with [`FALLBACK_DICT`] at qualities
+/// 5-11, so that comprs compressed it again without the dictionary (#642),
 /// for the tests: the input from the PR #615 fuzz targets, then [`TEXT`] 20
 /// times.
 #[cfg(test)]
@@ -352,7 +335,7 @@ pub(crate) fn dict_fallback_input() -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::Read;
 
     use super::*;
 
@@ -417,12 +400,13 @@ mod tests {
     fn decompress_accepts_every_rfc_window_size() {
         let original = b"window sizes ".repeat(50);
         for lgwin in 10..=24 {
+            let mut encoder = comprs_brotli::Encoder::new().unwrap();
+            encoder.set_quality(5).unwrap();
+            encoder.set_window(lgwin).unwrap();
             let mut compressed = Vec::new();
-            {
-                let mut compressor =
-                    brotli::CompressorWriter::new(&mut compressed, BUFFER_SIZE, 5, lgwin);
-                compressor.write_all(&original).unwrap();
-            }
+            encoder
+                .compress_all(Operation::Finish, &original, &mut compressed)
+                .unwrap();
             assert_eq!(decompress(&compressed).unwrap(), original, "lgwin {lgwin}");
         }
     }
@@ -720,58 +704,85 @@ mod tests {
         }
     }
 
-    /// The fallback stream must not use brotli's built-in dictionary: a
-    /// decoder given the custom dictionary reads its references as copies
-    /// from the custom dictionary, and returns different bytes (#642).
+    /// The input on which the Rust port failed with a dictionary (#642)
+    /// round-trips at every quality, and refers to the dictionary.
     #[test]
-    fn dict_compress_fallback_decodes_with_the_dictionary() {
+    fn dict_compress_round_trips_the_input_that_the_rust_port_failed_on() {
         let data = dict_fallback_input();
         for quality in 0..=11 {
             let compressed = compress_with_dict(&data, &FALLBACK_DICT, Some(quality)).unwrap();
             let decompressed = decompress_with_dict(&compressed, &FALLBACK_DICT).unwrap();
             assert!(decompressed == data, "quality {quality}");
-            if quality >= 5 {
-                // The output of the fallback, which needs no dictionary.
-                assert!(
-                    decompress(&compressed).unwrap() == data,
-                    "quality {quality}"
-                );
-            }
         }
     }
 
-    /// The fallback's output decodes with any custom dictionary, also for
-    /// text that the built-in dictionary would encode.
+    /// The dictionary serves an input of any length: brotli 9.0.0 could
+    /// panic on one of more than 8 MiB (#703), which comprs compressed
+    /// without the dictionary.
     #[test]
-    fn dict_fallback_decodes_with_any_dictionary() {
-        let text_dict: Vec<u8> = b"lorem ipsum dolor sit amet "
-            .iter()
-            .copied()
-            .cycle()
-            .take(2048)
+    fn dict_compress_uses_the_dictionary_on_long_inputs() {
+        let dict = b"long inputs with a dictionary ".repeat(70);
+        let data = [&dict[..], &TEXT.repeat(80_000)].concat();
+        assert!(data.len() > 8 << 20);
+        let compressed = compress_with_dict(&data, &dict, Some(5)).unwrap();
+        assert!(decompress_with_dict(&compressed, &dict).unwrap() == data);
+        assert!(decompress(&compressed).ok().as_deref() != Some(&data[..]));
+    }
+
+    #[test]
+    fn a_thread_keeps_the_dictionaries_that_it_prepared_last() {
+        let dicts: Vec<Vec<u8>> = (0..=PREPARED_DICTIONARIES)
+            .map(|i| format!("dictionary {i} ").repeat(50).into_bytes())
             .collect();
-        for quality in 0..=11 {
-            let compressed = encode_without_dictionaries(TEXT, quality).unwrap();
-            assert_eq!(decompress(&compressed).unwrap(), TEXT, "quality {quality}");
-            // Encoded with the built-in dictionary, the text decodes to other
-            // bytes, or not at all, with a custom dictionary.
-            let with_built_in = encode(TEXT, &[], &encoder_params(quality, true)).unwrap();
-            for dict in [&FALLBACK_DICT[..], &text_dict] {
-                let context = format!("quality {quality}, {}-byte dictionary", dict.len());
-                assert_eq!(
-                    decompress_with_dict(&compressed, dict).unwrap(),
-                    TEXT,
-                    "{context}"
-                );
-                if quality >= 4 {
-                    assert_ne!(
-                        decompress_with_dict(&with_built_in, dict).ok().as_deref(),
-                        Some(TEXT),
-                        "{context}"
-                    );
-                }
-            }
+        let first = prepared_dictionary(&dicts[0]).unwrap();
+        assert!(Arc::ptr_eq(
+            &first,
+            &prepared_dictionary(&dicts[0]).unwrap()
+        ));
+        assert!(first.bytes() == dicts[0]);
+        // A copy of the bytes finds it too.
+        assert!(Arc::ptr_eq(
+            &first,
+            &prepared_dictionary(&dicts[0].clone()).unwrap()
+        ));
+        for dict in &dicts[1..PREPARED_DICTIONARIES] {
+            prepared_dictionary(dict).unwrap();
         }
+        // Using it keeps it at the front: the next one pushes out the least
+        // recently used, the second.
+        assert!(Arc::ptr_eq(
+            &first,
+            &prepared_dictionary(&dicts[0]).unwrap()
+        ));
+        let second = PREPARED.with_borrow(|kept| Arc::clone(&kept[PREPARED_DICTIONARIES - 1]));
+        assert!(second.bytes() == dicts[1]);
+        prepared_dictionary(&dicts[PREPARED_DICTIONARIES]).unwrap();
+        assert!(!Arc::ptr_eq(
+            &second,
+            &prepared_dictionary(&dicts[1]).unwrap()
+        ));
+        assert!(PREPARED.with_borrow(VecDeque::len) == PREPARED_DICTIONARIES);
+        // Another thread keeps its own.
+        let dict = dicts[0].clone();
+        std::thread::spawn(move || {
+            assert!(PREPARED.with_borrow(VecDeque::is_empty));
+            prepared_dictionary(&dict).unwrap();
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn a_thread_does_not_keep_long_dictionaries() {
+        let dict = vec![7; MAX_KEPT_DICTIONARY + 1];
+        let prepared = prepared_dictionary(&dict).unwrap();
+        assert!(!Arc::ptr_eq(
+            &prepared,
+            &prepared_dictionary(&dict).unwrap()
+        ));
+        assert!(
+            PREPARED.with_borrow(|kept| kept.iter().all(|kept| kept.bytes().len() < dict.len()))
+        );
     }
 
     #[test]

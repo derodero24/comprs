@@ -1,0 +1,15 @@
+{
+  // The declarations of the published package, which TypeDoc reads for the
+  // API reference. @types/node resolves from the repository root.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2023", "dom"],
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "files": ["../index.d.ts", "../streams.d.ts", "../node.d.ts", "../next/index.d.ts"]
+}

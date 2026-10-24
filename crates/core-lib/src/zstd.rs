@@ -2,6 +2,9 @@
 
 use std::cell::RefCell;
 
+/// The memory that the `*_into` functions decode into, such as
+/// [`decompress_into`]: zstd-safe's trait for output buffers.
+pub use zstd::zstd_safe::WriteBuf;
 use zstd::zstd_safe::{self, CCtx, CParameter, DCtx, ResetDirective};
 
 use crate::dictionary::Dictionary;
@@ -129,7 +132,7 @@ pub fn compress_with_workers(
 /// The input may hold several frames, including skippable ones. The output
 /// is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    decompress_with_limit(data, &[], crate::MAX_DECOMPRESSED_SIZE, "zstd decompress")
+    decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress Zstandard-compressed data with explicit capacity.
@@ -142,7 +145,10 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 /// size, without a window, and other input, such as a frame without a
 /// content size, with the streaming decoder, which allocates the window.
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
-    decompress_with_limit(data, &[], capacity, "zstd decompress")
+    decompress_into(data, capacity, |size| {
+        output_buffer(size, "zstd decompress")
+    })
+    .map(Decoded::into_vec)
 }
 
 /// Train a zstd dictionary from sample data.
@@ -275,12 +281,7 @@ fn output_buffer(capacity: usize, context: &'static str) -> Result<Vec<u8>, Comp
 ///
 /// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes.
 pub fn decompress_with_dict(data: &[u8], dict: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    decompress_with_limit(
-        data,
-        dict,
-        crate::MAX_DECOMPRESSED_SIZE,
-        "zstd decompress with dict",
-    )
+    decompress_with_dict_with_capacity(data, dict, crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress Zstandard-compressed data with a dictionary and explicit capacity.
@@ -292,21 +293,76 @@ pub fn decompress_with_dict_with_capacity(
     dict: &[u8],
     capacity: usize,
 ) -> Result<Vec<u8>, ComprsError> {
-    decompress_with_limit(data, dict, capacity, "zstd decompress with dict")
+    decompress_with_dict_into(data, dict, capacity, |size| {
+        output_buffer(size, "zstd decompress with dict")
+    })
+    .map(Decoded::into_vec)
+}
+
+/// The output of the `*_into` functions, such as [`decompress_into`].
+#[derive(Debug)]
+pub enum Decoded<B> {
+    /// The output of frames that declare their content sizes, in the memory
+    /// that `allocate` returned for their total.
+    Allocated(B),
+    /// The output of other input, which the streaming decoder grew.
+    Grown(Vec<u8>),
+}
+
+impl Decoded<Vec<u8>> {
+    /// The output, whichever way it was decoded.
+    fn into_vec(self) -> Vec<u8> {
+        match self {
+            Self::Allocated(output) | Self::Grown(output) => crate::finish_output(output),
+        }
+    }
+}
+
+/// [`decompress_with_capacity`], decoding the output of frames that declare
+/// their content sizes into `allocate(size)` instead of a `Vec`, where
+/// `size` is their total.
+///
+/// `allocate` is called at most once, and only when every frame declares its
+/// content size and the total is no larger than `capacity` and than the
+/// input could expand to, so forged headers cannot make it allocate more
+/// than valid input of the same length could fill. It must return memory
+/// with room for at least `size` bytes; zstd fails with
+/// [`ComprsError::Corrupt`] if the frames do not decode to exactly their
+/// declared sizes, so that on success the first `size` bytes are written.
+/// An error from `allocate` is returned as it is.
+pub fn decompress_into<B: WriteBuf>(
+    data: &[u8],
+    capacity: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    decompress_with_limit(data, &[], capacity, "zstd decompress", allocate)
+}
+
+/// [`decompress_with_dict_with_capacity`], decoding the output of frames
+/// that declare their content sizes into `allocate(size)`, as
+/// [`decompress_into`] does.
+pub fn decompress_with_dict_into<B: WriteBuf>(
+    data: &[u8],
+    dict: &[u8],
+    capacity: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    decompress_with_limit(data, dict, capacity, "zstd decompress with dict", allocate)
 }
 
 /// Decompress `data` with `dict` (empty for none) into at most `limit` bytes.
 ///
 /// When [`declared_output_size`] knows the exact output size, the frames are
-/// decoded straight into a buffer of that size. Otherwise the streaming
-/// decoder grows the output as it decodes, so frames without a content size
-/// never reserve `limit` bytes up front.
-fn decompress_with_limit(
+/// decoded straight into `allocate(size)`. Otherwise the streaming decoder
+/// grows the output as it decodes, so frames without a content size never
+/// reserve `limit` bytes up front.
+fn decompress_with_limit<B: WriteBuf>(
     data: &[u8],
     dict: &[u8],
     limit: usize,
     context: &'static str,
-) -> Result<Vec<u8>, ComprsError> {
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
     crate::require_input(data, "zstd")?;
 
     let Some(size) = declared_output_size(data, limit, context)? else {
@@ -315,15 +371,15 @@ fn decompress_with_limit(
         return with_dctx(dict, limit, |dctx| {
             crate::zstd_stream::decompress_all(dctx, data, limit, data.len(), context)
         })
-        .map(crate::finish_output);
+        .map(Decoded::Grown);
     };
 
-    let mut output = output_buffer(size, context)?;
+    let mut output = allocate(size)?;
     with_dctx(dict, limit, |dctx| {
         dctx.decompress(&mut output, data)
             .map_err(|code| decode_error(code, context))
     })?;
-    Ok(crate::finish_output(output))
+    Ok(Decoded::Allocated(output))
 }
 
 /// Compress data using Zstandard with a prepared [`Dictionary`] on
@@ -419,6 +475,20 @@ pub fn decompress_prepared(
     dict: &Dictionary,
     limit: usize,
 ) -> Result<Vec<u8>, ComprsError> {
+    decompress_prepared_into(data, dict, limit, |size| {
+        output_buffer(size, "zstd decompress with dict")
+    })
+    .map(Decoded::into_vec)
+}
+
+/// [`decompress_prepared`], decoding the output of frames that declare their
+/// content sizes into `allocate(size)`, as [`decompress_into`] does.
+pub fn decompress_prepared_into<B: WriteBuf>(
+    data: &[u8],
+    dict: &Dictionary,
+    limit: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
     const CONTEXT: &str = "zstd decompress with dict";
     let ddict = dict.zstd_ddict()?;
     crate::require_input(data, "zstd")?;
@@ -435,15 +505,15 @@ pub fn decompress_prepared(
                 source: zstd_error(code),
             })?;
         return crate::zstd_stream::decompress_all(&mut dctx, data, limit, data.len(), CONTEXT)
-            .map(crate::finish_output);
+            .map(Decoded::Grown);
     };
 
-    let mut output = output_buffer(size, CONTEXT)?;
+    let mut output = allocate(size)?;
     with_dctx(&[], limit, |dctx| {
         dctx.decompress_using_ddict(&mut output, data, ddict)
             .map_err(|code| decode_error(code, CONTEXT))
     })?;
-    Ok(crate::finish_output(output))
+    Ok(Decoded::Allocated(output))
 }
 
 /// Largest context, in bytes, that a thread keeps for its next one-shot
@@ -644,6 +714,84 @@ mod tests {
         frame
     }
 
+    /// The output of `decoded`, which must have been decoded into the
+    /// memory of `allocate`.
+    fn allocated(decoded: Decoded<Vec<u8>>) -> Vec<u8> {
+        match decoded {
+            Decoded::Allocated(output) => output,
+            Decoded::Grown(_) => panic!("expected the allocated output"),
+        }
+    }
+
+    #[test]
+    fn decompress_into_decodes_declared_sizes_into_the_allocated_memory() {
+        let original = text(100_000);
+        let frame = compress(&original, None).unwrap();
+        let frame_with_dict = compress_with_dict(&original, DICT, None).unwrap();
+        let dict = Dictionary::new(DICT, crate::dictionary::DictionaryFormat::Zstd, None).unwrap();
+        let input = [&frame[..], &skippable_frame(b"metadata"), &frame[..]].concat();
+        let mut sizes = Vec::new();
+        let mut allocate = |size| {
+            sizes.push(size);
+            output_buffer(size, "test")
+        };
+        assert_eq!(
+            allocated(decompress_into(&input, 1 << 20, &mut allocate).unwrap()),
+            [&original[..], &original[..]].concat(),
+        );
+        assert_eq!(
+            allocated(
+                decompress_with_dict_into(&frame_with_dict, DICT, 1 << 20, &mut allocate).unwrap()
+            ),
+            original,
+        );
+        assert_eq!(
+            allocated(
+                decompress_prepared_into(&frame_with_dict, &dict, 1 << 20, &mut allocate).unwrap()
+            ),
+            original,
+        );
+        assert_eq!(sizes, [2 * original.len(), original.len(), original.len()]);
+    }
+
+    #[test]
+    fn decompress_into_grows_the_output_of_frames_without_a_content_size() {
+        let original = text(100_000);
+        let frame = compress_without_content_size(&original);
+        let frame_with_dict = compress_with_dict_without_content_size(&original);
+        let dict = Dictionary::new(DICT, crate::dictionary::DictionaryFormat::Zstd, None).unwrap();
+        let allocate = |_| -> Result<Vec<u8>, ComprsError> { panic!("allocated") };
+        for decoded in [
+            decompress_into(&frame, 1 << 20, allocate),
+            decompress_with_dict_into(&frame_with_dict, DICT, 1 << 20, allocate),
+            decompress_prepared_into(&frame_with_dict, &dict, 1 << 20, allocate),
+        ] {
+            match decoded.unwrap() {
+                Decoded::Grown(output) => assert_eq!(output, original),
+                Decoded::Allocated(_) => panic!("expected the grown output"),
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_into_returns_the_error_of_allocate() {
+        let frame = compress(&text(1000), None).unwrap();
+        let result = decompress_into(&frame, 1 << 20, |_| -> Result<Vec<u8>, _> {
+            Err(ComprsError::InvalidArg("no memory".to_string()))
+        });
+        assert!(matches!(result, Err(ComprsError::InvalidArg(message)) if message == "no memory"));
+    }
+
+    #[test]
+    fn decompress_into_fails_for_frames_that_hold_less_than_they_declare() {
+        let frame = frame_declaring(6, b"hello");
+        let result = decompress_into(&frame, 1 << 20, |size| output_buffer(size, "test"));
+        assert!(
+            matches!(result, Err(ComprsError::Corrupt { .. })),
+            "{result:?}"
+        );
+    }
+
     #[test]
     fn declared_output_size_sums_declared_sizes_of_complete_frames() {
         let a = compress(&text(1000), None).unwrap();
@@ -719,6 +867,8 @@ mod tests {
         }
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_sizes_output_from_the_data_without_a_content_size() {
         let small = compress_without_content_size(b"hello");
@@ -815,6 +965,8 @@ mod tests {
         ));
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_accepts_concatenated_frames() {
         let (a, b) = (vec![b'a'; 4096], vec![b'b'; 4096]);
@@ -1057,6 +1209,8 @@ mod tests {
         frame
     }
 
+    // Checks crate::detect, which only builds with every format have.
+    #[cfg(all_formats)]
     #[test]
     fn decompress_bounds_the_window_by_the_capacity() {
         use crate::dictionary::DictionaryFormat;

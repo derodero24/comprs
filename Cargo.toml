@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/core-lib", "crates/wasm", "crates/bench"]
+members = ["crates/core", "crates/core-lib", "crates/brotli-c", "crates/wasm", "crates/bench"]
 resolver = "3"
 
 [workspace.package]
@@ -32,6 +32,9 @@ twox-hash = { version = "2.1.3", default-features = false, features = ["xxhash32
 
 # Error handling
 thiserror = "2"
+
+# The allocator of the musl builds (see crates/core/src/lib.rs)
+mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"] }
 
 [profile.release]
 codegen-units = 1

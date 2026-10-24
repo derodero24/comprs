@@ -4,7 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
-use crate::convert::sync_result;
+use crate::convert::{sync_decoded, sync_result};
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -82,7 +82,13 @@ pub fn zstd_decompress_async(
 /// `zstdDecompressWithCapacity` for larger data.
 #[napi]
 pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    sync_result(&env, comprs_core::zstd::decompress(crate::as_bytes(&data)))
+    sync_decoded(&env, |allocate| {
+        comprs_core::zstd::decompress_into(
+            crate::as_bytes(&data),
+            comprs_core::MAX_DECOMPRESSED_SIZE,
+            allocate,
+        )
+    })
 }
 
 /// Decompress Zstandard-compressed data with explicit capacity.
@@ -95,6 +101,10 @@ pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
 /// output: to `capacity` rounded up to a power of two, at least 8 MiB and at
 /// most zstd's default of 128 MiB, so a frame that declares a larger window
 /// throws an error instead.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_capacity(
     env: Env,
@@ -102,10 +112,9 @@ pub fn zstd_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    sync_result(
-        &env,
-        comprs_core::zstd::decompress_with_capacity(crate::as_bytes(&data), cap),
-    )
+    sync_decoded(&env, |allocate| {
+        comprs_core::zstd::decompress_into(crate::as_bytes(&data), cap, allocate)
+    })
 }
 
 /// Train a zstd dictionary from sample data.
@@ -142,6 +151,10 @@ pub fn zstd_train_dictionary(
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
 /// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
 /// 3.
+///
+/// @deprecated Use `compressSync(data, { format: 'zstd', dictionary: dict, level })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_compress_with_dict(
     env: Env,
@@ -165,16 +178,24 @@ pub fn zstd_compress_with_dict(
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
 ///
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_dict(
     env: Env,
     data: Either<Buffer, Uint8Array>,
     dict: Either<Buffer, Uint8Array>,
 ) -> Result<Buffer> {
-    sync_result(
-        &env,
-        comprs_core::zstd::decompress_with_dict(crate::as_bytes(&data), crate::as_bytes(&dict)),
-    )
+    sync_decoded(&env, |allocate| {
+        comprs_core::zstd::decompress_with_dict_into(
+            crate::as_bytes(&data),
+            crate::as_bytes(&dict),
+            comprs_core::MAX_DECOMPRESSED_SIZE,
+            allocate,
+        )
+    })
 }
 
 /// Decompress Zstandard-compressed data that was compressed with a dictionary,
@@ -189,6 +210,10 @@ pub fn zstd_decompress_with_dict(
 /// most zstd's default of 128 MiB, so a frame that declares a larger window
 /// throws an error instead.
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity(
     env: Env,
@@ -197,14 +222,14 @@ pub fn zstd_decompress_with_dict_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    sync_result(
-        &env,
-        comprs_core::zstd::decompress_with_dict_with_capacity(
+    sync_decoded(&env, |allocate| {
+        comprs_core::zstd::decompress_with_dict_into(
             crate::as_bytes(&data),
             crate::as_bytes(&dict),
             cap,
-        ),
-    )
+            allocate,
+        )
+    })
 }
 
 /// Asynchronously decompress Zstandard-compressed data with explicit capacity.
@@ -217,6 +242,10 @@ pub fn zstd_decompress_with_dict_with_capacity(
 /// output: to `capacity` rounded up to a power of two, at least 8 MiB and at
 /// most zstd's default of 128 MiB, so for a frame that declares a larger
 /// window the promise rejects with an error instead.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -240,6 +269,10 @@ pub fn zstd_decompress_with_capacity_async(
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
 /// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
 /// 3.
+///
+/// @deprecated Use `await compress(data, { format: 'zstd', dictionary: dict, level })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null",
     ts_return_type = "Promise<Buffer>"
@@ -266,6 +299,10 @@ pub fn zstd_compress_with_dict_async(
 /// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary.
 ///
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"
@@ -328,6 +365,10 @@ pub fn zstd_train_dictionary_async(
 /// most zstd's default of 128 MiB, so for a frame that declares a larger
 /// window the promise rejects with an error instead.
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array`. See
+/// [Deprecated functions](https://derodero24.github.io/comprs/reference/classic-api/#deprecated-functions).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

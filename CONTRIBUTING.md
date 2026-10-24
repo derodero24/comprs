@@ -5,7 +5,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) ≥ 1.88 (CI lints and tests with the latest stable)
-- A C compiler, for the zstd C sources (Clang for the WebAssembly build)
+- A C compiler, for the zstd and libbrotli C sources (Clang for the WebAssembly build)
 - [Node.js](https://nodejs.org/) 22 (≥ 22.20), 24 (≥ 24.12) or 26 (`engineStrict` in `pnpm-workspace.yaml` makes `pnpm install` fail on a version that a dependency's `engines` field excludes)
 - [pnpm](https://pnpm.io/) 12 (`packageManager` in `package.json` sets the exact version)
 - [Git](https://git-scm.com/)
@@ -38,6 +38,7 @@ comprs/
 ├── crates/
 │   ├── core-lib/    ← Pure Rust compression logic (no FFI dependencies)
 │   │   └── fuzz/    ← cargo-fuzz targets for core-lib
+│   ├── brotli-c/    ← libbrotli, vendored in brotli/, with the safe interface that comprs uses (see Vendored libbrotli)
 │   ├── core/        ← napi-rs bindings for Node.js (zstd, gzip, brotli, lz4)
 │   ├── wasm/        ← wasm-bindgen bindings for browsers
 │   └── bench/       ← Rust benchmarks (Criterion)
@@ -48,11 +49,11 @@ comprs/
 ├── npm/             ← Platform-specific binary packages
 ├── packages/
 │   └── middleware/  ← HTTP compression middleware (@derodero24/comprs-middleware)
-├── playground/      ← Interactive playground (GitHub Pages)
+├── website/         ← Documentation site and playground (Astro Starlight, GitHub Pages)
 ├── scripts/         ← Build, packaging, optimization and benchmark report scripts
 ├── .changeset/      ← Changesets of the next release (see Changesets)
 └── .github/
-    └── workflows/   ← CI, Build, Release, Fuzz, CodSpeed, CodeQL, Renovate, Playground, Bench Report
+    └── workflows/   ← CI, Build, Release, Fuzz, CodSpeed, CodeQL, Renovate, Website, Bench Report
 ```
 
 ### JavaScript sources
@@ -69,6 +70,21 @@ The stream helpers, the ES module entry and the unified API are written in TypeS
 | `src/next/` | `next/` and `browser/next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)). `api.ts` holds the functions and the stream classes and checks the types of their arguments, `abort.ts` handles the `signal` option of the async functions, and `backend.ts` holds the `Backend` interface, which the backend of each build implements. In `next/`, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) the backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries for Node.js. In `browser/next/`, `wasm.ts` makes the functions of the WebAssembly build (`crates/wasm/src/next.rs`), which `browser/wasm.js` loads, the backend, and `browser.ts` is the entry for browsers |
 
 The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json`, `tsconfig.browser.json` and `tsconfig.next-browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Each project lists its entries in `files`, and compiles the modules that they import as well. Editors check the sources with `src/tsconfig.json`, `src/browser/tsconfig.json` and `src/next/tsconfig.json`, which take the options and files of those three projects. The projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and `browser/wasm.js`, which loads the WebAssembly module for the entry and for `browser/next/`, are written by hand, as are their declarations.
+
+### Vendored libbrotli
+
+`crates/brotli-c/brotli` holds the C sources of [libbrotli](https://github.com/google/brotli), Google's brotli library, as released: the `.c` and `.h` files of `c/common`, `c/dec`, `c/enc` and `c/include`, and its `LICENSE` (MIT). `crates/brotli-c` builds them with `cc` and wraps the part that comprs uses: the streaming encoder and decoder, and raw dictionaries. All the unsafe code that calls libbrotli is in that crate; comprs-core forbids unsafe code (#563).
+
+Never edit the vendored files. `BROTLI_VERSION` in `scripts/vendor-brotli.mjs` names the release, and the script vendors it:
+
+```bash
+node scripts/vendor-brotli.mjs          # replace crates/brotli-c/brotli with BROTLI_VERSION
+node scripts/vendor-brotli.mjs --check  # what the Rust Lint job runs
+```
+
+Renovate updates `BROTLI_VERSION` in a pull request of its own. The Rust Lint job fails on it until the script has been run on that branch and its changes committed.
+
+`wasm32-unknown-unknown` has no C library, so for that target `crates/brotli-c/wasm-shim` supplies the few headers that libbrotli includes. Rust provides the functions behind them: `malloc` and `free` come from `src/alloc.rs`, and Rust's compiler-builtins supplies `memcpy`, `log2` and the rest. If a new libbrotli release includes another libc header, the WebAssembly build fails until the shim covers it. The Rust MSRV job checks that build.
 
 ## Workflow
 
@@ -101,17 +117,20 @@ pnpm test             # Vitest tests
 cargo test            # Rust tests
 cargo test -p comprs-core   # comprs-core alone, without zstdmt, as the WebAssembly build compiles it
 cargo clippy --workspace --all-targets -- -D warnings   # Rust lint; warnings fail it too
+cargo test -p comprs-core --no-default-features --features gzip   # One family of formats alone (zstd, gzip, brotli or lz4), when comprs-core changes
 pnpm run build        # napi-rs build
 pnpm run build:js     # Modules and declarations compiled from src/
 pnpm --filter @derodero24/comprs-middleware typecheck   # When packages/middleware changes
 pnpm --filter @derodero24/comprs-middleware test        # When packages/middleware changes
 ```
 
-`pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the three projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js`, `browser/wasm.js` and `playground/`, which no tsconfig checks.
+`pnpm run typecheck` checks the tests, the benchmarks and `vitest.config.mts` with `tsconfig.json`, the sources in `src/` with the three projects that `build:js` compiles, and the JavaScript in `scripts/` and `__test__/` with `tsconfig.scripts.json`. The middleware has its own check, `pnpm --filter @derodero24/comprs-middleware typecheck`. They all enable `noPropertyAccessFromIndexSignature`: read a property that comes from an index signature, such as a variable of `process.env` or a field of a parsed `package.json`, with brackets (`process.env['CI']`). Biome's `useLiteralKeys` rule, which would rewrite such reads with a dot, is off, except in `browser/index.js`, `browser/wasm.js` and `website/src/playground/`, which no tsconfig checks.
 
 `pnpm run check` runs `biome ci --error-on-warnings`, as CI does, and the pre-commit hook also fails on warnings. Besides Biome's recommended rules, `biome.json` enables some nursery rules: `noFloatingPromises` and `noMisusedPromises` everywhere, and `useExplicitType` in the published sources, `src/` and `packages/middleware/src/`, where functions, methods and their parameters declare their types. A Biome release can rename or change nursery rules, so `package.json` pins Biome to an exact version, which Renovate updates in a pull request of its own. When such an update fails the check, run `pnpm exec biome migrate --write` and fix what the new version reports.
 
 Clippy runs with `-D warnings` in CI, in the pre-push hook and in `pnpm run verify`, so any warning, from rustc or from clippy, fails it. CI lints with the latest stable Rust, whose new lints can fail a pull request that did not touch the code they flag; fix what they report. The Fuzz workflow lints the fuzz crate the same way (`cargo clippy --all-targets -- -D warnings` in `crates/core-lib/fuzz`).
+
+`comprs-core` has a Cargo feature for each family of formats, `zstd`, `gzip` (with deflate and deflate-raw), `brotli` and `lz4`, all of them by default. A build without one leaves out its modules, and the unified API (`crates/core-lib/src/unified.rs`) rejects its formats with `ERR_COMPRS_INVALID_ARG` ("this build of comprs does not include zstd"); `crate::detect` and the tests that mix formats need every feature (the `all_formats` cfg that `build.rs` sets). CI lints and tests `comprs-core` with each feature alone, for the per-format WebAssembly builds ([#342](https://github.com/derodero24/comprs/issues/342)).
 
 After changing a workflow in `.github/workflows/`, check it with [actionlint](https://github.com/rhysd/actionlint), which CI's Workflow Lint job runs. Its Docker image includes shellcheck, which actionlint runs on the `run:` scripts:
 
@@ -183,7 +202,7 @@ Conventional Commits format: `type(scope): description`. The commit-msg hook che
 
 **Types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`
 
-**Scopes** are optional and free-form: name the area that the change touches, such as `core`, `zstd`, `gzip`, `brotli`, `lz4`, `detect`, `streams`, `node`, `browser`, `wasm`, `types`, `api`, `middleware`, `bench`, `fuzz`, `e2e`, `release`, `deps`, `renovate`, `ci`, `docs`, `readme` or `playground`.
+**Scopes** are optional and free-form: name the area that the change touches, such as `core`, `zstd`, `gzip`, `brotli`, `lz4`, `detect`, `streams`, `node`, `browser`, `wasm`, `types`, `api`, `middleware`, `bench`, `fuzz`, `e2e`, `release`, `deps`, `renovate`, `ci`, `docs`, `readme`, `playground` or `website`.
 
 ## Changesets
 
@@ -237,31 +256,26 @@ This section is for maintainers. Releases go through `.github/workflows/release.
 4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
 5. The Merge Back job merges `main` into `develop`, or opens a pull request for that when it cannot.
 
-The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. CI therefore never runs on the Version Packages pull request on its own, and those runs are not a failure of the pull request: before merging it, run the CI workflow on its branch, `changeset-release/develop`, from the Actions tab (**CI** → **Run workflow**). The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
+The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. Those runs are not a failure of the pull request. Instead, after each update of the Version Packages pull request, the Version job dispatches the CI workflow on its branch, `changeset-release/develop`, which `GITHUB_TOKEN` may do: the checks of that run show on the pull request. If they are missing, run CI on the branch from the Actions tab (**CI** → **Run workflow**) before merging it. The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
 
-Both publish jobs run in the `npm-publish` environment and authenticate with the `NPM_TOKEN` secret (`NODE_AUTH_TOKEN`), a granular access token. npm lets a token that can publish live for at most 90 days: renew it before it expires, or the next release fails.
+Both publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
 
 ### Trusted publishing
 
-npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), try [trusted publishing](https://docs.npmjs.com/trusted-publishers) on every `npm publish` in GitHub Actions: when the package has a trusted publisher that matches the workflow, npm exchanges the job's OIDC token for a short-lived token that can publish that package, and uses it instead of `NODE_AUTH_TOKEN`. Otherwise it silently keeps `NODE_AUTH_TOKEN`. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages work the same way. To move the release to trusted publishing ([#584](https://github.com/derodero24/comprs/issues/584)):
+Every package publishes through [trusted publishing](https://docs.npmjs.com/trusted-publishers) ([#584](https://github.com/derodero24/comprs/issues/584)). npm 11.5.1 and later, which the Node.js version in `.nvmrc` bundles (CI's Release Dry Run job checks it), exchange the job's OIDC token for a short-lived token that can publish the package, when the package has a trusted publisher that matches the workflow. The `npm publish` calls of `napi prepublish` inherit the environment of the core publish step, so the platform packages publish the same way. The publish steps pass no npm token, so a package without a matching trusted publisher fails to publish instead of falling back to a token.
 
-1. Add a trusted publisher to each of the 10 packages shortly before a release that publishes it: a new trusted publisher expires unless a publish through it succeeds within 2 days, and an expired one has to be deleted and added again. A release publishes the middleware only when its version changes, so its trusted publisher may have to wait for a later release than the others.
-   - Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
-   - Settings: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`. Allow `npm publish`, not only `npm stage publish`: the release publishes directly.
-   - On npmjs.com, they are under each package's **Settings** → **Trusted publishing** → **GitHub Actions**. npm 11.15.0 and later can also add them from a terminal, logged in to an account with two-factor authentication. This adds them to the core package and the platform packages, which every release publishes:
+- Packages: `@derodero24/comprs`, the 8 platform packages `@derodero24/comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}`, and `@derodero24/comprs-middleware`.
+- Settings of each trusted publisher: owner `derodero24`, repository `comprs`, workflow `release.yml`, environment `npm-publish`, with `npm publish` allowed, not only `npm stage publish`: the release publishes directly.
+- The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. The deployment branches of the `npm-publish` environment should be limited to `main`.
+- After a release, `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish. With no token in use, each package's **Publishing access** can be set to "Require two-factor authentication and disallow tokens".
 
-     ```bash
-     for pkg in comprs comprs-{darwin-arm64,darwin-x64,linux-arm64-gnu,linux-arm64-musl,linux-x64-gnu,linux-x64-musl,win32-arm64-msvc,win32-x64-msvc}; do
-       npm trust github "@derodero24/$pkg" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
-       sleep 2
-     done
-     ```
+A new package name, such as the platform package of a new napi target, needs a first publish before it can have a trusted publisher: npm adds trusted publishers only to packages that it already has ([`npm trust`](https://docs.npmjs.com/cli/v11/commands/npm-trust)). Publish its first version from a maintainer's machine, logged in to an account with two-factor authentication, then add its trusted publisher under the package's **Settings** → **Trusted publishing** → **GitHub Actions** on npmjs.com, or from a terminal with npm 11.15.0 and later:
 
-     Add the middleware's only before a release that changes its version: `npm trust github @derodero24/comprs-middleware --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes`. A package has at most one trusted publisher, so replacing an expired one takes `npm trust list` and `npm trust revoke --id` first.
-2. In the repository settings, limit the deployment branches of the `npm-publish` environment to `main`.
-3. After the release, check how each package was published: `npm view <package>@<version> _npmUser` shows `GitHub Actions` for a trusted publish, and `derodero24` for a token publish. Once all 10 packages have published as `GitHub Actions`, a follow-up pull request removes `NODE_AUTH_TOKEN` from both publish steps; then delete the `NPM_TOKEN` secret and revoke the token on npmjs.com. Each package's **Publishing access** can then be set to "Require two-factor authentication and disallow tokens".
+```bash
+npm trust github "@derodero24/<package>" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
+```
 
-The publish steps must stay in `release.yml` and in the `npm-publish` environment, which the trusted publishers name. A new package name, such as the platform package of a new napi target, needs a first publish with a token before it can have a trusted publisher: npm adds trusted publishers only to packages that it already has ([`npm trust`](https://docs.npmjs.com/cli/v11/commands/npm-trust)). `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
+A new trusted publisher expires unless a publish through it succeeds within 2 days, so add it shortly before a release that publishes the package. A trusted publisher cannot be changed, so an expired one is deleted (`npm trust list`, then `npm trust revoke --id`) and added again. `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
 
 ## Package tests
 
@@ -286,19 +300,21 @@ pnpm --dir e2e run test:browser       # --project=chromium for one browser
 
 The fixtures use the installed copy of the package, not the working tree: run `node e2e/install-package.mjs` again after changing the package, and the steps before it after rebuilding it.
 
-## Playground
+## Website
 
-`playground/` is the site that the Playground workflow deploys to GitHub Pages. Like `e2e/`, it is a pnpm project of its own, and it imports `@derodero24/comprs` by name, through a `file:..` dependency that installs the package from the working tree with the files it would publish. It loads the WebAssembly build: build that first, and install the playground's dependencies again after each build, as the installed package holds the files that existed at install time, which a rebuild does not always update.
+`website/` is the documentation site and the playground, which the Website workflow (`.github/workflows/website.yml`) deploys to GitHub Pages at <https://derodero24.github.io/comprs/>. It is built with [Astro Starlight](https://starlight.astro.build/): the pages are Markdown and MDX files in `website/src/content/docs/`, the playground is `website/src/pages/playground.astro` with its scripts in `website/src/playground/`, and the API reference is generated at build time from the declaration files of the package (`index.d.ts`, `streams.d.ts`, `node.d.ts` and `next/index.d.ts`) by starlight-typedoc, into `website/src/content/docs/api/`, which is gitignored. Like `e2e/`, it is a pnpm project of its own, and it imports `@derodero24/comprs` by name, through a `file:..` dependency that installs the package from the working tree with the files it would publish. The playground loads the WebAssembly build: build that first, and install the site's dependencies again after each build, as the installed package holds the files that existed at install time, which a rebuild does not always update.
 
 ```bash
+pnpm run build:js
 pnpm run build:wasm-bindgen
-pnpm --dir playground install --frozen-lockfile
-pnpm --dir playground run dev         # or build, into playground/dist
+pnpm --dir website install --frozen-lockfile
+pnpm --dir website run dev         # or build, into website/dist
+pnpm --dir website run check       # astro check: the types of the site
 ```
 
-Without the WebAssembly build, the dev server and the build fail. To work on the UI without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
+Without the WebAssembly build, the build of the playground page fails. To work on the playground without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
 
-CI builds the playground with these commands in its `Build playground` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Playground workflow deploys it from `develop`.
+CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `develop`.
 
 ## Pull request checklist
 
@@ -321,7 +337,7 @@ pnpm run bench:ci             # JS benchmarks of comprs alone
 cargo bench -p comprs-bench   # Rust benchmarks
 ```
 
-The JS benchmarks in `__test__/*.bench.ts` use Vitest's [`bench` fixture](https://vitest.dev/guide/benchmarking): a test runs one benchmark with `bench(name, fn).run(BENCH_OPTIONS)`, or compares several with `bench.compare(...)`: comprs with other libraries, or, in `next.bench.ts`, the functions of the root entry with those of the unified API (`./next`) at the same settings, which shows what its options object and argument checks cost, and the root's dictionary functions with a prepared `Dictionary`, which shows what preparing it once saves. Both sides of `next.bench.ts` are comprs, so `pnpm run bench:ci` runs it with the other benchmarks of comprs alone. `BENCH_OPTIONS` in `__test__/bench-fixtures.ts` sets how long each benchmark runs, and `pnpm run typecheck` checks the benchmarks' types. With `BENCH_SMOKE=1` (`BENCH_SMOKE=1 pnpm run bench --run`), every benchmark runs once, without warmup, so the run takes seconds but its numbers mean nothing. CI runs every benchmark this way to check that the benchmarks still work: the benchmarks of comprs alone with `pnpm run bench:ci --run`, and the comparisons through `scripts/bench-report.mjs` (see [Regenerating the README benchmarks](#regenerating-the-readme-benchmarks)), which also checks that their results still reach the README.
+The JS benchmarks in `__test__/*.bench.ts` use Vitest's [`bench` fixture](https://vitest.dev/guide/benchmarking): a test runs one benchmark with `bench(name, fn).run(BENCH_OPTIONS)`, or compares several with `bench.compare(...)`: comprs with other libraries, or, in `next.bench.ts`, the functions of the root entry with those of the unified API (`./next`) at the same settings, which shows what its options object and argument checks cost, and the root's dictionary functions with a prepared `Dictionary`, which shows what preparing it once saves. Both sides of `next.bench.ts` are comprs, so `pnpm run bench:ci` runs it with the other benchmarks of comprs alone. `BENCH_OPTIONS` in `__test__/bench-fixtures.ts` sets how long each benchmark runs, and `pnpm run typecheck` checks the benchmarks' types. With `BENCH_SMOKE=1` (`BENCH_SMOKE=1 pnpm run bench --run`), every benchmark runs once, without warmup, so the run takes seconds but its numbers mean nothing. CI runs every benchmark this way to check that the benchmarks still work: the benchmarks of comprs alone with `pnpm run bench:ci --run`, and the comparisons through `scripts/bench-report.mjs` (see [Regenerating the benchmarks](#regenerating-the-benchmarks)), which also checks that their results still reach the report.
 
 The comparisons, `__test__/*.compare.bench.ts`, run every library at the same settings, which the test names state (`gzip compress level 6 - JSON 84KB`), on the inputs in `INPUTS` (brotli quality 11 and the Node.js streams on fewer); every library decompresses the output of comprs, so that only the decoders differ. `algorithms.compare.bench.ts` compares the formats of comprs with each other instead, each at its default level and decompressing its own output. `compareLibraries` in `__test__/bench-fixtures.ts` registers the one-shot comparisons, and checks that every library restores the input. `pnpm run bench:ci` leaves the comparisons out.
 
@@ -329,23 +345,23 @@ CodSpeed runs the Rust benchmarks on pull requests that change Rust code. They c
 
 `cargo bench` keeps its results in `target/criterion/` and compares each run with the previous one. It writes HTML reports with plots only when [gnuplot](http://www.gnuplot.info/) is installed: the bench crate turns off Criterion's `plotters` backend, whose `web-sys` dependency would block wasm-bindgen updates ([#640](https://github.com/derodero24/comprs/issues/640)).
 
-## Regenerating the README benchmarks
+## Regenerating the benchmarks
 
-The tables in the [Benchmarks](README.md#benchmarks) section of the README, between `<!-- bench:start -->` and `<!-- bench:end -->`, and its two charts, `.github/assets/bench-compress.svg` and `.github/assets/bench-cross-algorithm.svg`, come from `scripts/bench-report.mjs`. The script runs the comparisons (`__test__/{algorithms,gzip,deflate,brotli,zstd,streaming}.compare.bench.ts`) with Vitest's JSON reporter, which gives the median time of a call of each benchmark, while the benchmarks record the input and output sizes (`recordSizes`, into the file that `COMPRS_BENCH_SIZES` names). From these, `scripts/bench-render.mjs` writes the speeds in MB/s of uncompressed data, the compression ratios, and a paragraph that names the comprs version and commit, the versions of Node.js, pako and fflate, the CPU, the platform, the date, the settings and the workflow run. The tables follow the test names, so a new library, setting or input needs no change to the scripts, but a new comparison file must be added to the list in `scripts/bench-report.mjs`, which fails on one that the list leaves out. The script fails on a test whose name does not follow the pattern of `compareLibraries` or of the stream comparisons, and on a test without recorded sizes, so that no result is left out silently; `__test__/bench-report.spec.ts` tests the rendering with fixed results. The Key takeaways under the tables are written by hand.
+The tables of the [Benchmarks page](https://derodero24.github.io/comprs/reference/benchmarks/) of the website, `website/src/bench/report.md`, which `website/src/content/docs/reference/benchmarks.mdx` includes, and the two charts that the page and the README show, `.github/assets/bench-compress.svg` and `.github/assets/bench-cross-algorithm.svg`, come from `scripts/bench-report.mjs`. The script runs the comparisons (`__test__/{algorithms,gzip,deflate,brotli,zstd,streaming}.compare.bench.ts`) with Vitest's JSON reporter, which gives the median time of a call of each benchmark, while the benchmarks record the input and output sizes (`recordSizes`, into the file that `COMPRS_BENCH_SIZES` names). From these, `scripts/bench-render.mjs` writes the speeds in MB/s of uncompressed data, the compression ratios, and a paragraph that names the comprs version and commit, the versions of Node.js, pako and fflate, the CPU, the platform, the date, the settings and the workflow run. The tables follow the test names, so a new library, setting or input needs no change to the scripts, but a new comparison file must be added to the list in `scripts/bench-report.mjs`, which fails on one that the list leaves out. The script fails on a test whose name does not follow the pattern of `compareLibraries` or of the stream comparisons, and on a test without recorded sizes, so that no result is left out silently; `__test__/bench-report.spec.ts` tests the rendering with fixed results. The rest of the page, its Takeaways included, is written by hand.
 
-The README publishes only numbers from the Bench Report workflow (`.github/workflows/bench-report.yml`), which runs on a GitHub-hosted runner and records its run in the paragraph above the tables. Numbers from another machine cannot be compared with them: never commit the output of a local run. To regenerate the numbers:
+The repository publishes only numbers from the Bench Report workflow (`.github/workflows/bench-report.yml`), which runs on a GitHub-hosted runner and records its run in the paragraph above the tables. Numbers from another machine cannot be compared with them: never commit the output of a local run. To regenerate the numbers:
 
-1. Run the workflow on `develop` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the README, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
-2. Its `publish-branch` job, which can push but runs no code from the repository, commits the README and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `develop` or `main`. The summary of the run links to a pull request from that branch.
-3. Open that pull request into `develop`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Key takeaways to match them in the same pull request, and squash-merge it. If `develop` changed the Benchmarks section in the meantime, merge `develop` into the branch, keeping the generated text between the markers.
+1. Run the workflow on `develop` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the report, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
+2. Its `publish-branch` job, which can push but runs no code from the repository, commits the report and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `develop` or `main`. The summary of the run links to a pull request from that branch.
+3. Open that pull request into `develop`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Takeaways of the Benchmarks page and the text around the charts in the README to match them in the same pull request, and squash-merge it. If `develop` changed the report in the meantime, merge `develop` into the branch, keeping the generated report.
 
 To check what the script writes without publishing numbers, run it locally with `BENCH_SMOKE=1`: every benchmark runs once, the run takes under a minute, and the text says that the numbers mean nothing. Then revert its changes:
 
 ```bash
 pnpm run build
 BENCH_SMOKE=1 node scripts/bench-report.mjs   # --raw-dir <dir> keeps the raw results
-git diff README.md .github/assets
-git checkout README.md .github/assets
+git diff website/src/bench .github/assets
+git checkout website/src/bench .github/assets
 ```
 
 ## Troubleshooting

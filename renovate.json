@@ -22,6 +22,14 @@
       "matchStrings": [
         "#\\s*renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n[^\\n]*?(?:@|==|VERSION: )(?<currentValue>\\d[^\\s'\"]*)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "The libbrotli release that scripts/vendor-brotli.mjs vendors into crates/brotli-c/brotli, marked by a `// renovate:` comment on the line above",
+      "managerFilePatterns": ["/^scripts/vendor-brotli\\.mjs$/"],
+      "matchStrings": [
+        "//\\s*renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)\\nconst BROTLI_VERSION = '(?<currentValue>[^']+)';"
+      ]
     }
   ],
   "packageRules": [
@@ -107,6 +115,16 @@
       "matchDepNames": ["@biomejs/biome"],
       "groupName": "biome",
       "rangeStrategy": "pin"
+    },
+    {
+      "description": "libbrotli, vendored into crates/brotli-c/brotli: an update changes the C code that every build compresses brotli with, so it gets a pull request of its own, reviewed, never automerged. Keep this rule after the custom.regex one, as later rules win",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["google/brotli"],
+      "groupName": "libbrotli",
+      "automerge": false,
+      "prBodyNotes": [
+        "Run `node scripts/vendor-brotli.mjs` on this branch and commit what it changes. The Rust Lint job fails until the vendored sources match the new version."
+      ]
     }
   ]
 }

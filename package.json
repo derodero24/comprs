@@ -1,6 +1,6 @@
 {
   "name": "@derodero24/comprs",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Rust-powered universal compression for JavaScript/TypeScript. zstd, gzip, brotli, and lz4 in one package.",
   "license": "MIT",
   "author": "derodero24",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/derodero24/comprs.git"
   },
-  "homepage": "https://github.com/derodero24/comprs",
+  "homepage": "https://derodero24.github.io/comprs/",
   "bugs": {
     "url": "https://github.com/derodero24/comprs/issues"
   },
@@ -177,7 +177,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.2",
     "@changesets/cli": "^3.0.0",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",

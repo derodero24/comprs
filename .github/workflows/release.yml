@@ -111,6 +111,7 @@ jobs:
     permissions:
       contents: write # changesets/action commits the version PR branch
       pull-requests: write # create or update the version and release PRs
+      actions: write # dispatch CI on the version PR branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -155,6 +156,19 @@ jobs:
           pr-title: "chore(release): version packages"
           commit-message: "chore(release): version packages"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # changesets/action pushes the version PR branch with GITHUB_TOKEN,
+      # whose events start no workflow, so CI would not run on the pull
+      # request. workflow_dispatch is one of the two events that GITHUB_TOKEN
+      # may start: the dispatched run checks the head commit of the branch,
+      # and its checks, CI Complete among them, show on the pull request
+      # (#574). The release PR needs none: its head is develop, which CI ran
+      # on when it was pushed.
+      - name: Run CI on the version PR
+        if: steps.changesets.outputs.has-changesets == 'true' && steps.changesets.outputs.pullRequestNumber != ''
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create or update release PR
         if: steps.changesets.outputs.has-changesets == 'false'
@@ -364,23 +378,22 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      # npm 11.5.1 and later publish through trusted publishing (OIDC) when
-      # the package has a trusted publisher for this workflow file
-      # (release.yml) and the npm-publish environment, and with
-      # NODE_AUTH_TOKEN otherwise; CI's release-dry-run job checks the npm
-      # version that .nvmrc brings. The `npm publish` calls with which napi
-      # prepublish (the prepublishOnly script) publishes the platform
-      # packages inherit this step's environment and do the same. Both
-      # publish steps must stay in release.yml and in the npm-publish
-      # environment, because the trusted publishers name them.
-      # NODE_AUTH_TOKEN and the NPM_TOKEN secret go once every package has
-      # published through OIDC (#584; see Releases in CONTRIBUTING.md).
+      # Every package publishes through trusted publishing (OIDC): npm 11.5.1
+      # and later exchange the job's ID token for a short-lived token that can
+      # publish the package, whose trusted publisher names this workflow file
+      # (release.yml) and the npm-publish environment; CI's release-dry-run
+      # job checks the npm version that .nvmrc brings. The `npm publish`
+      # calls with which napi prepublish (the prepublishOnly script)
+      # publishes the platform packages inherit this step's environment and
+      # do the same. No npm token is passed, so a package without a matching
+      # trusted publisher fails to publish instead of falling back to a
+      # token. Both publish steps must stay in release.yml and in the
+      # npm-publish environment, because the trusted publishers name them
+      # (see Releases in CONTRIBUTING.md).
       # napi prepublish leaves the GitHub release to the github-release job
       # (--no-gh-release), so it needs no GitHub token.
       - name: Publish core to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Create the GitHub release of the published version ────
   # napi prepublish used to create it, with the tag on the default branch,
@@ -497,7 +510,6 @@ jobs:
           npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Merge main back into develop to prevent divergence ────
   # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
@@ -510,6 +522,7 @@ jobs:
     permissions:
       contents: write # push the merge commit or the merge-back branch
       pull-requests: write # open a pull request when the merge cannot land
+      actions: write # dispatch CI on the merge-back branch
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -559,8 +572,13 @@ jobs:
 
           - Resolve any conflicts on this branch, for example by merging \`develop\` into it.
           - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
-          - Pull requests opened with \`GITHUB_TOKEN\` start no workflow runs: push a commit, or close and reopen this pull request, to run CI.
           EOF
             )
           fi
+          # A pull request opened with GITHUB_TOKEN starts no workflow, and
+          # develop requires CI Complete. workflow_dispatch is one of the two
+          # events that GITHUB_TOKEN may start, so dispatch CI on the branch:
+          # its checks show on the pull request. A re-run dispatches again,
+          # for the same commit.
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"

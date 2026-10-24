@@ -1,20 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * Regenerate the benchmark tables of README.md, between `<!-- bench:start -->`
- * and `<!-- bench:end -->`, and the charts .github/assets/bench-compress.svg
- * and .github/assets/bench-cross-algorithm.svg, from one run of the
- * comparison benchmarks (__test__/*.compare.bench.ts). The tables give the
+ * Regenerate the benchmark tables of the website, website/src/bench/report.md,
+ * and the charts .github/assets/bench-compress.svg and
+ * .github/assets/bench-cross-algorithm.svg, which the README and the website
+ * show, from one run of the comparison benchmarks
+ * (__test__/*.compare.bench.ts). The tables give the
  * compression and decompression speeds in MB/s and the compression ratio of
  * each library on each input, and say what ran where: the versions, the
  * commit, the machine, the date and the settings.
  *
- * The README publishes only numbers from the Bench Report workflow
+ * The repository publishes only numbers from the Bench Report workflow
  * (.github/workflows/bench-report.yml), which runs this script on a
- * GitHub-hosted runner; see "Regenerating the README benchmarks" in
+ * GitHub-hosted runner; see "Regenerating the benchmarks" in
  * CONTRIBUTING.md. A local run checks the output: with BENCH_SMOKE=1, every
  * benchmark runs once, and the whole run takes under a minute. Revert its
- * changes afterwards (`git checkout README.md .github/assets`). CI runs it
+ * changes afterwards (`git checkout website/src/bench .github/assets`). CI runs it
  * this way in its benchmark smoke test, so that a change to Vitest's JSON
  * report or to the recorded sizes fails CI, not the next Bench Report run.
  *
@@ -40,18 +41,17 @@ import {
   collectReport,
   parseSizes,
   parseVitestReport,
+  REPORT,
   renderCompressChart,
   renderCrossAlgorithmChart,
   renderMarkdown,
-  replaceSection,
 } from './bench-render.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const README = join(ROOT, 'README.md');
 const BENCH_FILES = ['algorithms', 'gzip', 'deflate', 'brotli', 'zstd', 'streaming'].map(
   (name) => `__test__/${name}.compare.bench.ts`,
 );
-/** The other libraries in the comparisons, whose versions the README names. */
+/** The other libraries in the comparisons, whose versions the report names. */
 const LIBRARIES = ['pako', 'fflate'];
 
 const require = createRequire(import.meta.url);
@@ -164,11 +164,8 @@ function runBenchmarks(reportFile, sizesFile) {
 
 const { values } = parseArgs({ options: { 'raw-dir': { type: 'string' } } });
 
-// Fail before the benchmarks run, not after, when the markers are missing.
-replaceSection(readFileSync(README, 'utf8'), '');
-
 // CI runs the comparisons through this script alone, so a comparison that
-// BENCH_FILES leaves out would run nowhere, and be missing from the README.
+// BENCH_FILES leaves out would run nowhere, and be missing from the report.
 const unlisted = readdirSync(join(ROOT, '__test__'))
   .filter((file) => file.endsWith('.compare.bench.ts'))
   .map((file) => `__test__/${file}`)
@@ -194,13 +191,10 @@ try {
     parseSizes(readJson(sizesFile)),
   );
   const method = describeMachine();
-  writeFileSync(
-    README,
-    replaceSection(readFileSync(README, 'utf8'), renderMarkdown(report, method)),
-  );
+  writeFileSync(join(ROOT, REPORT), renderMarkdown(report, method));
   writeFileSync(join(ROOT, COMPRESS_CHART), renderCompressChart(report, method));
   writeFileSync(join(ROOT, CROSS_ALGORITHM_CHART), renderCrossAlgorithmChart(report, method));
-  console.log(`Updated README.md, ${COMPRESS_CHART} and ${CROSS_ALGORITHM_CHART}.`);
+  console.log(`Updated ${REPORT}, ${COMPRESS_CHART} and ${CROSS_ALGORITHM_CHART}.`);
   if (keepRaw) {
     console.log(`Raw results: ${rawDir}`);
   }

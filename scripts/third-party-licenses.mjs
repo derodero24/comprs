@@ -15,7 +15,8 @@
  * A notice lists the crates that `cargo tree` resolves for the build: the
  * normal dependencies of the crate that the package's build compiles, for
  * the build's target, without the build-time and proc-macro crates, which are
- * not linked in. Their license files come from the crate sources that
+ * not linked in, and the C libraries that the crates of this workspace
+ * vendor (VENDORED). Their license files come from the crate sources that
  * `cargo metadata` locates, which cargo downloads the first time (the script
  * needs `cargo`, and network access then). A crate that publishes no license
  * file gets the committed copy of its repository's license from
@@ -107,13 +108,80 @@ const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright|unlicense)([.-].*)?$
  * Meta's BSD license, which covers most of them; the files whose headers
  * carry other copyright notices are in SOURCE_NOTICES. zstd is dual-licensed
  * and used under that BSD license, so zstd/COPYING, the GPLv2 alternative,
- * is left out. brotli needs no entry: it is a Rust port that bundles no C
- * code, and its own LICENSE.MIT (the Brotli Authors) and
- * LICENSE.BSD-3-Clause (Dropbox) carry both notices.
+ * is left out.
+ *
+ * libmimalloc-sys, which the musl builds link, builds the mimalloc C library
+ * (version 2, without the crate's v3 feature) from its sources, whose MIT
+ * license (Microsoft, Daan Leijen) is c_src/mimalloc/v2/LICENSE; the
+ * crate's own LICENSE.txt covers only the Rust bindings. The headers of the
+ * sources it compiles name Microsoft and Daan Leijen alone; the two that
+ * name others, the Emscripten and the Windows ones, are not compiled for
+ * musl.
  *
  * @type {Map<string, string[]>}
  */
-const EXTRA_FILES = new Map([['zstd-sys', ['zstd/LICENSE']]]);
+const EXTRA_FILES = new Map([
+  ['zstd-sys', ['zstd/LICENSE']],
+  ['libmimalloc-sys', ['c_src/mimalloc/v2/LICENSE']],
+]);
+
+/**
+ * A C library that a crate of this workspace vendors, which a notice lists
+ * as if it were a crate.
+ *
+ * @typedef {object} VendoredLibrary
+ * @property {string} name
+ * @property {string} license SPDX license expression.
+ * @property {string} repository
+ * @property {string[]} files License files, relative to the crate.
+ * @property {(dir: string) => string} version Reads the library's version
+ *   from its sources in the crate's directory.
+ */
+
+/**
+ * The C libraries that the crates of this workspace vendor, by crate name.
+ * The notice leaves out the workspace crates themselves, which LICENSE
+ * covers, but lists these. Generation fails if a license file is missing.
+ *
+ * comprs-brotli (crates/brotli-c) builds libbrotli from the sources that
+ * scripts/vendor-brotli.mjs copies into it. brotli/LICENSE (the Brotli
+ * Authors, MIT) covers all of them: the header of every source file names
+ * Google Inc., one of the Brotli Authors, under the MIT license, or none.
+ *
+ * @type {Map<string, VendoredLibrary>}
+ */
+const VENDORED = new Map([
+  [
+    'comprs-brotli',
+    {
+      name: 'libbrotli',
+      license: 'MIT',
+      repository: 'https://github.com/google/brotli',
+      files: ['brotli/LICENSE'],
+      version: brotliVersion,
+    },
+  ],
+]);
+
+/**
+ * The version of the vendored libbrotli, from the defines of
+ * brotli/c/common/version.h.
+ *
+ * @param {string} dir Directory of comprs-brotli.
+ * @returns {string}
+ */
+function brotliVersion(dir) {
+  const header = readText(join(dir, 'brotli/c/common/version.h'));
+  const parts = ['MAJOR', 'MINOR', 'PATCH'].map(
+    (part) => new RegExp(`^#define BROTLI_VERSION_${part} (\\d+)$`, 'm').exec(header)?.[1],
+  );
+  if (parts.some((part) => part === undefined)) {
+    throw new Error(
+      `No BROTLI_VERSION_MAJOR, MINOR and PATCH defines in ${dir}/brotli/c/common/version.h`,
+    );
+  }
+  return parts.join('.');
+}
 
 /** Committed copies of upstream texts, for OVERRIDES and SOURCE_NOTICES. */
 const LICENSES_DIR = join(import.meta.dirname, 'licenses');
@@ -181,16 +249,6 @@ const NAPI_SYS_LICENSE = {
 };
 
 /**
- * The repository license of alloc-stdlib: dropbox/rust-alloc-no-stdlib at
- * the tag 0.3.0. alloc-no-stdlib ships the same file.
- */
-const ALLOC_STDLIB_LICENSE = {
-  copy: 'rust-alloc-no-stdlib.LICENSE',
-  upstream:
-    'https://github.com/dropbox/rust-alloc-no-stdlib/blob/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE',
-};
-
-/**
  * License files for the crates that publish none, by crate name, without a
  * version so that updates keep them: verbatim copies of the license files of
  * their repositories, in scripts/licenses/. They are used only while a crate
@@ -201,7 +259,6 @@ const ALLOC_STDLIB_LICENSE = {
 const OVERRIDES = new Map([
   ['napi', [NAPI_RS_LICENSE]],
   ['napi-sys', [NAPI_RS_LICENSE, NAPI_SYS_LICENSE]],
-  ['alloc-stdlib', [ALLOC_STDLIB_LICENSE]],
 ]);
 
 /** The opening paragraph of each notice, after its title. */
@@ -209,10 +266,11 @@ const INTRODUCTION = [
   'comprs itself is licensed under the MIT license (see LICENSE). The compiled',
   'code in this package, a native addon or a WebAssembly module, statically',
   'links the Rust crates listed below, including the zstd C library that the',
-  'zstd-sys crate builds, and their licenses follow. Crates that run only at',
-  'build time, such as build scripts and procedural macros, are not linked in',
-  'and are not listed. A crate that publishes no license file is listed with',
-  'the license file of its repository.',
+  'zstd-sys crate builds, and the brotli C library, libbrotli, which comprs',
+  'vendors. Their licenses follow. Crates that run only at build time, such as',
+  'build scripts and procedural macros, are not linked in and are not listed.',
+  'A crate that publishes no license file is listed with the license file of',
+  'its repository.',
 ];
 
 /** The line before each license text. */
@@ -389,7 +447,8 @@ function optionalString(value) {
 
 /**
  * Find the license texts of the crates that a build links, and leave out
- * the crates of this workspace, comprs's own code, which LICENSE covers.
+ * the crates of this workspace, comprs's own code, which LICENSE covers,
+ * but not the C libraries that they vendor.
  * Throws if a crate has no license text, naming every such crate.
  *
  * @param {CrateId[]} crates
@@ -408,6 +467,10 @@ export function collectLicenses(crates, packages) {
       throw new Error(`cargo metadata does not list ${name} ${version}, which cargo tree does`);
     }
     if (pkg.source === null) {
+      const vendored = VENDORED.get(name);
+      if (vendored !== undefined) {
+        found.push(vendoredLibrary(pkg, vendored));
+      }
       continue;
     }
     const texts = licenseTexts(pkg);
@@ -427,6 +490,32 @@ export function collectLicenses(crates, packages) {
     );
   }
   return found;
+}
+
+/**
+ * The notice entry of a C library that a workspace crate vendors. Throws if
+ * one of its license files is missing or empty.
+ *
+ * @param {CargoPackage} pkg
+ * @param {VendoredLibrary} library
+ * @returns {NoticeCrate}
+ */
+function vendoredLibrary(pkg, library) {
+  const dir = dirname(pkg.manifestPath);
+  const texts = library.files.map((file) => {
+    const text = isFile(join(dir, file)) ? readText(join(dir, file)) : '';
+    if (text === '') {
+      throw new Error(`${pkg.name} vendors ${library.name}, but has no ${file} in ${dir}`);
+    }
+    return { file, text };
+  });
+  return {
+    name: library.name,
+    version: library.version(dir),
+    license: library.license,
+    repository: library.repository,
+    texts,
+  };
 }
 
 /**

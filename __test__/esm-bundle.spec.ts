@@ -188,7 +188,7 @@ describe('./next bundled', { timeout: 3 * PROCESS_TIMEOUT }, () => {
   // The `browser` condition picks browser/next/browser.js, which loads the
   // WebAssembly module through browser/wasm.js. esbuild leaves its
   // `new URL('./comprs-wasm_bg.wasm', import.meta.url)` as it is, so the
-  // binary goes next to the bundle, as the README says, and the bundle
+  // binary goes next to the bundle, as the website's Browsers guide says, and the bundle
   // runs in Node.js, whose fetch() gets file: URLs from a preload.
   it.skipIf(!HAS_WASM_BUILD)(
     'for browsers, exports the same names, over the WebAssembly build alone',
