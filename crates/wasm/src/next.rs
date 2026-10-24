@@ -327,6 +327,35 @@ pub fn next_detect_format(data: &[u8]) -> JsValue {
     unified::detect(data).map_or(JsValue::NULL, |format| format.name().into())
 }
 
+/// What [`unified::detect_prefix`] finds in `data`, the start of some data,
+/// with `is_final` if no more data follows: the name of the format, `null`
+/// for data of no format that the build detects, or `undefined` while more
+/// data could change the answer. The TypeScript layer detects with it among
+/// the per-format builds that a page loads, which each detect a part of the
+/// formats (#342).
+#[wasm_bindgen(
+    js_name = "nextDetectPrefix",
+    unchecked_return_type = "string | null | undefined"
+)]
+pub fn next_detect_prefix(data: &[u8], is_final: bool) -> JsValue {
+    match unified::detect_prefix(data, is_final) {
+        unified::Detection::Known(format) => format.name().into(),
+        unified::Detection::Unknown => JsValue::NULL,
+        unified::Detection::NeedMore => JsValue::UNDEFINED,
+    }
+}
+
+/// The names of the formats that this build includes: every format in the
+/// default build, and those of one family in a per-format build.
+#[wasm_bindgen(js_name = "nextBuiltFormats")]
+pub fn next_built_formats() -> Vec<String> {
+    unified::Format::ALL
+        .into_iter()
+        .filter(|format| format.is_built())
+        .map(|format| format.name().to_string())
+        .collect()
+}
+
 /// Train a zstd dictionary of at most `maxSize` bytes from `samples`, with
 /// [`unified::train_dictionary`]: `trainDictionarySync()` and
 /// `trainDictionary()` of the unified API.

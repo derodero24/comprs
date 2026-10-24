@@ -327,14 +327,19 @@ describe('memory', () => {
 
   // zstd decodes frames with content sizes into memory that V8 allocates
   // above 2 MiB too (#679): 200 calls that return 4 MiB each grew the
-  // resident set by about 800 MiB in the memory of the addon.
+  // resident set by about 800 MiB in the memory of the addon. In V8's
+  // memory, the growth is a multiple of the 4 MiB results that V8 has not
+  // collected yet. V8 starts a collection once the memory has grown by its
+  // limit, which it raises after each collection, and CI measured from 4 to
+  // 92 MiB, and once 128 MiB, so the bound leaves room for twice that and
+  // still fails far below the leak.
   it.skipIf(!isGlibcLinux())(
     'frees zstd results larger than 2 MiB in a synchronous loop before it yields',
     { timeout: 2 * PROCESS_TIMEOUT },
     async ({ annotate }) => {
       const rssGrowthMiB = runRssLoop(['zstd']);
       await annotate(`the resident set grew by ${rssGrowthMiB} MiB`);
-      expect(rssGrowthMiB).toBeLessThan(128);
+      expect(rssGrowthMiB).toBeLessThan(256);
     },
   );
 });
