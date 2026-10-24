@@ -13,11 +13,17 @@ comment:
   require_changes: true
 
 flags:
+  # The files of the Rust report: comprs-core, as the Rust coverage step in
+  # ci.yml leaves out the bindings and the benchmarks.
   rust:
     paths:
-      - crates/
+      - crates/core-lib/
     carryforward: true
+  # The files that coverage.include in vitest.config.mts lists.
   javascript:
     paths:
-      - __test__/
+      - streams.js
+      - node.js
+      - stream-schedule.js
+      - next/
     carryforward: true

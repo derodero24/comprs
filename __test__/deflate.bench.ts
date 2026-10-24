@@ -1,6 +1,7 @@
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import { deflateCompress, deflateDecompress } from '../index.js';
 import {
+  BENCH_OPTIONS,
   JSON_DATA,
   LARGE,
   MEDIUM,
@@ -21,78 +22,114 @@ const RANDOM_LARGE_COMPRESSED = deflateCompress(RANDOM_LARGE);
 const JSON_COMPRESSED = deflateCompress(JSON_DATA);
 const TEXT_COMPRESSED = deflateCompress(TEXT_DATA);
 
+// --- Names of the realistic data benchmarks ---
+const JSON_NAME = `JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`;
+const TEXT_NAME = `text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`;
+
 describe('deflate compress (patterned)', () => {
-  bench('150B', () => {
-    deflateCompress(SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      deflateCompress(SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    deflateCompress(MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      deflateCompress(MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    deflateCompress(LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      deflateCompress(LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('deflate compress (random)', () => {
-  bench('150B', () => {
-    deflateCompress(RANDOM_SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      deflateCompress(RANDOM_SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    deflateCompress(RANDOM_MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      deflateCompress(RANDOM_MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    deflateCompress(RANDOM_LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      deflateCompress(RANDOM_LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('deflate compress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    deflateCompress(JSON_DATA);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      deflateCompress(JSON_DATA);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    deflateCompress(TEXT_DATA);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      deflateCompress(TEXT_DATA);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('deflate decompress (patterned)', () => {
-  bench('150B', () => {
-    deflateDecompress(SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      deflateDecompress(SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    deflateDecompress(MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      deflateDecompress(MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    deflateDecompress(LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      deflateDecompress(LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('deflate decompress (random)', () => {
-  bench('150B', () => {
-    deflateDecompress(RANDOM_SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      deflateDecompress(RANDOM_SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    deflateDecompress(RANDOM_MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      deflateDecompress(RANDOM_MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    deflateDecompress(RANDOM_LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      deflateDecompress(RANDOM_LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('deflate decompress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    deflateDecompress(JSON_COMPRESSED);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      deflateDecompress(JSON_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    deflateDecompress(TEXT_COMPRESSED);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      deflateDecompress(TEXT_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });

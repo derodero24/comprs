@@ -30,7 +30,7 @@ describe('zstdCompress / zstdDecompress', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should round-trip 1MB of data', { timeout: 30_000 }, () => {
+  it('should round-trip 1MB of data', () => {
     const input = Buffer.alloc(1024 * 1024);
     for (let i = 0; i < input.length; i++) {
       input[i] = i % 256;
@@ -75,11 +75,13 @@ describe('zstdCompress / zstdDecompress', () => {
   });
 
   it('should throw on level > 22', () => {
-    expect(() => zstdCompress(Buffer.from('test'), 23)).toThrow(/level must be between/);
+    expect(() => zstdCompress(Buffer.from('test'), 23)).toThrow(/level must be an integer between/);
   });
 
   it('should throw on level < -131072', () => {
-    expect(() => zstdCompress(Buffer.from('test'), -131073)).toThrow(/level must be between/);
+    expect(() => zstdCompress(Buffer.from('test'), -131073)).toThrow(
+      /level must be an integer between/,
+    );
   });
 
   it('should accept level 22 and negative levels', () => {

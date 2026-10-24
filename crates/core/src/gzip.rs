@@ -1,29 +1,42 @@
 //! Gzip and raw deflate compression and decompression.
 
-use napi::Task;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::async_args::{AsyncArg, Checked, checked};
+use crate::convert::sync_result;
 use crate::error::to_napi_error;
+use crate::task::{LegacyBuffer, OneShot};
 
 /// Compress data using gzip.
 ///
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
-pub fn gzip_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
-    comprs_core::gzip::compress(crate::as_bytes(&data), level)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn gzip_compress(
+    env: Env,
+    data: Either<Buffer, Uint8Array>,
+    level: Option<f64>,
+) -> Result<Buffer> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
+    sync_result(
+        &env,
+        comprs_core::gzip::compress(crate::as_bytes(&data), level),
+    )
 }
 
 /// Options for customizing the gzip header during compression.
 #[napi(object)]
 pub struct GzipHeaderOptions {
-    /// Original filename to store in the gzip header.
+    /// Original filename to store in the gzip header. It must not contain NUL
+    /// characters and must be at most 65535 bytes long in UTF-8.
     pub filename: Option<String>,
-    /// Modification time as a Unix timestamp (seconds since epoch).
-    pub mtime: Option<u32>,
+    /// Modification time as a Unix timestamp (seconds since epoch), an
+    /// integer from 0 to 4294967295.
+    pub mtime: Option<f64>,
 }
 
 /// Parsed gzip header metadata.
@@ -43,22 +56,31 @@ pub struct GzipHeader {
 
 /// Compress data using gzip with custom header metadata.
 ///
-/// Allows setting header fields such as `filename` and `mtime`.
+/// Allows setting header fields such as `filename` and `mtime`. Throws if
+/// `filename` contains a NUL character or is longer than 65535 bytes in UTF-8.
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
 pub fn gzip_compress_with_header(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     header: GzipHeaderOptions,
-    level: Option<u32>,
+    level: Option<f64>,
 ) -> Result<Buffer> {
+    let level = comprs_core::gzip::LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
     let core_header = comprs_core::gzip::GzipHeaderOptions {
         filename: header.filename,
-        mtime: header.mtime,
+        mtime: comprs_core::gzip::MTIME
+            .check_optional_f64(header.mtime)
+            .map_err(to_napi_error)?,
     };
-    comprs_core::gzip::compress_with_header(crate::as_bytes(&data), &core_header, level)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::gzip::compress_with_header(crate::as_bytes(&data), &core_header, level),
+    )
 }
 
 /// Read gzip header metadata without fully decompressing the data.
@@ -82,10 +104,8 @@ pub fn gzip_read_header(data: Either<Buffer, Uint8Array>) -> Result<GzipHeader> 
 /// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
 /// for larger data.
 #[napi]
-pub fn gzip_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::gzip::decompress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn gzip_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(&env, comprs_core::gzip::decompress(crate::as_bytes(&data)))
 }
 
 /// Decompress gzip-compressed data with explicit capacity.
@@ -94,110 +114,93 @@ pub fn gzip_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
 #[napi]
 pub fn gzip_decompress_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::gzip::decompress_with_capacity(crate::as_bytes(&data), cap)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::gzip::decompress_with_capacity(crate::as_bytes(&data), cap),
+    )
 }
 
 /// Compress data using raw deflate (no gzip header/trailer).
 ///
 /// Returns the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
 #[napi]
-pub fn deflate_compress(data: Either<Buffer, Uint8Array>, level: Option<u32>) -> Result<Buffer> {
-    comprs_core::gzip::deflate_compress(crate::as_bytes(&data), level)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn deflate_compress(
+    env: Env,
+    data: Either<Buffer, Uint8Array>,
+    level: Option<f64>,
+) -> Result<Buffer> {
+    let level = comprs_core::gzip::DEFLATE_LEVEL
+        .check_optional_f64(level)
+        .map_err(to_napi_error)?;
+    sync_result(
+        &env,
+        comprs_core::gzip::deflate_compress(crate::as_bytes(&data), level),
+    )
 }
 
 /// Decompress raw deflate-compressed data.
 ///
 /// Returns the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
-/// for larger data.
+/// for larger data. Throws if the input ends before the final deflate block.
 #[napi]
-pub fn deflate_decompress(data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    comprs_core::gzip::deflate_decompress(crate::as_bytes(&data))
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+pub fn deflate_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    sync_result(
+        &env,
+        comprs_core::gzip::deflate_decompress(crate::as_bytes(&data)),
+    )
 }
 
 /// Decompress raw deflate-compressed data with explicit capacity.
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
+/// Throws if the input ends before the final deflate block.
 #[napi]
 pub fn deflate_decompress_with_capacity(
+    env: Env,
     data: Either<Buffer, Uint8Array>,
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    comprs_core::gzip::deflate_decompress_with_capacity(crate::as_bytes(&data), cap)
-        .map(|v| v.into())
-        .map_err(to_napi_error)
+    sync_result(
+        &env,
+        comprs_core::gzip::deflate_decompress_with_capacity(crate::as_bytes(&data), cap),
+    )
 }
 
 // --- Async tasks ---
 
-pub struct GzipCompressTask {
-    data: Vec<u8>,
-    level: Option<u32>,
-}
-
-#[napi]
-impl Task for GzipCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::compress(&self.data, self.level).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
-}
-
 /// Asynchronously compress data using gzip.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
-#[napi]
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn gzip_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    level: Option<u32>,
-) -> Result<AsyncTask<GzipCompressTask>> {
-    // Validate level eagerly
-    let lvl = level.unwrap_or(comprs_core::gzip::DEFAULT_LEVEL);
-    if lvl > 9 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "gzip compression level must be between 0 and 9".to_string(),
-        )));
-    }
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(GzipCompressTask { data: input, level }))
-}
-
-pub struct GzipDecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for GzipDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = data.get()?;
+        let level = comprs_core::gzip::LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::compress(&data, level)
+        }))
+    })
 }
 
 /// Asynchronously decompress gzip-compressed data.
@@ -205,151 +208,105 @@ impl Task for GzipDecompressTask {
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `gzipDecompressWithCapacity`
 /// for larger data.
-#[napi]
-pub fn gzip_decompress_async(data: Either<Buffer, Uint8Array>) -> AsyncTask<GzipDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(GzipDecompressTask { data: input })
-}
-
-pub struct DeflateCompressTask {
-    data: Vec<u8>,
-    level: Option<u32>,
-}
-
-#[napi]
-impl Task for DeflateCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_compress(&self.data, self.level).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
+pub fn gzip_decompress_async(
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || comprs_core::gzip::decompress(&data)))
+    })
 }
 
 /// Asynchronously compress data using raw deflate (no gzip header/trailer).
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer.
-/// Level ranges from 0 (no compression) to 9 (best compression). Default is 6.
-#[napi]
+/// Level is an integer from 0 (no compression) to 9 (best compression).
+/// Default is 6.
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, level?: number | undefined | null",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_compress_async(
-    data: Either<Buffer, Uint8Array>,
-    level: Option<u32>,
-) -> Result<AsyncTask<DeflateCompressTask>> {
-    let lvl = level.unwrap_or(comprs_core::gzip::DEFAULT_LEVEL);
-    if lvl > 9 {
-        return Err(to_napi_error(comprs_core::ComprsError::InvalidArg(
-            "deflate compression level must be between 0 and 9".to_string(),
-        )));
-    }
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(DeflateCompressTask { data: input, level }))
-}
-
-pub struct DeflateDecompressTask {
-    data: Vec<u8>,
-}
-
-#[napi]
-impl Task for DeflateDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_decompress(&self.data).map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    level: AsyncArg<Option<f64>>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = data.get()?;
+        let level = comprs_core::gzip::DEFLATE_LEVEL
+            .check_optional_f64(level.get()?)
+            .map_err(to_napi_error)?;
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_compress(&data, level)
+        }))
+    })
 }
 
 /// Asynchronously decompress raw deflate-compressed data.
 ///
 /// Returns a Promise that resolves to the decompressed data as a Buffer.
 /// The maximum decompressed size is 256 MB. Use `deflateDecompressWithCapacity`
-/// for larger data.
-#[napi]
+/// for larger data. Rejects if the input ends before the final deflate block.
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_decompress_async(
-    data: Either<Buffer, Uint8Array>,
-) -> AsyncTask<DeflateDecompressTask> {
-    let input = crate::as_bytes(&data).to_vec();
-    AsyncTask::new(DeflateDecompressTask { data: input })
-}
-
-pub struct GzipDecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for GzipDecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::decompress_with_capacity(&self.data, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = crate::as_bytes(&data.get()?).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_decompress(&data)
+        }))
+    })
 }
 
 /// Asynchronously decompress gzip-compressed data with explicit capacity.
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
-#[napi]
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn gzip_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<GzipDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(GzipDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
-}
-
-pub struct DeflateDecompressWithCapacityTask {
-    data: Vec<u8>,
-    capacity: usize,
-}
-
-#[napi]
-impl Task for DeflateDecompressWithCapacityTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        comprs_core::gzip::deflate_decompress_with_capacity(&self.data, self.capacity)
-            .map_err(to_napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.into())
-    }
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::decompress_with_capacity(&data, cap)
+        }))
+    })
 }
 
 /// Asynchronously decompress raw deflate-compressed data with explicit capacity.
 ///
 /// Use this when the decompressed size exceeds the default 256 MB limit.
 /// The `capacity` parameter specifies the maximum decompressed size in bytes.
-#[napi]
+/// Rejects if the input ends before the final deflate block.
+#[napi(
+    ts_args_type = "data: Buffer | Uint8Array, capacity: number",
+    ts_return_type = "Promise<Buffer>"
+)]
 pub fn deflate_decompress_with_capacity_async(
-    data: Either<Buffer, Uint8Array>,
-    capacity: f64,
-) -> Result<AsyncTask<DeflateDecompressWithCapacityTask>> {
-    let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    let input = crate::as_bytes(&data).to_vec();
-    Ok(AsyncTask::new(DeflateDecompressWithCapacityTask {
-        data: input,
-        capacity: cap,
-    }))
+    data: AsyncArg<Either<Buffer, Uint8Array>>,
+    capacity: AsyncArg<f64>,
+) -> AsyncTask<Checked<OneShot<LegacyBuffer>>> {
+    checked(|| {
+        let data = data.get()?;
+        let cap = comprs_core::validate_capacity(capacity.get()?).map_err(to_napi_error)?;
+        let data = crate::as_bytes(&data).to_vec();
+        Ok(OneShot::new(move || {
+            comprs_core::gzip::deflate_decompress_with_capacity(&data, cap)
+        }))
+    })
 }

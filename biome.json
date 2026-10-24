@@ -1,9 +1,29 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
     "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!index.js",
+      "!index.d.ts",
+      "!streams.js",
+      "!streams.d.ts",
+      "!node.js",
+      "!node.d.ts",
+      "!index.mjs",
+      "!index.d.mts",
+      "!browser/streams.js",
+      "!browser/streams.d.ts",
+      "!stream-schedule.js",
+      "!stream-schedule.d.ts",
+      "!next",
+      "!browser/next"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -22,7 +42,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
         "noUnusedImports": "error",
         "noUnusedVariables": "error",
@@ -34,8 +54,9 @@
       },
       "complexity": {
         "noForEach": "error",
+        "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
-          "level": "warn",
+          "level": "error",
           "options": { "maxAllowedComplexity": 15 }
         }
       },
@@ -43,21 +64,54 @@
         "noAccumulatingSpread": "error",
         "noBarrelFile": "error",
         "noReExportAll": "error",
-        "noDelete": "warn"
+        "noDelete": "error"
       },
       "style": {
         "noDefaultExport": "error",
+        "noNonNullAssertion": "error",
         "useConst": "error",
         "useExportType": "error",
         "useImportType": "error",
         "useForOf": "error",
-        "noNamespace": "error"
+        "noNamespace": "error",
+        "useBlockStatements": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       }
     }
   },
   "overrides": [
     {
-      "includes": ["index.mjs"],
+      "includes": ["src/**", "packages/middleware/src/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "useExplicitType": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["browser/index.js", "browser/wasm.js", "playground/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/index.mts",
+        "src/next/index.ts",
+        "src/next/index.mts",
+        "src/next/browser.ts",
+        "browser/index.js",
+        "browser/wasm.js"
+      ],
       "linter": {
         "rules": {
           "performance": {
@@ -67,12 +121,7 @@
       }
     },
     {
-      "includes": [
-        "vitest.config.mts",
-        "commitlint.config.ts",
-        "playwright.config.ts",
-        "e2e/vite.config.mjs"
-      ],
+      "includes": ["vitest.config.mts", "commitlint.config.ts", "e2e/playwright.config.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -87,6 +136,26 @@
         "rules": {
           "suspicious": {
             "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["e2e/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["e2e/browser/app.js", "e2e/native/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
           }
         }
       }
@@ -148,36 +217,11 @@
       }
     },
     {
-      "includes": ["playground/public/coi-serviceworker.js"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noConsole": "off",
-            "useIterableCallbackReturn": "off"
-          },
-          "complexity": {
-            "noForEach": "off",
-            "useOptionalChain": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["index.d.mts"],
+      "includes": ["src/index.mts", "src/next/index.mts"],
       "linter": {
         "rules": {
           "performance": {
             "noReExportAll": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": [".github/assets/**"],
-      "linter": {
-        "rules": {
-          "a11y": {
-            "noSvgWithoutTitle": "off"
           }
         }
       }

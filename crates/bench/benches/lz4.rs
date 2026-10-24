@@ -1,53 +1,86 @@
 use std::io::{Read, Write};
 
-use comprs_bench::{patterned_1mb, patterned_10kb, random_1mb, random_10kb};
+use comprs_bench::{inputs, json_84kb, run_stream, stream_inputs};
+use comprs_core::{lz4, lz4_stream};
 use criterion::{Criterion, criterion_group, criterion_main};
-use lz4_flex::frame::{FrameDecoder, FrameEncoder};
-
-fn compress(data: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(data.len());
-    let mut encoder = FrameEncoder::new(&mut output);
-    encoder.write_all(data).unwrap();
-    encoder.finish().unwrap();
-    output
-}
-
-fn decompress(data: &[u8]) -> Vec<u8> {
-    let mut decoder = FrameDecoder::new(data);
-    let mut output = Vec::new();
-    decoder.read_to_end(&mut output).unwrap();
-    output
-}
+use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 
 fn bench_lz4(c: &mut Criterion) {
-    let p10k = patterned_10kb();
-    let p1m = patterned_1mb();
-    let r10k = random_10kb();
-    let r1m = random_1mb();
+    for (name, data) in inputs() {
+        let compressed = lz4::compress(&data).unwrap();
+        c.bench_function(&format!("lz4 compress {name}"), |b| {
+            b.iter(|| lz4::compress(&data).unwrap())
+        });
+        c.bench_function(&format!("lz4 decompress {name}"), |b| {
+            b.iter(|| lz4::decompress(&compressed).unwrap())
+        });
+    }
 
-    let p10k_c = compress(&p10k);
-    let p1m_c = compress(&p1m);
-    let r10k_c = compress(&r10k);
-    let r1m_c = compress(&r1m);
+    for (name, data) in stream_inputs() {
+        let compressed = lz4::compress(&data).unwrap();
+        c.bench_function(&format!("lz4 stream compress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    lz4_stream::CompressContext::new(),
+                    &data,
+                    lz4_stream::CompressContext::transform,
+                    lz4_stream::CompressContext::finish,
+                )
+            })
+        });
+        // By default, the decompression context buffers its input and
+        // decodes it all in flush(), which ends the stream here.
+        c.bench_function(&format!("lz4 stream decompress {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    lz4_stream::DecompressContext::new(None).unwrap(),
+                    &compressed,
+                    lz4_stream::DecompressContext::transform,
+                    lz4_stream::DecompressContext::flush,
+                )
+            })
+        });
+        // Incremental, as the stream helpers use it, it decodes each block
+        // in the transform() call that completes it.
+        c.bench_function(&format!("lz4 stream decompress incremental {name}"), |b| {
+            b.iter(|| {
+                run_stream(
+                    lz4_stream::DecompressContext::incremental(None).unwrap(),
+                    &compressed,
+                    lz4_stream::DecompressContext::transform,
+                    lz4_stream::DecompressContext::finish,
+                )
+            })
+        });
+    }
 
-    c.bench_function("lz4 compress patterned 10KB", |b| {
-        b.iter(|| compress(&p10k))
-    });
-    c.bench_function("lz4 compress patterned 1MB", |b| b.iter(|| compress(&p1m)));
-    c.bench_function("lz4 compress random 10KB", |b| b.iter(|| compress(&r10k)));
-    c.bench_function("lz4 compress random 1MB", |b| b.iter(|| compress(&r1m)));
+    // Frames from other encoders, with other block sizes than lz4::compress
+    // writes: the `lz4` CLI declares 4 MB blocks by default, the reference
+    // LZ4 frame library 64 KB.
+    let json = json_84kb();
+    for (name, block_size) in [("4 MB", BlockSize::Max4MB), ("64 KB", BlockSize::Max64KB)] {
+        let frame_info = FrameInfo::new()
+            .block_size(block_size)
+            .content_checksum(true);
+        let mut encoder = FrameEncoder::with_frame_info(frame_info, Vec::new());
+        encoder.write_all(&json).unwrap();
+        let compressed = encoder.finish().unwrap();
+        c.bench_function(&format!("lz4 decompress json 84KB ({name} blocks)"), |b| {
+            b.iter(|| lz4::decompress(&compressed).unwrap())
+        });
+    }
 
-    c.bench_function("lz4 decompress patterned 10KB", |b| {
-        b.iter(|| decompress(&p10k_c))
-    });
-    c.bench_function("lz4 decompress patterned 1MB", |b| {
-        b.iter(|| decompress(&p1m_c))
-    });
-    c.bench_function("lz4 decompress random 10KB", |b| {
-        b.iter(|| decompress(&r10k_c))
-    });
-    c.bench_function("lz4 decompress random 1MB", |b| {
-        b.iter(|| decompress(&r1m_c))
+    // Baseline: lz4_flex alone. The difference is what comprs adds to
+    // decompression: sizing the output and enforcing the output limit.
+    let compressed = lz4::compress(&json_84kb()).unwrap();
+    c.bench_function("lz4 decompress json 84KB (upstream)", |b| {
+        b.iter(|| {
+            let mut output = Vec::new();
+            FrameDecoder::new(compressed.as_slice())
+                .read_to_end(&mut output)
+                .unwrap();
+            output
+        })
     });
 }
 

@@ -1,14 +1,3 @@
-const {
-  brotliCompress,
-  brotliDecompress,
-  gzipCompress,
-  gzipDecompress,
-  lz4Compress,
-  lz4Decompress,
-  zstdCompress,
-  zstdDecompress,
-} = await import('@derodero24/comprs');
-
 // --- Sample data ---
 const SAMPLES = {
   json: JSON.stringify(
@@ -57,8 +46,6 @@ const ALGOS = {
     levelDefault: 3,
     levelHint: '1 = fast, 22 = best ratio',
     ext: '.zst',
-    compress: (data, level) => zstdCompress(data, level),
-    decompress: (data) => zstdDecompress(data),
   },
   gzip: {
     label: 'gzip',
@@ -68,8 +55,6 @@ const ALGOS = {
     levelDefault: 6,
     levelHint: '0 = no compression, 9 = best ratio',
     ext: '.gz',
-    compress: (data, level) => gzipCompress(data, level),
-    decompress: (data) => gzipDecompress(data),
   },
   brotli: {
     label: 'brotli',
@@ -79,8 +64,6 @@ const ALGOS = {
     levelDefault: 6,
     levelHint: '0 = fast, 11 = best ratio',
     ext: '.br',
-    compress: (data, level) => brotliCompress(data, level),
-    decompress: (data) => brotliDecompress(data),
   },
   lz4: {
     label: 'lz4',
@@ -90,8 +73,6 @@ const ALGOS = {
     levelDefault: null,
     levelHint: null,
     ext: '.lz4',
-    compress: (data) => lz4Compress(data),
-    decompress: (data) => lz4Decompress(data),
   },
 };
 
@@ -99,9 +80,12 @@ const ALGOS = {
 let currentAlgo = 'zstd';
 let currentLevel = ALGOS.zstd.levelDefault;
 let currentInput = new Uint8Array(0);
-let currentCompressed = null;
+let currentCompressed = null; // { bytes, ext } of the latest result shown
 let currentFileName = 'input';
 let compareTimer = null;
+let busyTimer = null;
+let compressSeq = 0;
+let compareSeq = 0;
 
 // --- DOM refs ---
 const inputText = document.getElementById('input-text');
@@ -125,25 +109,72 @@ const fileError = document.getElementById('file-error');
 
 // --- Utilities ---
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes === 0) {
+    return '0 B';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function formatTime(ms) {
-  if (ms < 1) return `${(ms * 1000).toFixed(0)} µs`;
-  if (ms < 1000) return `${ms.toFixed(1)} ms`;
+  if (ms < 1) {
+    return `${(ms * 1000).toFixed(0)} µs`;
+  }
+  if (ms < 1000) {
+    return `${ms.toFixed(1)} ms`;
+  }
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-function compressData(algo, data, level) {
-  const cfg = ALGOS[algo];
-  const start = performance.now();
-  const compressed = cfg.levelMin !== null ? cfg.compress(data, level) : cfg.compress(data);
-  const elapsed = performance.now() - start;
-  return { compressed, elapsed };
+// --- Compression worker ---
+// The compressors run in worker.js, so that large inputs and high levels do
+// not freeze the page. A request cannot be stopped once the worker has it, so
+// the page sends one at a time and keeps only the latest waiting request of
+// each kind: the selected algorithm ('compress') goes before the comparison
+// table ('compare'). A request superseded while it waits resolves to null.
+const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+const REQUEST_KINDS = ['compress', 'compare'];
+const waiting = new Map();
+let workerReady = false;
+let inFlight = null;
+
+/** Compress `input` once per { algo, level } of `runs`, in the worker. */
+function runInWorker(kind, input, runs) {
+  waiting.get(kind)?.resolve(null);
+  return new Promise((resolve) => {
+    waiting.set(kind, { input, runs, resolve });
+    sendNextRequest();
+  });
 }
+
+function sendNextRequest() {
+  const kind = REQUEST_KINDS.find((k) => waiting.has(k));
+  if (!workerReady || inFlight || !kind) {
+    return;
+  }
+  const { input, runs, resolve } = waiting.get(kind);
+  waiting.delete(kind);
+  inFlight = resolve;
+  worker.postMessage({ input, runs });
+}
+
+worker.addEventListener('message', ({ data }) => {
+  if (data.ready) {
+    workerReady = true;
+    onWorkerReady();
+  } else {
+    const resolve = inFlight;
+    inFlight = null;
+    resolve(data.results);
+  }
+  sendNextRequest();
+});
+worker.addEventListener('error', (event) => onWorkerError(event.message));
 
 // --- Algorithm selector ---
 function setAlgo(algo) {
@@ -169,11 +200,17 @@ function setAlgo(algo) {
 
   downloadExtEl.textContent = cfg.ext;
 
-  compress();
+  void compress();
 }
 
 // --- Compress ---
-function compress() {
+// Callers start compress() without waiting for it, with `void`: it never
+// rejects, as the worker answers a failed run with its error, and the
+// latest call alone shows its result.
+async function compress() {
+  const seq = ++compressSeq;
+  clearTimeout(busyTimer);
+
   if (currentInput.length === 0) {
     originalSizeEl.textContent = '—';
     compressedSizeEl.textContent = '—';
@@ -181,16 +218,30 @@ function compress() {
     compressTimeEl.textContent = '';
     downloadBtn.hidden = true;
     currentCompressed = null;
+    scheduleCompare();
     return;
   }
 
-  try {
-    const { compressed, elapsed } = compressData(currentAlgo, currentInput, currentLevel);
-    currentCompressed = compressed;
+  const input = currentInput;
+  const cfg = ALGOS[currentAlgo];
+  const level = cfg.levelMin !== null ? currentLevel : undefined;
+  busyTimer = setTimeout(() => {
+    compressTimeEl.textContent = 'Compressing\u2026';
+  }, 100);
+  const results = await runInWorker('compress', input, [{ algo: currentAlgo, level }]);
+  // Show only the result of the latest call.
+  if (seq !== compressSeq) {
+    return;
+  }
+  clearTimeout(busyTimer);
 
-    const ratio = (1 - compressed.length / currentInput.length) * 100;
+  const [{ compressed, elapsed, error }] = results;
+  if (error === undefined) {
+    currentCompressed = { bytes: compressed, ext: cfg.ext };
 
-    originalSizeEl.textContent = formatBytes(currentInput.length);
+    const ratio = (1 - compressed.length / input.length) * 100;
+
+    originalSizeEl.textContent = formatBytes(input.length);
     compressedSizeEl.textContent = formatBytes(compressed.length);
     if (ratio >= 0) {
       compressionRatioEl.textContent = `${ratio.toFixed(1)}% smaller`;
@@ -201,9 +252,10 @@ function compress() {
     }
     compressTimeEl.textContent = formatTime(elapsed);
     downloadBtn.hidden = false;
-  } catch (err) {
+  } else {
     compressedSizeEl.textContent = 'Error';
-    compressionRatioEl.textContent = err.message;
+    compressionRatioEl.textContent = error;
+    compressTimeEl.textContent = '';
     downloadBtn.hidden = true;
     currentCompressed = null;
   }
@@ -217,25 +269,31 @@ function scheduleCompare() {
   compareTimer = setTimeout(runCompare, 200);
 }
 
-function runCompare() {
+async function runCompare() {
+  const seq = ++compareSeq;
+
   if (currentInput.length === 0) {
     compareTable.innerHTML =
       '<div class="compare-placeholder">Enter some text above to see comparisons.</div>';
     return;
   }
 
-  const results = [];
-
-  for (const [key, cfg] of Object.entries(ALGOS)) {
-    try {
-      const level = cfg.levelDefault;
-      const { compressed, elapsed } = compressData(key, currentInput, level);
-      const ratio = (1 - compressed.length / currentInput.length) * 100;
-      results.push({ key, cfg, compressed, elapsed, ratio });
-    } catch {
-      results.push({ key, cfg, compressed: null, elapsed: 0, ratio: 0, error: true });
-    }
+  const input = currentInput;
+  const algos = Object.entries(ALGOS);
+  const runs = algos.map(([algo, cfg]) => ({ algo, level: cfg.levelDefault ?? undefined }));
+  const outcomes = await runInWorker('compare', input, runs);
+  if (seq !== compareSeq) {
+    return;
   }
+
+  const results = algos.map(([key, cfg], i) => {
+    const { compressed, elapsed, error } = outcomes[i];
+    if (error !== undefined) {
+      return { key, cfg, compressed: null, elapsed: 0, ratio: 0, error: true };
+    }
+    const ratio = (1 - compressed.length / input.length) * 100;
+    return { key, cfg, compressed, elapsed, ratio };
+  });
 
   const maxRatio = Math.max(...results.map((r) => r.ratio));
   const fastestIdx = results.reduce(
@@ -302,7 +360,7 @@ function onInputChange() {
   currentInput = new TextEncoder().encode(text);
   currentFileName = 'input';
   inputSizeEl.textContent = formatBytes(currentInput.length);
-  compress();
+  void compress();
 }
 
 // --- Sample data ---
@@ -322,7 +380,11 @@ for (const btn of sampleBtns) {
 // --- File upload ---
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
-  if (!file) return;
+  if (!file) {
+    return;
+  }
+  // Clear the selection so that picking the same file again fires `change`; `file` stays readable.
+  fileInput.value = '';
 
   if (file.size > 10 * 1024 * 1024) {
     fileError.textContent = 'File exceeds the 10 MB limit. Please use a smaller file.';
@@ -330,7 +392,6 @@ fileInput.addEventListener('change', (e) => {
     setTimeout(() => {
       fileError.hidden = true;
     }, 5000);
-    fileInput.value = '';
     return;
   }
 
@@ -346,7 +407,6 @@ fileInput.addEventListener('change', (e) => {
     setTimeout(() => {
       fileError.hidden = true;
     }, 5000);
-    fileInput.value = '';
   };
   reader.onload = (ev) => {
     const bytes = new Uint8Array(ev.target.result);
@@ -359,7 +419,7 @@ fileInput.addEventListener('change', (e) => {
     }
 
     inputSizeEl.textContent = formatBytes(currentInput.length);
-    compress();
+    void compress();
   };
   reader.readAsArrayBuffer(file);
 });
@@ -373,17 +433,19 @@ for (const btn of algoBtns) {
 levelSlider.addEventListener('input', () => {
   currentLevel = Number(levelSlider.value);
   levelDisplay.textContent = currentLevel;
-  compress();
+  void compress();
 });
 
 // --- Download ---
 downloadBtn.addEventListener('click', () => {
-  if (!currentCompressed) return;
-  const blob = new Blob([currentCompressed], { type: 'application/octet-stream' });
+  if (!currentCompressed) {
+    return;
+  }
+  const blob = new Blob([currentCompressed.bytes], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${currentFileName}${ALGOS[currentAlgo].ext}`;
+  a.download = `${currentFileName}${currentCompressed.ext}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
@@ -392,39 +454,9 @@ downloadBtn.addEventListener('click', () => {
 inputText.addEventListener('input', onInputChange);
 
 // --- Init ---
-function init() {
-  const loadingText = loadingOverlay.querySelector('.loading-text');
+const loadingText = loadingOverlay.querySelector('.loading-text');
 
-  // WASM uses SharedArrayBuffer (threading), which requires Cross-Origin Isolation.
-  // The COI service worker auto-reloads the page to establish isolation on first visit.
-  // If the reload hasn't happened yet, wait rather than failing immediately.
-  if (!crossOriginIsolated) {
-    loadingText.textContent = 'Enabling security features\u2026 the page will reload shortly.';
-    setTimeout(() => {
-      if (!crossOriginIsolated) {
-        loadingText.textContent =
-          'Could not establish Cross-Origin Isolation. Please reload the page.';
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = 'Reload';
-        btn.className = 'loading-reload-btn';
-        btn.addEventListener('click', () => location.reload());
-        loadingText.after(btn);
-      }
-    }, 3000);
-    return;
-  }
-
-  // Test that WASM loaded correctly
-  try {
-    const test = new TextEncoder().encode('test');
-    zstdCompress(test);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    loadingText.textContent = `Failed to initialize WASM (${msg}). Try reloading, or use Chrome, Firefox, Edge, or Safari 16.4+.`;
-    return;
-  }
-
+function onWorkerReady() {
   loadingOverlay.classList.add('hidden');
 
   // Load JSON sample by default
@@ -438,4 +470,35 @@ function init() {
   inputText.scrollTop = 0;
 }
 
-init();
+function onWorkerError(message) {
+  const detail = message ? ` (${message})` : '';
+  loadingText.textContent = `Failed to load the WebAssembly module${detail}. Try reloading, or use a recent version of Chrome, Edge, Firefox, or Safari.`;
+  loadingOverlay.classList.remove('hidden');
+  if (!loadingText.nextElementSibling) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Reload';
+    btn.className = 'loading-reload-btn';
+    btn.addEventListener('click', () => location.reload());
+    loadingText.after(btn);
+  }
+}
+
+// Earlier versions of the playground registered coi-serviceworker.js for
+// cross-origin isolation, which the WebAssembly build does not need.
+// Unregister it for returning visitors, so that it stops intercepting
+// requests. Other service workers of the origin are left alone.
+const staleWorkerUrl = new URL(`${import.meta.env.BASE_URL}coi-serviceworker.js`, location.origin)
+  .href;
+navigator.serviceWorker
+  ?.getRegistrations()
+  .then((registrations) => {
+    for (const registration of registrations) {
+      const sw = registration.active ?? registration.waiting ?? registration.installing;
+      if (sw?.scriptURL === staleWorkerUrl) {
+        registration.unregister();
+      }
+    }
+  })
+  // Service workers can be unavailable, as in some private windows.
+  .catch(() => {});

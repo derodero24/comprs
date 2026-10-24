@@ -1,16 +1,25 @@
 [package]
 name = "comprs-core"
-version = "2.0.2"
+version = "2.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [lib]
 crate-type = ["lib"]
 
 [features]
 default = []
-zstdmt = ["zstd/zstdmt"]
+# Builds libzstd with multi-threading, so that zstd can compress on worker
+# threads (zstd::WORKERS). Without it, only 0 workers are accepted.
+# zstd/experimental binds ZSTD_getFrameProgression, which tells a stream
+# with workers when no job is in progress: zstd can measure the workers'
+# memory only then. It changes no code path that comprs-core takes; in the
+# zstd crate, it only lets zstd::bulk::Decompressor bound its output by the
+# frame headers.
+zstdmt = ["zstd/zstdmt", "zstd/experimental"]
 
 [dependencies]
 brotli = { workspace = true }
@@ -18,4 +27,8 @@ zstd = { workspace = true }
 flate2 = { workspace = true }
 lz4_flex = { workspace = true }
 crc32fast = { workspace = true }
+twox-hash = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }

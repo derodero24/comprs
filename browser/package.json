@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "sideEffects": [
+    "./index.js",
+    "./streams.js",
+    "./wasm.js",
+    "./next/browser.js",
+    "./next/wasm.js"
+  ]
+}

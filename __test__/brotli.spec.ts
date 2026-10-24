@@ -1,6 +1,12 @@
-import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { brotliCompress, brotliDecompress, brotliDecompressWithCapacity } from '../index.js';
+import {
+  BrotliDecompressContext,
+  brotliCompress,
+  brotliDecompress,
+  brotliDecompressWithCapacity,
+  decompress,
+} from '../index.js';
 import { createBrotliCompressStream, createBrotliDecompressStream } from '../streams.js';
 
 /** Collect all chunks from a ReadableStream into a single Buffer. */
@@ -9,7 +15,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   const reader = stream.getReader();
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -56,7 +64,7 @@ describe('brotliCompress / brotliDecompress', () => {
     expect(decompressed).toEqual(input);
   });
 
-  it('should round-trip 1MB of data', { timeout: 30_000 }, () => {
+  it('should round-trip 1MB of data', () => {
     const input = Buffer.alloc(1024 * 1024);
     for (let i = 0; i < input.length; i++) {
       input[i] = i % 256;
@@ -96,7 +104,7 @@ describe('brotliCompress / brotliDecompress', () => {
 
   it('should throw on quality > 11', () => {
     const input = Buffer.from('test');
-    expect(() => brotliCompress(input, 12)).toThrow(/quality must be between 0 and 11/);
+    expect(() => brotliCompress(input, 12)).toThrow(/quality must be an integer between 0 and 11/);
   });
 });
 
@@ -120,19 +128,19 @@ describe('brotliDecompressWithCapacity', () => {
 
   it('should throw with negative capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, -1)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with NaN capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, NaN)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
   it('should throw with Infinity capacity', () => {
     expect(() => brotliDecompressWithCapacity(compressed, Infinity)).toThrow(
-      /capacity must be a non-negative integer/,
+      /capacity must be an integer between 0 and 9007199254740991/,
     );
   });
 
@@ -157,6 +165,27 @@ describe('brotli interop with Node.js zlib', () => {
     const compressed = brotliCompressSync(data);
     const decompressed = brotliDecompress(compressed);
     expect(Buffer.compare(decompressed, data)).toBe(0);
+  });
+
+  it('should reject Large Window Brotli streams like Node.js zlib', async () => {
+    // RFC 7932 decoders reject this extension; decoding it would reserve a
+    // ring buffer of the declared window, here 1 GiB, whatever the limit.
+    const largeWindow = brotliCompressSync(data, {
+      params: {
+        [constants.BROTLI_PARAM_LARGE_WINDOW]: 1,
+        [constants.BROTLI_PARAM_LGWIN]: 30,
+      },
+    });
+    expect(() => brotliDecompressSync(largeWindow)).toThrow();
+
+    const message = 'large-window brotli streams are not supported';
+    expect(() => brotliDecompress(largeWindow)).toThrow(message);
+    expect(() => brotliDecompressWithCapacity(largeWindow, 1024)).toThrow(message);
+    expect(() => decompress(largeWindow)).toThrow();
+    expect(() => new BrotliDecompressContext().transform(largeWindow)).toThrow('Invalid Data');
+    await expect(
+      collectStream(toChunkedStream(largeWindow, 1).pipeThrough(createBrotliDecompressStream())),
+    ).rejects.toThrow('Invalid Data');
   });
 });
 
@@ -197,6 +226,24 @@ describe('createBrotliCompressStream', () => {
     const decompressed = brotliDecompress(compressed);
     expect(decompressed.length).toBe(0);
   });
+
+  // At qualities 0 and 1, the encoder compresses the input of each call on
+  // its own; the stream passes it 64 KiB at a time (#731).
+  it.each([0, 1])(
+    'should give the same output however the input is split into chunks at quality %i',
+    async (quality) => {
+      const input = Buffer.from('The quick brown fox jumps over the lazy dog. '.repeat(3000));
+      const compress = (chunkSize: number): Promise<Buffer> =>
+        collectStream(
+          toChunkedStream(input, chunkSize).pipeThrough(createBrotliCompressStream(quality)),
+        );
+      const whole = await compress(input.length);
+      for (const chunkSize of [100, 1000, 70_000]) {
+        expect(await compress(chunkSize)).toStrictEqual(whole);
+      }
+      expect(brotliDecompress(whole)).toStrictEqual(input);
+    },
+  );
 });
 
 describe('createBrotliDecompressStream', () => {
@@ -235,7 +282,9 @@ describe('brotli streaming round-trip', () => {
 
   it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const stream = toChunkedStream(large, 64 * 1024);
 
     const result = await collectStream(

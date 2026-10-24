@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import * as zlib from 'node:zlib';
 import {
   brotliCompressSync,
@@ -11,16 +13,39 @@ import { describe, expect, it } from 'vitest';
 import {
   brotliCompress,
   brotliDecompress,
+  DeflateCompressContext,
   deflateCompress,
   deflateDecompress,
+  GzipCompressContext,
   gzipCompress,
   gzipDecompress,
+  Lz4CompressContext,
+  lz4Compress,
+  lz4Decompress,
   zstdCompress,
   zstdDecompress,
 } from '../index.js';
 
 // Check if zstd is available in current Node.js version (22.15+)
 const zstdAvailable = 'zstdCompressSync' in zlib;
+
+/**
+ * node:zlib options that decode the start of a stream as far as it goes, as
+ * the client of a flushed stream does.
+ */
+const SYNC_FLUSH = { finishFlush: zlib.constants.Z_SYNC_FLUSH };
+
+// The reference LZ4 implementation, where its CLI is installed
+const lz4CliAvailable = spawnSync('lz4', ['--version']).status === 0;
+
+/** Run the `lz4` CLI with `args`, feeding it `input` on stdin. */
+function lz4Cli(args: string[], input: Uint8Array): Buffer {
+  const result = spawnSync('lz4', args, { input });
+  if (result.status !== 0) {
+    throw new Error(`lz4 ${args.join(' ')} exited with ${result.status}: ${result.stderr}`);
+  }
+  return result.stdout;
+}
 
 describe('brotli Node.js zlib interop', () => {
   const testData = Buffer.from('Hello, interop testing with brotli compression!'.repeat(10));
@@ -78,6 +103,20 @@ describe('gzip Node.js zlib interop', () => {
     }
   });
 
+  it('node:zlib should decode the output of flush() to all the input so far', () => {
+    // Random input can leave the encoder's output buffer nearly full, and
+    // flush() used to stop there, up to about 16 KiB short (#701).
+    const data = randomBytes(64 * 1024);
+    for (const level of [0, 1, 2, 6, 9]) {
+      const ctx = new GzipCompressContext(level);
+      const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
+      const decompressed = gunzipSync(flushed, SYNC_FLUSH);
+      expect(decompressed.length, `level ${level}`).toBe(data.length);
+      expect(decompressed.equals(data), `level ${level}`).toBe(true);
+      ctx.close();
+    }
+  });
+
   it('should round-trip through both implementations', () => {
     const step1 = gzipCompress(testData);
     const step2 = gunzipSync(step1);
@@ -107,6 +146,18 @@ describe('deflate Node.js zlib interop', () => {
       const compressed = deflateCompress(testData, level);
       const decompressed = inflateRawSync(compressed);
       expect(Buffer.from(decompressed)).toEqual(testData);
+    }
+  });
+
+  it('node:zlib should decode the output of flush() to all the input so far', () => {
+    const data = randomBytes(64 * 1024);
+    for (const level of [0, 1, 2, 6, 9]) {
+      const ctx = new DeflateCompressContext(level);
+      const flushed = Buffer.concat([ctx.transform(data), ctx.flush()]);
+      const decompressed = inflateRawSync(flushed, SYNC_FLUSH);
+      expect(decompressed.length, `level ${level}`).toBe(data.length);
+      expect(decompressed.equals(data), `level ${level}`).toBe(true);
+      ctx.close();
     }
   });
 
@@ -152,6 +203,36 @@ describe.skipIf(!zstdAvailable)('zstd Node.js zlib interop', () => {
     const step3 = zlibWithZstd.zstdCompressSync(step2);
     const step4 = zstdDecompress(Buffer.from(step3));
     expect(Buffer.from(step4)).toEqual(testData);
+  });
+});
+
+describe.skipIf(!lz4CliAvailable)('lz4 CLI interop', () => {
+  // Over 256 KiB, so that frames hold several blocks: lz4Compress() writes
+  // 256 KiB blocks for it, Lz4CompressContext and `lz4 -B4` 64 KB blocks.
+  const testData = Buffer.from('Hello, interop testing with lz4 compression! '.repeat(8000));
+
+  it('comprs lz4 output should be decompressible by the lz4 CLI', () => {
+    expect(lz4Cli(['-d', '-c'], lz4Compress(testData))).toEqual(testData);
+
+    const ctx = new Lz4CompressContext();
+    const streamed = Buffer.concat([ctx.transform(testData), ctx.flush(), ctx.finish()]);
+    expect(lz4Cli(['-d', '-c'], streamed)).toEqual(testData);
+  });
+
+  it('lz4 CLI output should be decompressible by comprs', () => {
+    // The default frame, a frame without checksums, linked 64 KB blocks with
+    // block checksums, and a legacy frame.
+    for (const args of [[], ['--no-frame-crc'], ['-B4', '-BD', '-BX'], ['-l']]) {
+      expect(lz4Decompress(lz4Cli(['-c', ...args], testData))).toEqual(testData);
+    }
+  });
+
+  it('should decode concatenated frames like the lz4 CLI', () => {
+    const input = Buffer.concat([
+      lz4Compress(testData),
+      lz4Cli(['-c', '--no-frame-crc'], Buffer.from('second frame')),
+    ]);
+    expect(lz4Decompress(input)).toEqual(lz4Cli(['-d', '-c'], input));
   });
 });
 

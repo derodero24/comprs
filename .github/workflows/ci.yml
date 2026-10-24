@@ -1,5 +1,13 @@
 name: CI
 
+# CI checks the files that it builds, tests, checks or installs with (pushes
+# to develop leave out the playground and some files that only the lint jobs
+# check; see the changes job). That includes .gitignore, whose files Biome
+# skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
+# through its prepare script (lefthook install), and README.md, which the
+# package includes and the benchmark smoke test parses
+# (scripts/bench-report.mjs fails when its bench markers are missing or
+# duplicated).
 on:
   push:
     branches: [develop]
@@ -8,59 +16,66 @@ on:
       - '__test__/**'
       - 'e2e/**'
       - 'package.json'
+      - 'README.md'
       - 'pnpm-lock.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'tsconfig.json'
+      - 'tsconfig*.json'
       - 'biome.json'
+      - '.gitignore'
+      - 'commitlint.config.ts'
+      - 'lefthook.yml'
       - '.github/workflows/ci.yml'
       - 'deny.toml'
       - 'vitest.config.mts'
       - 'codecov.yml'
-      - 'browser-entry.js'
-      - 'browser-streaming.js'
+      - 'browser/**'
+      - 'src/**'
       - 'streams.js'
       - 'streams.d.ts'
+      - 'index.js'
+      - 'index.d.ts'
       - 'index.mjs'
       - 'index.d.mts'
       - 'node.js'
       - 'node.d.ts'
+      - 'next/**'
       - 'scripts/**'
-      - 'playwright.config.ts'
       - 'packages/**'
       - 'pnpm-workspace.yaml'
+      - 'npm/**'
+      - '.cargo/**'
+      - 'rust-toolchain*'
+      - '.nvmrc'
+      - '.github/workflows/build.yml'
+      - '.github/workflows/release.yml'
+  # Pull requests run CI whatever their base branch, so stacked PRs (based on
+  # another PR's branch) and PRs into main are checked too. Every pull request
+  # starts the workflow, so that CI Complete, the required check, reports on
+  # each of them; the changes job decides whether the other jobs run (see
+  # CI_PATHS there). Its list also names files that the push list leaves out,
+  # so that a change to them is checked before it is merged: every workflow,
+  # which Workflow Lint checks, the playground, which the playground job
+  # builds, and the chart images and the configuration files that Biome
+  # checks. Pushes to develop leave these out, apart from the workflows that
+  # CI calls or mirrors, so that a merge that changes only those does not run
+  # the full matrix; playground.yml builds the playground on such a push when
+  # it deploys it.
   pull_request:
-    branches: [develop]
-    paths:
-      - 'crates/**'
-      - '__test__/**'
-      - 'e2e/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'tsconfig.json'
-      - 'biome.json'
-      - '.github/workflows/ci.yml'
-      - 'deny.toml'
-      - 'vitest.config.mts'
-      - 'codecov.yml'
-      - 'browser-entry.js'
-      - 'browser-streaming.js'
-      - 'streams.js'
-      - 'streams.d.ts'
-      - 'index.mjs'
-      - 'index.d.mts'
-      - 'node.js'
-      - 'node.d.ts'
-      - 'scripts/**'
-      - 'playwright.config.ts'
-      - 'packages/**'
-      - 'pnpm-workspace.yaml'
+  # Maintainers can run CI on any branch from the Actions tab, such as the
+  # branch of the Version Packages pull request, which changesets/action opens
+  # with GITHUB_TOKEN and which therefore starts no workflow on its own
+  # (#574). release.yml will dispatch it on the bot pull requests.
+  workflow_dispatch:
 
+# A newer push to a pull request cancels its running CI. Dispatched runs group
+# per branch in the same way, so a newer dispatch replaces the running one.
+# Pushes to develop get a group per commit instead: sharing one group would
+# still replace a pending run with the next one, so a burst of merges would
+# leave commits untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -69,12 +84,16 @@ jobs:
   changes:
     name: Detect native changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
+      ci: ${{ steps.filter.outputs.ci }}
       native: ${{ steps.filter.outputs.native }}
-      build_settings: ${{ steps.filter.outputs.build_settings }}
+      build_targets: ${{ steps.filter.outputs.build_targets }}
       test_matrix: ${{ steps.filter.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Decide which build and test matrix to run
         id: filter
         env:
@@ -82,63 +101,105 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
         run: |
-          # Pushes to develop always run the full matrix. Pull requests run it
-          # only when something that ends up in the native binary changed;
-          # JS-only or lockfile-only PRs build and test on Linux alone.
+          # Pull requests that change none of CI_PATHS, such as those that
+          # only add a changeset or edit documentation, skip every other job;
+          # CI Complete then passes on its own. Pushes to develop, which the
+          # push paths above already filter, and dispatched runs check
+          # everything. CI_PATHS holds the files that the pull_request
+          # trigger used to list as paths, as extended regular expressions
+          # on the paths from the repository root.
+          CI_PATHS=(
+            '^crates/' '^__test__/' '^e2e/' '^browser/' '^src/' '^next/'
+            '^scripts/' '^packages/' '^npm/' '^\.cargo/' '^playground/'
+            '^\.devcontainer/' '^\.github/assets/' '^\.github/workflows/'
+            '^package\.json$' '^pnpm-lock\.yaml$' '^pnpm-workspace\.yaml$'
+            '^README\.md$' '^Cargo\.toml$' '^Cargo\.lock$' '^deny\.toml$'
+            '^rust-toolchain' '^\.nvmrc$' '^tsconfig[^/]*\.json$'
+            '^biome\.json$' '^\.gitignore$' '^commitlint\.config\.ts$'
+            '^lefthook\.yml$' '^vitest\.config\.mts$' '^codecov\.yml$'
+            '^renovate\.json$' '^\.changeset/config\.json$'
+            '^(streams|node|index)\.(js|d\.ts)$' '^index\.(mjs|d\.mts)$'
+          )
+          ci=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            changed=$(git -c core.quotePath=false diff --name-only "$BASE_SHA" "$HEAD_SHA")
+            if ! grep -qEf <(printf '%s\n' "${CI_PATHS[@]}") <<< "$changed"; then
+              ci=false
+            fi
+          fi
+          echo "ci=$ci" >> "$GITHUB_OUTPUT"
+          echo "ci=$ci"
+
+          # Pushes to develop and dispatched runs always run the full matrix.
+          # Pull requests run it only when something that ends up in the
+          # native binary or in the release packaging changed; JS-only PRs and
+          # most dependency updates build and test on Linux alone.
           native=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
-            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
-              | grep -qE '^(crates/|npm/|scripts/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/ci\.yml$)'; then
+            if ! git -c core.quotePath=false diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+              | grep -qE '^(crates/|npm/|scripts/|\.cargo/|Cargo\.toml$|Cargo\.lock$|rust-toolchain|\.github/workflows/(build|ci|release)\.yml$)'; then
               native=false
+            fi
+            # The napi-rs toolchain (@napi-rs/cli and the @napi-rs packages it
+            # uses) builds and packages every binary, so a changed line that
+            # names napi in the npm manifest, lockfile or workspace file counts
+            # as native too. Other dependency updates in those files stay on
+            # Linux; develop runs the full matrix once they are merged. The
+            # diff is captured before grep -q reads it: grep -q stops at the
+            # first match, and under pipefail the git diff it cut off would
+            # turn that match into a miss.
+            manifest_diff=$(git diff -U0 "$BASE_SHA" "$HEAD_SHA" -- package.json pnpm-lock.yaml pnpm-workspace.yaml)
+            if grep -qE '^[-+].*\bnapi\b' <<< "$manifest_diff"; then
+              native=true
             fi
           fi
           echo "native=$native" >> "$GITHUB_OUTPUT"
+          # build_targets selects the targets of build.yml; empty builds them
+          # all. The test matrix loads each binary on its own platform: under
+          # Node.js 22 and 24 for x64 Linux, Apple Silicon macOS and x64
+          # Windows, and under Node.js 22, the oldest supported version, for
+          # the other targets. The musl legs test in an Alpine Linux container
+          # (see the test job).
           if [ "$native" = "true" ]; then
-            build_settings='[
-              {"host":"macos-latest","target":"x86_64-apple-darwin"},
-              {"host":"macos-latest","target":"aarch64-apple-darwin"},
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-musl"},
-              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"aarch64-unknown-linux-musl"},
-              {"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
-              {"host":"windows-latest","target":"aarch64-pc-windows-msvc"},
-              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
-            ]'
-            test_matrix='{
-              "node":[22,24],
-              "os":["ubuntu-latest","macos-latest","windows-latest"],
-              "include":[
-                {"os":"ubuntu-latest","artifact":"bindings-x86_64-unknown-linux-gnu"},
-                {"os":"macos-latest","artifact":"bindings-aarch64-apple-darwin"},
-                {"os":"windows-latest","artifact":"bindings-x86_64-pc-windows-msvc"}
-              ]
-            }'
+            build_targets=''
+            test_matrix='{"include":[
+              {"node":22,"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+              {"node":24,"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+              {"node":22,"host":"macos-latest","target":"aarch64-apple-darwin"},
+              {"node":24,"host":"macos-latest","target":"aarch64-apple-darwin"},
+              {"node":22,"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
+              {"node":24,"host":"windows-latest","target":"x86_64-pc-windows-msvc"},
+              {"node":22,"host":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu"},
+              {"node":22,"host":"ubuntu-latest","target":"x86_64-unknown-linux-musl","alpine":true},
+              {"node":22,"host":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-musl","alpine":true},
+              {"node":22,"host":"macos-26-intel","target":"x86_64-apple-darwin"},
+              {"node":22,"host":"windows-11-arm","target":"aarch64-pc-windows-msvc"}
+            ]}'
           else
-            build_settings='[
-              {"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
-              {"host":"ubuntu-latest","target":"wasm32-wasip1-threads"}
-            ]'
-            test_matrix='{
-              "node":[22,24],
-              "os":["ubuntu-latest"],
-              "include":[
-                {"os":"ubuntu-latest","artifact":"bindings-x86_64-unknown-linux-gnu"}
-              ]
-            }'
+            build_targets='["x86_64-unknown-linux-gnu"]'
+            test_matrix='{"include":[
+              {"node":22,"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+              {"node":24,"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}
+            ]}'
           fi
-          echo "build_settings=$(echo "$build_settings" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "build_targets=$build_targets" >> "$GITHUB_OUTPUT"
           echo "test_matrix=$(echo "$test_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
           echo "native=$native"
 
   lint:
     name: Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -149,30 +210,113 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm run build
-      - name: Verify generated binding files are up to date
-        run: git diff --exit-code index.js index.d.ts
+      # pnpm run build writes the napi-rs bindings (index.js and index.d.ts),
+      # and pnpm run build:js the modules compiled from src/ and their
+      # declarations. All of them are tracked, so both commands must leave
+      # the working tree as it was committed, with no new file.
+      - name: Verify generated files are up to date
+        run: |
+          pnpm run build:js
+          status=0
+          git diff --exit-code || status=1
+          test -z "$(git status --porcelain --untracked-files=all)" || status=1
+          if [ "$status" -ne 0 ]; then
+            git status --short --untracked-files=all
+            echo "::error::Generated files are out of date: run 'pnpm run build' and 'pnpm run build:js', and commit what they change."
+            exit 1
+          fi
+      # Type-checks the packed package from strict ES module and CommonJS
+      # consumer projects, with TypeScript 7 and 5.9 (#566).
+      - name: Consumer type check
+        run: pnpm run test:types
       - run: pnpm run typecheck
       - name: Middleware typecheck
         run: pnpm --filter @derodero24/comprs-middleware typecheck
       - run: pnpm run publint
       - name: Validate TypeScript type resolution
         run: pnpm run attw
+      - name: Middleware build
+        run: pnpm --filter @derodero24/comprs-middleware build
+      - name: Middleware publint
+        run: pnpm --filter @derodero24/comprs-middleware publint
+      # The middleware's attw script skips two checks. node10 resolution does
+      # not read exports, so it cannot find the subpaths, and TypeScript 7
+      # has removed it. cjs-resolves-to-esm flags require() of an ES module,
+      # which Node.js 22.12 and TypeScript 5.8 (module nodenext) accept;
+      # packages/middleware/__test__/package.spec.ts checks it instead.
+      - name: Validate middleware TypeScript type resolution
+        run: pnpm --filter @derodero24/comprs-middleware attw
+
+  # actionlint checks the workflows: their syntax, expressions and contexts,
+  # the inputs of the actions they use, and, with shellcheck, their run:
+  # scripts. Parts of release.yml run only during a release, so a mistake
+  # there would otherwise surface only then. The job downloads actionlint's
+  # release binary and checks its SHA-256, rather than running its Docker
+  # image, which comes from Docker Hub, whose pull limit for anonymous users
+  # can fail a job (#664). To update actionlint, take the hash of the
+  # linux_amd64 archive from the checksums file of the release. shellcheck
+  # is pinned too, as a newer version can report new findings.
+  workflow-lint:
+    name: Workflow Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install shellcheck
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          # renovate: datasource=github-releases depName=koalaman/shellcheck extractVersion=^v(?<version>.+)$
+          tool: shellcheck@0.11.0
+      - name: Install actionlint
+        env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+      # actionlint skips the shellcheck checks without a word when it cannot
+      # run shellcheck, so the step first makes sure that it can.
+      - name: Lint the workflows
+        run: |
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint" -color
 
   audit:
     name: Dependency Audit
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Audit npm dependencies
         run: pnpm audit --prod
+      # A binary rather than EmbarkStudios/cargo-deny-action, a Docker
+      # container action that builds its image from Docker Hub on every run,
+      # where the pull limit for anonymous users can fail it (#664). The
+      # command is the one that the action ran by default.
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-deny
       - name: Audit Rust dependencies
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        run: cargo deny --log-level warn --all-features check
       - name: Install cargo-audit
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
@@ -185,163 +329,126 @@ jobs:
           tool: cargo-shear
       - name: Detect unused dependencies
         run: cargo shear
+      # zlib-rs detects SSE4.2, AVX2, PCLMULQDQ and the aarch64 CRC
+      # instructions at run time only with its std feature, which flate2
+      # turns on through runtime_detection. Without it zlib-rs falls back to
+      # scalar CRC-32 and match finding, and gzip and deflate run up to 3x
+      # slower (#509).
+      - name: Check that zlib-rs keeps run-time CPU detection
+        run: |
+          # Captured first, so grep -q exiting early cannot fail cargo tree
+          # with SIGPIPE when the shell runs with pipefail.
+          tree=$(cargo tree -p comprs -e features -i zlib-rs --locked)
+          grep -q 'zlib-rs feature "std"' <<<"$tree" || { echo '::error file=Cargo.toml::flate2 no longer enables zlib-rs/std; gzip and deflate lose SIMD (#509)'; exit 1; }
 
   rust-lint:
     name: Rust Lint
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
-      - run: cargo clippy --all-targets -- -W clippy::all
+      # Any warning fails the job, rustc's as well as clippy's. A new stable
+      # Rust can bring new lints, so the job can fail without a change to the
+      # code: fix what it reports.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The same for rustdoc: a doc comment that links to an item that the
+      # documentation does not show, or that reads as HTML, such as `<name>`
+      # outside a code span, which the doc comments of napi-rs functions also
+      # bring into index.d.ts.
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   rust-test:
     name: Rust Test
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo test
+      # The workspace run builds comprs-core with the zstdmt feature, which
+      # crates/core and crates/bench enable for the whole build. Alone,
+      # comprs-core builds without it, as the WebAssembly build does: this
+      # run tests that such builds reject zstd workers.
+      - run: cargo test -p comprs-core
 
-  build:
-    name: Build - ${{ matrix.settings.target }}
+  # Checks the workspace with the oldest Rust it supports, the rust-version in
+  # Cargo.toml; the other jobs use the latest stable. Cargo refuses a
+  # dependency that declares a newer rust-version, so an update that raises
+  # the minimum fails here until rust-version is raised with it. The
+  # WebAssembly crate is checked for wasm32 too, where its dependencies differ.
+  # Each cargo call names the toolchain, so the job cannot pass on the stable
+  # toolchain that the runner image already has.
+  rust-msrv:
+    name: Rust MSRV
     needs: [changes]
-    runs-on: ${{ matrix.settings.host }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Full target list on pushes and native changes; Linux + WASI only
-        # for JS/lockfile-only pull requests (see the `changes` job).
-        settings: ${{ fromJSON(needs.changes.outputs.build_settings) }}
-
+    if: needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          persist-credentials: false
+      - name: Read rust-version from Cargo.toml
+        run: |
+          version=$(sed -n 's/^rust-version = "\([0-9.]*\)"$/\1/p' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error file=Cargo.toml::No rust-version in [workspace.package]"
+            exit 1
+          fi
+          echo "rust-version: $version"
+          echo "MSRV=$version" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: stable
-          targets: ${{ matrix.settings.target }}
+          toolchain: ${{ env.MSRV }}
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: build-${{ matrix.settings.target }}
-      - run: pnpm install --frozen-lockfile
+      - run: cargo +"$MSRV" check --workspace --all-targets --locked
+      - run: cargo +"$MSRV" check -p comprs-wasm --target wasm32-unknown-unknown --locked
 
-      # Linux cross-compilation setup
-      - name: Install cross-compilation tools (aarch64-gnu)
-        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-
-      - name: Install cross-compilation tools (x86_64-musl)
-        if: matrix.settings.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Install cross-compilation tools (aarch64-musl)
-        if: matrix.settings.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-
-      - name: Build native
-        if: matrix.settings.target != 'wasm32-wasip1-threads'
-        run: pnpm run build --target ${{ matrix.settings.target }}
-
-      - name: Setup WASI SDK
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          WASI_SDK_VERSION="25"
-          WASI_SDK_DIR="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux"
-          curl -fsSL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${WASI_SDK_DIR}.tar.gz" | tar xz -C "${RUNNER_TEMP}"
-          echo "WASI_SDK_PATH=${RUNNER_TEMP}/${WASI_SDK_DIR}" >> $GITHUB_ENV
-          echo "WASI_SYSROOT=${RUNNER_TEMP}/${WASI_SDK_DIR}/share/wasi-sysroot" >> $GITHUB_ENV
-          echo "CC_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/clang" >> $GITHUB_ENV
-          echo "AR_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/llvm-ar" >> $GITHUB_ENV
-
-      - name: Build WASM
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          export CFLAGS_wasm32_wasip1_threads="--sysroot=${WASI_SYSROOT}"
-          pnpm run build --target wasm32-wasip1-threads
-          node scripts/patch-wasi-browser-js.js
-
-      - name: Optimize WASM with wasm-opt
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          sudo apt-get update && sudo apt-get install -y binaryen
-          pnpm run optimize:wasm
-
-      - name: Report WASM binary size
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          WASM_FILE=$(ls comprs.*.wasm 2>/dev/null | head -1)
-          if [ -n "$WASM_FILE" ]; then
-            SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
-            SIZE_KB=$(( SIZE / 1024 ))
-            echo "### WASM Binary Size" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
-            echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-            echo "| $WASM_FILE | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
-            mkdir -p wasm-size-report
-            echo "$WASM_FILE" > wasm-size-report/file.txt
-            echo "$SIZE_KB" > wasm-size-report/size.txt
-          fi
-
-      - name: Upload WASM size report
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: wasm-size-report
-          path: wasm-size-report/
-          if-no-files-found: ignore
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: |
-            *.node
-            index.js
-            index.d.ts
-          if-no-files-found: ignore
-
-      - name: Upload WASM artifact
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bindings-wasm32
-          path: |
-            *.wasm
-            *.wasi.cjs
-            *.wasi.d.cts
-            *.wasi-browser.js
-            wasi-worker.mjs
-            wasi-worker-browser.mjs
-          if-no-files-found: ignore
+  # Builds the native binaries with build.yml, as release.yml does, so the
+  # test jobs load the binaries the release would publish.
+  build:
+    name: Build
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      # Every target on pushes and native changes; Linux x64 only for
+      # JS/lockfile-only pull requests (see the `changes` job).
+      targets: ${{ needs.changes.outputs.build_targets }}
+      cache: true
 
   build-wasm-bindgen:
     name: Build - wasm-bindgen
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -354,104 +461,257 @@ jobs:
           shared-key: wasm-bindgen
       - run: pnpm install --frozen-lockfile
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          # renovate: datasource=crate depName=wasm-pack versioning=semver
+          tool: wasm-pack@0.15.0
+          fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
+      # The files sit at the root of the artifact; the jobs that download it
+      # put them back into browser/.
       - name: Upload wasm-bindgen artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bindings-wasm-bindgen
           path: |
-            comprs-wasm.js
-            comprs-wasm_bg.js
-            comprs-wasm_bg.wasm
-            comprs-wasm.d.ts
-            comprs-wasm_bg.wasm.d.ts
+            browser/comprs-wasm.js
+            browser/comprs-wasm.d.ts
+            browser/comprs-wasm_bg.wasm
+          if-no-files-found: error
+      # Fails when the binary is over its size budget, after writing the
+      # report that the step summary and the PR comment show.
+      - name: Check WASM binary size
+        run: |
+          mkdir -p wasm-size-report
+          status=0
+          node scripts/wasm-size.mjs --markdown wasm-size-report/report.md || status=$?
+          cat wasm-size-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload WASM size report
+        if: ${{ !cancelled() && hashFiles('wasm-size-report/report.md') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: wasm-size-report
+          path: wasm-size-report/
           if-no-files-found: error
 
+  # Builds the playground with the commands with which playground.yml builds
+  # the site that it deploys from develop, on the WebAssembly build of
+  # build-wasm-bindgen. It is a job of its own so that a playground failure
+  # fails CI Complete without skipping the jobs that need build-wasm-bindgen.
+  playground:
+    name: Build playground
+    needs: [build-wasm-bindgen]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            playground/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # Before the playground install: the file:.. dependency installs the
+      # package with the files that exist at install time, and the playground
+      # build fails without the binary.
+      - name: Download wasm-bindgen bindings
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bindings-wasm-bindgen
+          path: browser
+      - name: Build playground
+        run: |
+          pnpm --dir playground install --frozen-lockfile
+          pnpm --dir playground run build
+
   test:
-    name: Test - Node ${{ matrix.node }} / ${{ matrix.os }}
+    name: Test - Node ${{ matrix.node }} / ${{ matrix.target }}
     needs: [changes, build]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
-      # 3 OS x 2 Node on pushes and native changes; Ubuntu x 2 Node otherwise
-      # (see the `changes` job).
+      # Every target on its own platform on pushes and native changes; Linux
+      # x64 alone otherwise (see the `changes` job).
       matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          persist-credentials: false
+      # On the macos-26-intel runner, setting up pnpm or Node.js has stalled
+      # until the job timed out, and GitHub kept no log of it. Each setup
+      # step gets a few minutes, which it normally needs seconds for, and
+      # one retry.
+      - id: setup-pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        timeout-minutes: 4
+        continue-on-error: true
+      - if: steps.setup-pnpm.outcome != 'success'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        timeout-minutes: 4
+      - id: setup-node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        timeout-minutes: 4
+        continue-on-error: true
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Download build artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - if: steps.setup-node.outcome != 'success'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        timeout-minutes: 4
         with:
-          name: ${{ matrix.artifact }}
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      # The Alpine Linux legs install the musl builds of the native
+      # dependencies, such as Vitest's bundler, for the container below.
+      - run: pnpm install --frozen-lockfile ${{ matrix.alpine && '--libc=musl' || '' }}
+      - name: Download build artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bindings-${{ matrix.target }}
           path: .
-      - run: pnpm test
+      - name: Run tests
+        if: ${{ !matrix.alpine }}
+        run: pnpm test
+      # On every Node.js version of the matrix, since engines allows Node.js
+      # 22: the package spec checks that require() loads the middleware.
       - name: Middleware tests
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: pnpm --filter @derodero24/comprs-middleware test
       - name: ESM import smoke test
+        if: ${{ !matrix.alpine }}
         run: node __test__/esm-import.mjs
+      # Runs every JS benchmark once, without warmup (BENCH_SMOKE in
+      # __test__/bench-fixtures.ts), so a change that breaks the benchmarks
+      # fails CI instead of the next `pnpm run bench`. bench:ci runs the
+      # benchmarks of comprs alone; scripts/bench-report.mjs runs the
+      # comparisons as the Bench Report workflow does, through Vitest's JSON
+      # reporter and the sizes that the benchmarks record, and renders them
+      # into README.md and the charts of this checkout. A Vitest release that
+      # changes the JSON report, or a comparison that records no sizes, then
+      # fails here instead of in the next Bench Report run.
+      - name: Benchmark smoke test
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        env:
+          BENCH_SMOKE: '1'
+        run: |
+          pnpm run bench:ci --run
+          node scripts/bench-report.mjs
+      # GitHub runs JavaScript actions in Alpine containers on x64 runners
+      # only, so the musl legs set up on the runner and run just the tests in
+      # a node:<version>-alpine container. The workspace keeps its path, so
+      # the links in node_modules resolve. The image comes from Google's
+      # cache of Docker Hub's official images, which does not apply Docker
+      # Hub's pull limit for anonymous users (#664).
+      - name: Run tests in Alpine Linux
+        if: matrix.alpine
+        env:
+          IMAGE: mirror.gcr.io/library/node:${{ matrix.node }}-alpine
+        run: >-
+          docker run --rm --env CI
+          --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" --workdir "$GITHUB_WORKSPACE"
+          "$IMAGE"
+          sh -c 'node node_modules/vitest/vitest.mjs run && node __test__/esm-import.mjs'
 
+  # The test job skips __test__/wasm.spec.ts, __test__/wasm-parity.spec.ts,
+  # __test__/browser-streams.spec.ts and the tests of
+  # __test__/browser-entry.spec.ts, __test__/legacy-error-codes.spec.ts,
+  # __test__/next-parity.spec.ts, __test__/esm-bundle.spec.ts and
+  # __test__/brotli-dict.spec.ts that load the browser entry or the browser
+  # build of ./next, as it has no wasm-bindgen build. This job runs them,
+  # with the native addon for the parity checks.
   test-wasm:
     name: WASM Test (Node.js)
-    needs: [build]
+    needs: [build, build-wasm-bindgen]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Download native artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Download WASM artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Download wasm-bindgen artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: bindings-wasm32
-          path: .
+          name: bindings-wasm-bindgen
+          path: browser
       - name: Run WASM tests
         run: pnpm run test:wasm
 
-  test-browser:
-    name: Browser WASM Test
-    needs: [build-wasm-bindgen]
+  # ──── The published entry points, from the packed package ────
+  # Assembles the npm packages from this run's Linux and wasm-bindgen
+  # artifacts with scripts/prepare-release.mjs, as the Release Dry Run job
+  # does, packs them and installs the tarballs into the e2e fixtures
+  # (e2e/install-package.mjs). The fixtures import @derodero24/comprs by name,
+  # as applications do: Node.js (import and require), Deno and Bun load the
+  # native addon, and the browser fixtures (esbuild, webpack, vite build,
+  # vite dev and an import map) load the WebAssembly build in Chromium,
+  # Firefox and WebKit. The steps after the installation run even when an
+  # earlier one fails, so that one failure does not hide the others.
+  test-package:
+    name: Package E2E
+    needs: [build, build-wasm-bindgen]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Download wasm-bindgen artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          name: bindings-wasm-bindgen
-          path: .
+          deno-version: v2.x
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: pnpm install --frozen-lockfile
+      - name: Install the fixtures' dependencies
+        run: pnpm --dir e2e install --frozen-lockfile
+      # Playwright downloads a WebKit build for each Ubuntu release
+      # (webkit-ubuntu-24.04.zip, webkit-ubuntu-26.04.zip) into the same
+      # webkit-<rev> directory, and skips the install when that directory
+      # exists. Each runner image must therefore restore only its own
+      # browsers, so the cache key names the image (ubuntu-24.04). It comes
+      # from /etc/os-release: the env context does not hold the runner's
+      # ImageOS variable.
       - name: Resolve Playwright version
         id: playwright
-        run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(pnpm --dir e2e exec playwright --version | grep -oE '[0-9.]+')" >> "$GITHUB_OUTPUT"
+          echo "image=$(. /etc/os-release && echo "${ID}-${VERSION_ID}")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
       - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps chromium
-      - name: Install Playwright browser
+        run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
+      # Headless Chromium runs the headless shell, so the full browser is not
+      # needed.
+      - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         timeout-minutes: 12
         run: |
@@ -459,7 +719,7 @@ jobs:
             echo "Playwright browser install attempt ${attempt}/3"
             # Bound each attempt so a stalled download/extraction is killed and
             # retried, instead of hanging until the step timeout fires.
-            if timeout 180 pnpm exec playwright install chromium; then
+            if timeout 180 pnpm --dir e2e exec playwright install --only-shell chromium firefox webkit; then
               exit 0
             fi
             echo "Playwright browser install failed or timed out (attempt ${attempt}); retrying..."
@@ -468,59 +728,57 @@ jobs:
           done
           echo "Playwright browser install failed after 3 attempts"
           exit 1
-      - name: Run browser tests
-        run: pnpm run test:browser
+      - name: Download native artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: artifacts/bindings-x86_64-unknown-linux-gnu
+      - name: Download wasm-bindgen artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bindings-wasm-bindgen
+          path: artifacts/bindings-wasm-bindgen
+      # prepare-release.mjs runs cargo for the license notices.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - name: Assemble the npm packages
+        run: node scripts/prepare-release.mjs --artifacts-dir artifacts --allow-missing-targets
+      - name: Install the packed package into the fixtures
+        id: install
+        run: node e2e/install-package.mjs
+      - name: Type-check the fixtures against the packed declarations
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm exec tsc -p e2e && pnpm exec tsc -p e2e/browser
+      - name: Node.js
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:node
+      - name: Deno
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:deno
+      - name: Bun
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:bun
+      - name: Build the browser bundles
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run build
+      - name: Browsers
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir e2e run test:browser
 
-  test-deno:
-    name: Deno WASM Test
-    needs: [build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-      - run: pnpm install --frozen-lockfile
-      - name: Download WASM artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: bindings-wasm32
-          path: .
-      - name: Run Deno WASM tests
-        run: pnpm run test:deno
-
-  test-bun:
-    name: Bun WASM Test
-    needs: [build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: pnpm install --frozen-lockfile
-      - name: Download WASM artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: bindings-wasm32
-          path: .
-      - name: Run Bun WASM tests
-        run: pnpm run test:bun
-
+  # ──── Coverage ────
+  # Measures the Rust tests with cargo-llvm-cov and the Vitest tests with V8.
+  # The Vitest run fails when the coverage falls below the thresholds in
+  # vitest.config.mts. upload-coverage sends both reports to Codecov.
   coverage:
     name: Coverage
     needs: [build]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # Rust coverage
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -531,72 +789,241 @@ jobs:
       - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
           tool: cargo-llvm-cov
+      # The report covers comprs-core alone. Only the JS tests run the napi
+      # and wasm-bindgen bindings, and the benchmarks are not tests, so their
+      # lines would count as uncovered and fail Codecov's patch status on
+      # every change to them (#659).
       - name: Rust coverage
-        run: cargo llvm-cov --lcov --output-path rust-lcov.info
+        run: cargo llvm-cov --lcov --output-path rust-lcov.info --ignore-filename-regex 'crates/(core|wasm|bench)/'
 
       # JS coverage
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Download x86_64 linux artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
+      # pnpm passes the options after the script name on to Vitest. Do not
+      # put `--` before them: pnpm passes that on too, and Vitest ignores
+      # the options after it, so the tests would run without coverage.
       - name: JS coverage
-        run: pnpm test -- --coverage
+        run: pnpm test --coverage
 
-      # Upload to Codecov
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+      # upload-coverage does not fail when Codecov rejects an upload, so
+      # check here that both reports were written.
+      - name: Check the coverage reports
+        run: |
+          for report in rust-lcov.info coverage/lcov.info; do
+            if ! grep -qs '^SF:' "$report"; then
+              echo "::error::$report is missing or covers no source file"
+              exit 1
+            fi
+          done
+      - name: Upload the coverage reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          files: rust-lcov.info,coverage/lcov.info
-          flags: rust,javascript
+          name: coverage-reports
+          path: |
+            rust-lcov.info
+            coverage/lcov.info
+          if-no-files-found: error
+
+  # Uploads the reports of the coverage job to Codecov, each on its own with
+  # its own flag (see codecov.yml). The uploads authenticate with OIDC, so no
+  # secret is needed, and this separate job keeps the ID token away from the
+  # dependencies and tests that the coverage job runs. Pull requests from
+  # forks get no ID token: codecov-action then uploads without one, which
+  # Codecov accepts from forks of public repositories. A Codecov outage must
+  # not fail CI, hence fail_ci_if_error: false and no place in CI Complete;
+  # the coverage job has already checked the reports.
+  upload-coverage:
+    name: Upload Coverage
+    needs: [coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # codecov-action authenticates the uploads with OIDC
+    steps:
+      # The Codecov CLI takes the list of the repository's files from the
+      # checkout, to map the paths in the reports to them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the coverage reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: coverage-reports
+          path: .
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          files: rust-lcov.info
+          disable_search: true
+          flags: rust
+          name: rust
+          use_oidc: true
+          fail_ci_if_error: false
+      - name: Upload JS coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          files: coverage/lcov.info
+          disable_search: true
+          flags: javascript
+          name: javascript
+          use_oidc: true
           fail_ci_if_error: false
 
+  # Posts the report of build-wasm-bindgen, also when the binary is over its
+  # budget, and updates the same comment on later pushes. Pull requests from
+  # forks are skipped: their GITHUB_TOKEN is read-only whatever the job asks
+  # for, so the comment would fail with 403. They still get the report in
+  # build-wasm-bindgen's step summary and in the wasm-size-report artifact.
   report-wasm-size:
     name: Report WASM Size
-    if: github.event_name == 'pull_request'
-    needs: [build]
+    if: ${{ !cancelled() && needs.build-wasm-bindgen.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: [build-wasm-bindgen]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      pull-requests: write
+      pull-requests: write # post the size comment
     steps:
+      # Missing when the build failed before the size check.
       - name: Download WASM size report
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-size-report
           path: wasm-size-report
-      - name: Read size data
-        id: read
+      - name: Add the comment marker
+        if: steps.download.outcome == 'success'
         run: |
-          echo "file=$(cat wasm-size-report/file.txt)" >> $GITHUB_OUTPUT
-          echo "size=$(cat wasm-size-report/size.txt)" >> $GITHUB_OUTPUT
+          { echo '<!-- wasm-size-report -->'; cat wasm-size-report/report.md; } > comment.md
+      - name: Find the size comment
+        id: find
+        if: steps.download.outcome == 'success'
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: '<!-- wasm-size-report -->'
       - name: Post size comment on PR
+        if: steps.download.outcome == 'success'
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### WASM Binary Size
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          body-path: comment.md
+          edit-mode: replace
 
-            | File | Size |
-            |------|------|
-            | ${{ steps.read.outputs.file }} | ${{ steps.read.outputs.size }} KB |
-          comment-tag: wasm-size-report
+  # ──── Release packaging, without publishing ────
+  # Assembles the npm packages from this run's artifacts with the script the
+  # publish job of release.yml uses (scripts/prepare-release.mjs), then checks
+  # them as npm would publish them (scripts/check-release.mjs). The native
+  # artifacts come from build.yml, as in release.yml; keep the wasm-bindgen
+  # upload in line with that of release.yml.
+  release-dry-run:
+    name: Release Dry Run
+    needs: [changes, build, build-wasm-bindgen]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The publish jobs of release.yml set up Node.js from .nvmrc like this
+      # job. npm uses trusted publishing (OIDC) from version 11.5.1 on; with
+      # an older npm, they would keep publishing with NODE_AUTH_TOKEN without
+      # a word. The check runs here rather than in the publish jobs, where it
+      # would block the token publishes that work today, or in
+      # check-release.mjs, which contributors run with npm 10.
+      - name: Check that npm supports trusted publishing
+        run: |
+          node -e '
+            const version = process.argv[1];
+            const [, major, minor, patch] = (/^(\d+)\.(\d+)\.(\d+)/.exec(version) ?? []).map(Number);
+            if (!(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))))) {
+              console.log("::error::npm " + version + " cannot use trusted publishing, which needs " +
+                "npm 11.5.1 or later; choose a Node.js version in .nvmrc that bundles one");
+              process.exit(1);
+            }
+            console.log("npm " + version + " supports trusted publishing.");
+          ' "$(npm --version)"
+      - run: pnpm install --frozen-lockfile
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: bindings-*
+          path: artifacts
+      # prepare-release.mjs and check-release.mjs run cargo for the license
+      # notices.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      # JS-only pull requests build Linux only (see the `changes` job):
+      # --allow-missing-targets limits the platform packages to that one.
+      - name: Assemble the npm packages
+        run: >-
+          node scripts/prepare-release.mjs --artifacts-dir artifacts
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
+      # The files and the notes that release.yml's github-release job would
+      # attach to the GitHub release: each binary needs its license notices,
+      # and every asset a name of its own.
+      - name: Check the GitHub release files
+        run: >-
+          node scripts/github-release.mjs --dry-run
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
+      - name: Check the packages
+        run: >-
+          node scripts/check-release.mjs
+          ${{ needs.changes.outputs.native != 'true' && '--allow-missing-targets' || '' }}
 
   # ──── Aggregate gate: single required status check ────
+  # When the changes job finds files to check, every job listed here is
+  # expected to run, so anything other than success fails the gate. A job is
+  # skipped when a job it needs fails (e.g. a build leg skips every test
+  # job), so treating "skipped" as a pass would hide it. When it finds none,
+  # on a pull request that changes no file of CI_PATHS, every other job is
+  # expected to be skipped, and the gate passes once they are.
   ci-complete:
     name: CI Complete
     if: always()
-    needs: [lint, audit, rust-lint, rust-test, build-wasm-bindgen, test, test-wasm, test-browser, test-deno, test-bun, coverage]
+    needs: [changes, lint, workflow-lint, audit, rust-lint, rust-test, rust-msrv, build, build-wasm-bindgen, playground, test, test-wasm, test-package, coverage, release-dry-run]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check all jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          CI: ${{ needs.changes.outputs.ci }}
         run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs failed or were cancelled"
+          expected=success
+          if [ "$CI" = "false" ]; then
+            expected=skipped
+          fi
+          not_ok=$(jq -r --arg expected "$expected" '
+            to_entries[]
+            | select(.value.result != (if .key == "changes" then "success" else $expected end))
+            | "\(.key): \(.value.result)"
+          ' <<< "$NEEDS")
+          if [ -n "$not_ok" ]; then
+            echo "::error::Required jobs did not succeed"
+            echo "$not_ok"
             exit 1
+          fi
+          if [ "$expected" = "skipped" ]; then
+            echo "No file that CI checks changed: every job was skipped"
+          else
+            echo "All required jobs succeeded"
           fi

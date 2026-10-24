@@ -11,39 +11,147 @@ concurrency:
 
 permissions: {}
 
+# Jobs here restore no caches, and neither does build.yml, which runs here
+# without its `cache` input: develop is the default branch, so caches saved
+# by other workflows' develop runs are readable from runs on main, and a
+# poisoned cache would reach the published packages. setup-node's
+# package-manager-cache is off explicitly, in case a later setup-node release
+# starts caching pnpm by default. Installs pass --ignore-scripts: the only
+# install scripts pnpm would run here set up the lefthook git hooks, which CI
+# does not need.
 jobs:
   # ──── On develop push: manage version PR and create release PR ────
-  version:
-    name: Version
+  # Neither job here both runs the repository's code and holds a token that
+  # can write. changesets/action runs its version script with GITHUB_TOKEN in
+  # the environment, and `pnpm run changeset:version` builds the native addon,
+  # which runs every build script and proc macro of the dependencies. So
+  # version-prepare applies the changesets with a read-only token and uploads
+  # the changes as a patch, and the version job, which can write, runs only
+  # `git apply` of the patch as its version script. The build cannot be a
+  # step of the version job instead: a process that one step starts can
+  # outlive it and read the environment of later steps, and changesets/action
+  # resets the working tree before it runs the version script. Both jobs run
+  # only on develop, so the patch never reaches the publish job on main,
+  # which downloads only the build artifacts anyway.
+  version-prepare:
+    name: Prepare Version
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       LEFTHOOK: "0"
+    outputs:
+      pending: ${{ steps.pending.outputs.found }}
     steps:
+      # The changelogs name the commit that added each changeset, which
+      # `changeset version` looks up in the history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+      # Every file that changesets/action takes as a changeset, as
+      # @changesets/read finds them: the .md files in .changeset/ and in
+      # .changeset/pre/, where pre mode moves them and which it reads once
+      # pre mode ends, but not hidden files, README.md in any case, AGENTS.md,
+      # CLAUDE.md and GEMINI.md. Without any, it runs no version script, so
+      # the steps below are skipped. They must match: with no changesets,
+      # `changeset version` fails.
+      - name: Look for changesets
+        id: pending
+        run: |
+          dirs=(.changeset)
+          if [ -d .changeset/pre ]; then dirs+=(.changeset/pre); fi
+          if find "${dirs[@]}" -maxdepth 1 ! -type d -name '*.md' ! -name '.*' ! -iname README.md \
+            ! -name AGENTS.md ! -name CLAUDE.md ! -name GEMINI.md -print -quit | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: steps.pending.outputs.found == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.pending.outputs.found == 'true'
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: steps.pending.outputs.found == 'true'
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - if: steps.pending.outputs.found == 'true'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Apply the changesets
+        if: steps.pending.outputs.found == 'true'
+        run: pnpm run changeset:version
+      # `git add --all` also takes in the files that the script creates (a
+      # package's first CHANGELOG.md) and deletes (the changesets), and
+      # .gitignore keeps the built addon out: the same files that
+      # changesets/action commits from the working tree.
+      - name: Write the version patch
+        if: steps.pending.outputs.found == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/version"
+          git add --all
+          git diff --cached --binary > "$RUNNER_TEMP/version/version.patch"
+          git diff --cached --stat
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: steps.pending.outputs.found == 'true'
         with:
-          shared-key: release-version
-      - run: pnpm install --frozen-lockfile
+          name: version-patch
+          path: ${{ runner.temp }}/version/version.patch
+          if-no-files-found: error
+          retention-days: 1
 
+  version:
+    name: Version
+    needs: version-prepare
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    permissions:
+      contents: write # changesets/action commits the version PR branch
+      pull-requests: write # create or update the version and release PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # changesets/action pushes through the GitHub API with its github-token
+      # input, so the checkout token need not stay in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Outside the checkout: changesets/action commits every file in the
+      # working tree that .gitignore does not exclude.
+      - name: Download the version patch
+        if: needs.version-prepare.outputs.pending == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: version-patch
+          path: ${{ runner.temp }}/version
+
+      # The patch comes from a job that ran the build. git apply would create
+      # the symlinks and submodules that it adds, and changesets/action reads
+      # a package's CHANGELOG.md, through any symlink, into the PR body.
+      - name: Check the version patch
+        if: needs.version-prepare.outputs.pending == 'true'
+        run: |
+          if grep -qE '^(new file mode|new mode) (120000|160000)' "$RUNNER_TEMP/version/version.patch"; then
+            echo "::error::The version patch adds a symlink or a submodule"
+            exit 1
+          fi
+
+      # changesets/action runs the version script only when it finds
+      # changesets. If the patch is missing when it does, git apply fails and
+      # nothing is pushed.
       - name: Create version PR or detect release
         id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          version-script: pnpm run changeset:version
+          version-script: git apply ${{ runner.temp }}/version/version.patch
           pr-title: "chore(release): version packages"
           commit-message: "chore(release): version packages"
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -101,19 +209,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ──── On main push: check if publish is needed ────
+  # Manual dispatches publish only from main as well; on any other ref this
+  # job and every job that needs it are skipped.
   check:
     name: Check Version
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       should_publish: ${{ steps.check.outputs.should_publish }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
 
@@ -121,114 +233,28 @@ jobs:
         id: check
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "@derodero24/comprs@${VERSION}" version 2>/dev/null; then
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Check publish status (distinguish E404 "not found" from other errors)
+          if err=$(npm view "@derodero24/comprs@${VERSION}" version 2>&1); then
             echo "Version ${VERSION} already published, skipping"
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          elif echo "$err" | grep -q "E404"; then
             echo "Version ${VERSION} not yet published, proceeding"
-            echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error checking @derodero24/comprs@${VERSION}: $err" >&2
+            exit 1
           fi
 
   # ──── Build native binaries for all platforms ────
+  # The same workflow builds the binaries that CI tests.
   build:
-    name: Build - ${{ matrix.settings.target }}
+    name: Build
     needs: check
     if: needs.check.outputs.should_publish == 'true'
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - host: macos-latest
-            target: x86_64-apple-darwin
-          - host: macos-latest
-            target: aarch64-apple-darwin
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            use-cross: true
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            use-zig: true
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            use-cross: true
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            use-zig: true
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
-          - host: windows-latest
-            target: aarch64-pc-windows-msvc
-          - host: ubuntu-latest
-            target: wasm32-wasip1-threads
-    runs-on: ${{ matrix.settings.host }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.settings.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: release-${{ matrix.settings.target }}
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Install cargo-zigbuild
-        if: ${{ matrix.settings.use-zig }}
-        run: pip3 install ziglang && cargo install cargo-zigbuild
-
-      - name: Setup WASI SDK
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          WASI_SDK_VERSION="25"
-          WASI_SDK_DIR="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux"
-          curl -fsSL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${WASI_SDK_DIR}.tar.gz" | tar xz -C "${RUNNER_TEMP}"
-          echo "WASI_SDK_PATH=${RUNNER_TEMP}/${WASI_SDK_DIR}" >> $GITHUB_ENV
-          echo "WASI_SYSROOT=${RUNNER_TEMP}/${WASI_SDK_DIR}/share/wasi-sysroot" >> $GITHUB_ENV
-          echo "CC_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/clang" >> $GITHUB_ENV
-          echo "AR_wasm32_wasip1_threads=${RUNNER_TEMP}/${WASI_SDK_DIR}/bin/llvm-ar" >> $GITHUB_ENV
-
-      - name: Build native
-        if: matrix.settings.target != 'wasm32-wasip1-threads'
-        run: >-
-          pnpm build
-          --target ${{ matrix.settings.target }}
-          ${{ matrix.settings.use-cross && '--use-napi-cross' || '' }}
-          ${{ matrix.settings.use-zig && '--cross-compile' || '' }}
-
-      - name: Build WASM
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          export CFLAGS_wasm32_wasip1_threads="--sysroot=${WASI_SYSROOT}"
-          pnpm run build --target wasm32-wasip1-threads
-          node scripts/patch-wasi-browser-js.js
-
-      - name: Optimize WASM with wasm-opt
-        if: matrix.settings.target == 'wasm32-wasip1-threads'
-        run: |
-          sudo apt-get update && sudo apt-get install -y binaryen
-          pnpm run optimize:wasm
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: |
-            comprs.*.node
-            comprs.*.wasm
-            comprs.wasi*.cjs
-            comprs.wasi*.d.cts
-            comprs.wasi*.js
-            wasi-worker*.mjs
-          if-no-files-found: error
+    uses: ./.github/workflows/build.yml
 
   # ──── Build wasm-bindgen WASM for browser usage ────
   build-wasm-bindgen:
@@ -238,122 +264,212 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: wasm-bindgen
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          # renovate: datasource=crate depName=wasm-pack versioning=semver
+          tool: wasm-pack@0.15.0
+          fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
+      # The files sit at the root of the artifact; prepare-release.mjs puts
+      # them back into browser/.
       - name: Upload wasm-bindgen artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bindings-wasm-bindgen
           path: |
-            comprs-wasm.js
-            comprs-wasm_bg.js
-            comprs-wasm_bg.wasm
-            comprs-wasm.d.ts
-            comprs-wasm_bg.wasm.d.ts
+            browser/comprs-wasm.js
+            browser/comprs-wasm.d.ts
+            browser/comprs-wasm_bg.wasm
           if-no-files-found: error
 
   # ──── Publish to npm after all builds succeed ────
   publish:
     name: Publish
     needs: [check, build, build-wasm-bindgen]
-    if: needs.check.outputs.should_publish == 'true'
+    if: github.ref == 'refs/heads/main' && needs.check.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-          registry-url: https://registry.npmjs.org/
-      - run: pnpm install --frozen-lockfile
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          path: artifacts
-
-      - name: Copy WASM wrapper files to workspace root
-        run: |
-          WASM_DIR="artifacts/bindings-wasm32-wasip1-threads"
-          if [ -d "$WASM_DIR" ]; then
-            cp "$WASM_DIR"/*.cjs "$WASM_DIR"/*.js "$WASM_DIR"/*.mjs . 2>/dev/null || true
-            echo "Copied WASM wrapper files from $WASM_DIR"
-            ls -la comprs.wasi* wasi-worker* 2>/dev/null
-          fi
-
-      - name: Copy wasm-bindgen files to workspace root
-        run: |
-          WB_DIR="artifacts/bindings-wasm-bindgen"
-          if [ -d "$WB_DIR" ]; then
-            cp "$WB_DIR"/comprs-wasm* . 2>/dev/null || true
-            echo "Copied wasm-bindgen files from $WB_DIR"
-            ls -la comprs-wasm* 2>/dev/null
-          fi
-
-      - name: Move artifacts to platform packages
-        run: pnpm napi artifacts --output-dir artifacts
-
-      - name: List packages
-        run: |
-          echo "=== Platform packages ==="
-          for dir in npm/*/; do
-            echo "$dir"
-            ls -la "$dir" 2>/dev/null
-            echo ""
-          done
-
-      # First publish: use granular access token (NPM_TOKEN secret).
-      # After packages exist on npm, switch to OIDC trusted publishing
-      # and remove NPM_TOKEN.
-      - name: Publish core to npm
-        run: npm publish --provenance --access public
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  # ──── Publish middleware package independently ────
-  publish-middleware:
-    name: Publish Middleware
-    needs: [check]
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: npm-publish
     permissions:
       contents: read
-      id-token: write
+      id-token: write # npm provenance and trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org/
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Only the builds: a re-run of this job would otherwise also download
+      # the github-release artifact that an earlier attempt uploaded, whose
+      # copies of the binaries prepare-release.mjs would take for builds.
+      - name: Download the build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: bindings-*
+          path: artifacts
+
+      # prepare-release.mjs writes the license notices of the crates that
+      # the binaries link, with cargo tree and cargo metadata. Both only read
+      # manifests and run no build script, so this job, which holds
+      # id-token: write, runs no crate code. --locked keeps them to the
+      # versions in Cargo.lock, whose checksums cargo checks each downloaded
+      # crate against, and the job still restores no cache.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      # Shared with the release-dry-run job in ci.yml, which runs it on every
+      # CI run and then checks the packages with check-release.mjs. That
+      # check is not repeated here, to keep its tools (publint, attw, vite)
+      # out of a job that holds id-token: write.
+      - name: Assemble the npm packages
+        run: node scripts/prepare-release.mjs --artifacts-dir artifacts
+
+      # The files that the github-release job attaches to the GitHub release
+      # (LICENSE, and each platform binary with its THIRD_PARTY_LICENSES),
+      # and the release notes from CHANGELOG.md. They are staged before
+      # anything is published, so that a missing file stops the release
+      # before npm has any of it. A re-run of this job replaces the artifact
+      # of an earlier attempt, which would otherwise fail the upload.
+      - name: Stage the GitHub release
+        run: node scripts/github-release.mjs --out-dir "$RUNNER_TEMP/github-release"
+      - name: Upload the GitHub release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: github-release
+          path: ${{ runner.temp }}/github-release
+          if-no-files-found: error
+          overwrite: true
+
+      # npm 11.5.1 and later publish through trusted publishing (OIDC) when
+      # the package has a trusted publisher for this workflow file
+      # (release.yml) and the npm-publish environment, and with
+      # NODE_AUTH_TOKEN otherwise; CI's release-dry-run job checks the npm
+      # version that .nvmrc brings. The `npm publish` calls with which napi
+      # prepublish (the prepublishOnly script) publishes the platform
+      # packages inherit this step's environment and do the same. Both
+      # publish steps must stay in release.yml and in the npm-publish
+      # environment, because the trusted publishers name them.
+      # NODE_AUTH_TOKEN and the NPM_TOKEN secret go once every package has
+      # published through OIDC (#584; see Releases in CONTRIBUTING.md).
+      # napi prepublish leaves the GitHub release to the github-release job
+      # (--no-gh-release), so it needs no GitHub token.
+      - name: Publish core to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ──── Create the GitHub release of the published version ────
+  # napi prepublish used to create it, with the tag on the default branch,
+  # develop, instead of the commit that the release published, and with the
+  # platform binaries alone (#709). This job creates the release v<version>
+  # on that commit, with the files and the notes that the publish job staged
+  # (scripts/github-release.mjs). The job can write to the repository, so it
+  # runs none of its code: only gh, on the downloaded files, without a
+  # checkout. A re-run finds the release that an earlier attempt created,
+  # and uploads the files to it again.
+  github-release:
+    name: GitHub Release
+    needs: [check, publish]
+    if: github.ref == 'refs/heads/main' && needs.check.outputs.should_publish == 'true'
+    permissions:
+      contents: write # create the release and its tag, and upload the assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the GitHub release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: github-release
+          path: ${{ runner.temp }}/github-release
+      # gh looks a release up among the drafts too. It creates a release with
+      # assets as a draft and publishes it once they are uploaded, and
+      # deletes the draft if an upload fails; a cancelled run can still
+      # leave it behind, so a draft found here is published after the
+      # upload. A version with a pre-release part, such as 3.0.0-beta.0,
+      # makes a pre-release, which GitHub does not mark as the latest one.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.check.outputs.version }}
+          TARGET: ${{ github.sha }}
+          RELEASE_DIR: ${{ runner.temp }}/github-release
+        run: |
+          tag="v${VERSION}"
+          assets=("$RELEASE_DIR"/assets/*)
+          if draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> "$RUNNER_TEMP/gh-error"); then
+            echo "The release ${tag} exists already; uploading its files again"
+            gh release upload "$tag" "${assets[@]}" --clobber
+            if [ "$draft" = "true" ]; then
+              gh release edit "$tag" --draft=false
+            fi
+          elif grep -q "release not found" "$RUNNER_TEMP/gh-error"; then
+            prerelease=()
+            if [[ "$VERSION" == *-* ]]; then
+              prerelease=(--prerelease)
+            fi
+            gh release create "$tag" "${assets[@]}" --target "$TARGET" --title "$tag" \
+              --notes-file "$RELEASE_DIR/notes.md" "${prerelease[@]}"
+          else
+            echo "Error looking up the release ${tag}:" >&2
+            cat "$RUNNER_TEMP/gh-error" >&2
+            exit 1
+          fi
+
+  # ──── Publish the middleware after the core package ────
+  # The middleware's peer range on @derodero24/comprs must be satisfiable
+  # once it is on npm. When check finds a new core version, this job waits
+  # for the publish job and runs only if it succeeded: it is skipped when the
+  # core publish failed, or was skipped because a build failed. Without a
+  # new core version, publish is skipped and the middleware goes out alone.
+  publish-middleware:
+    name: Publish Middleware
+    needs: [check, publish]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      needs.check.result == 'success' &&
+      (needs.publish.result == 'success' || needs.check.outputs.should_publish == 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # npm provenance and trusted publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org/
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Check and publish middleware
         run: |
@@ -372,33 +488,79 @@ jobs:
 
           echo "Publishing ${MW_NAME}@${MW_VERSION}"
           pnpm --filter "${MW_NAME}" build
-          cd packages/middleware
-          npm publish --provenance --access public
+          # npm publish would keep the workspace: protocol of the
+          # devDependency on @derodero24/comprs in the published manifest;
+          # pnpm pack writes the version in its place.
+          TARBALL="${RUNNER_TEMP}/comprs-middleware.tgz"
+          pnpm --dir packages/middleware pack --out "$TARBALL"
+          # Authenticates like the core publish (see the publish job).
+          npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──── Merge main back into develop to prevent divergence ────
+  # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
+  # CI does not run on the merge commit this job pushes to develop, nor on the
+  # pull request it opens. Switching to a GitHub App token is tracked in #574.
   merge-back:
     name: Merge Back
     needs: [publish, publish-middleware]
     if: always() && github.ref == 'refs/heads/main'
     permissions:
-      contents: write
+      contents: write # push the merge commit or the merge-back branch
+      pull-requests: write # open a pull request when the merge cannot land
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      # Credentials stay in .git/config: this job pushes with git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: develop
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Merge main into develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git merge origin/main --no-edit || {
-            echo "Merge conflict detected — creating PR for manual resolution"
-            exit 1
-          }
-          git push origin develop
+          if git merge origin/main --no-edit; then
+            if git push origin HEAD:develop; then
+              exit 0
+            fi
+            # A concurrent push may already have brought main into develop;
+            # then there is nothing left to merge and no PR to open.
+            git fetch origin develop
+            if git merge-base --is-ancestor origin/main origin/develop; then
+              echo "develop already contains main"
+              exit 0
+            fi
+            # Branch protection on develop, or a concurrent push.
+            reason="develop rejected the push"
+          else
+            git merge --abort
+            reason="the merge conflicts"
+          fi
+
+          # Hand the merge to a maintainer through a pull request instead of
+          # leaving develop behind main. The branch points at main itself, not
+          # at a merge commit, so re-running the job pushes the same commit.
+          branch="chore/merge-main-$(git rev-parse --short origin/main)"
+          url=$(gh pr list --base develop --head "$branch" --json url --jq '.[0].url // empty')
+          if [ -z "$url" ]; then
+            git push origin "origin/main:refs/heads/${branch}"
+            url=$(gh pr create --base develop --head "$branch" \
+              --title "chore(release): merge main into develop" \
+              --body-file - <<EOF
+          The [release run](${RUN_URL}) could not merge \`main\` into \`develop\`: ${reason}.
+
+          - Resolve any conflicts on this branch, for example by merging \`develop\` into it.
+          - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
+          - Pull requests opened with \`GITHUB_TOKEN\` start no workflow runs: push a commit, or close and reopen this pull request, to run CI.
+          EOF
+            )
+          fi
+          echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"

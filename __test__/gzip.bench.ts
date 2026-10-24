@@ -1,6 +1,7 @@
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import { gzipCompress, gzipDecompress } from '../index.js';
 import {
+  BENCH_OPTIONS,
   JSON_DATA,
   LARGE,
   MEDIUM,
@@ -21,78 +22,114 @@ const RANDOM_LARGE_COMPRESSED = gzipCompress(RANDOM_LARGE);
 const JSON_COMPRESSED = gzipCompress(JSON_DATA);
 const TEXT_COMPRESSED = gzipCompress(TEXT_DATA);
 
+// --- Names of the realistic data benchmarks ---
+const JSON_NAME = `JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`;
+const TEXT_NAME = `text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`;
+
 describe('gzip compress (patterned)', () => {
-  bench('150B', () => {
-    gzipCompress(SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      gzipCompress(SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    gzipCompress(MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      gzipCompress(MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    gzipCompress(LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      gzipCompress(LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('gzip compress (random)', () => {
-  bench('150B', () => {
-    gzipCompress(RANDOM_SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      gzipCompress(RANDOM_SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    gzipCompress(RANDOM_MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      gzipCompress(RANDOM_MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    gzipCompress(RANDOM_LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      gzipCompress(RANDOM_LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('gzip compress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    gzipCompress(JSON_DATA);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      gzipCompress(JSON_DATA);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    gzipCompress(TEXT_DATA);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      gzipCompress(TEXT_DATA);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('gzip decompress (patterned)', () => {
-  bench('150B', () => {
-    gzipDecompress(SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      gzipDecompress(SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    gzipDecompress(MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      gzipDecompress(MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    gzipDecompress(LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      gzipDecompress(LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('gzip decompress (random)', () => {
-  bench('150B', () => {
-    gzipDecompress(RANDOM_SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      gzipDecompress(RANDOM_SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    gzipDecompress(RANDOM_MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      gzipDecompress(RANDOM_MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    gzipDecompress(RANDOM_LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      gzipDecompress(RANDOM_LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('gzip decompress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    gzipDecompress(JSON_COMPRESSED);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      gzipDecompress(JSON_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    gzipDecompress(TEXT_COMPRESSED);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      gzipDecompress(TEXT_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });

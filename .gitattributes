@@ -1,0 +1,20 @@
+# Compiled from the TypeScript sources in src/ by `pnpm run build:js`
+# (scripts/build-js.mjs), and tracked, as npm publishes them. GitHub
+# collapses them in diffs and leaves them out of the language statistics.
+/streams.js linguist-generated
+/streams.d.ts linguist-generated
+/node.js linguist-generated
+/node.d.ts linguist-generated
+/index.mjs linguist-generated
+/index.d.mts linguist-generated
+/browser/streams.js linguist-generated
+/browser/streams.d.ts linguist-generated
+/stream-schedule.js linguist-generated
+/stream-schedule.d.ts linguist-generated
+/next/** linguist-generated
+/browser/next/** linguist-generated
+
+# Fixtures whose exact bytes the Rust tests read: never converted to CRLF
+# line endings on checkout, which would change the data they decode.
+/crates/core-lib/tests/fixtures/*.bin binary
+/crates/core-lib/tests/fixtures/*.txt -text

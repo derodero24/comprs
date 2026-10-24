@@ -2,3 +2,6 @@
 # repository workspace and cannot resolve the file:.. dependency (issue #522).
 packages:
   - '.'
+# The same 3-day release-age policy as ../pnpm-workspace.yaml, which this
+# root does not inherit.
+minimumReleaseAge: 4320

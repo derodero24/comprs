@@ -1,0 +1,13 @@
+# Make the end-to-end fixtures their own pnpm root, with their own lockfile:
+# the bundlers they test stay out of the repository's install, and pnpm does
+# not walk up to the repository workspace, which does not list this
+# directory.
+packages:
+  - '.'
+# esbuild's install script only checks the binary that its optional
+# dependency for the platform already installed.
+allowBuilds:
+  esbuild: false
+# The same 3-day release-age policy as ../pnpm-workspace.yaml, which this
+# root does not inherit.
+minimumReleaseAge: 4320

@@ -1,2 +1,2 @@
-export * from './index.d.ts';
-export * from './streams.d.ts';
+export * from './index.js';
+export * from './streams.js';

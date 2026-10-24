@@ -52,7 +52,9 @@ function rawRequest(
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
     const headers: Record<string, string> = {};
-    if (acceptEncoding) headers['Accept-Encoding'] = acceptEncoding;
+    if (acceptEncoding) {
+      headers['Accept-Encoding'] = acceptEncoding;
+    }
     const req = httpRequest(url, { method, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -63,7 +65,7 @@ function rawRequest(
             'content-encoding': res.headers['content-encoding'],
             'content-type': res.headers['content-type'],
             'content-length': res.headers['content-length'],
-            vary: res.headers.vary,
+            vary: res.headers['vary'],
             'cache-control': res.headers['cache-control'],
           },
           body: Buffer.concat(chunks),
@@ -179,7 +181,7 @@ describe('comprs middleware', () => {
   describe('headers', () => {
     it('should set Vary: Accept-Encoding', async () => {
       const res = await rawGet(baseUrl, '/text', 'gzip');
-      expect(res.headers.vary).toContain('Accept-Encoding');
+      expect(res.headers['vary']).toContain('Accept-Encoding');
     });
 
     it('should remove Content-Length when compressing', async () => {
@@ -189,7 +191,12 @@ describe('comprs middleware', () => {
 
     it('should set Vary even when not compressing', async () => {
       const res = await rawGet(baseUrl, '/small', 'gzip');
-      expect(res.headers.vary).toContain('Accept-Encoding');
+      expect(res.headers['vary']).toContain('Accept-Encoding');
+    });
+
+    it('should not set Vary on responses that are never compressed', async () => {
+      const res = await rawGet(baseUrl, '/image', 'gzip');
+      expect(res.headers['vary']).toBeUndefined();
     });
   });
 });

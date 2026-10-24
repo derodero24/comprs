@@ -1,7 +1,10 @@
 #![deny(clippy::all)]
 
+mod async_args;
 mod brotli_impl;
 mod brotli_stream;
+mod context;
+mod convert;
 mod crc;
 mod detect;
 mod error;
@@ -9,6 +12,13 @@ mod gzip;
 mod gzip_stream;
 mod lz4;
 mod lz4_stream;
+// Public, as the modules re-exported below are, so that the test build, in
+// which napi-rs registers no functions, does not report them as unused. Not
+// re-exported: its functions share the names of the root API's.
+pub mod next;
+mod options;
+mod stream_task;
+mod task;
 mod zstd;
 mod zstd_stream;
 
@@ -27,12 +37,14 @@ fn as_bytes(data: &Either<Buffer, Uint8Array>) -> &[u8] {
 
 pub use brotli_impl::*;
 pub use brotli_stream::*;
+pub use context::init;
 pub use crc::*;
 pub use detect::*;
 pub use gzip::*;
 pub use gzip_stream::*;
 pub use lz4::*;
 pub use lz4_stream::*;
+pub use options::*;
 pub use zstd::*;
 pub use zstd_stream::*;
 

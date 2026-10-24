@@ -1,34 +1,34 @@
 [workspace]
 members = ["crates/core", "crates/core-lib", "crates/wasm", "crates/bench"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/derodero24/comprs"
 
 [workspace.dependencies]
 # napi-rs
-# napi 3.12 / napi-derive 3.6 / napi-build 2.4 export emnapi_create_env and
-# emnapi_delete_env for the WASI target, which only @emnapi/core 2 (still
-# alpha) provides, and the three crates only compile as a matched set. Pin the
-# last set that links against emnapi 1 until emnapi 2 is stable (issue #518).
-napi = { version = "=3.9.1", default-features = false, features = ["napi9"] }
-napi-build = "=2.3.2"
-napi-derive = { version = "=3.5.6", default-features = false, features = ["type-def"] }
+napi = { version = "3", default-features = false, features = ["napi9"] }
+napi-build = "2"
+napi-derive = { version = "3", default-features = false, features = ["type-def"] }
 
 # Compression
 brotli = { version = "9", default-features = false, features = ["std"] }
 zstd = { version = "0.14", default-features = false, features = ["zdict_builder"] }
-# flate2 1.1.10 makes gzip decompression ~3-4x and gzip/deflate compression
-# ~1.5-2x slower with the zlib-rs backend (see issue #509). Keep 1.1.9 until
-# upstream resolves it.
-flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
+# runtime_detection enables zlib-rs/std, which turns on run-time detection of
+# SSE4.2/AVX2/PCLMULQDQ on x86-64 and CRC on aarch64. Without it, gzip
+# decompression is about 3x slower and compression about 2.5x slower (#509);
+# the Dependency Audit job in ci.yml fails if it gets lost.
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs", "runtime_detection"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 
 # Utilities
 crc32fast = "1"
+# xxHash32, which the LZ4 frame format uses for its checksums; lz4_flex uses
+# the same crate.
+twox-hash = { version = "2.1.3", default-features = false, features = ["xxhash32"] }
 
 # Error handling
 thiserror = "2"
@@ -38,3 +38,16 @@ codegen-units = 1
 lto = true
 opt-level = 3
 strip = "symbols"
+
+# The browser build (crates/wasm, built by scripts/build-wasm-bindgen.js).
+# Optimizing for size makes the binary 14% smaller with gzip and 12% with
+# brotli than opt-level 3. In exchange, brotli compression and
+# decompression and gzip decompression run 20-40% slower; the other codecs
+# keep most of their speed. opt-level "z" saves 3-5% more but halves LZ4
+# throughput. wasm-opt is not run: each of its optimization levels shrinks
+# the raw binary but makes the gzip and brotli downloads larger (#586).
+# lto and codegen-units come from the release profile, and panic = "abort"
+# is the default of the wasm32-unknown-unknown target.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"

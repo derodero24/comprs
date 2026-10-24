@@ -37,7 +37,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -211,30 +213,25 @@ describe('decompression error handling', () => {
   });
 
   describe('empty buffer input to decompress', () => {
-    it('should return empty buffer when decompressing empty buffer with zstd', () => {
-      // zstd treats empty input as a valid empty frame
-      const result = zstdDecompress(Buffer.alloc(0));
-      expect(result.length).toBe(0);
+    // No format has a valid zero-length encoding, so empty input is truncated.
+    it('should throw when decompressing empty buffer with zstd', () => {
+      expect(() => zstdDecompress(Buffer.alloc(0))).toThrow('zstd stream is truncated');
     });
 
     it('should throw when decompressing empty buffer with gzip', () => {
-      expect(() => gzipDecompress(Buffer.alloc(0))).toThrow();
+      expect(() => gzipDecompress(Buffer.alloc(0))).toThrow('gzip stream is truncated');
     });
 
-    it('should return empty buffer when decompressing empty buffer with deflate', () => {
-      // Raw deflate treats empty input as a valid empty stream
-      const result = deflateDecompress(Buffer.alloc(0));
-      expect(result.length).toBe(0);
+    it('should throw when decompressing empty buffer with deflate', () => {
+      expect(() => deflateDecompress(Buffer.alloc(0))).toThrow('deflate stream is truncated');
     });
 
     it('should throw when decompressing empty buffer with brotli', () => {
-      expect(() => brotliDecompress(Buffer.alloc(0))).toThrow();
+      expect(() => brotliDecompress(Buffer.alloc(0))).toThrow('brotli stream is truncated');
     });
 
-    it('should return empty buffer when decompressing empty buffer with lz4', () => {
-      // LZ4 treats empty input as a valid empty stream (like zstd and deflate)
-      const result = lz4Decompress(Buffer.alloc(0));
-      expect(result.length).toBe(0);
+    it('should throw when decompressing empty buffer with lz4', () => {
+      expect(() => lz4Decompress(Buffer.alloc(0))).toThrow('lz4 stream is truncated');
     });
   });
 });
@@ -622,11 +619,13 @@ describe('compression level edge cases', () => {
     });
 
     it('should throw with quality 12 (above max)', () => {
-      expect(() => brotliCompress(data, 12)).toThrow(/quality must be between 0 and 11/);
+      expect(() => brotliCompress(data, 12)).toThrow(/quality must be an integer between 0 and 11/);
     });
 
     it('should throw with BrotliCompressContext quality 12', () => {
-      expect(() => new BrotliCompressContext(12)).toThrow(/quality must be between 0 and 11/);
+      expect(() => new BrotliCompressContext(12)).toThrow(
+        /quality must be an integer between 0 and 11/,
+      );
     });
   });
 });

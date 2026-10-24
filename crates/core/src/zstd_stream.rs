@@ -3,167 +3,231 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+use crate::context::{NativeState, stream_context_methods};
 use crate::error::to_napi_error;
 
 /// Streaming zstd compression context.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
 /// enabling chunked compression without losing cross-chunk context.
-#[napi]
+#[napi(custom_finalize)]
 pub struct ZstdCompressContext {
-    inner: comprs_core::zstd_stream::CompressContext,
+    inner: NativeState<comprs_core::zstd_stream::CompressContext>,
 }
 
 #[napi]
 impl ZstdCompressContext {
     #[napi(constructor)]
-    pub fn new(level: Option<i32>) -> Result<Self> {
+    pub fn new(env: Env, level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
-            inner: comprs_core::zstd_stream::CompressContext::new(level).map_err(to_napi_error)?,
+            inner: NativeState::new(
+                &env,
+                comprs_core::zstd_stream::CompressContext::new(level).map_err(to_napi_error)?,
+                "zstd stream",
+            ),
         })
     }
 
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .transform(crate::as_bytes(&chunk))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
-    pub fn flush(&mut self) -> Result<Buffer> {
-        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
+    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the zstd frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
-    pub fn finish(&mut self) -> Result<Buffer> {
-        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
+    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
+
+stream_context_methods!(
+    ZstdCompressContext,
+    comprs_core::zstd_stream::CompressContext
+);
 
 /// Streaming zstd decompression context.
 ///
 /// Maintains internal decompression state across multiple `transform` calls,
 /// enabling chunked decompression of a zstd frame.
-#[napi]
+///
+/// `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+/// It also bounds the window that a frame makes the decoder allocate before
+/// it writes any output: to `maxOutputSize` rounded up to a power of two, at
+/// least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+/// declares a larger window throws an error instead.
+#[napi(custom_finalize)]
 pub struct ZstdDecompressContext {
-    inner: comprs_core::zstd_stream::DecompressContext,
+    inner: NativeState<comprs_core::zstd_stream::DecompressContext>,
 }
 
 #[napi]
 impl ZstdDecompressContext {
     #[napi(constructor)]
-    pub fn new(max_output_size: Option<f64>) -> Result<Self> {
+    pub fn new(env: Env, max_output_size: Option<f64>) -> Result<Self> {
         Ok(Self {
-            inner: comprs_core::zstd_stream::DecompressContext::new(max_output_size)
-                .map_err(to_napi_error)?,
+            inner: NativeState::new(
+                &env,
+                comprs_core::zstd_stream::DecompressContext::new(max_output_size)
+                    .map_err(to_napi_error)?,
+                "zstd stream",
+            ),
         })
     }
 
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .transform(crate::as_bytes(&chunk))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
-    pub fn flush(&mut self) -> Result<Buffer> {
-        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
+    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call(&env, |ctx| ctx.flush())
+    }
+
+    /// Finalize the decompression stream. Returns any remaining decompressed data.
+    /// Throws if the input ended before the end of a zstd frame, including empty input.
+    /// Must be called once after all compressed data has been transformed.
+    #[napi]
+    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
+
+stream_context_methods!(
+    ZstdDecompressContext,
+    comprs_core::zstd_stream::DecompressContext
+);
 
 /// Streaming zstd compression context with dictionary.
 ///
 /// Maintains internal compression state across multiple `transform` calls,
 /// using a pre-trained dictionary for improved compression of small, similar data.
-#[napi]
+#[napi(custom_finalize)]
 pub struct ZstdCompressDictContext {
-    inner: comprs_core::zstd_stream::CompressDictContext,
+    inner: NativeState<comprs_core::zstd_stream::CompressDictContext>,
 }
 
 #[napi]
 impl ZstdCompressDictContext {
     #[napi(constructor)]
-    pub fn new(dict: Either<Buffer, Uint8Array>, level: Option<i32>) -> Result<Self> {
+    pub fn new(env: Env, dict: Either<Buffer, Uint8Array>, level: Option<f64>) -> Result<Self> {
+        let level = comprs_core::zstd::LEVEL
+            .check_optional_f64(level)
+            .map_err(to_napi_error)?;
         Ok(Self {
-            inner: comprs_core::zstd_stream::CompressDictContext::new(
-                crate::as_bytes(&dict),
-                level,
-            )
-            .map_err(to_napi_error)?,
+            inner: NativeState::new(
+                &env,
+                comprs_core::zstd_stream::CompressDictContext::new(crate::as_bytes(&dict), level)
+                    .map_err(to_napi_error)?,
+                "zstd stream",
+            ),
         })
     }
 
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .transform(crate::as_bytes(&chunk))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
-    pub fn flush(&mut self) -> Result<Buffer> {
-        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
+    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the zstd frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
-    pub fn finish(&mut self) -> Result<Buffer> {
-        self.inner.finish().map(|v| v.into()).map_err(to_napi_error)
+    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
+
+stream_context_methods!(
+    ZstdCompressDictContext,
+    comprs_core::zstd_stream::CompressDictContext
+);
 
 /// Streaming zstd decompression context with dictionary.
 ///
 /// Maintains internal decompression state across multiple `transform` calls,
 /// using a pre-trained dictionary that matches the one used for compression.
-#[napi]
+///
+/// `maxOutputSize` limits the decompressed size in bytes, 256 MB by default.
+/// It also bounds the window that a frame makes the decoder allocate before
+/// it writes any output: to `maxOutputSize` rounded up to a power of two, at
+/// least 8 MiB and at most zstd's default of 128 MiB, so a frame that
+/// declares a larger window throws an error instead.
+#[napi(custom_finalize)]
 pub struct ZstdDecompressDictContext {
-    inner: comprs_core::zstd_stream::DecompressDictContext,
+    inner: NativeState<comprs_core::zstd_stream::DecompressDictContext>,
 }
 
 #[napi]
 impl ZstdDecompressDictContext {
     #[napi(constructor)]
-    pub fn new(dict: Either<Buffer, Uint8Array>, max_output_size: Option<f64>) -> Result<Self> {
+    pub fn new(
+        env: Env,
+        dict: Either<Buffer, Uint8Array>,
+        max_output_size: Option<f64>,
+    ) -> Result<Self> {
         Ok(Self {
-            inner: comprs_core::zstd_stream::DecompressDictContext::new(
-                crate::as_bytes(&dict),
-                max_output_size,
-            )
-            .map_err(to_napi_error)?,
+            inner: NativeState::new(
+                &env,
+                comprs_core::zstd_stream::DecompressDictContext::new(
+                    crate::as_bytes(&dict),
+                    max_output_size,
+                )
+                .map_err(to_napi_error)?,
+                "zstd stream",
+            ),
         })
     }
 
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
-            .transform(crate::as_bytes(&chunk))
-            .map(|v| v.into())
-            .map_err(to_napi_error)
+            .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
-    pub fn flush(&mut self) -> Result<Buffer> {
-        self.inner.flush().map(|v| v.into()).map_err(to_napi_error)
+    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call(&env, |ctx| ctx.flush())
+    }
+
+    /// Finalize the decompression stream. Returns any remaining decompressed data.
+    /// Throws if the input ended before the end of a zstd frame, including empty input.
+    /// Must be called once after all compressed data has been transformed.
+    #[napi]
+    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+        self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
+
+stream_context_methods!(
+    ZstdDecompressDictContext,
+    comprs_core::zstd_stream::DecompressDictContext
+);

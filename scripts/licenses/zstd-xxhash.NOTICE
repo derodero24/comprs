@@ -1,0 +1,16 @@
+Copyright notice of zstd/lib/common/xxhash.h, the xxHash code in the zstd C
+library that zstd-sys builds, copied verbatim from zstd 1.5.7 as bundled by
+zstd-sys 2.1.0+zstd.1.5.7. Of the two licenses that the notice offers, this
+code is used under the BSD-style license: the zstd/LICENSE text listed for
+zstd-sys. The GPLv2 alternative (zstd/COPYING) is not used.
+
+/*
+ * xxHash - Extremely Fast Hash algorithm
+ * Header File
+ * Copyright (c) Yann Collet - Meta Platforms, Inc
+ *
+ * This source code is licensed under both the BSD-style license (found in the
+ * LICENSE file in the root directory of this source tree) and the GPLv2 (found
+ * in the COPYING file in the root directory of this source tree).
+ * You may select, at your option, one of the above-listed licenses.
+ */

@@ -8,8 +8,22 @@
   "prHourlyLimit": 0,
   "rebaseWhen": "conflicted",
   "lockFileMaintenance": {
-    "enabled": false
+    "description": "Refresh the lock files once a month, for review. Renovate runs weekly, so the first seven days of a month hold exactly one run. Cargo.lock gets its own PR through the rust-dependencies group. A refresh has no release timestamp, so minimumReleaseAge would hold it forever",
+    "enabled": true,
+    "schedule": ["* * 1-7 * *"],
+    "minimumReleaseAge": null,
+    "automerge": false
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tool versions pinned inside workflows (install-action tool inputs, env values, run text), each marked by a `# renovate:` comment on the line above. The github-actions manager reads only `uses:`",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n[^\\n]*?(?:@|==|VERSION: )(?<currentValue>\\d[^\\s'\"]*)"
+      ]
+    }
+  ],
   "packageRules": [
     {
       "description": "Group and automerge non-major npm updates (devDependencies, pnpm overrides, packageManager)",
@@ -19,19 +33,14 @@
       "automerge": true
     },
     {
-      "description": "Pin GitHub Actions digests; group and automerge non-major updates",
+      "description": "Pin GitHub Actions digests; group and automerge non-major updates, digests included, once they are 3 days old: a retargeted tag is how the tj-actions/changed-files compromise spread. A digest update is aged by the release its tag resolves to but carries no timestamp of its own, which must not hold it forever",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "groupName": "github-actions (non-major)",
       "pinDigests": true,
       "automerge": true,
-      "minimumReleaseAge": "0 days"
-    },
-    {
-      "description": "Hold the napi crates on the emnapi 1 compatible line until emnapi 2 is stable (issue #518)",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["napi", "napi-derive", "napi-build"],
-      "enabled": false
+      "minimumReleaseAge": "3 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
       "description": "Group Rust crate updates",
@@ -43,6 +52,61 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
+    },
+    {
+      "description": "The tools pinned inside the workflows lint the workflows, fuzz the codecs or build what is released, so their updates are grouped and reviewed, never automerged. cargo-codspeed, which builds the benchmarks, follows the codspeed crates instead (next two rules)",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["!cargo-codspeed"],
+      "groupName": "workflow tools",
+      "automerge": false,
+      "prBodyNotes": [
+        "A checksum next to a bumped version must be updated by hand in this PR: actionlint's `SHA256` in .github/workflows/ci.yml (from the release's checksums file) and the ziglang `--hash` in .github/workflows/build.yml (the SHA-256 of the release's x86_64 manylinux wheel on PyPI). CI fails until it is, through `sha256sum --check` and `pip3 install --require-hashes`.",
+        "shellcheck, wasm-pack and cargo-zigbuild install from the manifest of the pinned taiki-e/install-action, with no fallback. If an install step fails with `is not supported (updating install-action might resolve this)`, merge the pending github-actions update first, then rebase this PR."
+      ]
+    },
+    {
+      "description": "cargo-codspeed builds the benchmarks against the codspeed crates in Cargo.lock, so it moves with them in the rust-dependencies group",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["cargo-codspeed"],
+      "groupName": "rust-dependencies"
+    },
+    {
+      "description": "Automerge non-major cargo-codspeed updates, as the Rust crates are: a group automerges only when every update in it does, so without this rule cargo-codspeed would hold back the whole rust-dependencies PR. The codspeed crates already automerge on the same checks, and the CodSpeed job runs on that PR, since Cargo.lock changes",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["cargo-codspeed"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "napi-rs toolchain: the CLI and the napi crates build and package every binary, so they update together and are reviewed, never automerged (#518, #526, #529). Keep this rule after the generic ones, as later rules win",
+      "matchPackageNames": ["@napi-rs/*", "napi", "napi-derive", "napi-build"],
+      "groupName": "napi-rs toolchain",
+      "automerge": false
+    },
+    {
+      "description": "Keep the napi-rs packages at exact versions in package.json, so a toolchain update shows in the reviewed diff and not only in pnpm-lock.yaml",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@napi-rs/*"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Keep the typescript-5 alias on TypeScript 5: scripts/check-consumer-types.mjs type-checks the consumer projects with it as well as with the typescript devDependency",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["typescript-5"],
+      "allowedVersions": "<6"
+    },
+    {
+      "description": "TypeScript compiles the JavaScript modules that npm publishes (scripts/build-js.mjs), and CI fails when their output changes. Update it in a pull request of its own, so that a release that changes the output, which then needs pnpm run build:js, holds up no other update",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["typescript"],
+      "groupName": "typescript"
+    },
+    {
+      "description": "biome.json enables nursery rules, which a Biome release can rename or change, and pnpm run check fails on warnings. Keep Biome at an exact version, so that a new release arrives only in a pull request that runs the check with it, and update it in a pull request of its own, so that a release that needs pnpm exec biome migrate --write or new fixes holds up no other update",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["@biomejs/biome"],
+      "groupName": "biome",
+      "rangeStrategy": "pin"
     }
   ]
 }

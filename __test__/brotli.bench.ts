@@ -1,6 +1,7 @@
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import { brotliCompress, brotliDecompress } from '../index.js';
 import {
+  BENCH_OPTIONS,
   JSON_DATA,
   LARGE,
   MEDIUM,
@@ -21,78 +22,114 @@ const RANDOM_LARGE_COMPRESSED = brotliCompress(RANDOM_LARGE);
 const JSON_COMPRESSED = brotliCompress(JSON_DATA);
 const TEXT_COMPRESSED = brotliCompress(TEXT_DATA);
 
+// --- Names of the realistic data benchmarks ---
+const JSON_NAME = `JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`;
+const TEXT_NAME = `text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`;
+
 describe('brotli compress (patterned)', () => {
-  bench('150B', () => {
-    brotliCompress(SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      brotliCompress(SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    brotliCompress(MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      brotliCompress(MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    brotliCompress(LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      brotliCompress(LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('brotli compress (random)', () => {
-  bench('150B', () => {
-    brotliCompress(RANDOM_SMALL);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      brotliCompress(RANDOM_SMALL);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    brotliCompress(RANDOM_MEDIUM);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      brotliCompress(RANDOM_MEDIUM);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    brotliCompress(RANDOM_LARGE);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      brotliCompress(RANDOM_LARGE);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('brotli compress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    brotliCompress(JSON_DATA);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      brotliCompress(JSON_DATA);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    brotliCompress(TEXT_DATA);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      brotliCompress(TEXT_DATA);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('brotli decompress (patterned)', () => {
-  bench('150B', () => {
-    brotliDecompress(SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      brotliDecompress(SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    brotliDecompress(MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      brotliDecompress(MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    brotliDecompress(LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      brotliDecompress(LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('brotli decompress (random)', () => {
-  bench('150B', () => {
-    brotliDecompress(RANDOM_SMALL_COMPRESSED);
+  test('150B', async ({ bench }) => {
+    await bench('150B', () => {
+      brotliDecompress(RANDOM_SMALL_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('10KB', () => {
-    brotliDecompress(RANDOM_MEDIUM_COMPRESSED);
+  test('10KB', async ({ bench }) => {
+    await bench('10KB', () => {
+      brotliDecompress(RANDOM_MEDIUM_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench('1MB', () => {
-    brotliDecompress(RANDOM_LARGE_COMPRESSED);
+  test('1MB', async ({ bench }) => {
+    await bench('1MB', () => {
+      brotliDecompress(RANDOM_LARGE_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });
 
 describe('brotli decompress (realistic)', () => {
-  bench(`JSON ${(JSON_DATA.length / 1024).toFixed(0)}KB`, () => {
-    brotliDecompress(JSON_COMPRESSED);
+  test(JSON_NAME, async ({ bench }) => {
+    await bench(JSON_NAME, () => {
+      brotliDecompress(JSON_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 
-  bench(`text ${(TEXT_DATA.length / 1024).toFixed(0)}KB`, () => {
-    brotliDecompress(TEXT_COMPRESSED);
+  test(TEXT_NAME, async ({ bench }) => {
+    await bench(TEXT_NAME, () => {
+      brotliDecompress(TEXT_COMPRESSED);
+    }).run(BENCH_OPTIONS);
   });
 });

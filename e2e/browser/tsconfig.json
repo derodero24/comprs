@@ -1,0 +1,10 @@
+{
+  // app.js imports the package as browser builds do, so its types are those
+  // of the `browser` condition.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "customConditions": ["browser"]
+  },
+  "include": ["app.js"],
+  "exclude": []
+}

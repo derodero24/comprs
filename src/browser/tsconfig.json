@@ -1,0 +1,9 @@
+{
+  // The project that editors find for the sources in this directory: the
+  // options and files of tsconfig.browser.json, which pnpm run build:js
+  // compiles, without output.
+  "extends": "../../tsconfig.browser.json",
+  "compilerOptions": {
+    "noEmit": true
+  }
+}

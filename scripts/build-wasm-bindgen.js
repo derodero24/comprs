@@ -2,18 +2,27 @@
 
 /**
  * Build the wasm-bindgen WASM package for browser usage.
- * Uses wasm-pack to build crates/wasm targeting wasm32-unknown-unknown.
+ * Uses wasm-pack to build crates/wasm targeting wasm32-unknown-unknown, with
+ * wasm-bindgen's `web` target: the glue exports an init function that
+ * browser/wasm.js awaits, for the browser entry (browser/index.js) and the
+ * browser build of ./next, instead of importing the .wasm file as an ES
+ * module, which esbuild cannot bundle.
+ *
+ * The build uses the wasm-release profile of the workspace Cargo.toml, which
+ * optimizes for size, and does not run wasm-opt (see that profile).
+ * scripts/wasm-size.mjs reports the size of the result.
  */
 
 'use strict';
 
-const { execSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const { cpSync, rmSync, existsSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 
 const ROOT = resolve(__dirname, '..');
 const WASM_CRATE = join(ROOT, 'crates', 'wasm');
 const OUT_DIR = join(ROOT, '.wasm-pack-out');
+const BROWSER_DIR = join(ROOT, 'browser');
 
 // Clean previous output
 if (existsSync(OUT_DIR)) {
@@ -21,36 +30,41 @@ if (existsSync(OUT_DIR)) {
 }
 
 console.log('Building wasm-bindgen package...');
-execSync(
-  `wasm-pack build ${WASM_CRATE} --target bundler --out-dir ${OUT_DIR} --out-name comprs-wasm`,
+// The arguments are passed without a shell, so paths with spaces or shell
+// metacharacters reach wasm-pack unchanged.
+execFileSync(
+  'wasm-pack',
+  [
+    'build',
+    WASM_CRATE,
+    '--profile',
+    'wasm-release',
+    '--target',
+    'web',
+    '--out-dir',
+    OUT_DIR,
+    '--out-name',
+    'comprs-wasm',
+  ],
   { stdio: 'inherit', cwd: ROOT },
 );
 
-// Copy output files to project root
-const files = [
-  'comprs-wasm.js',
-  'comprs-wasm_bg.js',
-  'comprs-wasm_bg.wasm',
-  'comprs-wasm.d.ts',
-  'comprs-wasm_bg.wasm.d.ts',
-];
+// Copy the glue, its declarations and the binary next to the browser entry.
+// The glue's declarations describe the raw module exports as well
+// (InitOutput), so comprs-wasm_bg.wasm.d.ts is not needed.
+const files = ['comprs-wasm.js', 'comprs-wasm.d.ts', 'comprs-wasm_bg.wasm'];
 
 for (const file of files) {
   const src = join(OUT_DIR, file);
-  const dest = join(ROOT, file);
-  if (existsSync(src)) {
-    cpSync(src, dest);
-    console.log(`  Copied: ${file}`);
-  } else {
-    console.warn(`  Warning: ${file} not found in output`);
+  if (!existsSync(src)) {
+    throw new Error(`${file} not found in the wasm-pack output`);
   }
+  cpSync(src, join(BROWSER_DIR, file));
+  console.log(`  Copied: browser/${file}`);
 }
 
-// Clean up wasm-pack output directory (it generates a package.json we don't want)
+// Clean up wasm-pack output directory (browser/package.json replaces the
+// package.json it generates)
 rmSync(OUT_DIR, { recursive: true });
-
-// Patch browser.js — napi build/version regenerates this file to point at the
-// WASI WASM package, but we need it to point at the wasm-bindgen output.
-execSync('node scripts/patch-browser-js.js', { stdio: 'inherit', cwd: ROOT });
 
 console.log('Done.');

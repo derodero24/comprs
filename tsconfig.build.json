@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "verbatimModuleSyntax": false,
+    "rootDir": "src",
+    "outDir": ".",
+    "rootDirs": ["src", "."]
+  },
+  "include": [],
+  "files": [
+    "src/streams.ts",
+    "src/node.ts",
+    "src/stream-schedule.ts",
+    "src/index.mts",
+    "src/next/index.ts",
+    "src/next/index.mts"
+  ]
+}

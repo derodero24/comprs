@@ -6,27 +6,21 @@ target/
 dist/
 .wasm-pack-out/
 *.node
+/artifacts/
 
-# napi-rs generated files (tracked via git add -f for npm package)
-# Biome ignores these via useIgnoreFile
-index.js
-index.d.ts
-browser.js
-browser-entry.js
-browser-streaming.js
-
-# napi-rs generated binaries (build output)
+# wasm-bindgen binary (build output)
 *.wasm
-*.wasi.cjs
-*.wasi-browser.js
-wasi-worker.mjs
-wasi-worker-browser.mjs
 
-# wasm-bindgen output (build output, tracked via git add -f for npm package)
-comprs-wasm.js
-comprs-wasm_bg.js
-comprs-wasm.d.ts
-comprs-wasm_bg.wasm.d.ts
+# wasm-bindgen output (build output, copied into the npm package by the
+# release workflow; see scripts/build-wasm-bindgen.js)
+/browser/comprs-wasm.js
+/browser/comprs-wasm.d.ts
+
+# License notices and LICENSE copies of the npm packages, which
+# scripts/prepare-release.mjs generates when it assembles them
+/THIRD_PARTY_LICENSES
+/npm/*/LICENSE
+/npm/*/THIRD_PARTY_LICENSES
 
 # Logs
 *.log
@@ -38,6 +32,9 @@ Thumbs.db
 # Coverage
 coverage/
 *.lcov
+
+# Vitest reports and attachments
+.vitest/
 
 # IDE
 .idea/

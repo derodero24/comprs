@@ -2,37 +2,40 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
-// Use local WASM build when available (after `pnpm run build:wasm-bindgen` in repo root).
-// On GitHub Pages CI, WASM is built before this runs. In development without a
-// local WASM build, falls back to a JS mock so the UI can be previewed.
-const wasmBgFile = fileURLToPath(new URL('../comprs-wasm_bg.wasm', import.meta.url));
-const hasLocalWasm = existsSync(wasmBgFile);
+// The playground imports @derodero24/comprs as users do: the file:..
+// dependency installs the package from the repository root with the files it
+// would be published with, and Vite resolves its browser entry through the
+// package exports. That entry loads the WebAssembly binary that
+// `pnpm run build:wasm-bindgen` builds in the repository root. Run
+// `pnpm install` here after building it, as the installed package holds the
+// files that existed at install time, which a rebuild does not always update.
+//
+// COMPRS_PLAYGROUND_MOCK=1 substitutes fake compressors for the package, for
+// UI work without the WebAssembly build. Without it, a missing binary fails
+// the dev server and the build, so that the mock is never deployed.
+const useMock = process.env.COMPRS_PLAYGROUND_MOCK === '1';
 const mockEntry = fileURLToPath(new URL('./comprs-mock.js', import.meta.url));
+const wasmBinary = fileURLToPath(
+  new URL('./node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm', import.meta.url),
+);
 
-// Use the playground's wasm-loader.js which manually instantiates the WASM binary.
-// This bypasses the ESM WASM import that Vite 8 does not support.
-const wasmLoader = fileURLToPath(new URL('./wasm-loader.js', import.meta.url));
+export default defineConfig(({ isPreview }) => {
+  if (!(useMock || isPreview || existsSync(wasmBinary))) {
+    throw new Error(
+      `The WebAssembly build of @derodero24/comprs is missing (${wasmBinary}). ` +
+        'Run `pnpm run build:wasm-bindgen` in the repository root, then `pnpm install` ' +
+        'in playground/, or set COMPRS_PLAYGROUND_MOCK=1 to work on the UI with fake compressors.',
+    );
+  }
 
-export default defineConfig({
-  base: process.env.GITHUB_ACTIONS ? '/comprs/' : '/',
-  build: {
-    // WASM entry uses top-level await (requires es2022+)
-    target: 'es2022',
-  },
-  server: {
-    // Allow serving WASM files from parent directory during local development
-    // (comprs-wasm_bg.wasm lives in repo root, outside the playground dir)
-    fs: hasLocalWasm ? { allow: ['..'] } : {},
-  },
-  resolve: {
-    alias: hasLocalWasm
-      ? {
-          // Real WASM: use manual instantiation loader (Vite 8 ESM WASM workaround)
-          '@derodero24/comprs': wasmLoader,
-        }
-      : {
-          // Dev mock: bypass WASM entirely with a JS fallback
-          '@derodero24/comprs': mockEntry,
-        },
-  },
+  return {
+    base: process.env.GITHUB_ACTIONS ? '/comprs/' : '/',
+    resolve: {
+      alias: useMock ? { '@derodero24/comprs': mockEntry } : {},
+    },
+    worker: {
+      // The worker imports the browser entry, which uses top-level await.
+      format: 'es',
+    },
+  };
 });

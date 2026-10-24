@@ -16,7 +16,9 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -70,6 +72,19 @@ describe('createGzipCompressStream', () => {
     const compressed = await collectStream(stream.pipeThrough(createGzipCompressStream()));
     const decompressed = gzipDecompress(compressed);
     expect(decompressed.length).toBe(0);
+  });
+
+  // At levels 5 and 6, zlib-rs compresses input that comes in small calls
+  // worse; the stream compresses its input in blocks of 32 KiB (#724).
+  it('should give the same output however the input is split into chunks', async () => {
+    const input = Buffer.from('The quick brown fox jumps over the lazy dog. '.repeat(3000));
+    const compress = (chunkSize: number): Promise<Buffer> =>
+      collectStream(toChunkedStream(input, chunkSize).pipeThrough(createGzipCompressStream(6)));
+    const whole = await compress(input.length);
+    for (const chunkSize of [100, 1000, 50_000]) {
+      expect(await compress(chunkSize)).toStrictEqual(whole);
+    }
+    expect(gzipDecompress(whole)).toStrictEqual(input);
   });
 
   it('should handle random (incompressible) data', async () => {
@@ -140,7 +155,9 @@ describe('gzip streaming round-trip', () => {
 
   it('should handle large data (1MB)', { timeout: 30_000 }, async () => {
     const large = Buffer.alloc(1_000_000);
-    for (let i = 0; i < large.length; i++) large[i] = i % 256;
+    for (let i = 0; i < large.length; i++) {
+      large[i] = i % 256;
+    }
     const stream = toChunkedStream(large, 64 * 1024);
 
     const result = await collectStream(

@@ -1,59 +1,81 @@
 name: CodeQL
 
+# The path lists name each extension of the source files that CodeQL
+# analyses. GitHub's path globs match neither index.mjs with *.js nor
+# index.mts with *.ts, so the published src/*.mts sources and the release
+# scripts in scripts/*.mjs need globs of their own.
 on:
   push:
     branches: [develop]
     paths:
       - '**/*.ts'
       - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.mts'
+      - '**/*.cts'
+      - '**/*.html'
       - '**/*.json'
       - '**/*.rs'
       - '**/Cargo.toml'
-      - '.github/workflows/codeql.yml'
+      - '.github/workflows/**'
       - '.github/codeql/**'
   pull_request:
     branches: [develop]
     paths:
       - '**/*.ts'
       - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.mts'
+      - '**/*.cts'
+      - '**/*.html'
       - '**/*.json'
       - '**/*.rs'
       - '**/Cargo.toml'
-      - '.github/workflows/codeql.yml'
+      - '.github/workflows/**'
       - '.github/codeql/**'
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6 AM UTC
 
-permissions:
-  contents: read
-  actions: read
-  security-events: write
+permissions: {}
 
+# A newer pull request push supersedes the running analysis. Other events get
+# a group per commit, so every develop commit is analyzed.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # codeql-action reads the workflow run (private repos)
+      security-events: write # upload the analysis results
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript-typescript', 'rust']
+        # `actions` checks the workflows themselves (injection, permissions,
+        # untrusted checkouts).
+        language: ['actions', 'javascript-typescript', 'rust']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         if: matrix.language == 'javascript-typescript'
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         if: matrix.language == 'javascript-typescript'
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: matrix.language == 'javascript-typescript'
-      - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           languages: ${{ matrix.language }}
           config-file: .github/codeql/codeql-config.yml
-      - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
