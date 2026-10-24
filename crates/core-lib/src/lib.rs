@@ -37,6 +37,7 @@ mod limited;
 pub mod lz4;
 #[cfg(feature = "lz4")]
 pub mod lz4_stream;
+pub mod output;
 pub mod unified;
 #[cfg(feature = "zstd")]
 pub mod zstd;

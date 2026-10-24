@@ -4,14 +4,15 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
-use crate::convert::sync_result;
+use crate::convert::{BufferKind, sync_decoded, sync_result};
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
 /// Compress data using LZ4 frame format.
 ///
 /// Returns the compressed data as a Buffer. The frame carries a content
-/// checksum, as the `lz4` CLI writes by default.
+/// checksum, as the `lz4` CLI writes by default, and declares its content
+/// size, as `lz4 --content-size` does.
 #[napi]
 pub fn lz4_compress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
     sync_result(&env, comprs_core::lz4::compress(crate::as_bytes(&data)))
@@ -25,7 +26,18 @@ pub fn lz4_compress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer
 /// `lz4DecompressWithCapacity` for larger data.
 #[napi]
 pub fn lz4_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buffer> {
-    sync_result(&env, comprs_core::lz4::decompress(crate::as_bytes(&data)))
+    sync_decoded::<BufferKind>(
+        &env,
+        |allocate| {
+            comprs_core::lz4::decompress_into(
+                crate::as_bytes(&data),
+                comprs_core::MAX_DECOMPRESSED_SIZE,
+                allocate,
+            )
+        },
+        to_napi_error,
+        "lz4 decompress",
+    )
 }
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
@@ -43,9 +55,11 @@ pub fn lz4_decompress_with_capacity(
     capacity: f64,
 ) -> Result<Buffer> {
     let cap = comprs_core::validate_capacity(capacity).map_err(to_napi_error)?;
-    sync_result(
+    sync_decoded::<BufferKind>(
         &env,
-        comprs_core::lz4::decompress_with_capacity(crate::as_bytes(&data), cap),
+        |allocate| comprs_core::lz4::decompress_into(crate::as_bytes(&data), cap, allocate),
+        to_napi_error,
+        "lz4 decompress",
     )
 }
 
@@ -54,7 +68,8 @@ pub fn lz4_decompress_with_capacity(
 /// Asynchronously compress data using LZ4 frame format.
 ///
 /// Returns a Promise that resolves to the compressed data as a Buffer. The
-/// frame carries a content checksum, as the `lz4` CLI writes by default.
+/// frame carries a content checksum, as the `lz4` CLI writes by default,
+/// and declares its content size, as `lz4 --content-size` does.
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"

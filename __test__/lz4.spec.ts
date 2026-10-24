@@ -211,9 +211,10 @@ describe('lz4 frames', () => {
   const skippable = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 1, 2, 3]);
   const truncated = 'lz4 stream is truncated: unexpected end of input';
 
-  it('should write a content checksum', () => {
-    // FLG: version 01, independent blocks, content checksum.
-    expect(hello[4]).toBe(0x64);
+  it('should write a content checksum and the content size', () => {
+    // FLG: version 01, independent blocks, content size, content checksum.
+    expect(hello[4]).toBe(0x6c);
+    expect(hello.readBigUInt64LE(6)).toBe(BigInt('Hello '.length));
   });
 
   it('should detect corrupted block data', () => {

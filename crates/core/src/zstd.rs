@@ -92,6 +92,7 @@ pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
             )
         },
         to_napi_error,
+        "zstd decompress",
     )
 }
 
@@ -120,6 +121,7 @@ pub fn zstd_decompress_with_capacity(
         &env,
         |allocate| comprs_core::zstd::decompress_into(crate::as_bytes(&data), cap, allocate),
         to_napi_error,
+        "zstd decompress",
     )
 }
 
@@ -205,6 +207,7 @@ pub fn zstd_decompress_with_dict(
             )
         },
         to_napi_error,
+        "zstd decompress",
     )
 }
 
@@ -243,6 +246,7 @@ pub fn zstd_decompress_with_dict_with_capacity(
             )
         },
         to_napi_error,
+        "zstd decompress",
     )
 }
 

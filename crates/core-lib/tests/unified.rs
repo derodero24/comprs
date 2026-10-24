@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use common::{drive, noise, text};
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
+use comprs_core::output::Decoded;
 use comprs_core::unified::{
     self, CompressContext, CompressOptions, DecompressContext, DecompressOptions, Detection,
     DictionaryRef, Format, GzipHeaderOptions,
@@ -217,12 +218,12 @@ fn every_format_and_level_gives_the_output_of_the_per_format_function() {
 fn decompress_into(
     data: &[u8],
     options: &DecompressOptions,
-) -> Result<zstd::Decoded<Vec<u8>>, ComprsError> {
+) -> Result<Decoded<Vec<u8>>, ComprsError> {
     unified::decompress_into(data, options, |size| Ok(Vec::with_capacity(size)))
 }
 
 #[test]
-fn decompress_into_decodes_zstd_frames_with_content_sizes_into_the_allocation() {
+fn decompress_into_decodes_frames_with_content_sizes_into_the_allocation() {
     let input = text(100_000);
     let compressed = zstd::compress(&input, None).unwrap();
     let with_dict = zstd::compress_with_dict(&input, DICT, None).unwrap();
@@ -236,6 +237,8 @@ fn decompress_into_decodes_zstd_frames_with_content_sizes_into_the_allocation() 
         ..DecompressOptions::default()
     };
     let several = [&compressed[..], &zstd::compress(b"and more", None).unwrap()].concat();
+    let lz4 = lz4::compress(&input).unwrap();
+    let several_lz4 = [&lz4[..], &lz4::compress(b"and more").unwrap()].concat();
     let cases = [
         (&compressed, as_format(Some(Format::Zstd)), input.clone()),
         (&compressed, as_format(None), input.clone()),
@@ -246,11 +249,18 @@ fn decompress_into_decodes_zstd_frames_with_content_sizes_into_the_allocation() 
             as_format(None),
             [&input[..], b"and more"].concat(),
         ),
+        (&lz4, as_format(Some(Format::Lz4)), input.clone()),
+        (&lz4, as_format(None), input.clone()),
+        (
+            &several_lz4,
+            as_format(None),
+            [&input[..], b"and more"].concat(),
+        ),
     ];
     for (data, options, expected) in cases {
         match decompress_into(data, &options).unwrap() {
-            zstd::Decoded::Allocated(output) => assert!(output == expected),
-            zstd::Decoded::Grown(_) => panic!("expected the allocated output"),
+            Decoded::Allocated(output) => assert!(output == expected),
+            Decoded::Grown(_) => panic!("expected the allocated output"),
         }
     }
 }
@@ -258,14 +268,19 @@ fn decompress_into_decodes_zstd_frames_with_content_sizes_into_the_allocation() 
 #[test]
 fn decompress_into_returns_other_output_and_errors_as_decompress_does() {
     let input = text(100_000);
-    let mut ctx = CompressContext::new(Format::Zstd, &CompressOptions::default()).unwrap();
-    // A frame that a stream writes declares no content size.
-    let streamed = drive(&mut ctx, &input, &[64 * 1024]).unwrap();
-    let mut cases = vec![(streamed, as_format(None))];
-    for format in Format::ALL
+    // Frames that a stream writes declare no content size.
+    let streamed = |format| {
+        let mut ctx = CompressContext::new(format, &CompressOptions::default()).unwrap();
+        drive(&mut ctx, &input, &[64 * 1024]).unwrap()
+    };
+    let mut cases = vec![
+        (streamed(Format::Zstd), as_format(None)),
+        (streamed(Format::Lz4), as_format(None)),
+    ];
+    let others = Format::ALL
         .into_iter()
-        .filter(|&format| format != Format::Zstd)
-    {
+        .filter(|format| ![Format::Zstd, Format::Lz4].contains(format));
+    for format in others {
         let compressed = per_format(&input, format, None);
         cases.push((compressed.clone(), as_format(Some(format))));
         if DETECTED.contains(&format) {
@@ -275,7 +290,7 @@ fn decompress_into_returns_other_output_and_errors_as_decompress_does() {
     for (data, options) in &cases {
         let expected = unified::decompress(data, options).unwrap();
         match decompress_into(data, options).unwrap() {
-            zstd::Decoded::Grown(output) => {
+            Decoded::Grown(output) => {
                 assert!(output == expected, "{:?}", options.format);
                 assert_eq!(
                     output.capacity(),
@@ -284,7 +299,7 @@ fn decompress_into_returns_other_output_and_errors_as_decompress_does() {
                     options.format
                 );
             }
-            zstd::Decoded::Allocated(_) => panic!("expected the grown output"),
+            Decoded::Allocated(_) => panic!("expected the grown output"),
         }
     }
 
