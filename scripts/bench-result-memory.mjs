@@ -3,23 +3,32 @@
 /**
  * Measure what the results of the synchronous functions cost in time and
  * memory, in a loop that never yields to the event loop ("tight") and in one
- * that yields after every call ("yield"), as a server does. It sets
- * `SYNC_COPY_LIMIT` in crates/core/src/convert.rs: results of up to that
- * size are copied into memory that V8 allocates, larger ones are returned as
- * external buffers, which Node.js frees only on a later turn of the event
- * loop (#560, #677, #679).
+ * that yields after every call ("yield"), as a server does. It sets the
+ * limits in crates/core/src/convert.rs (#560, #677, #679):
+ *
+ * - `SYNC_COPY_LIMIT`: the functions that decode into the addon's memory,
+ *   such as `gzipDecompress()`, copy results of up to that size into memory
+ *   that V8 allocates, and return larger ones as external buffers, which
+ *   Node.js frees only on a later turn of the event loop.
+ * - `DIRECT_DECODE_LIMIT`: the zstd and LZ4 functions decode frames that
+ *   declare their content sizes straight into memory that V8 allocates, up
+ *   to that size.
  *
  * Each measurement runs in a process of its own, so that memory from one
- * does not count towards the next. It calls `zstdDecompress()` on a frame
- * that decodes to the size, and reports the time per call and the growth of
- * the resident set size (RSS) over the calls.
+ * does not count towards the next. It calls the decompression function of
+ * the codec on data that decodes to the size, and reports the time per call
+ * and the growth of the resident set size (RSS) over the calls.
  *
  * Usage:
- *   node scripts/bench-result-memory.mjs [--addon <file>] [--sizes <KiB,...>]
- *     [--calls <n>] [--markdown <file>]
+ *   node scripts/bench-result-memory.mjs [--addon <file>] [--codec <codec>]
+ *     [--sizes <KiB,...>] [--calls <n>] [--markdown <file>]
  *
  *   --addon <file>     The addon to load, such as a `.node` file built
  *                      elsewhere. Defaults to the package root (index.js).
+ *   --codec <codec>    `gzip` (the default) measures `gzipDecompress()`,
+ *                      whose results `SYNC_COPY_LIMIT` governs; `zstd`
+ *                      measures `zstdDecompress()`, whose results
+ *                      `DIRECT_DECODE_LIMIT` governs.
  *   --sizes <KiB,...>  The result sizes in KiB. Defaults to
  *                      128,256,512,1024,2048,4096.
  *   --calls <n>        Calls per measurement. Defaults to 200.
@@ -27,8 +36,11 @@
  *
  * To compare the copy with external buffers, build the addon a second time
  * with `SYNC_COPY_LIMIT` set to 0, which returns every result as an external
- * buffer, and run this script on each build with --addon. The figures depend
- * on the allocator: glibc, musl and the Windows heap each need their own run.
+ * buffer, and run this script with `--codec gzip` on each build with
+ * --addon. To compare decoding into V8's memory with decoding into the
+ * addon's, do the same with `DIRECT_DECODE_LIMIT` set to `Some(0)` and
+ * `--codec zstd`. The figures depend on the allocator: glibc, musl and the
+ * Windows heap each need their own run.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -39,7 +51,15 @@ import { parseArgs } from 'node:util';
 
 /** @typedef {'tight' | 'yield'} Mode */
 /** @typedef {{ mode: Mode, sizeKiB: number, usPerCall: number, rssGrowthMiB: number }} Result */
-/** @typedef {{ zstdCompress(data: Buffer, level?: number): Buffer, zstdDecompress(data: Buffer): Buffer }} Addon */
+/** @typedef {'gzip' | 'zstd'} Codec */
+/**
+ * @typedef {{
+ *   gzipCompress(data: Buffer, level?: number): Buffer,
+ *   gzipDecompress(data: Buffer): Buffer,
+ *   zstdCompress(data: Buffer, level?: number): Buffer,
+ *   zstdDecompress(data: Buffer): Buffer,
+ * }} Addon
+ */
 
 /** @type {readonly Mode[]} */
 const MODES = ['tight', 'yield'];
@@ -48,6 +68,7 @@ const WARMUP_CALLS = 20;
 const { values } = parseArgs({
   options: {
     addon: { type: 'string' },
+    codec: { type: 'string', default: 'gzip' },
     sizes: { type: 'string', default: '128,256,512,1024,2048,4096' },
     calls: { type: 'string', default: '200' },
     markdown: { type: 'string' },
@@ -73,6 +94,20 @@ function positiveInteger(name, value) {
 }
 
 /**
+ * Parse the --codec option, or exit with an error.
+ *
+ * @param {string} value
+ * @returns {Codec}
+ */
+function parseCodec(value) {
+  if (value !== 'gzip' && value !== 'zstd') {
+    console.error(`--codec must be gzip or zstd, got ${JSON.stringify(value)}`);
+    process.exit(2);
+  }
+  return value;
+}
+
+/**
  * Load the addon from `file`, or the package root.
  *
  * @param {string | undefined} file
@@ -84,7 +119,7 @@ function loadAddon(file) {
 }
 
 /**
- * Data of `size` bytes that zstd compresses well but not trivially: a 4 KiB
+ * Data of `size` bytes that both codecs compress well but not trivially: a 4 KiB
  * pseudo-random block, repeated.
  *
  * @param {number} size
@@ -111,18 +146,24 @@ const nextTurn = () => new Promise((resolveTurn) => setImmediate(resolveTurn));
  * Run one measurement in this process.
  *
  * @param {Addon} addon
+ * @param {Codec} codec
  * @param {Mode} mode
  * @param {number} sizeKiB
  * @param {number} calls
  * @returns {Promise<Result>}
  */
-async function measure(addon, mode, sizeKiB, calls) {
+async function measure(addon, codec, mode, sizeKiB, calls) {
   const size = sizeKiB * 1024;
-  const frame = addon.zstdCompress(testData(size), 3);
+  const data = testData(size);
+  // zstdCompress() writes the content size, which the direct decode needs.
+  const [compressed, decompress] =
+    codec === 'gzip'
+      ? [addon.gzipCompress(data, 6), addon.gzipDecompress]
+      : [addon.zstdCompress(data, 3), addon.zstdDecompress];
   /** @returns {void} */
   const call = () => {
-    if (addon.zstdDecompress(frame).length !== size) {
-      throw new Error(`zstdDecompress() returned the wrong size for ${sizeKiB} KiB`);
+    if (decompress(compressed).length !== size) {
+      throw new Error(`${codec}Decompress() returned the wrong size for ${sizeKiB} KiB`);
     }
   };
   for (let i = 0; i < WARMUP_CALLS; i++) {
@@ -163,7 +204,15 @@ async function measure(addon, mode, sizeKiB, calls) {
  * @returns {Result}
  */
 function measureInChild(mode, sizeKiB, calls) {
-  const args = [import.meta.filename, '--child', `${mode}:${sizeKiB}`, '--calls', String(calls)];
+  const args = [
+    import.meta.filename,
+    '--child',
+    `${mode}:${sizeKiB}`,
+    '--codec',
+    codec,
+    '--calls',
+    String(calls),
+  ];
   if (values.addon !== undefined) {
     args.push('--addon', values.addon);
   }
@@ -175,6 +224,7 @@ function measureInChild(mode, sizeKiB, calls) {
 }
 
 const calls = positiveInteger('calls', values.calls);
+const codec = parseCodec(values.codec);
 
 if (values.child !== undefined) {
   const [mode, sizeKiB] = values.child.split(':');
@@ -183,6 +233,7 @@ if (values.child !== undefined) {
   }
   const result = await measure(
     loadAddon(values.addon),
+    codec,
     mode,
     positiveInteger('child', sizeKiB ?? ''),
     calls,
@@ -191,7 +242,7 @@ if (values.child !== undefined) {
 } else {
   const sizes = values.sizes.split(',').map((size) => positiveInteger('sizes', size.trim()));
   const lines = [
-    `Node.js ${process.version}, ${process.platform}-${process.arch}, ${calls} calls each`,
+    `${codec}Decompress(), Node.js ${process.version}, ${process.platform}-${process.arch}, ${calls} calls each`,
     '',
     '| Loop | Result size | Time per call | RSS growth |',
     '| --- | ---: | ---: | ---: |',
