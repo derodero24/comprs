@@ -101,6 +101,10 @@ pub fn zstd_decompress(env: Env, data: Either<Buffer, Uint8Array>) -> Result<Buf
 /// output: to `capacity` rounded up to a power of two, at least 8 MiB and at
 /// most zstd's default of 128 MiB, so a frame that declares a larger window
 /// throws an error instead.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn zstd_decompress_with_capacity(
     env: Env,
@@ -147,6 +151,10 @@ pub fn zstd_train_dictionary(
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
 /// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
 /// 3.
+///
+/// @deprecated Use `compressSync(data, { format: 'zstd', dictionary: dict, level })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn zstd_compress_with_dict(
     env: Env,
@@ -170,6 +178,10 @@ pub fn zstd_compress_with_dict(
 /// Decompress Zstandard-compressed data that was compressed with a dictionary.
 ///
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn zstd_decompress_with_dict(
     env: Env,
@@ -198,6 +210,10 @@ pub fn zstd_decompress_with_dict(
 /// most zstd's default of 128 MiB, so a frame that declares a larger window
 /// throws an error instead.
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi]
 pub fn zstd_decompress_with_dict_with_capacity(
     env: Env,
@@ -226,6 +242,10 @@ pub fn zstd_decompress_with_dict_with_capacity(
 /// output: to `capacity` rounded up to a power of two, at least 8 MiB and at
 /// most zstd's default of 128 MiB, so for a frame that declares a larger
 /// window the promise rejects with an error instead.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"
@@ -249,6 +269,10 @@ pub fn zstd_decompress_with_capacity_async(
 /// The same dictionary must be used for decompression via `zstdDecompressWithDict`.
 /// Level is an integer from -131072 to 22, as for `zstdCompress`. Default is
 /// 3.
+///
+/// @deprecated Use `await compress(data, { format: 'zstd', dictionary: dict, level })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, level?: number | undefined | null",
     ts_return_type = "Promise<Buffer>"
@@ -275,6 +299,10 @@ pub fn zstd_compress_with_dict_async(
 /// Asynchronously decompress Zstandard-compressed data that was compressed with a dictionary.
 ///
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array",
     ts_return_type = "Promise<Buffer>"
@@ -337,6 +365,10 @@ pub fn zstd_train_dictionary_async(
 /// most zstd's default of 128 MiB, so for a frame that declares a larger
 /// window the promise rejects with an error instead.
 /// The same dictionary used for compression must be provided.
+///
+/// @deprecated Use `await decompress(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })`
+/// of `@derodero24/comprs/next`, which returns a `Uint8Array` (see the
+/// migration table in the README).
 #[napi(
     ts_args_type = "data: Buffer | Uint8Array, dict: Buffer | Uint8Array, capacity: number",
     ts_return_type = "Promise<Buffer>"

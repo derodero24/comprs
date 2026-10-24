@@ -169,26 +169,26 @@ zstdCompress(data, -1);  // fast mode with negative levels
 ### Dictionary compression
 
 ```typescript
-import { zstdTrainDictionary, zstdCompressWithDict, zstdDecompressWithDict } from '@derodero24/comprs';
+import { compressSync, decompressSync, trainDictionarySync } from '@derodero24/comprs/next';
 
-// Train from samples of similar data
-const dict = zstdTrainDictionary(samples);
+// Train a zstd dictionary from samples of similar data
+const dict = trainDictionarySync(samples);
 
-// Compress/decompress with dictionary
-const compressed = zstdCompressWithDict(data, dict);
-const decompressed = zstdDecompressWithDict(compressed, dict);
+// Compress/decompress with the dictionary
+const compressed = compressSync(data, { format: 'zstd', dictionary: dict });
+const decompressed = decompressSync(compressed, { format: 'zstd', dictionary: dict });
 ```
 
 ```typescript
-// Brotli dictionary (no training step — provide raw dictionary bytes)
-import { brotliCompressWithDict, brotliDecompressWithDict } from '@derodero24/comprs';
+// Brotli dictionary (no training step: provide raw dictionary bytes)
+import { compressSync, decompressSync } from '@derodero24/comprs/next';
 
-const dict = Buffer.from('{"id":0,"name":"","email":"@example.com"}'.repeat(10));
-const compressed = brotliCompressWithDict(data, dict);
-const decompressed = brotliDecompressWithDict(compressed, dict);
+const dict = new TextEncoder().encode('{"id":0,"name":"","email":"@example.com"}'.repeat(10));
+const compressed = compressSync(data, { format: 'brotli', dictionary: dict });
+const decompressed = decompressSync(compressed, { format: 'brotli', dictionary: dict });
 ```
 
-`zstdCompressWithDict()` and `zstdDecompressWithDict()` digest the dictionary on every call, which costs far more than compressing a small message. For many small messages, a `Dictionary` of the unified API digests it once (see [Prepared dictionaries](#prepared-dictionaries)).
+zstd digests the bytes of a dictionary on every call, which costs far more than compressing a small message. For many small messages, a `Dictionary` digests them once (see [Prepared dictionaries](#prepared-dictionaries)).
 
 ### Deno / Bun
 
@@ -234,7 +234,7 @@ With the native addon (Node.js, Deno, Bun), the Web Streams and Node.js Transfor
 | --- | --- |
 | `zstdCompress(data, level?)` | Compress with zstd. Level: -131072 to 22 (default: 3) |
 | `zstdDecompress(data)` | Decompress zstd data (max 256 MB output) |
-| `zstdDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `zstdDecompressWithCapacity(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit output size limit |
 
 #### gzip / deflate
 
@@ -244,10 +244,10 @@ With the native addon (Node.js, Deno, Bun), the Web Streams and Node.js Transfor
 | `gzipCompressWithHeader(data, header, level?)` | Compress with custom gzip header (filename, mtime) |
 | `gzipReadHeader(data)` | Read gzip header metadata without decompressing |
 | `gzipDecompress(data)` | Decompress gzip data |
-| `gzipDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `gzipDecompressWithCapacity(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit output size limit |
 | `deflateCompress(data, level?)` | Compress with raw deflate. Level: 0-9 (default: 6) |
 | `deflateDecompress(data)` | Decompress raw deflate data |
-| `deflateDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `deflateDecompressWithCapacity(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit output size limit |
 
 #### brotli
 
@@ -255,7 +255,7 @@ With the native addon (Node.js, Deno, Bun), the Web Streams and Node.js Transfor
 | --- | --- |
 | `brotliCompress(data, quality?)` | Compress with brotli. Quality: 0-11 (default: 6) |
 | `brotliDecompress(data)` | Decompress brotli data (max 256 MB output) |
-| `brotliDecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `brotliDecompressWithCapacity(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit output size limit |
 
 #### lz4
 
@@ -263,7 +263,7 @@ With the native addon (Node.js, Deno, Bun), the Web Streams and Node.js Transfor
 | --- | --- |
 | `lz4Compress(data)` | Compress with LZ4 frame format, with a content checksum |
 | `lz4Decompress(data)` | Decompress LZ4 data, including concatenated, skippable and legacy frames (max 256 MB output) |
-| `lz4DecompressWithCapacity(data, capacity)` | Decompress with explicit output size limit |
+| `lz4DecompressWithCapacity(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit output size limit |
 
 #### Auto-detect
 
@@ -287,17 +287,17 @@ With the native addon (Node.js, Deno, Bun), the Web Streams and Node.js Transfor
 | Function | Description |
 | --- | --- |
 | `zstdTrainDictionary(samples, maxDictSize?)` | Train a dictionary from sample data (default max: 110 KB, limit: 16 MB) |
-| `zstdCompressWithDict(data, dict, level?)` | Compress with pre-trained dictionary |
-| `zstdDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
-| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with dictionary and explicit output size limit |
+| `zstdCompressWithDict(data, dict, level?)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Compress with pre-trained dictionary |
+| `zstdDecompressWithDict(data, dict)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress dictionary-compressed data |
+| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with dictionary and explicit output size limit |
 
 #### Brotli Dictionary
 
 | Function | Description |
 | --- | --- |
-| `brotliCompressWithDict(data, dict, quality?)` | Compress with custom dictionary |
-| `brotliDecompressWithDict(data, dict)` | Decompress dictionary-compressed data |
-| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | Decompress with explicit capacity |
+| `brotliCompressWithDict(data, dict, quality?)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Compress with custom dictionary |
+| `brotliDecompressWithDict(data, dict)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress dictionary-compressed data |
+| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Decompress with explicit capacity |
 
 </details>
 
@@ -321,26 +321,26 @@ They take no `AbortSignal`. The async functions of [`@derodero24/comprs/next`](#
 | --- | --- |
 | `zstdCompressAsync(data, level?)` | Async zstd compression |
 | `zstdDecompressAsync(data)` | Async zstd decompression |
-| `zstdDecompressWithCapacityAsync(data, capacity)` | Async zstd decompression with explicit size limit |
-| `zstdCompressWithDictAsync(data, dict, level?)` | Async zstd compression with dictionary |
-| `zstdDecompressWithDictAsync(data, dict)` | Async zstd decompression with dictionary |
-| `zstdDecompressWithDictWithCapacityAsync(data, dict, capacity)` | Async zstd decompression with dictionary and size limit |
+| `zstdDecompressWithCapacityAsync(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async zstd decompression with explicit size limit |
+| `zstdCompressWithDictAsync(data, dict, level?)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async zstd compression with dictionary |
+| `zstdDecompressWithDictAsync(data, dict)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async zstd decompression with dictionary |
+| `zstdDecompressWithDictWithCapacityAsync(data, dict, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async zstd decompression with dictionary and size limit |
 | `zstdTrainDictionaryAsync(samples, maxDictSize?)` | Async dictionary training |
 | `gzipCompressAsync(data, level?)` | Async gzip compression |
 | `gzipDecompressAsync(data)` | Async gzip decompression |
-| `gzipDecompressWithCapacityAsync(data, capacity)` | Async gzip decompression with explicit size limit |
+| `gzipDecompressWithCapacityAsync(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async gzip decompression with explicit size limit |
 | `deflateCompressAsync(data, level?)` | Async deflate compression |
 | `deflateDecompressAsync(data)` | Async deflate decompression |
-| `deflateDecompressWithCapacityAsync(data, capacity)` | Async deflate decompression with explicit size limit |
+| `deflateDecompressWithCapacityAsync(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async deflate decompression with explicit size limit |
 | `brotliCompressAsync(data, quality?)` | Async brotli compression |
 | `brotliDecompressAsync(data)` | Async brotli decompression |
-| `brotliDecompressWithCapacityAsync(data, capacity)` | Async brotli decompression with explicit size limit |
-| `brotliCompressWithDictAsync(data, dict, quality?)` | Async brotli compression with dictionary |
-| `brotliDecompressWithDictAsync(data, dict)` | Async brotli decompression with dictionary |
-| `brotliDecompressWithDictWithCapacityAsync(data, dict, capacity)` | Async brotli decompression with dictionary and size limit |
+| `brotliDecompressWithCapacityAsync(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async brotli decompression with explicit size limit |
+| `brotliCompressWithDictAsync(data, dict, quality?)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async brotli compression with dictionary |
+| `brotliDecompressWithDictAsync(data, dict)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async brotli decompression with dictionary |
+| `brotliDecompressWithDictWithCapacityAsync(data, dict, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async brotli decompression with dictionary and size limit |
 | `lz4CompressAsync(data)` | Async LZ4 compression |
 | `lz4DecompressAsync(data)` | Async LZ4 decompression |
-| `lz4DecompressWithCapacityAsync(data, capacity)` | Async LZ4 decompression with explicit size limit |
+| `lz4DecompressWithCapacityAsync(data, capacity)` | **Deprecated** ([migration](#from-the-deprecated-functions)). Async LZ4 decompression with explicit size limit |
 | `decompressAsync(data, maxOutputSize?)` | Async auto-detect format and decompress, with an optional output size limit |
 
 </details>
@@ -759,6 +759,31 @@ comprs adds what fflate lacks: zstd, brotli and LZ4, dictionaries for zstd and b
 + const decompressed = gzipDecompress(compressed);
 ```
 
+### From the deprecated functions
+
+The `*WithCapacity`, `*WithDict` and `*WithDictWithCapacity` functions of the package root, and their `*Async` forms, are deprecated in favor of options of the unified API ([#577](https://github.com/derodero24/comprs/issues/577)). They keep working in 2.x, and editors show them struck through. Each maps to a call of [`@derodero24/comprs/next`](#unified-api-derodero24comprsnext):
+
+| Deprecated | Replacement |
+| --- | --- |
+| `zstdDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'zstd', maxOutputSize: capacity })` |
+| `gzipDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'gzip', maxOutputSize: capacity })` |
+| `deflateDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'deflate-raw', maxOutputSize: capacity })` |
+| `brotliDecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'brotli', maxOutputSize: capacity })` |
+| `lz4DecompressWithCapacity(data, capacity)` | `decompressSync(data, { format: 'lz4', maxOutputSize: capacity })` |
+| `zstdCompressWithDict(data, dict, level?)` | `compressSync(data, { format: 'zstd', dictionary: dict, level })` |
+| `zstdDecompressWithDict(data, dict)` | `decompressSync(data, { format: 'zstd', dictionary: dict })` |
+| `zstdDecompressWithDictWithCapacity(data, dict, capacity)` | `decompressSync(data, { format: 'zstd', dictionary: dict, maxOutputSize: capacity })` |
+| `brotliCompressWithDict(data, dict, quality?)` | `compressSync(data, { format: 'brotli', dictionary: dict, level: quality })` |
+| `brotliDecompressWithDict(data, dict)` | `decompressSync(data, { format: 'brotli', dictionary: dict })` |
+| `brotliDecompressWithDictWithCapacity(data, dict, capacity)` | `decompressSync(data, { format: 'brotli', dictionary: dict, maxOutputSize: capacity })` |
+
+The `*Async` form of each maps to `await compress(...)` or `await decompress(...)` with the same options, which also take an `AbortSignal`. Each side decompresses what the other compresses. The replacements differ in these ways:
+
+- They return a `Uint8Array` rather than a `Buffer` in Node.js. Where a `Buffer` is needed, `Buffer.from(result.buffer, result.byteOffset, result.byteLength)` wraps it without a copy.
+- An empty dictionary, which the deprecated functions take as no dictionary, fails with `ERR_COMPRS_INVALID_ARG`: leave `dictionary` out instead.
+- Errors carry the codes of the unified API (see **Errors** there).
+- For many small messages, a `Dictionary` in place of the bytes digests a zstd dictionary once rather than on every call (see [Prepared dictionaries](#prepared-dictionaries)).
+
 ## Benchmarks
 
 The [Bench Report workflow](.github/workflows/bench-report.yml) regenerates the tables and charts below from one run of `scripts/bench-report.mjs` on a GitHub-hosted runner, with every library at the same settings, and states the versions, the machine and the settings above them (see [Regenerating the README benchmarks](CONTRIBUTING.md#regenerating-the-readme-benchmarks)). Run the benchmarks locally with `pnpm run bench`. Numbers vary by machine and data type. [CodSpeed](https://codspeed.io/derodero24/comprs) tracks the Rust benchmarks of `comprs-core` on the pull requests that change Rust code, to catch performance regressions.
@@ -868,9 +893,9 @@ comprs compresses brotli with libbrotli, the C library that `node:zlib` uses too
 ## Notes
 
 > [!NOTE]
-> **Default decompression limit**: All decompression functions cap output at 256 MB by default. Use `*WithCapacity()` variants, or the `maxOutputSize` argument of `decompress()` and `decompressAsync()`, for larger data:
+> **Default decompression limit**: All decompression functions cap output at 256 MB by default. Use the `maxOutputSize` option of `decompressSync()` and `decompress()` of [`@derodero24/comprs/next`](#unified-api-derodero24comprsnext), or the `maxOutputSize` argument of `decompress()` and `decompressAsync()` of the package root, for larger data:
 > ```typescript
-> const decompressed = zstdDecompressWithCapacity(data, 1024 * 1024 * 1024); // 1 GB
+> const decompressed = decompressSync(data, { format: 'zstd', maxOutputSize: 1024 * 1024 * 1024 }); // 1 GB
 > ```
 > The capacity is a limit, not an allocation size: output buffers grow with the decompressed data, so a large capacity reserves no memory up front, and size fields in the input (the zstd frame content size, the gzip size trailer) are trusted only as far as the input can expand. Output over the limit throws an `... exceeded maximum size of <limit> bytes` error.
 > Streaming decompression takes the limit as its `maxOutputSize` argument and enforces it while decoding: memory stays near `maxOutputSize` even when a single small chunk would expand to gigabytes.

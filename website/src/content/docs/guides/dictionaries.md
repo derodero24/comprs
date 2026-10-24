@@ -65,7 +65,7 @@ decompressSync(compressed, { format: 'brotli', dictionary });
 
 ## The functions of the package root
 
-The package root has dictionary variants of each function, which take the bytes of the dictionary on every call:
+The package root has dictionary variants of each function, which take the bytes of the dictionary on every call. They are [deprecated](/comprs/reference/classic-api/#deprecated-functions) in favor of the `dictionary` option above, and keep working in 2.x:
 
 ```ts
 import {
