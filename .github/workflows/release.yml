@@ -522,6 +522,7 @@ jobs:
     permissions:
       contents: write # push the merge commit or the merge-back branch
       pull-requests: write # open a pull request when the merge cannot land
+      actions: write # dispatch CI on the merge-back branch
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -571,8 +572,13 @@ jobs:
 
           - Resolve any conflicts on this branch, for example by merging \`develop\` into it.
           - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
-          - Pull requests opened with \`GITHUB_TOKEN\` start no workflow runs: push a commit, or close and reopen this pull request, to run CI.
           EOF
             )
           fi
+          # A pull request opened with GITHUB_TOKEN starts no workflow, and
+          # develop requires CI Complete. workflow_dispatch is one of the two
+          # events that GITHUB_TOKEN may start, so dispatch CI on the branch:
+          # its checks show on the pull request. A re-run dispatches again,
+          # for the same commit.
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"
