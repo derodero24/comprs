@@ -43,7 +43,8 @@ use crate::error::to_napi_error;
 /// Node.js 24 on x86-64 Alpine Linux. It still keeps a synchronous loop
 /// that gets results of 1 MiB at a quarter of the memory, and is kept for
 /// that (#679). The Windows heap was not measured.
-/// `scripts/bench-result-memory.mjs` repeats these measurements.
+/// `scripts/bench-result-memory.mjs --codec gzip` repeats these
+/// measurements.
 ///
 /// The zstd and LZ4 functions decode frames that declare their content
 /// sizes into memory that V8 allocates instead, which needs no copy, up to
@@ -98,6 +99,7 @@ pub(crate) fn sync_result(env: &Env, result: Result<Vec<u8>, ComprsError>) -> na
 /// took 3 times as long in a yielding loop, measured with Node.js 24 on
 /// x86-64 Alpine Linux, so larger results stay in the addon's memory, as
 /// [`SYNC_COPY_LIMIT`] chooses for the copy (#679).
+/// `scripts/bench-result-memory.mjs --codec zstd` repeats these measurements.
 #[cfg(not(target_env = "musl"))]
 pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = None;
 #[cfg(target_env = "musl")]
