@@ -15,8 +15,9 @@ use crate::task::{LegacyBuffer, OneShot};
 ///
 /// Compare a result with the members, such as `CompressionFormat.Zstd`, or
 /// with their values, the strings `'zstd'`, `'gzip'`, `'brotli'`, `'lz4'` and
-/// `'unknown'`. The members of the runtime object are not enumerable
-/// (`Object.keys()` and `Object.values()` return `[]`), so use them by name.
+/// `'unknown'`. Like the object that TypeScript compiles an enum into, the
+/// runtime object has a plain property for each member, so `Object.keys()`
+/// returns the names and `Object.values()` the strings.
 #[napi(string_enum)]
 pub enum CompressionFormat {
     #[napi(value = "zstd")]
