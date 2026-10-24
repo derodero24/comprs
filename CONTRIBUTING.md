@@ -145,12 +145,12 @@ CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails
 CI also tests the WebAssembly build. To run these tests locally:
 
 ```bash
-pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
-pnpm run test:wasm            # WebAssembly build, compared with the native addon
-pnpm run size:wasm            # Size of the WebAssembly binary, checked against its budget
+pnpm run build:wasm-bindgen   # WebAssembly builds (needs wasm-pack and the wasm32-unknown-unknown target)
+pnpm run test:wasm            # WebAssembly builds, compared with the native addon
+pnpm run size:wasm            # Size of each WebAssembly binary, checked against its budget
 ```
 
-The size budget is in `scripts/wasm-size.mjs`. Raise it in the pull request that needs the extra bytes, and explain why there.
+`build:wasm-bindgen` builds the full build, `browser/comprs-wasm*`, with every format and both APIs, and one build of the unified API for each family of formats, `browser/comprs-wasm-{zstd,gzip,brotli,lz4}*`, from the Cargo features of `crates/wasm` ([#342](https://github.com/derodero24/comprs/issues/342)). `node scripts/build-wasm-bindgen.js full` builds only the full build, and naming families builds those. Each binary has its own size budget in `scripts/wasm-size.mjs`. Raise a budget in the pull request that needs the extra bytes, and explain why there.
 
 CI then tests the package as it would be published (see [Package tests](#package-tests)).
 

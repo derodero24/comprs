@@ -10,8 +10,21 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# The default build has every format and both APIs, for the browser entry and
+# for ./next. Each per-format build of the unified API (#342) enables one of
+# zstd, gzip, brotli and lz4 alone, without default features: it has only the
+# unified API (src/next.rs), for its formats.
+[features]
+default = ["classic"]
+# The classic API (src/classic.rs), which needs every format.
+classic = ["zstd", "gzip", "brotli", "lz4"]
+zstd = ["comprs-core/zstd"]
+gzip = ["comprs-core/gzip"]
+brotli = ["comprs-core/brotli"]
+lz4 = ["comprs-core/lz4"]
+
 [dependencies]
-comprs-core = { path = "../core-lib" }
+comprs-core = { path = "../core-lib", default-features = false }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 
