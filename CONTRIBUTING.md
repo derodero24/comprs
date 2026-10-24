@@ -256,7 +256,7 @@ A new package name, such as the platform package of a new napi target, needs a f
 npm trust github "@derodero24/<package>" --file release.yml --repo derodero24/comprs --env npm-publish --allow-publish --yes
 ```
 
-A new trusted publisher expires unless a publish through it succeeds within 2 days, so add it shortly before a release that publishes the package. A package has at most one trusted publisher, so replacing an expired one takes `npm trust list` and `npm trust revoke --id` first. `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
+A new trusted publisher expires unless a publish through it succeeds within 2 days, so add it shortly before a release that publishes the package. A trusted publisher cannot be changed, so an expired one is deleted (`npm trust list`, then `npm trust revoke --id`) and added again. `@derodero24/comprs-wasm32-wasi` is no longer published ([#600](https://github.com/derodero24/comprs/pull/600)) and needs none.
 
 ## Package tests
 
