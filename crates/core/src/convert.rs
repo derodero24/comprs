@@ -39,6 +39,7 @@ use crate::error::to_napi_error;
 /// Node.js 24 on x86-64 Alpine Linux. It still keeps a synchronous loop
 /// that gets results of 1 MiB at a quarter of the memory, and is kept for
 /// that (#679). The Windows heap was not measured.
+/// `scripts/bench-result-memory.mjs` repeats these measurements.
 ///
 /// `src/streams.ts` mirrors this value: the Web streams enqueue the results
 /// of the stream contexts up to this size without copying them again.
