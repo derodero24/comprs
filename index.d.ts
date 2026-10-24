@@ -1561,7 +1561,8 @@ export declare function gzipReadHeader(data: Buffer | Uint8Array): GzipHeader
  * Compress data using LZ4 frame format.
  *
  * Returns the compressed data as a Buffer. The frame carries a content
- * checksum, as the `lz4` CLI writes by default.
+ * checksum, as the `lz4` CLI writes by default, and declares its content
+ * size, as `lz4 --content-size` does.
  */
 export declare function lz4Compress(data: Buffer | Uint8Array): Buffer
 
@@ -1569,7 +1570,8 @@ export declare function lz4Compress(data: Buffer | Uint8Array): Buffer
  * Asynchronously compress data using LZ4 frame format.
  *
  * Returns a Promise that resolves to the compressed data as a Buffer. The
- * frame carries a content checksum, as the `lz4` CLI writes by default.
+ * frame carries a content checksum, as the `lz4` CLI writes by default,
+ * and declares its content size, as `lz4 --content-size` does.
  */
 export declare function lz4CompressAsync(data: Buffer | Uint8Array): Promise<Buffer>
 

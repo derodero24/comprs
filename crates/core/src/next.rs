@@ -17,8 +17,9 @@
 //! `code`, as `coded_error` describes, except that of a withdrawn task,
 //! below. Results are plain `Uint8Array`s: the synchronous functions copy
 //! results of up to `SYNC_COPY_LIMIT` into memory that V8 allocates, as
-//! `to_uint8array` does, and [`decompress`] decodes zstd frames that
-//! declare their content sizes straight into it, as `sync_decoded` does. The `*Async` functions copy their inputs when
+//! `to_uint8array` does, and [`decompress`] decodes zstd and LZ4 frames
+//! that declare their content sizes straight into it, as `sync_decoded`
+//! does. The `*Async` functions copy their inputs when
 //! they are called (#548), run on the libuv thread pool and settle as
 //! `NextBytes` does.
 //!
@@ -331,6 +332,7 @@ pub fn decompress(
             )
         },
         |err| coded_error(&env, &err),
+        "decompress",
     )
 }
 

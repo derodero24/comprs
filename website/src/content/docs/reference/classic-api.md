@@ -34,7 +34,7 @@ In the native addon, the functions return a Node.js `Buffer`; in the WebAssembly
 | `brotliCompress(data, quality?)` | brotli, quality 0 to 11 (default 6) |
 | `brotliDecompress(data)` | brotli, up to 256 MB of output |
 | `brotliDecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). Brotli, with an explicit output limit |
-| `lz4Compress(data)` | LZ4 frame format, with a content checksum |
+| `lz4Compress(data)` | LZ4 frame format, with a content checksum and the content size |
 | `lz4Decompress(data)` | LZ4, including concatenated, skippable and legacy frames, up to 256 MB of output |
 | `lz4DecompressWithCapacity(data, capacity)` | **Deprecated** ([replacement](#deprecated-functions)). LZ4, with an explicit output limit |
 | `decompress(data, maxOutputSize?)` | zstd, gzip, brotli or LZ4, detected from the data |

@@ -36,6 +36,8 @@ use crate::dictionary::{Dictionary, DictionaryFormat};
 use crate::error::not_built;
 #[cfg(feature = "gzip")]
 use crate::gzip::FlateWrapper;
+#[cfg(feature = "zstd")]
+use crate::output::{Decoded, Output};
 use crate::{ComprsError, MemoryUsage};
 #[cfg(feature = "brotli")]
 use crate::{brotli, brotli_stream};
@@ -617,19 +619,23 @@ pub fn decompress(data: &[u8], options: &DecompressOptions) -> Result<Vec<u8>, C
     decode(data, decoder, limit)
 }
 
-/// [`decompress`], decoding the output of zstd frames that declare their
-/// content sizes into `allocate(size)` instead of a `Vec`, as
-/// [`zstd::decompress_into`] does, also after detection.
+/// [`decompress`], decoding the output of zstd and LZ4 frames that declare
+/// their content sizes into `allocate(size)` instead of a `Vec`, as
+/// [`zstd::decompress_into`] and [`lz4::decompress_into`] do, also after
+/// detection.
 ///
 /// The output and the errors are those of [`decompress`]. Other input, in
-/// zstd and in the other formats, is returned as [`zstd::Decoded::Grown`],
-/// with its spare capacity released as [`decompress`] releases it.
+/// these formats and in the others, is returned as [`Decoded::Grown`], with
+/// its spare capacity released as [`decompress`] releases it.
+///
+/// It exists with zstd, whose decoder writes through [`zstd::WriteBuf`],
+/// as the native addon has every format.
 #[cfg(feature = "zstd")]
-pub fn decompress_into<B: zstd::WriteBuf>(
+pub fn decompress_into<B: zstd::WriteBuf + Output>(
     data: &[u8],
     options: &DecompressOptions,
     allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
-) -> Result<zstd::Decoded<B>, ComprsError> {
+) -> Result<Decoded<B>, ComprsError> {
     let decoder = decoder(options)?;
     let limit = crate::validate_max_output_size(options.max_output_size)?;
     let Some(decoder) = decoder else {
@@ -643,26 +649,26 @@ pub fn decompress_into<B: zstd::WriteBuf>(
 /// [`decompress_fields`], decoding into `allocate(size)` as
 /// [`decompress_into`] does.
 #[cfg(feature = "zstd")]
-pub fn decompress_fields_into<B: zstd::WriteBuf>(
+pub fn decompress_fields_into<B: zstd::WriteBuf + Output>(
     data: &[u8],
     format: Option<&str>,
     max_output_size: Option<f64>,
     dictionary: Option<DictionaryRef<'_>>,
     allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
-) -> Result<zstd::Decoded<B>, ComprsError> {
+) -> Result<Decoded<B>, ComprsError> {
     let options = decompress_options(format, max_output_size, dictionary)?;
     decompress_into(data, &options, allocate)
 }
 
-/// [`decode`], decoding zstd frames that declare their content sizes into
-/// `allocate(size)`.
+/// [`decode`], decoding zstd and LZ4 frames that declare their content
+/// sizes into `allocate(size)`.
 #[cfg(feature = "zstd")]
-fn decode_into<B: zstd::WriteBuf>(
+fn decode_into<B: zstd::WriteBuf + Output>(
     data: &[u8],
     decoder: Decoder,
     limit: usize,
     allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
-) -> Result<zstd::Decoded<B>, ComprsError> {
+) -> Result<Decoded<B>, ComprsError> {
     match decoder {
         Decoder::Zstd(None) => zstd::decompress_into(data, limit, allocate),
         Decoder::Zstd(Some(DictionaryRef::Raw(dict))) => {
@@ -671,9 +677,11 @@ fn decode_into<B: zstd::WriteBuf>(
         Decoder::Zstd(Some(DictionaryRef::Prepared(dict))) => {
             zstd::decompress_prepared_into(data, dict, limit, allocate)
         }
-        // A build with only zstd has no others.
+        #[cfg(feature = "lz4")]
+        Decoder::Lz4 => lz4::decompress_into(data, limit, allocate),
+        // A build with only zstd, or zstd and LZ4, has no others.
         #[allow(unreachable_patterns)]
-        decoder => decode(data, decoder, limit).map(zstd::Decoded::Grown),
+        decoder => decode(data, decoder, limit).map(Decoded::Grown),
     }
 }
 

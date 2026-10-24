@@ -4,11 +4,12 @@ use std::cell::Cell;
 use std::hash::Hasher;
 use std::io::Write;
 
-use lz4_flex::block::{decompress_into, decompress_into_with_dict};
+use lz4_flex::block as lz4_block;
 use lz4_flex::frame::{BlockSize, Error as FrameError, FrameEncoder, FrameInfo};
 use twox_hash::XxHash32;
 
 use crate::ComprsError;
+use crate::output::{Decoded, Output};
 // The magic numbers live in crate::detect, which every build has, for the
 // detection of the unified API.
 pub(crate) use crate::detect::{
@@ -62,12 +63,15 @@ const HISTORY_CAPACITY: usize = 2 * WINDOW_SIZE;
 /// The frames carry a content checksum, as the `lz4` CLI writes by default,
 /// so decoders detect corrupted data.
 pub(crate) fn frame_encoder<W: Write>(writer: W, block_size: BlockSize) -> FrameEncoder<W> {
-    FrameEncoder::with_frame_info(
-        FrameInfo::new()
-            .block_size(block_size)
-            .content_checksum(true),
-        writer,
-    )
+    FrameEncoder::with_frame_info(frame_info(block_size), writer)
+}
+
+/// The settings of the frames that comprs writes, in independent blocks of
+/// up to `block_size` bytes, with a content checksum.
+fn frame_info(block_size: BlockSize) -> FrameInfo {
+    FrameInfo::new()
+        .block_size(block_size)
+        .content_checksum(true)
 }
 
 /// Block maximum size of the frame that [`compress`] writes for `len` bytes:
@@ -91,18 +95,24 @@ fn compress_block_size(len: usize) -> BlockSize {
 ///
 /// The encoder stores a block that does not compress as it is, behind its
 /// 4-byte size, and every block but the last holds at least 64 KiB. The
-/// frame adds 15 bytes: the magic number and the descriptor, the end mark
-/// and the content checksum.
+/// frame adds 23 bytes: the magic number and the descriptor with the
+/// content size, the end mark and the content checksum.
 fn compress_bound(len: usize) -> usize {
-    len + len.div_ceil(64 * 1024) * 4 + 15
+    len + len.div_ceil(64 * 1024) * 4 + 23
 }
 
 /// Compress data using LZ4 frame format, in blocks of up to 256 KiB.
+///
+/// The frame declares its content size, as `lz4 --content-size` writes it,
+/// so that [`decompress_into`] decodes it into memory of that size.
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
     // Room for the whole frame, so the output is not reallocated, and
     // copied, before the last block.
     let mut output = Vec::with_capacity(compress_bound(data.len()));
-    let mut encoder = frame_encoder(&mut output, compress_block_size(data.len()));
+    let mut encoder = FrameEncoder::with_frame_info(
+        frame_info(compress_block_size(data.len())).content_size(Some(data.len() as u64)),
+        &mut output,
+    );
     encoder
         .write_all(data)
         .map_err(|e| ComprsError::Operation {
@@ -122,16 +132,116 @@ pub fn compress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
 /// The input may hold several frames, including skippable and legacy ones.
 /// The output is limited to [`crate::MAX_DECOMPRESSED_SIZE`] bytes.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ComprsError> {
-    crate::require_input(data, "lz4")?;
-    decompress_frames(data, crate::MAX_DECOMPRESSED_SIZE, "lz4 decompress")
+    decompress_with_capacity(data, crate::MAX_DECOMPRESSED_SIZE)
 }
 
 /// Decompress LZ4 frame-compressed data with explicit capacity.
 ///
 /// `capacity` limits the output size, as in [`decompress`].
 pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>, ComprsError> {
+    let decoded = decompress_into(data, capacity, |size| {
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(size)
+            .map_err(|e| operation_error(CONTEXT, e.into()))?;
+        Ok(output)
+    })?;
+    Ok(match decoded {
+        Decoded::Allocated(output) | Decoded::Grown(output) => output,
+    })
+}
+
+/// The context of the errors of the one-shot functions.
+const CONTEXT: &str = "lz4 decompress";
+
+/// [`decompress_with_capacity`], decoding the output of frames that declare
+/// their content sizes into `allocate(size)` instead of a `Vec`, where
+/// `size` is their total.
+///
+/// `allocate` is called at most once, and only when every frame but the
+/// skippable ones is an LZ4 frame that declares its content size, which
+/// legacy frames never do, and the total is no larger than `capacity` and
+/// than the input could expand to, so forged descriptors cannot make it
+/// allocate more than valid input of the same length could fill. It must
+/// return output with nothing in it and room for `size` bytes: the decoder
+/// fails with [`ComprsError::Corrupt`] as soon as a frame decodes to more
+/// than its content size, and at its end mark if it decodes to less, so
+/// that on success exactly `size` bytes are appended. An error from
+/// `allocate` is returned as it is.
+pub fn decompress_into<B: Output>(
+    data: &[u8],
+    capacity: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
     crate::require_input(data, "lz4")?;
-    decompress_frames(data, capacity, "lz4 decompress")
+    let Some(size) = declared_output_size(data, capacity) else {
+        return decompress_frames(data, capacity, CONTEXT).map(Decoded::Grown);
+    };
+    let mut output = allocate(size)?;
+    let mut decoder = Decoder::new(capacity, CONTEXT);
+    decoder.push(data, &mut output)?;
+    decoder.end()?;
+    Ok(Decoded::Allocated(output))
+}
+
+/// The total of the content sizes that the frames of `data` declare, if
+/// [`declared_frame`] reads every frame, the total is no larger than
+/// `limit`, and the frames could decode to that much: at most
+/// [`MAX_BLOCK_EXPANSION`] bytes per byte of input.
+///
+/// Unlike zstd's, a total above `limit` is not an error here: the decoder
+/// then reports the input as it did before frames declared their sizes, a
+/// corrupt frame as corrupt.
+fn declared_output_size(data: &[u8], limit: usize) -> Option<usize> {
+    let mut total: u64 = 0;
+    let mut rest = data;
+    while !rest.is_empty() {
+        let (frame_len, size) = declared_frame(rest)?;
+        total = total.saturating_add(size);
+        rest = &rest[frame_len..];
+    }
+    let max = (data.len() as u64).saturating_mul(MAX_BLOCK_EXPANSION as u64);
+    (total <= limit as u64 && total <= max).then_some(total as usize)
+}
+
+/// The length of the frame that `data` starts with and the content size
+/// that it declares: 0 for a skippable frame. `None` if `data` does not hold
+/// the whole frame, or if it is no skippable frame and no LZ4 frame that
+/// declares its content size.
+///
+/// Only the magic numbers, the FLG byte, the content size and the block
+/// sizes are read, to find where the frame ends. The decoder checks the
+/// rest.
+fn declared_frame(data: &[u8]) -> Option<(usize, u64)> {
+    let u32_at = |at: usize| {
+        data.get(at..)?
+            .first_chunk()
+            .map(|b| u32::from_le_bytes(*b))
+    };
+    let magic = u32_at(0)?;
+    if SKIPPABLE_MAGIC.contains(&magic) {
+        let len = 8usize.checked_add(u32_at(4)? as usize)?;
+        return (len <= data.len()).then_some((len, 0));
+    }
+    let flg = *data.get(4)?;
+    if magic != FRAME_MAGIC || flg & FLG_CONTENT_SIZE == 0 {
+        return None;
+    }
+    let content_size = u64::from_le_bytes(*data.get(6..)?.first_chunk()?);
+    let block_checksum = if flg & FLG_BLOCK_CHECKSUM != 0 { 4 } else { 0 };
+    let mut at = 4 + descriptor_len(flg);
+    loop {
+        let info = u32_at(at)?;
+        at += 4;
+        if info == 0 {
+            break;
+        }
+        at = at.checked_add((info & !BLOCK_UNCOMPRESSED) as usize + block_checksum)?;
+    }
+    if flg & FLG_CONTENT_CHECKSUM != 0 {
+        at += 4;
+    }
+    (at <= data.len()).then_some((at, content_size))
 }
 
 thread_local! {
@@ -256,8 +366,8 @@ struct Frame {
 }
 
 /// Where one [`Decoder::push`] writes its output.
-struct Sink<'a> {
-    out: &'a mut Vec<u8>,
+struct Sink<'a, O> {
+    out: &'a mut O,
     /// Space that compressed blocks are decoded into before they are
     /// appended to `out`. Only its growth is zero-filled: it is reused for
     /// every block of every frame, and by the next push on the thread (see
@@ -303,10 +413,10 @@ impl Decoder {
     /// Fails as soon as the input is invalid, with the errors of
     /// [`decompress_frames`], or the output exceeds the size limit. A failed
     /// push leaves the decoder unusable.
-    pub(crate) fn push(&mut self, input: &[u8], out: &mut Vec<u8>) -> Result<(), ComprsError> {
+    pub(crate) fn push<O: Output>(&mut self, input: &[u8], out: &mut O) -> Result<(), ComprsError> {
         with_scratch(|scratch| {
             let mut sink = Sink {
-                frame_start: out.len(),
+                frame_start: out.filled().len(),
                 out,
                 scratch,
             };
@@ -314,7 +424,7 @@ impl Decoder {
             // A frame of linked blocks continues in a later push.
             let linked = self.frame.flg & FLG_INDEPENDENT_BLOCKS == 0;
             if linked && matches!(self.state, State::BlockSize | State::Block(_)) {
-                self.extend_history(&sink.out[sink.frame_start..])?;
+                self.extend_history(&sink.out.filled()[sink.frame_start..])?;
             }
             Ok(())
         })
@@ -347,7 +457,7 @@ impl Decoder {
 
     /// Decode the units of `input`, starting with the one that the last push
     /// ended in, and keep the start of the next one in `pending`.
-    fn read(&mut self, mut input: &[u8], sink: &mut Sink) -> Result<(), ComprsError> {
+    fn read<O: Output>(&mut self, mut input: &[u8], sink: &mut Sink<O>) -> Result<(), ComprsError> {
         if !self.pending.is_empty()
             && let Some(need) = self.unit_len(&self.pending)
         {
@@ -406,7 +516,7 @@ impl Decoder {
     }
 
     /// Decode `unit`, the whole of the unit that the state expects.
-    fn unit(&mut self, unit: &[u8], sink: &mut Sink) -> Result<(), ComprsError> {
+    fn unit<O: Output>(&mut self, unit: &[u8], sink: &mut Sink<O>) -> Result<(), ComprsError> {
         match self.state {
             State::Magic => self.magic(read_u32(unit)?),
             State::Descriptor => self.descriptor(unit, sink),
@@ -483,7 +593,11 @@ impl Decoder {
 
     /// Start the LZ4 frame of the descriptor in `unit`, which holds the
     /// optional fields that its FLG byte declares and the header checksum.
-    fn descriptor(&mut self, unit: &[u8], sink: &mut Sink) -> Result<(), ComprsError> {
+    fn descriptor<O: Output>(
+        &mut self,
+        unit: &[u8],
+        sink: &mut Sink<O>,
+    ) -> Result<(), ComprsError> {
         let mut input = unit;
         let [flg, bd] = *take_array::<2>(&mut input)?;
         let content_size = if flg & FLG_CONTENT_SIZE != 0 {
@@ -524,7 +638,7 @@ impl Decoder {
             decoded: 0,
         };
         self.history.clear();
-        sink.frame_start = sink.out.len();
+        sink.frame_start = sink.out.filled().len();
         self.state = State::BlockSize;
         Ok(())
     }
@@ -557,7 +671,12 @@ impl Decoder {
 
     /// Decode the block of an LZ4 frame in `unit`, of block size `info`,
     /// after its checksum if the frame has block checksums.
-    fn block(&mut self, info: u32, unit: &[u8], sink: &mut Sink) -> Result<(), ComprsError> {
+    fn block<O: Output>(
+        &mut self,
+        info: u32,
+        unit: &[u8],
+        sink: &mut Sink<O>,
+    ) -> Result<(), ComprsError> {
         let mut input = unit;
         let block = take(&mut input, (info & !BLOCK_UNCOMPRESSED) as usize)?;
         if self.frame.flg & FLG_BLOCK_CHECKSUM != 0 {
@@ -567,10 +686,7 @@ impl Decoder {
             }
         }
         if info & BLOCK_UNCOMPRESSED != 0 {
-            self.hash(block);
-            self.reserve(sink.out, block.len())?;
-            sink.out.extend_from_slice(block);
-            self.frame.decoded += block.len() as u64;
+            self.append(sink.out, block)?;
         } else if self.frame.flg & FLG_INDEPENDENT_BLOCKS != 0 {
             self.decode_block(block, self.frame.block_size, Dict::None, sink)?;
         } else {
@@ -579,15 +695,16 @@ impl Decoder {
             // that much of the frame, the window is in the output. Before,
             // it starts in the history, to which the frame's output of this
             // push then moves, so that the window is in one piece.
-            let in_output = sink.out.len() - sink.frame_start;
+            let output_len = sink.out.filled().len();
+            let in_output = output_len - sink.frame_start;
             if in_output > 0 && in_output < WINDOW_SIZE && !self.history.is_empty() {
-                self.extend_history(&sink.out[sink.frame_start..])?;
-                sink.frame_start = sink.out.len();
+                self.extend_history(&sink.out.filled()[sink.frame_start..])?;
+                sink.frame_start = output_len;
             }
-            let dict = if sink.frame_start == sink.out.len() {
+            let dict = if sink.frame_start == output_len {
                 Dict::History
             } else {
-                Dict::Output(sink.out.len() - (sink.out.len() - sink.frame_start).min(WINDOW_SIZE))
+                Dict::Output(output_len - (output_len - sink.frame_start).min(WINDOW_SIZE))
             };
             self.decode_block(block, self.frame.block_size, dict, sink)?;
         }
@@ -598,12 +715,12 @@ impl Decoder {
     /// Decode the compressed `block`, whose content is at most `block_size`
     /// bytes and may refer to `dict`, append its content to the output and
     /// add it to the content checksum of the frame.
-    fn decode_block(
+    fn decode_block<O: Output>(
         &mut self,
         block: &[u8],
         block_size: usize,
         dict: Dict,
-        sink: &mut Sink,
+        sink: &mut Sink<O>,
     ) -> Result<(), ComprsError> {
         if sink.scratch.len() < block_size {
             let additional = block_size - sink.scratch.len();
@@ -614,21 +731,44 @@ impl Decoder {
         }
         let scratch = &mut sink.scratch[..block_size];
         let decoded = match dict {
-            Dict::None => decompress_into(block, scratch),
+            Dict::None => lz4_block::decompress_into(block, scratch),
             Dict::History => {
                 let window = self.history.len().saturating_sub(WINDOW_SIZE);
-                decompress_into_with_dict(block, scratch, &self.history[window..])
+                lz4_block::decompress_into_with_dict(block, scratch, &self.history[window..])
             }
-            Dict::Output(start) => decompress_into_with_dict(block, scratch, &sink.out[start..]),
+            Dict::Output(start) => {
+                lz4_block::decompress_into_with_dict(block, scratch, &sink.out.filled()[start..])
+            }
         };
         let len = decoded.map_err(|e| self.error(FrameError::DecompressionError(e)))?;
-        let content = &sink.scratch[..len];
+        self.append(sink.out, &sink.scratch[..len])
+    }
+
+    /// Append `content`, the content of a block, to `out`, within the size
+    /// limit and the content size of the frame, and add it to the content
+    /// checksum of the frame.
+    ///
+    /// Content beyond the content size fails here, before it is appended,
+    /// rather than at the end mark: output that the caller allocated for the
+    /// content sizes of the frames then never runs out of room.
+    fn append<O: Output>(&mut self, out: &mut O, content: &[u8]) -> Result<(), ComprsError> {
+        let decoded = self.frame.decoded + content.len() as u64;
+        if let Some(expected) = self
+            .frame
+            .content_size
+            .filter(|&expected| decoded > expected)
+        {
+            return Err(self.error(FrameError::ContentLengthError {
+                expected,
+                actual: decoded,
+            }));
+        }
         // Hashing the block here rather than in the output, after the copy,
         // is measurably faster for large blocks.
         self.hash(content);
-        self.reserve(sink.out, len)?;
-        sink.out.extend_from_slice(content);
-        self.frame.decoded += len as u64;
+        self.reserve(out, content.len())?;
+        out.extend_from_slice(content);
+        self.frame.decoded = decoded;
         Ok(())
     }
 
@@ -664,7 +804,7 @@ impl Decoder {
 
     /// Make room in `out` for `len` more bytes of output, within the size
     /// limit.
-    fn reserve(&mut self, out: &mut Vec<u8>, len: usize) -> Result<(), ComprsError> {
+    fn reserve<O: Output>(&mut self, out: &mut O, len: usize) -> Result<(), ComprsError> {
         if len > self.remaining {
             return Err(ComprsError::SizeLimit {
                 context: self.context,
@@ -672,7 +812,7 @@ impl Decoder {
             });
         }
         out.try_reserve(len)
-            .map_err(|e| operation_error(self.context, e.into()))?;
+            .map_err(|e| operation_error(self.context, e))?;
         self.remaining -= len;
         Ok(())
     }
@@ -877,10 +1017,115 @@ mod tests {
     ];
 
     #[test]
-    fn compress_writes_a_content_checksum() {
-        // FLG: version 01, independent blocks, content checksum.
-        assert_eq!(compress(b"test").unwrap()[4], 0x64);
-        assert_eq!(decompress(&compress(b"test").unwrap()).unwrap(), b"test");
+    fn compress_writes_a_content_checksum_and_the_content_size() {
+        // FLG: version 01, independent blocks, content size, content
+        // checksum.
+        let compressed = compress(b"test").unwrap();
+        assert_eq!(compressed[4], 0x6c);
+        assert_eq!(compressed[6..14], 4u64.to_le_bytes());
+        assert_eq!(decompress(&compressed).unwrap(), b"test");
+        // The stream contexts do not know the content size up front.
+        let mut encoder = frame_encoder(Vec::new(), BlockSize::Max64KB);
+        encoder.write_all(b"test").unwrap();
+        assert_eq!(encoder.finish().unwrap()[4], 0x64);
+    }
+
+    /// [`decompress_into`] with an allocator of `Vec`s.
+    fn decode_into(data: &[u8], capacity: usize) -> Result<Decoded<Vec<u8>>, ComprsError> {
+        decompress_into(data, capacity, |size| Ok(Vec::with_capacity(size)))
+    }
+
+    #[test]
+    fn decompress_into_allocates_the_declared_content_sizes() {
+        let a = compress(&text(1000)).unwrap();
+        let b = compress(&text(300_000)).unwrap();
+        let skippable = skippable_frame(b"metadata");
+        for (input, expected) in [
+            (a.clone(), text(1000)),
+            (
+                [&a[..], &skippable, &b[..]].concat(),
+                [text(1000), text(300_000)].concat(),
+            ),
+            (compress(b"").unwrap(), Vec::new()),
+        ] {
+            assert_eq!(
+                declared_output_size(&input, usize::MAX),
+                Some(expected.len())
+            );
+            match decode_into(&input, expected.len()).unwrap() {
+                Decoded::Allocated(output) => {
+                    assert!(output == expected);
+                    assert_eq!(output.capacity(), expected.len());
+                }
+                Decoded::Grown(_) => panic!("expected the allocated output"),
+            }
+        }
+    }
+
+    #[test]
+    fn decompress_into_grows_the_output_of_other_input() {
+        let sized = compress(b"hello").unwrap();
+        let unsized_frame = compress_with(b"hello", FrameInfo::new());
+        let cases = [
+            unsized_frame.clone(),
+            [&sized[..], &unsized_frame].concat(),
+            [&sized[..], CLI_LEGACY_FRAME].concat(),
+            // Cut, or followed by data that is no frame.
+            sized[..sized.len() - 1].to_vec(),
+            [&sized[..], b"garbage"].concat(),
+        ];
+        for input in cases {
+            assert_eq!(declared_output_size(&input, usize::MAX), None);
+            let actual = decode_into(&input, usize::MAX).map(|decoded| match decoded {
+                Decoded::Grown(output) => output,
+                Decoded::Allocated(_) => panic!("expected the grown output"),
+            });
+            let expected = decompress_frames(&input, usize::MAX, CONTEXT);
+            assert_eq!(
+                actual.map_err(|e| e.to_string()),
+                expected.map_err(|e| e.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_into_ignores_sizes_over_the_limit_or_the_input() {
+        let sized = compress(&text(1000)).unwrap();
+        // Over the limit: decoded as before, up to the limit.
+        assert_eq!(declared_output_size(&sized, 999), None);
+        assert!(matches!(
+            decompress_with_capacity(&sized, 999),
+            Err(ComprsError::SizeLimit { limit: 999, .. })
+        ));
+        // 200 MiB declared by a few bytes of input must not be allocated
+        // before decoding finds the frame corrupt.
+        let content_size = |size: u64| [&[0x68, 0x40][..], &size.to_le_bytes()].concat();
+        let forged =
+            frame_with_descriptor(&content_size(200 << 20), &[ABC_BLOCK, END_MARK].concat());
+        assert_eq!(declared_output_size(&forged, usize::MAX), None);
+        assert_eq!(
+            decompress(&forged).unwrap_err().to_string(),
+            "lz4 decompress failed: ContentLengthError { expected: 209715200, actual: 3 }"
+        );
+    }
+
+    #[test]
+    fn decompress_into_fails_at_the_first_block_beyond_the_content_size() {
+        // Two blocks of 3 bytes in a frame that declares 4: the output that
+        // was allocated for 4 bytes never receives the second block.
+        let content_size = [&[0x68, 0x40][..], &4u64.to_le_bytes()].concat();
+        let frame =
+            frame_with_descriptor(&content_size, &[ABC_BLOCK, ABC_BLOCK, END_MARK].concat());
+        assert_eq!(declared_output_size(&frame, usize::MAX), Some(4));
+        let error = decompress_into(&frame, usize::MAX, |size| {
+            assert_eq!(size, 4);
+            Ok(Vec::with_capacity(size))
+        })
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "lz4 decompress failed: ContentLengthError { expected: 4, actual: 6 }"
+        );
     }
 
     #[test]
@@ -1329,8 +1574,9 @@ mod tests {
                 _ => {}
             }
 
-            let expected = decompress_into(&block, &mut full);
-            let actual = decompress_into(&block, &mut room[..legacy_block_room(block.len())]);
+            let expected = lz4_block::decompress_into(&block, &mut full);
+            let actual =
+                lz4_block::decompress_into(&block, &mut room[..legacy_block_room(block.len())]);
             match (&expected, &actual) {
                 (Ok(expected), Ok(actual)) => {
                     assert_eq!(expected, actual);

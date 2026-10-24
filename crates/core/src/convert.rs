@@ -6,7 +6,8 @@ use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
 use comprs_core::ComprsError;
-use comprs_core::zstd::{Decoded, WriteBuf};
+use comprs_core::output::{Decoded, Output};
+use comprs_core::zstd::WriteBuf;
 use napi::bindgen_prelude::{Buffer, BufferSlice, Env, FromNapiValue, Uint8Array};
 use napi::{check_status, sys};
 
@@ -44,8 +45,8 @@ use crate::error::to_napi_error;
 /// that (#679). The Windows heap was not measured.
 /// `scripts/bench-result-memory.mjs` repeats these measurements.
 ///
-/// The zstd functions decode frames that declare their content sizes into
-/// memory that V8 allocates instead, which needs no copy, up to
+/// The zstd and LZ4 functions decode frames that declare their content
+/// sizes into memory that V8 allocates instead, which needs no copy, up to
 /// [`DIRECT_DECODE_LIMIT`] (see [`sync_decoded`]).
 ///
 /// `src/streams.ts` mirrors this value: the Web streams enqueue the results
@@ -79,9 +80,9 @@ pub(crate) fn sync_result(env: &Env, result: Result<Vec<u8>, ComprsError>) -> na
     to_buffer(env, result.map_err(to_napi_error)?, SYNC_COPY_LIMIT)
 }
 
-/// Largest output, in bytes, that the synchronous zstd functions decode
-/// straight into memory that V8 allocates (see [`sync_decoded`]): `None`
-/// for any size, which all builds but the musl builds take.
+/// Largest output, in bytes, that the synchronous zstd and LZ4 functions
+/// decode straight into memory that V8 allocates (see [`sync_decoded`]):
+/// `None` for any size, which all builds but the musl builds take.
 ///
 /// Decoding into V8's memory needs no copy, so up to [`SYNC_COPY_LIMIT`] it
 /// is faster than the copy everywhere. Above it, V8 frees a result as soon
@@ -102,12 +103,13 @@ pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = None;
 #[cfg(target_env = "musl")]
 pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = Some(SYNC_COPY_LIMIT);
 
-/// Return the result of a synchronous zstd decompression as a `K::Value`,
-/// a `Buffer` or a plain `Uint8Array`, or its error as the error to throw:
+/// Return the result of a synchronous decompression as a `K::Value`, a
+/// `Buffer` or a plain `Uint8Array`, or its error as the error to throw:
 /// that of a failed allocation, or `map_err` of the error of comprs-core.
 /// `decode` decodes with one of the `*_into` functions of comprs-core, such
 /// as `comprs_core::zstd::decompress_into`, passing on the allocator that it
-/// gets.
+/// gets. `context` names the operation in the error of an allocation in the
+/// addon's memory that fails.
 ///
 /// The output of frames that declare their content sizes is decoded
 /// straight into memory that V8 allocates, up to [`DIRECT_DECODE_LIMIT`]:
@@ -117,9 +119,10 @@ pub(crate) const DIRECT_DECODE_LIMIT: Option<usize> = Some(SYNC_COPY_LIMIT);
 pub(crate) fn sync_decoded<K: V8Kind>(
     env: &Env,
     decode: impl FnOnce(
-        &dyn Fn(usize) -> Result<ZstdOutput<K>, ComprsError>,
-    ) -> Result<Decoded<ZstdOutput<K>>, ComprsError>,
+        &dyn Fn(usize) -> Result<DirectOutput<K>, ComprsError>,
+    ) -> Result<Decoded<DirectOutput<K>>, ComprsError>,
     map_err: impl FnOnce(ComprsError) -> napi::Error,
+    context: &'static str,
 ) -> napi::Result<K::Value> {
     // A failed allocation leaves a pending JavaScript exception, such as
     // `ERR_BUFFER_TOO_LARGE`, which the error of napi-rs keeps rather than
@@ -131,22 +134,24 @@ pub(crate) fn sync_decoded<K: V8Kind>(
             output
                 .try_reserve_exact(size)
                 .map_err(|err| ComprsError::Operation {
-                    context: "zstd decompress",
+                    context,
                     source: err.into(),
                 })?;
-            return Ok(ZstdOutput::Addon(output));
+            return Ok(DirectOutput::Addon(output));
         }
-        V8Memory::new(env, size).map(ZstdOutput::V8).map_err(|err| {
-            allocation_error.set(Some(err));
-            ComprsError::Operation {
-                context: "zstd decompress",
-                source: "failed to allocate the output".into(),
-            }
-        })
+        V8Memory::new(env, size)
+            .map(DirectOutput::V8)
+            .map_err(|err| {
+                allocation_error.set(Some(err));
+                ComprsError::Operation {
+                    context,
+                    source: "failed to allocate the output".into(),
+                }
+            })
     };
     match decode(&allocate) {
-        Ok(Decoded::Allocated(ZstdOutput::V8(output))) => output.finish(env),
-        Ok(Decoded::Allocated(ZstdOutput::Addon(output)) | Decoded::Grown(output)) => {
+        Ok(Decoded::Allocated(DirectOutput::V8(output))) => output.finish(env),
+        Ok(Decoded::Allocated(DirectOutput::Addon(output)) | Decoded::Grown(output)) => {
             K::from_vec(env, output, SYNC_COPY_LIMIT)
         }
         Err(err) => Err(allocation_error.take().unwrap_or_else(|| map_err(err))),
@@ -155,7 +160,7 @@ pub(crate) fn sync_decoded<K: V8Kind>(
 
 /// The memory that [`sync_decoded`] decodes the output of frames with
 /// content sizes into.
-pub(crate) enum ZstdOutput<K> {
+pub(crate) enum DirectOutput<K> {
     /// Memory that V8 allocates, up to [`DIRECT_DECODE_LIMIT`].
     V8(V8Memory<K>),
     /// The addon's memory, reserved for the whole output, for larger output.
@@ -164,7 +169,7 @@ pub(crate) enum ZstdOutput<K> {
 
 // SAFETY: each variant upholds the contract of `WriteBuf` itself, and every
 // method passes the call on to the same variant.
-unsafe impl<K> WriteBuf for ZstdOutput<K> {
+unsafe impl<K> WriteBuf for DirectOutput<K> {
     fn as_slice(&self) -> &[u8] {
         match self {
             Self::V8(output) => output.as_slice(),
@@ -193,6 +198,32 @@ unsafe impl<K> WriteBuf for ZstdOutput<K> {
                 Self::V8(output) => output.filled_until(n),
                 Self::Addon(output) => output.filled_until(n),
             }
+        }
+    }
+}
+
+impl<K> Output for DirectOutput<K> {
+    fn filled(&self) -> &[u8] {
+        match self {
+            Self::V8(output) => output.filled(),
+            Self::Addon(output) => output.filled(),
+        }
+    }
+
+    fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            Self::V8(output) => output.try_reserve(additional),
+            Self::Addon(output) => Output::try_reserve(output, additional),
+        }
+    }
+
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        match self {
+            Self::V8(output) => output.extend_from_slice(bytes),
+            Self::Addon(output) => output.extend_from_slice(bytes),
         }
     }
 }
@@ -318,9 +349,9 @@ impl V8Kind for Uint8ArrayKind {
     }
 }
 
-/// New memory that V8 allocates for a value of kind `K`, which a zstd
-/// decoder writes into through [`WriteBuf`] before JavaScript code can reach
-/// it.
+/// New memory that V8 allocates for a value of kind `K`, which a decoder
+/// writes into, through [`WriteBuf`] or [`Output`], before JavaScript code
+/// can reach it.
 pub(crate) struct V8Memory<K> {
     handle: sys::napi_value,
     memory: NonNull<u8>,
@@ -360,7 +391,7 @@ impl<K: V8Kind> V8Memory<K> {
             return Err(napi::Error::new(
                 napi::Status::GenericFailure,
                 format!(
-                    "zstd decompress wrote {} of the {} bytes that the frames declare",
+                    "decompress wrote {} of the {} bytes that the frames declare",
                     self.len, self.capacity
                 ),
             ));
@@ -390,6 +421,41 @@ unsafe impl<K> WriteBuf for V8Memory<K> {
 
     unsafe fn filled_until(&mut self, n: usize) {
         self.len = n;
+    }
+}
+
+impl<K> Output for V8Memory<K> {
+    fn filled(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if additional > self.capacity - self.len {
+            return Err("the output has no room for the content".into());
+        }
+        Ok(())
+    }
+
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        assert!(
+            bytes.len() <= self.capacity - self.len,
+            "the output has no room for the content"
+        );
+        // SAFETY: the `bytes.len()` bytes from `len` on are within the
+        // memory, as checked, and `bytes` cannot overlap them: it is borrowed
+        // while `self` is borrowed mutably. They are written then, so `len`
+        // may count them.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                self.memory.as_ptr().add(self.len),
+                bytes.len(),
+            );
+        }
+        self.len += bytes.len();
     }
 }
 
