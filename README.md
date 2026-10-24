@@ -639,9 +639,9 @@ The browser WASM binary (`wasm32-unknown-unknown`) is built with `wasm-pack`, op
 
 | `comprs-wasm_bg.wasm` | Size |
 | --- | --- |
-| Raw | 1.84 MB |
-| gzip (level 9) | 800 KB |
-| brotli (quality 11) | 557 KB |
+| Raw | 1.52 MB |
+| gzip (level 9) | 567 KB |
+| brotli (quality 11) | 425 KB |
 
 The compressed sizes are those of Node.js's zlib; what a CDN serves depends on its compressor and level. CI reports these sizes on every pull request, and fails when the raw or gzip size grows over its budget.
 
