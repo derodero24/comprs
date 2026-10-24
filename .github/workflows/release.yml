@@ -195,15 +195,23 @@ jobs:
           CORE_STATUS=$(check_published "$CORE_NAME" "$CORE_VERSION")
           MW_STATUS=$(check_published "$MW_NAME" "$MW_VERSION")
 
+          EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
+
           if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ]; then
             echo "All packages already published, skipping release PR"
+            # A push to develop while main is still publishing opens a
+            # release PR for the versions being published. Close it once
+            # they are on npm, so it does not offer an empty release.
+            if [ -n "$EXISTING" ]; then
+              gh pr close "$EXISTING" --comment "${CORE_NAME}@${CORE_VERSION} and ${MW_NAME}@${MW_VERSION} are already on npm, so this PR has nothing left to release."
+              echo "Closed release PR #${EXISTING}"
+            fi
             exit 0
           fi
 
           echo "Core: ${CORE_NAME}@${CORE_VERSION} → ${CORE_STATUS}"
           echo "Middleware: ${MW_NAME}@${MW_VERSION} → ${MW_STATUS}"
 
-          EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
           CORE_BADGE=$([ "$CORE_STATUS" = "published" ] && echo "published" || echo "**new**")
           MW_BADGE=$([ "$MW_STATUS" = "published" ] && echo "published" || echo "**new**")
           BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
