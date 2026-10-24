@@ -322,13 +322,14 @@ impl Decoded<Vec<u8>> {
 /// their content sizes into `allocate(size)` instead of a `Vec`, where
 /// `size` is their total.
 ///
-/// `allocate` is called at most once, and only when the output is no larger
-/// than `capacity` and no larger than the input could expand to, as
-/// [`declared_output_size`] describes. It must return memory with room for
-/// at least `size` bytes; zstd fails with [`ComprsError::Corrupt`] if the
-/// frames do not decode to exactly their declared sizes, so that on success
-/// the first `size` bytes are written. An error from `allocate` is returned
-/// as it is.
+/// `allocate` is called at most once, and only when every frame declares its
+/// content size and the total is no larger than `capacity` and than the
+/// input could expand to, so forged headers cannot make it allocate more
+/// than valid input of the same length could fill. It must return memory
+/// with room for at least `size` bytes; zstd fails with
+/// [`ComprsError::Corrupt`] if the frames do not decode to exactly their
+/// declared sizes, so that on success the first `size` bytes are written.
+/// An error from `allocate` is returned as it is.
 pub fn decompress_into<B: WriteBuf>(
     data: &[u8],
     capacity: usize,
