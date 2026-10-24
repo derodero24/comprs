@@ -2,9 +2,20 @@
 exports.registerBackend = registerBackend;
 exports.backendOf = backendOf;
 exports.registeredBackends = registeredBackends;
+exports.registeredFormatCount = registeredFormatCount;
 exports.replaceBackend = replaceBackend;
 /** The backend of each format that an entry point registered. */
 const registry = new Map();
+/**
+ * The backends of the registry, once each, in their order, which the
+ * functions of api.ts read on every call that detects a format: kept up to
+ * date as the registry changes, rather than collected on each call.
+ */
+let backends = [];
+/** Collect {@link backends} again, after the registry changed. */
+function refresh() {
+    backends = [...new Set(registry.values())];
+}
 /**
  * Make `codecs` the backend of `formats`, the formats of its entry point,
  * for the functions of api.ts. Each entry point calls this once, when it is
@@ -21,6 +32,7 @@ function registerBackend(codecs, formats) {
             registry.set(format, codecs);
         }
     }
+    refresh();
 }
 /** The backend registered for `format`, if any. */
 function backendOf(format) {
@@ -28,7 +40,11 @@ function backendOf(format) {
 }
 /** Every backend registered for a format, once each, in their order. */
 function registeredBackends() {
-    return [...new Set(registry.values())];
+    return backends;
+}
+/** How many formats have a backend. */
+function registeredFormatCount() {
+    return registry.size;
 }
 /**
  * Make `replacement` the backend of every format whose backend is
@@ -40,4 +56,5 @@ function replaceBackend(current, replacement) {
             registry.set(format, replacement);
         }
     }
+    refresh();
 }

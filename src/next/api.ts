@@ -12,6 +12,7 @@ import {
   type CodecStream,
   type DictionaryHandle,
   registeredBackends,
+  registeredFormatCount,
 } from './backend.js';
 
 /**
@@ -478,9 +479,8 @@ function backendFor(format: Format): Backend {
  */
 function detectingBackend(): Backend | undefined {
   const backends = registeredBackends();
-  const only = backends[0];
-  return backends.length === 1 && FORMATS.every((format) => backendOf(format) === only)
-    ? only
+  return backends.length === 1 && registeredFormatCount() === FORMATS.length
+    ? backends[0]
     : undefined;
 }
 

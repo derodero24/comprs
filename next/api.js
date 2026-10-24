@@ -95,9 +95,8 @@ function backendFor(format) {
  */
 function detectingBackend() {
     const backends = (0, backend_js_1.registeredBackends)();
-    const only = backends[0];
-    return backends.length === 1 && exports.FORMATS.every((format) => (0, backend_js_1.backendOf)(format) === only)
-        ? only
+    return backends.length === 1 && (0, backend_js_1.registeredFormatCount)() === exports.FORMATS.length
+        ? backends[0]
         : undefined;
 }
 /**

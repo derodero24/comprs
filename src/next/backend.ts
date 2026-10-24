@@ -216,6 +216,18 @@ export interface Backend {
 const registry = new Map<Format, Backend>();
 
 /**
+ * The backends of the registry, once each, in their order, which the
+ * functions of api.ts read on every call that detects a format: kept up to
+ * date as the registry changes, rather than collected on each call.
+ */
+let backends: readonly Backend[] = [];
+
+/** Collect {@link backends} again, after the registry changed. */
+function refresh(): void {
+  backends = [...new Set(registry.values())];
+}
+
+/**
  * Make `codecs` the backend of `formats`, the formats of its entry point,
  * for the functions of api.ts. Each entry point calls this once, when it is
  * loaded: `@derodero24/comprs/next` for every format, and those of a family
@@ -231,6 +243,7 @@ export function registerBackend(codecs: Backend, formats: readonly Format[]): vo
       registry.set(format, codecs);
     }
   }
+  refresh();
 }
 
 /** The backend registered for `format`, if any. */
@@ -239,8 +252,13 @@ export function backendOf(format: Format): Backend | undefined {
 }
 
 /** Every backend registered for a format, once each, in their order. */
-export function registeredBackends(): Backend[] {
-  return [...new Set(registry.values())];
+export function registeredBackends(): readonly Backend[] {
+  return backends;
+}
+
+/** How many formats have a backend. */
+export function registeredFormatCount(): number {
+  return registry.size;
 }
 
 /**
@@ -253,4 +271,5 @@ export function replaceBackend(current: Backend, replacement: Backend): void {
       registry.set(format, replacement);
     }
   }
+  refresh();
 }

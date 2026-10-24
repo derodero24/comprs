@@ -165,7 +165,9 @@ export declare function registerBackend(codecs: Backend, formats: readonly Forma
 /** The backend registered for `format`, if any. */
 export declare function backendOf(format: Format): Backend | undefined;
 /** Every backend registered for a format, once each, in their order. */
-export declare function registeredBackends(): Backend[];
+export declare function registeredBackends(): readonly Backend[];
+/** How many formats have a backend. */
+export declare function registeredFormatCount(): number;
 /**
  * Make `replacement` the backend of every format whose backend is
  * `current`, as the tests do to watch the calls of a backend.

@@ -6,7 +6,7 @@
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
 import { isAbortSignal, withSignal } from './abort.js';
-import { backendOf, registeredBackends, } from './backend.js';
+import { backendOf, registeredBackends, registeredFormatCount, } from './backend.js';
 /** The code of the errors that this module throws itself. */
 const INVALID_ARG = 'ERR_COMPRS_INVALID_ARG';
 /** The formats, in the order of their names in error messages. */
@@ -86,9 +86,8 @@ function backendFor(format) {
  */
 function detectingBackend() {
     const backends = registeredBackends();
-    const only = backends[0];
-    return backends.length === 1 && FORMATS.every((format) => backendOf(format) === only)
-        ? only
+    return backends.length === 1 && registeredFormatCount() === FORMATS.length
+        ? backends[0]
         : undefined;
 }
 /**
