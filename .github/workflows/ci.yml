@@ -357,6 +357,11 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt -- --check
+      # crates/brotli-c/brotli must be, byte for byte, the libbrotli release
+      # that scripts/vendor-brotli.mjs names: a Renovate update of that
+      # version fails here until the script has vendored it.
+      - name: Check the vendored libbrotli
+        run: node scripts/vendor-brotli.mjs --check
       # Any warning fails the job, rustc's as well as clippy's. A new stable
       # Rust can bring new lints, so the job can fail without a change to the
       # code: fix what it reports.
