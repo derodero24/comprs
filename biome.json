@@ -236,6 +236,17 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/comprs/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "off",
+            "noReExportAll": "off"
+          }
+        }
+      }
     }
   ]
 }

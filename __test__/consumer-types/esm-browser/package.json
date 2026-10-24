@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@derodero24/comprs": "*"
+    "@derodero24/comprs": "*",
+    "comprs": "*"
   }
 }
