@@ -34,21 +34,21 @@ impl GzipCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the gzip stream. Writes the gzip footer (CRC32 + size).
     /// Must be called once after all data has been transformed.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
@@ -84,14 +84,14 @@ impl GzipDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
@@ -99,7 +99,7 @@ impl GzipDecompressContext {
     /// Throws if the input is truncated, including empty input.
     /// Must be called once after all compressed data has been transformed.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
@@ -138,21 +138,21 @@ impl DeflateCompressContext {
     /// Compress a chunk of data. Returns compressed output (may be empty if
     /// the encoder is buffering data internally).
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the deflate stream.
     /// Must be called once after all data has been transformed.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
@@ -188,14 +188,14 @@ impl DeflateDecompressContext {
     /// Decompress a chunk of compressed data. Returns decompressed output
     /// (may be empty if the decoder needs more data).
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the decoder's internal buffer. Returns any buffered decompressed data.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
@@ -203,7 +203,7 @@ impl DeflateDecompressContext {
     /// Throws if the input ended before the final deflate block, including empty input.
     /// Must be called once after all compressed data has been transformed.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }

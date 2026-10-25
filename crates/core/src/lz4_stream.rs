@@ -33,21 +33,21 @@ impl Lz4CompressContext {
 
     /// Compress a chunk of data. Returns any compressed output produced so far.
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
 
     /// Flush the encoder's internal buffer. Returns any buffered compressed data.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
     /// Finalize the compression stream. Writes the LZ4 frame footer.
     /// Must be called once after all data has been transformed.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
@@ -99,7 +99,7 @@ impl Lz4DecompressContext {
     /// content of the blocks that the chunk completes, and throw if the
     /// input is invalid or the output exceeds `maxOutputSize`.
     #[napi]
-    pub fn transform(&mut self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
+    pub fn transform(&self, env: Env, chunk: Either<Buffer, Uint8Array>) -> Result<Buffer> {
         self.inner
             .call(&env, |ctx| ctx.transform(crate::as_bytes(&chunk)))
     }
@@ -109,7 +109,7 @@ impl Lz4DecompressContext {
     /// transformed at all, if the input ends inside a frame, or if data that
     /// is not a frame follows a frame. Incremental, return an empty buffer.
     #[napi]
-    pub fn flush(&mut self, env: Env) -> Result<Buffer> {
+    pub fn flush(&self, env: Env) -> Result<Buffer> {
         self.inner.call(&env, |ctx| ctx.flush())
     }
 
@@ -119,7 +119,7 @@ impl Lz4DecompressContext {
     /// input did not end between frames, including empty input. Throws if
     /// the stream is already finished.
     #[napi]
-    pub fn finish(&mut self, env: Env) -> Result<Buffer> {
+    pub fn finish(&self, env: Env) -> Result<Buffer> {
         self.inner.call_finish(&env, |ctx| ctx.finish())
     }
 }
