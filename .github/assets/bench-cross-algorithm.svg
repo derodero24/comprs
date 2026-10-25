@@ -19,27 +19,27 @@
 <rect x="584" y="19" width="10" height="10" rx="2" fill="#6b7280" opacity="0.45" />
 <text x="599" y="28" class="legend">decompress</text>
 <text x="112" y="80" class="bar-label" text-anchor="end">zstd</text>
-<rect x="120" y="60" width="102.19" height="14" rx="3" fill="#3b82f6" />
-<text x="230.19" y="71" class="bar-value">583 MB/s</text>
-<rect x="120" y="78" width="307.62" height="14" rx="3" fill="#3b82f6" opacity="0.45" />
-<text x="435.62" y="89" class="bar-value">1,756 MB/s</text>
+<rect x="120" y="60" width="88.45" height="14" rx="3" fill="#3b82f6" />
+<text x="216.45" y="71" class="bar-value">583 MB/s</text>
+<rect x="120" y="78" width="266.38" height="14" rx="3" fill="#3b82f6" opacity="0.45" />
+<text x="394.38" y="89" class="bar-value">1,757 MB/s</text>
 <text x="660" y="80" class="note" text-anchor="end">ratio 9.25</text>
 <text x="112" y="124" class="bar-label" text-anchor="end">gzip</text>
-<rect x="120" y="104" width="40.66" height="14" rx="3" fill="#f59e0b" />
-<text x="168.66" y="115" class="bar-value">232 MB/s</text>
-<rect x="120" y="122" width="242.8" height="14" rx="3" fill="#f59e0b" opacity="0.45" />
-<text x="370.8" y="133" class="bar-value">1,386 MB/s</text>
+<rect x="120" y="104" width="35.26" height="14" rx="3" fill="#f59e0b" />
+<text x="163.26" y="115" class="bar-value">233 MB/s</text>
+<rect x="120" y="122" width="211.58" height="14" rx="3" fill="#f59e0b" opacity="0.45" />
+<text x="339.58" y="133" class="bar-value">1,395 MB/s</text>
 <text x="660" y="124" class="note" text-anchor="end">ratio 7.54</text>
 <text x="112" y="168" class="bar-label" text-anchor="end">brotli</text>
-<rect x="120" y="148" width="13.62" height="14" rx="3" fill="#a855f7" />
-<text x="141.62" y="159" class="bar-value">77.7 MB/s</text>
-<rect x="120" y="166" width="158.05" height="14" rx="3" fill="#a855f7" opacity="0.45" />
-<text x="286.05" y="177" class="bar-value">902 MB/s</text>
+<rect x="120" y="148" width="11.66" height="14" rx="3" fill="#a855f7" />
+<text x="139.66" y="159" class="bar-value">76.9 MB/s</text>
+<rect x="120" y="166" width="134.86" height="14" rx="3" fill="#a855f7" opacity="0.45" />
+<text x="262.86" y="177" class="bar-value">889 MB/s</text>
 <text x="660" y="168" class="note" text-anchor="end">ratio 10.4</text>
 <text x="112" y="212" class="bar-label" text-anchor="end">lz4</text>
-<rect x="120" y="192" width="198.28" height="14" rx="3" fill="#22c55e" />
-<text x="326.28" y="203" class="bar-value">1,132 MB/s</text>
+<rect x="120" y="192" width="170.19" height="14" rx="3" fill="#22c55e" />
+<text x="298.19" y="203" class="bar-value">1,122 MB/s</text>
 <rect x="120" y="210" width="360" height="14" rx="3" fill="#22c55e" opacity="0.45" />
-<text x="488" y="221" class="bar-value">2,055 MB/s</text>
+<text x="488" y="221" class="bar-value">2,374 MB/s</text>
 <text x="660" y="212" class="note" text-anchor="end">ratio 4.60</text>
 </svg>
