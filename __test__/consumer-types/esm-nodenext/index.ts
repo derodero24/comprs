@@ -22,6 +22,7 @@ import {
   compress as nextCompress,
   compressSync as nextCompressSync,
 } from '@derodero24/comprs/next';
+import * as zstdNext from '@derodero24/comprs/next/zstd';
 import { createZstdCompressTransform } from '@derodero24/comprs/node';
 import { createGzipCompressStream } from '@derodero24/comprs/streams';
 
@@ -121,6 +122,19 @@ const nextRoundTrip: ReadableStream<Uint8Array<ArrayBuffer>> = new Blob([input])
   .pipeThrough(new CompressionStream('zstd', { level: 9, workers: undefined }))
   .pipeThrough(new DecompressionStream('auto', { maxOutputSize: undefined }));
 
+// The entry point of a family of formats takes its formats alone (#342),
+// and its classes and types are those of ./next.
+const zstdOnly: Uint8Array<ArrayBuffer> = zstdNext.compressSync(input, { format: 'zstd' });
+// @ts-expect-error gzip is not a format of the zstd family.
+zstdNext.compressSync(input, { format: 'gzip' });
+// @ts-expect-error nor of its decompression.
+zstdNext.decompressSync(zstdOnly, { format: 'brotli' });
+const zstdStream: zstdNext.CompressionStream = new zstdNext.CompressionStream('zstd');
+const isNextStream: boolean = zstdStream instanceof CompressionStream;
+const zstdDictionary: Dictionary = zstdNext.Dictionary.from(input, { format: 'zstd' });
+// @ts-expect-error lz4 is not a format of the zstd family.
+const lz4Stream = new zstdNext.DecompressionStream('lz4');
+
 export {
   chunks,
   compressUnlessAborted,
@@ -130,11 +144,15 @@ export {
   fromBinary,
   incrementalContexts,
   isGzip,
+  isNextStream,
   isZstd,
   label,
+  lz4Stream,
   mtime,
   narrow,
   nextRoundTrip,
   roundTrip,
   zstd,
+  zstdDictionary,
+  zstdOnly,
 };

@@ -6,7 +6,14 @@
 // too. The tests check that ErrorCode holds the codes of comprs-core's
 // ERROR_CODES, which the backends give.
 import { isAbortSignal, withSignal } from './abort.js';
-import { backend, type CodecStream, type DictionaryHandle } from './backend.js';
+import {
+  type Backend,
+  backendOf,
+  type CodecStream,
+  type DictionaryHandle,
+  registeredBackends,
+  registeredFormatCount,
+} from './backend.js';
 
 /**
  * A compression format, by the names of the Compression Streams standard
@@ -106,11 +113,13 @@ export interface GzipHeaderOptions {
 
 /**
  * The options of {@link compress} and {@link compressSync}. Other properties
- * are ignored.
+ * are ignored. `F` is the formats that the entry point includes: every
+ * {@link Format} for `@derodero24/comprs/next`, and those of one family for
+ * `@derodero24/comprs/next/<family>`.
  */
-export interface CompressOptions {
+export interface CompressOptions<F extends Format = Format> {
   /** The format to compress in. */
-  format: Format;
+  format: F;
   /**
    * The compression level, an integer whose range and default depend on the
    * format:
@@ -168,9 +177,10 @@ export interface CompressOptions {
 
 /**
  * The options of {@link decompress} and {@link decompressSync}. Other
- * properties are ignored.
+ * properties are ignored. `F` is the formats that the entry point includes,
+ * as for {@link CompressOptions}.
  */
-export interface DecompressOptions {
+export interface DecompressOptions<F extends Format = Format> {
   /**
    * The format of the data, or `'auto'`, the default, to detect it from the
    * data. Detection recognizes zstd, gzip, deflate (zlib), brotli and lz4,
@@ -181,7 +191,7 @@ export interface DecompressOptions {
    * With a {@link Dictionary} as the `dictionary`, `'auto'` stands for the
    * format of the dictionary instead.
    */
-  format?: Format | 'auto' | undefined;
+  format?: F | 'auto' | undefined;
   /**
    * The largest output, in bytes: an integer from 0 to
    * `Number.MAX_SAFE_INTEGER`, 268435456 (256 MiB) by default. Output that
@@ -209,10 +219,14 @@ export interface DecompressOptions {
   dictionary?: Dictionary | Input | undefined;
 }
 
-/** The options of {@link Dictionary.from}. Other properties are ignored. */
-export interface DictionaryOptions {
+/**
+ * The options of {@link Dictionary.from}. Other properties are ignored. `F`
+ * is the formats of dictionaries that the entry point includes, as for
+ * {@link CompressOptions}.
+ */
+export interface DictionaryOptions<F extends 'zstd' | 'brotli' = 'zstd' | 'brotli'> {
   /** The format that the dictionary is for: `'zstd'` or `'brotli'`. */
-  format: 'zstd' | 'brotli';
+  format: F;
   /**
    * The zstd compression level to prepare the dictionary for: an integer
    * from -131072 to 22, 3 by default, which 0 also selects. Compression
@@ -288,7 +302,31 @@ export interface AbortOptions {
 const INVALID_ARG: ErrorCode = 'ERR_COMPRS_INVALID_ARG';
 
 /** The formats, in the order of their names in error messages. */
-const FORMATS: readonly Format[] = ['zstd', 'gzip', 'deflate', 'deflate-raw', 'brotli', 'lz4'];
+export const FORMATS: readonly Format[] = [
+  'zstd',
+  'gzip',
+  'deflate',
+  'deflate-raw',
+  'brotli',
+  'lz4',
+];
+
+/**
+ * The formats of each family, which the entry point of the family,
+ * `@derodero24/comprs/next/<family>`, includes (#342), as the WebAssembly
+ * build of the family does.
+ */
+export const FAMILY_FORMATS: {
+  readonly zstd: readonly ['zstd'];
+  readonly gzip: readonly ['gzip', 'deflate', 'deflate-raw'];
+  readonly brotli: readonly ['brotli'];
+  readonly lz4: readonly ['lz4'];
+} = {
+  zstd: ['zstd'],
+  gzip: ['gzip', 'deflate', 'deflate-raw'],
+  brotli: ['brotli'],
+  lz4: ['lz4'],
+};
 
 const FORMAT_SET: ReadonlySet<unknown> = new Set(FORMATS);
 
@@ -309,11 +347,13 @@ type Unchecked<T> = { readonly [K in keyof T]?: unknown };
 
 /**
  * The `dictionary` option, checked: the bytes of a dictionary or the handle
- * of a {@link Dictionary}, as the backend takes them.
+ * of a {@link Dictionary}, as the backend takes them, and for a Dictionary
+ * the backend that prepared it, which the call must go to.
  */
 interface DictionaryArgs {
   dictionary: Uint8Array | undefined;
   dictionaryHandle: DictionaryHandle | undefined;
+  dictionaryBackend: Backend | undefined;
 }
 
 /**
@@ -385,6 +425,134 @@ interface TrainDictionaryArgs extends SignalArgs {
 /** A TypeError with the code ERR_COMPRS_INVALID_ARG. */
 function invalidArg(message: string): TypeError {
   return Object.assign(new TypeError(message), { code: INVALID_ARG });
+}
+
+/**
+ * The error for the bytes of a dictionary without a format to decompress
+ * in, as the backends report it.
+ */
+function dictionaryNeedsFormat(): TypeError {
+  return invalidArg('pass `format` to decompress with a dictionary');
+}
+
+/** The error for data whose format detection does not find. */
+function unknownFormat(): Error {
+  const code: ErrorCode = 'ERR_COMPRS_UNKNOWN_FORMAT';
+  return Object.assign(new Error('unable to detect the compression format; pass `format`'), {
+    code,
+  });
+}
+
+/** The family of each format, as {@link FAMILY_FORMATS} groups them. */
+const FAMILIES: Readonly<Record<Format, keyof typeof FAMILY_FORMATS>> = {
+  zstd: 'zstd',
+  gzip: 'gzip',
+  deflate: 'gzip',
+  'deflate-raw': 'gzip',
+  brotli: 'brotli',
+  lz4: 'lz4',
+};
+
+/**
+ * The backend of `format`, which an entry point that was loaded registered.
+ * A format that none registered fails with `ERR_COMPRS_INVALID_ARG`: the
+ * entry point of another family of formats leaves it out.
+ */
+function backendFor(format: Format): Backend {
+  const codecs = backendOf(format);
+  if (codecs !== undefined) {
+    return codecs;
+  }
+  if (registeredBackends().length === 0) {
+    throw new Error('@derodero24/comprs/next has no backend: import its entry point');
+  }
+  throw invalidArg(
+    `${format} is not loaded: import @derodero24/comprs/next/${FAMILIES[format]}, or @derodero24/comprs/next for every format`,
+  );
+}
+
+/**
+ * The backend that detects formats by itself among every format: the one
+ * backend of the entry points that were loaded, if it was registered for
+ * every format, as by `@derodero24/comprs/next`. Otherwise detection runs
+ * here, over the backends of the formats that were loaded.
+ */
+function detectingBackend(): Backend | undefined {
+  const backends = registeredBackends();
+  return backends.length === 1 && registeredFormatCount() === FORMATS.length
+    ? backends[0]
+    : undefined;
+}
+
+/**
+ * The rank of each format in detection: gzip by its magic number first, then
+ * zstd and lz4 by theirs, then zlib, which detection inflates, and brotli
+ * last, which it decodes. deflate-raw is never detected.
+ */
+const DETECTION_RANK: Readonly<Record<Format, number>> = {
+  gzip: 0,
+  zstd: 1,
+  lz4: 1,
+  deflate: 2,
+  brotli: 3,
+  'deflate-raw': Number.POSITIVE_INFINITY,
+};
+
+/**
+ * Detect the format of the data that starts with `data` over the backends
+ * of the formats that were loaded, as one backend with all of them would:
+ * the backend of each family detects the formats with a magic number, and
+ * zlib and brotli only in its own family, so the format that comes first in
+ * detection wins. While a backend needs more data and could still find a
+ * format that comes before the one found, the answer is `undefined`.
+ */
+function detectAmongBackends(data: Uint8Array, isFinal: boolean): Format | null | undefined {
+  let found: Format | null = null;
+  let pending = Number.POSITIVE_INFINITY;
+  for (const codecs of registeredBackends()) {
+    const format = codecs.detectPrefix(data, isFinal);
+    if (format === undefined) {
+      pending = Math.min(pending, ...codecs.formats.map((own) => DETECTION_RANK[own]));
+    } else if (
+      format !== null &&
+      (found === null || DETECTION_RANK[format] < DETECTION_RANK[found])
+    ) {
+      found = format;
+    }
+  }
+  return pending < (found === null ? Number.POSITIVE_INFINITY : DETECTION_RANK[found])
+    ? undefined
+    : found;
+}
+
+/**
+ * The backend to decompress `data` with: that of the {@link Dictionary}, of
+ * the format, or, without either, the backend that detects formats by
+ * itself, or that of the format that detection finds in `data` here. That
+ * backend still gets no format, and detects it again, as one backend with
+ * every format would: it reports the errors of a stream that it took for
+ * brotli as data of unknown format. Raw dictionary bytes need a format, as
+ * that backend would report too.
+ */
+function decompressBackend(args: DecompressStreamArgs, data: Uint8Array): Backend {
+  if (args.dictionaryBackend !== undefined) {
+    return args.dictionaryBackend;
+  }
+  if (args.format !== undefined) {
+    return backendFor(args.format);
+  }
+  const detecting = detectingBackend();
+  if (detecting !== undefined) {
+    return detecting;
+  }
+  if (args.dictionary !== undefined) {
+    throw dictionaryNeedsFormat();
+  }
+  const format = detectAmongBackends(data, true);
+  if (format === null || format === undefined) {
+    throw unknownFormat();
+  }
+  return backendFor(format);
 }
 
 /** Whether `value` is an object, whose fields may be those of `T`. */
@@ -662,15 +830,20 @@ function toBytes(value: unknown, name: string, types: string = INPUT_TYPES): Uin
  */
 function dictionaryArgs(value: unknown): DictionaryArgs {
   if (value === undefined) {
-    return { dictionary: undefined, dictionaryHandle: undefined };
+    return { dictionary: undefined, dictionaryHandle: undefined, dictionaryBackend: undefined };
   }
-  const handle = typeof value === 'object' && value !== null ? handleOf(value) : undefined;
-  if (handle !== undefined) {
-    return { dictionary: undefined, dictionaryHandle: handle };
+  const open = typeof value === 'object' && value !== null ? openOf(value) : undefined;
+  if (open !== undefined) {
+    return {
+      dictionary: undefined,
+      dictionaryHandle: open.handle,
+      dictionaryBackend: open.backend,
+    };
   }
   return {
     dictionary: toBytes(value, 'dictionary', DICTIONARY_TYPES),
     dictionaryHandle: undefined,
+    dictionaryBackend: undefined,
   };
 }
 
@@ -842,8 +1015,9 @@ function trainDictionaryArgs(
 export function compress(data: Input, options: CompressOptions & AbortOptions): Promise<Bytes> {
   try {
     const args = compressArgs(data, options, true);
-    return withSignal(args.signal, (withdrawal) =>
-      backend().compressAsync(
+    const codecs = args.dictionaryBackend ?? backendFor(args.format);
+    return withSignal(args.signal, codecs, (withdrawal) =>
+      codecs.compressAsync(
         args.data,
         args.format,
         args.level,
@@ -870,7 +1044,7 @@ export function compress(data: Input, options: CompressOptions & AbortOptions): 
  */
 export function compressSync(data: Input, options: CompressOptions): Bytes {
   const args = compressArgs(data, options, false);
-  return backend().compress(
+  return (args.dictionaryBackend ?? backendFor(args.format)).compress(
     args.data,
     args.format,
     args.level,
@@ -914,8 +1088,9 @@ export function decompress(
 ): Promise<Bytes> {
   try {
     const args = decompressArgs(data, options, true);
-    return withSignal(args.signal, (withdrawal) =>
-      backend().decompressAsync(
+    const codecs = decompressBackend(args, args.data);
+    return withSignal(args.signal, codecs, (withdrawal) =>
+      codecs.decompressAsync(
         args.data,
         args.format,
         args.maxOutputSize,
@@ -938,7 +1113,7 @@ export function decompress(
  */
 export function decompressSync(data: Input, options?: DecompressOptions): Bytes {
   const args = decompressArgs(data, options, false);
-  return backend().decompress(
+  return decompressBackend(args, args.data).decompress(
     args.data,
     args.format,
     args.maxOutputSize,
@@ -957,7 +1132,12 @@ export function decompressSync(data: Input, options?: DecompressOptions): Bytes 
  * not an {@link Input}.
  */
 export function detectFormat(data: Input): Format | undefined {
-  return backend().detectFormat(toBytes(data, 'data')) ?? undefined;
+  const bytes = toBytes(data, 'data');
+  const detecting = detectingBackend();
+  return (
+    (detecting === undefined ? detectAmongBackends(bytes, true) : detecting.detectFormat(bytes)) ??
+    undefined
+  );
 }
 
 /**
@@ -982,8 +1162,9 @@ export function trainDictionary(
 ): Promise<Bytes> {
   try {
     const args = trainDictionaryArgs(samples, options, true);
-    return withSignal(args.signal, (withdrawal) =>
-      backend().trainDictionaryAsync(args.samples, args.maxSize, withdrawal),
+    const codecs = backendFor('zstd');
+    return withSignal(args.signal, codecs, (withdrawal) =>
+      codecs.trainDictionaryAsync(args.samples, args.maxSize, withdrawal),
     );
   } catch (error) {
     return Promise.reject(error);
@@ -1002,7 +1183,7 @@ export function trainDictionarySync(
   options?: TrainDictionaryOptions,
 ): Bytes {
   const args = trainDictionaryArgs(samples, options, false);
-  return backend().trainDictionary(args.samples, args.maxSize);
+  return backendFor('zstd').trainDictionary(args.samples, args.maxSize);
 }
 
 /** `Symbol.dispose`, if the TypeScript library declares it. */
@@ -1027,8 +1208,9 @@ type Disposal = { [Key in DisposeSymbol]: () => void };
 const CONSTRUCT: unique symbol = Symbol('Dictionary');
 
 /**
- * The handle of `value` if it is a {@link Dictionary} that is not closed,
- * or `undefined` if it is no Dictionary. A closed Dictionary fails with
+ * The handle of `value` and the backend that prepared it, if `value` is a
+ * {@link Dictionary} that is not closed, or `undefined` if it is no
+ * Dictionary. A closed Dictionary fails with
  * `ERR_COMPRS_INVALID_ARG`. Only the code of the class reads its private
  * field, so its constructor sets this to a private method of the class;
  * until a Dictionary is constructed, no value is one. A class static block
@@ -1037,7 +1219,8 @@ const CONSTRUCT: unique symbol = Symbol('Dictionary');
  * methods, `#field in` checks and top-level await need, to Safari 16.4 and
  * Firefox 93.
  */
-let handleOf: (value: object) => DictionaryHandle | undefined = () => undefined;
+let openOf: (value: object) => { handle: DictionaryHandle; backend: Backend } | undefined = () =>
+  undefined;
 
 // `Dictionary.prototype[Symbol.dispose]`, where the TypeScript library
 // declares `Symbol.dispose`. The class gets it at run time, below.
@@ -1078,6 +1261,9 @@ export class Dictionary {
   /** The dictionary of the backend, or `undefined` once closed. */
   #handle: DictionaryHandle | undefined;
 
+  /** The backend that prepared the dictionary, which alone reads it. */
+  readonly #backend: Backend;
+
   /** The format that the dictionary is for. */
   readonly format: 'zstd' | 'brotli';
 
@@ -1086,6 +1272,7 @@ export class Dictionary {
 
   private constructor(
     key: symbol,
+    codecs: Backend,
     handle: DictionaryHandle,
     format: 'zstd' | 'brotli',
     byteLength: number,
@@ -1093,10 +1280,11 @@ export class Dictionary {
     if (key !== CONSTRUCT) {
       throw invalidArg('Dictionary cannot be constructed: create one with Dictionary.from()');
     }
+    this.#backend = codecs;
     this.#handle = handle;
     this.format = format;
     this.byteLength = byteLength;
-    handleOf = Dictionary.#handleOf;
+    openOf = Dictionary.#openOf;
   }
 
   /**
@@ -1116,8 +1304,9 @@ export class Dictionary {
    */
   static from(bytes: Input, options: DictionaryOptions): Dictionary {
     const args = createDictionaryArgs(bytes, options);
-    const handle = backend().createDictionary(args.bytes, args.format, args.level);
-    return new Dictionary(CONSTRUCT, handle, args.format, args.bytes.byteLength);
+    const codecs = backendFor(args.format);
+    const handle = codecs.createDictionary(args.bytes, args.format, args.level);
+    return new Dictionary(CONSTRUCT, codecs, handle, args.format, args.bytes.byteLength);
   }
 
   /**
@@ -1128,7 +1317,7 @@ export class Dictionary {
    * dictionary is closed.
    */
   toBytes(): Bytes {
-    return backend().dictionaryToBytes(this.#open());
+    return this.#backend.dictionaryToBytes(this.#open());
   }
 
   /**
@@ -1144,7 +1333,7 @@ export class Dictionary {
       return;
     }
     this.#handle = undefined;
-    backend().closeDictionary(handle);
+    this.#backend.closeDictionary(handle);
   }
 
   /** The handle of the dictionary, which must not be closed. */
@@ -1155,9 +1344,9 @@ export class Dictionary {
     return this.#handle;
   }
 
-  /** {@link handleOf}, for the code outside the class. */
-  static #handleOf(value: object): DictionaryHandle | undefined {
-    return #handle in value ? value.#open() : undefined;
+  /** {@link openOf}, for the code outside the class. */
+  static #openOf(value: object): { handle: DictionaryHandle; backend: Backend } | undefined {
+    return #handle in value ? { handle: value.#open(), backend: value.#backend } : undefined;
   }
 }
 
@@ -1222,6 +1411,124 @@ function decompressStreamArgs(format: unknown, options: unknown): DecompressStre
     args.format = dictionary.format;
   }
   return args;
+}
+
+/**
+ * How much input {@link DetectingStream} holds before it first runs
+ * detection, and how much at most, where it decides as if the input ended:
+ * as the streams of the backends that detect formats by themselves do.
+ */
+const FIRST_TRY = 4;
+const MAX_PREFIX = 64 * 1024;
+
+/** The bytes of `first` followed by those of `second`. */
+function concat(first: Uint8Array, second: Uint8Array): Bytes {
+  const bytes = new Uint8Array(first.byteLength + second.byteLength);
+  bytes.set(first);
+  bytes.set(second, first.byteLength);
+  return bytes;
+}
+
+/**
+ * The output of `step` after `output`, the output of an earlier call of the
+ * same stream, waiting for it if it is a Promise.
+ */
+function andThen(
+  output: Bytes | Promise<Bytes>,
+  step: () => Bytes | Promise<Bytes>,
+): Bytes | Promise<Bytes> {
+  const join = (first: Bytes, second: Bytes): Bytes =>
+    first.byteLength === 0 ? second : second.byteLength === 0 ? first : concat(first, second);
+  if (ArrayBuffer.isView(output)) {
+    const next = step();
+    return ArrayBuffer.isView(next) ? join(output, next) : next.then((rest) => join(output, rest));
+  }
+  return output.then((first) => {
+    const next = step();
+    return ArrayBuffer.isView(next) ? join(first, next) : next.then((rest) => join(first, rest));
+  });
+}
+
+/**
+ * A decompression stream without a format, when the entry points that were
+ * loaded registered more than one backend, such as those of two families of
+ * formats: it detects the format over their backends, as the stream of one
+ * backend with every format detects it by itself, and then decompresses with
+ * a stream of the backend of that format, which detects it again in the same
+ * input.
+ *
+ * It holds the input until detection decides: once it holds 4 bytes, then
+ * each time the input that it holds doubles, up to 64 KiB, where it decides
+ * as if the input ended there, and on finish(), with the input as final.
+ * Input whose format detection does not find fails with
+ * `ERR_COMPRS_UNKNOWN_FORMAT`, and input in a format whose entry point was
+ * not loaded with `ERR_COMPRS_INVALID_ARG`.
+ */
+class DetectingStream implements CodecStream {
+  readonly #maxOutputSize: number | undefined;
+  /** The input held while detection has not decided. */
+  #held: Uint8Array = new Uint8Array(0);
+  /** How much of the input held detection last ran on. */
+  #tried = 0;
+  /** The stream of the backend of the detected format. */
+  #inner: CodecStream | undefined;
+
+  constructor(maxOutputSize: number | undefined) {
+    this.#maxOutputSize = maxOutputSize;
+  }
+
+  transform(chunk: Uint8Array): Bytes | Promise<Bytes> {
+    if (this.#inner !== undefined) {
+      return this.#inner.transform(chunk);
+    }
+    let rest = chunk;
+    for (;;) {
+      // Detection runs again once the input held is twice as long as when
+      // it last ran.
+      const nextTry = Math.min(Math.max(2 * this.#tried, FIRST_TRY), MAX_PREFIX);
+      const take = Math.min(nextTry - this.#held.byteLength, rest.byteLength);
+      this.#held = concat(this.#held, rest.subarray(0, take));
+      rest = rest.subarray(take);
+      if (this.#held.byteLength < nextTry) {
+        return new Uint8Array(0);
+      }
+      this.#tried = nextTry;
+      const format = detectAmongBackends(this.#held, nextTry === MAX_PREFIX);
+      if (format !== undefined) {
+        return this.#decide(format).transform(concat(this.#held, rest));
+      }
+    }
+  }
+
+  finish(): Bytes | Promise<Bytes> {
+    if (this.#inner !== undefined) {
+      return this.#inner.finish();
+    }
+    const inner = this.#decide(detectAmongBackends(this.#held, true) ?? null);
+    return andThen(inner.transform(this.#held), () => inner.finish());
+  }
+
+  close(): void {
+    this.#inner?.close();
+  }
+
+  /**
+   * Create the stream of the backend of `format`, which detection found, or
+   * fail if it found none.
+   */
+  #decide(format: Format | null): CodecStream {
+    if (format === null) {
+      throw unknownFormat();
+    }
+    const inner = backendFor(format).createDecompressStream(
+      undefined,
+      this.#maxOutputSize,
+      undefined,
+      undefined,
+    );
+    this.#inner = inner;
+    return inner;
+  }
 }
 
 /** The controller of the TransformStream of a stream class. */
@@ -1350,7 +1657,7 @@ export class CompressionStream {
   constructor(format: Format, options?: CompressionStreamOptions) {
     const args = compressStreamArgs(format, options);
     this.#stream = codecStream(
-      backend().createCompressStream(
+      (args.dictionaryBackend ?? backendFor(args.format)).createCompressStream(
         args.format,
         args.level,
         args.dictionary,
@@ -1420,13 +1727,21 @@ export class DecompressionStream {
    */
   constructor(format: Format | 'auto', options?: DecompressionStreamOptions) {
     const args = decompressStreamArgs(format, options);
+    const codecs =
+      args.dictionaryBackend ??
+      (args.format === undefined ? detectingBackend() : backendFor(args.format));
+    if (codecs === undefined && args.dictionary !== undefined) {
+      throw dictionaryNeedsFormat();
+    }
     this.#stream = codecStream(
-      backend().createDecompressStream(
-        args.format,
-        args.maxOutputSize,
-        args.dictionary,
-        args.dictionaryHandle,
-      ),
+      codecs === undefined
+        ? new DetectingStream(args.maxOutputSize)
+        : codecs.createDecompressStream(
+            args.format,
+            args.maxOutputSize,
+            args.dictionary,
+            args.dictionaryHandle,
+          ),
     );
   }
 

@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 
+pub use crate::output::Decoded;
 /// The memory that the `*_into` functions decode into, such as
 /// [`decompress_into`]: zstd-safe's trait for output buffers.
 pub use zstd::zstd_safe::WriteBuf;
@@ -148,7 +149,7 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
     decompress_into(data, capacity, |size| {
         output_buffer(size, "zstd decompress")
     })
-    .map(Decoded::into_vec)
+    .map(into_vec)
 }
 
 /// Train a zstd dictionary from sample data.
@@ -296,25 +297,14 @@ pub fn decompress_with_dict_with_capacity(
     decompress_with_dict_into(data, dict, capacity, |size| {
         output_buffer(size, "zstd decompress with dict")
     })
-    .map(Decoded::into_vec)
+    .map(into_vec)
 }
 
-/// The output of the `*_into` functions, such as [`decompress_into`].
-#[derive(Debug)]
-pub enum Decoded<B> {
-    /// The output of frames that declare their content sizes, in the memory
-    /// that `allocate` returned for their total.
-    Allocated(B),
-    /// The output of other input, which the streaming decoder grew.
-    Grown(Vec<u8>),
-}
-
-impl Decoded<Vec<u8>> {
-    /// The output, whichever way it was decoded.
-    fn into_vec(self) -> Vec<u8> {
-        match self {
-            Self::Allocated(output) | Self::Grown(output) => crate::finish_output(output),
-        }
+/// The output of `decoded`, whichever way it was decoded. The allocated
+/// output has no spare capacity: `output_buffer` reserves exactly its size.
+fn into_vec(decoded: Decoded<Vec<u8>>) -> Vec<u8> {
+    match decoded {
+        Decoded::Allocated(output) | Decoded::Grown(output) => output,
     }
 }
 
@@ -371,7 +361,7 @@ fn decompress_with_limit<B: WriteBuf>(
         return with_dctx(dict, limit, |dctx| {
             crate::zstd_stream::decompress_all(dctx, data, limit, data.len(), context)
         })
-        .map(Decoded::Grown);
+        .map(|output| Decoded::Grown(crate::finish_output(output)));
     };
 
     let mut output = allocate(size)?;
@@ -478,7 +468,7 @@ pub fn decompress_prepared(
     decompress_prepared_into(data, dict, limit, |size| {
         output_buffer(size, "zstd decompress with dict")
     })
-    .map(Decoded::into_vec)
+    .map(into_vec)
 }
 
 /// [`decompress_prepared`], decoding the output of frames that declare their
@@ -505,7 +495,7 @@ pub fn decompress_prepared_into<B: WriteBuf>(
                 source: zstd_error(code),
             })?;
         return crate::zstd_stream::decompress_all(&mut dctx, data, limit, data.len(), CONTEXT)
-            .map(Decoded::Grown);
+            .map(|output| Decoded::Grown(crate::finish_output(output)));
     };
 
     let mut output = allocate(size)?;

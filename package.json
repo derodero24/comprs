@@ -34,11 +34,22 @@
   "sideEffects": [
     "./next/index.js",
     "./next/native.js",
+    "./next/zstd.js",
+    "./next/gzip.js",
+    "./next/brotli.js",
+    "./next/lz4.js",
     "./browser/index.js",
     "./browser/streams.js",
     "./browser/wasm.js",
+    "./browser/wasm-zstd.js",
+    "./browser/wasm-gzip.js",
+    "./browser/wasm-brotli.js",
+    "./browser/wasm-lz4.js",
     "./browser/next/browser.js",
-    "./browser/next/wasm.js"
+    "./browser/next/browser-zstd.js",
+    "./browser/next/browser-gzip.js",
+    "./browser/next/browser-brotli.js",
+    "./browser/next/browser-lz4.js"
   ],
   "type": "commonjs",
   "main": "index.js",
@@ -102,6 +113,70 @@
         "types": "./next/index.d.ts",
         "default": "./next/index.js"
       }
+    },
+    "./next/zstd": {
+      "browser": {
+        "import": {
+          "types": "./browser/next/browser-zstd.d.ts",
+          "default": "./browser/next/browser-zstd.js"
+        }
+      },
+      "import": {
+        "types": "./next/zstd.d.mts",
+        "default": "./next/zstd.mjs"
+      },
+      "require": {
+        "types": "./next/zstd.d.ts",
+        "default": "./next/zstd.js"
+      }
+    },
+    "./next/gzip": {
+      "browser": {
+        "import": {
+          "types": "./browser/next/browser-gzip.d.ts",
+          "default": "./browser/next/browser-gzip.js"
+        }
+      },
+      "import": {
+        "types": "./next/gzip.d.mts",
+        "default": "./next/gzip.mjs"
+      },
+      "require": {
+        "types": "./next/gzip.d.ts",
+        "default": "./next/gzip.js"
+      }
+    },
+    "./next/brotli": {
+      "browser": {
+        "import": {
+          "types": "./browser/next/browser-brotli.d.ts",
+          "default": "./browser/next/browser-brotli.js"
+        }
+      },
+      "import": {
+        "types": "./next/brotli.d.mts",
+        "default": "./next/brotli.mjs"
+      },
+      "require": {
+        "types": "./next/brotli.d.ts",
+        "default": "./next/brotli.js"
+      }
+    },
+    "./next/lz4": {
+      "browser": {
+        "import": {
+          "types": "./browser/next/browser-lz4.d.ts",
+          "default": "./browser/next/browser-lz4.js"
+        }
+      },
+      "import": {
+        "types": "./next/lz4.d.mts",
+        "default": "./next/lz4.mjs"
+      },
+      "require": {
+        "types": "./next/lz4.d.ts",
+        "default": "./next/lz4.js"
+      }
     }
   },
   "files": [
@@ -123,10 +198,30 @@
     "browser/streams.d.ts",
     "browser/wasm.js",
     "browser/wasm.d.ts",
+    "browser/wasm-zstd.js",
+    "browser/wasm-zstd.d.ts",
+    "browser/wasm-gzip.js",
+    "browser/wasm-gzip.d.ts",
+    "browser/wasm-brotli.js",
+    "browser/wasm-brotli.d.ts",
+    "browser/wasm-lz4.js",
+    "browser/wasm-lz4.d.ts",
     "browser/next",
     "browser/comprs-wasm.js",
     "browser/comprs-wasm.d.ts",
     "browser/comprs-wasm_bg.wasm",
+    "browser/comprs-wasm-zstd.js",
+    "browser/comprs-wasm-zstd.d.ts",
+    "browser/comprs-wasm-zstd_bg.wasm",
+    "browser/comprs-wasm-gzip.js",
+    "browser/comprs-wasm-gzip.d.ts",
+    "browser/comprs-wasm-gzip_bg.wasm",
+    "browser/comprs-wasm-brotli.js",
+    "browser/comprs-wasm-brotli.d.ts",
+    "browser/comprs-wasm-brotli_bg.wasm",
+    "browser/comprs-wasm-lz4.js",
+    "browser/comprs-wasm-lz4.d.ts",
+    "browser/comprs-wasm-lz4_bg.wasm",
     "THIRD_PARTY_LICENSES"
   ],
   "napi": {
@@ -164,7 +259,7 @@
     "lint:fix": "biome check --write",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.next-browser.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run",
-    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts __test__/next-parity.spec.ts __test__/esm-bundle.spec.ts __test__/brotli-dict.spec.ts",
+    "test:wasm": "vitest run __test__/wasm.spec.ts __test__/wasm-parity.spec.ts __test__/legacy-error-codes.spec.ts __test__/browser-entry.spec.ts __test__/browser-streams.spec.ts __test__/next-parity.spec.ts __test__/esm-bundle.spec.ts __test__/brotli-dict.spec.ts __test__/wasm-per-format.spec.ts __test__/next-families.spec.ts",
     "test:types": "node scripts/check-consumer-types.mjs",
     "test:watch": "vitest watch",
     "bench": "vitest bench",

@@ -36,6 +36,8 @@ use crate::dictionary::{Dictionary, DictionaryFormat};
 use crate::error::not_built;
 #[cfg(feature = "gzip")]
 use crate::gzip::FlateWrapper;
+#[cfg(feature = "zstd")]
+use crate::output::{Decoded, Output};
 use crate::{ComprsError, MemoryUsage};
 #[cfg(feature = "brotli")]
 use crate::{brotli, brotli_stream};
@@ -617,6 +619,72 @@ pub fn decompress(data: &[u8], options: &DecompressOptions) -> Result<Vec<u8>, C
     decode(data, decoder, limit)
 }
 
+/// [`decompress`], decoding the output of zstd and LZ4 frames that declare
+/// their content sizes into `allocate(size)` instead of a `Vec`, as
+/// [`zstd::decompress_into`] and [`lz4::decompress_into`] do, also after
+/// detection.
+///
+/// The output and the errors are those of [`decompress`]. Other input, in
+/// these formats and in the others, is returned as [`Decoded::Grown`], with
+/// its spare capacity released as [`decompress`] releases it.
+///
+/// It exists with zstd, whose decoder writes through [`zstd::WriteBuf`],
+/// as the native addon has every format.
+#[cfg(feature = "zstd")]
+pub fn decompress_into<B: zstd::WriteBuf + Output>(
+    data: &[u8],
+    options: &DecompressOptions,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    let decoder = decoder(options)?;
+    let limit = crate::validate_max_output_size(options.max_output_size)?;
+    let Some(decoder) = decoder else {
+        let format = detect(data).ok_or_else(unknown_format)?;
+        return decode_into(data, Decoder::of(format)?, limit, allocate)
+            .map_err(|e| detected_error(format, e));
+    };
+    decode_into(data, decoder, limit, allocate)
+}
+
+/// [`decompress_fields`], decoding into `allocate(size)` as
+/// [`decompress_into`] does.
+#[cfg(feature = "zstd")]
+pub fn decompress_fields_into<B: zstd::WriteBuf + Output>(
+    data: &[u8],
+    format: Option<&str>,
+    max_output_size: Option<f64>,
+    dictionary: Option<DictionaryRef<'_>>,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    let options = decompress_options(format, max_output_size, dictionary)?;
+    decompress_into(data, &options, allocate)
+}
+
+/// [`decode`], decoding zstd and LZ4 frames that declare their content
+/// sizes into `allocate(size)`.
+#[cfg(feature = "zstd")]
+fn decode_into<B: zstd::WriteBuf + Output>(
+    data: &[u8],
+    decoder: Decoder,
+    limit: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    match decoder {
+        Decoder::Zstd(None) => zstd::decompress_into(data, limit, allocate),
+        Decoder::Zstd(Some(DictionaryRef::Raw(dict))) => {
+            zstd::decompress_with_dict_into(data, dict, limit, allocate)
+        }
+        Decoder::Zstd(Some(DictionaryRef::Prepared(dict))) => {
+            zstd::decompress_prepared_into(data, dict, limit, allocate)
+        }
+        #[cfg(feature = "lz4")]
+        Decoder::Lz4 => lz4::decompress_into(data, limit, allocate),
+        // A build with only zstd, or zstd and LZ4, has no others.
+        #[allow(unreachable_patterns)]
+        decoder => decode(data, decoder, limit).map(Decoded::Grown),
+    }
+}
+
 /// Decompress `data` with `decoder` into at most `limit` bytes.
 fn decode(data: &[u8], decoder: Decoder, limit: usize) -> Result<Vec<u8>, ComprsError> {
     match decoder {
@@ -677,18 +745,25 @@ pub const DICTIONARY_SIZE: IntArg<usize> = IntArg {
 /// Fails with [`ComprsError::InvalidArg`] for any other `max_size` ("maxSize
 /// must be an integer between 0 and 16777216"), and with
 /// [`ComprsError::Operation`] when zstd cannot train a dictionary, such as
-/// from no samples or too little data.
-///
-/// Only builds with zstd have it.
-#[cfg(feature = "zstd")]
+/// from no samples or too little data. A build without zstd fails with
+/// [`ComprsError::InvalidArg`] ("this build of comprs does not include
+/// zstd").
 pub fn train_dictionary(
     samples: &[Vec<u8>],
     max_size: Option<f64>,
 ) -> Result<Vec<u8>, ComprsError> {
-    let max_size = DICTIONARY_SIZE
-        .check_optional_f64(max_size)?
-        .unwrap_or(zstd::DEFAULT_MAX_DICT_SIZE);
-    zstd::train_dictionary(samples, max_size)
+    #[cfg(feature = "zstd")]
+    {
+        let max_size = DICTIONARY_SIZE
+            .check_optional_f64(max_size)?
+            .unwrap_or(zstd::DEFAULT_MAX_DICT_SIZE);
+        zstd::train_dictionary(samples, max_size)
+    }
+    #[cfg(not(feature = "zstd"))]
+    {
+        let _ = (samples, max_size);
+        Err(not_built(Format::Zstd.name()))
+    }
 }
 
 /// Compress `data` in the format named `format` with [`compress`], with the

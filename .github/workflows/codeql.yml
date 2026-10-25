@@ -6,7 +6,7 @@ name: CodeQL
 # scripts in scripts/*.mjs need globs of their own.
 on:
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - '**/*.ts'
       - '**/*.js'
@@ -21,7 +21,7 @@ on:
       - '.github/workflows/**'
       - '.github/codeql/**'
   pull_request:
-    branches: [develop]
+    branches: [main]
     paths:
       - '**/*.ts'
       - '**/*.js'
@@ -41,7 +41,7 @@ on:
 permissions: {}
 
 # A newer pull request push supersedes the running analysis. Other events get
-# a group per commit, so every develop commit is analyzed.
+# a group per commit, so every main commit is analyzed.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

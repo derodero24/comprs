@@ -17,7 +17,9 @@
 //! `code`, as `coded_error` describes, except that of a withdrawn task,
 //! below. Results are plain `Uint8Array`s: the synchronous functions copy
 //! results of up to `SYNC_COPY_LIMIT` into memory that V8 allocates, as
-//! `to_uint8array` does. The `*Async` functions copy their inputs when
+//! `to_uint8array` does, and [`decompress`] decodes zstd and LZ4 frames
+//! that declare their content sizes straight into it, as `sync_decoded`
+//! does. The `*Async` functions copy their inputs when
 //! they are called (#548), run on the libuv thread pool and settle as
 //! `NextBytes` does.
 //!
@@ -40,15 +42,15 @@ use comprs_core::dictionary::{Dictionary, DictionaryFormat};
 use comprs_core::unified::{self, DictionaryRef, Format};
 use comprs_core::{ComprsError, MemoryUsage};
 use napi::bindgen_prelude::{
-    AsyncTask, Env, External, FromNapiValue, JsObjectValue, Object, Property, PropertyAttributes,
-    Uint8Array,
+    AsyncTask, Either3, Env, External, FromNapiValue, JsObjectValue, Null, Object, Property,
+    PropertyAttributes, Uint8Array, Undefined,
 };
 use napi::sys;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
 use crate::context::NativeState;
-use crate::convert::{SYNC_COPY_LIMIT, to_uint8array};
+use crate::convert::{SYNC_COPY_LIMIT, Uint8ArrayKind, sync_decoded, to_uint8array};
 use crate::error::coded_error;
 use crate::stream_task::{NextStreamBytes, Op, StreamCodec, StreamTask};
 use crate::task::{NextBytes, OneShot, Withdrawable, Withdrawal};
@@ -317,15 +319,21 @@ pub fn decompress(
     dictionary: Option<&[u8]>,
     dictionary_handle: Option<&External<NextDictionary>>,
 ) -> napi::Result<Uint8Array> {
-    let result = prepared(dictionary_handle).and_then(|prepared| {
-        unified::decompress_fields(
-            data,
-            format.as_deref(),
-            max_output_size,
-            dictionary_ref(prepared.as_deref(), dictionary),
-        )
-    });
-    sync_output(&env, result)
+    let prepared = prepared(dictionary_handle).map_err(|err| coded_error(&env, &err))?;
+    sync_decoded::<Uint8ArrayKind>(
+        &env,
+        |allocate| {
+            unified::decompress_fields_into(
+                data,
+                format.as_deref(),
+                max_output_size,
+                dictionary_ref(prepared.as_deref(), dictionary),
+                allocate,
+            )
+        },
+        |err| coded_error(&env, &err),
+        "decompress",
+    )
 }
 
 /// [`decompress`] on the libuv thread pool: `decompress()` of the unified
@@ -567,6 +575,21 @@ pub fn context_finish_async(context: AsyncArg<&External<NextContext>>) -> NextSt
 #[napi(namespace = "next", skip_typescript)]
 pub fn detect_format(data: &[u8]) -> Option<&'static str> {
     unified::detect(data).map(Format::name)
+}
+
+/// What [`unified::detect_prefix`] finds in `data`, the start of some data,
+/// with `isFinal` if no more data follows: the name of the format, `null`
+/// for data of no format that detection recognizes, or `undefined` while
+/// more data could change the answer. The TypeScript layer detects with it
+/// itself when an entry point of one family of formats (#342) restricts the
+/// formats.
+#[napi(namespace = "next", skip_typescript)]
+pub fn detect_prefix(data: &[u8], is_final: bool) -> Either3<&'static str, Null, Undefined> {
+    match unified::detect_prefix(data, is_final) {
+        unified::Detection::Known(format) => Either3::A(format.name()),
+        unified::Detection::Unknown => Either3::B(Null),
+        unified::Detection::NeedMore => Either3::C(()),
+    }
 }
 
 /// Train a zstd dictionary of at most `maxSize` bytes from `samples`, with

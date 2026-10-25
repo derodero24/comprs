@@ -16,7 +16,7 @@ import {
 import { CHUNK_KINDS, streamOf, toChunks } from './chunk-fixtures.js';
 import { describeTicks, eventLoopTicks } from './event-loop.js';
 import { MISLEADING_VIEWS } from './misleading-length.js';
-import { backendModule } from './next-backend.js';
+import { withBackend } from './next-backend.js';
 
 // CompressionStream and DecompressionStream of the unified API,
 // @derodero24/comprs/next (#344), over the native addon: ponyfills of the
@@ -507,8 +507,6 @@ async function withRecordedStreams(
   body: () => Promise<void>,
   wrap: (inner: CodecStream, record: Recorded) => CodecStream = (inner) => inner,
 ): Promise<Recorded[]> {
-  const { backend, setBackend } = backendModule();
-  const original = backend();
   const records: Recorded[] = [];
   const recorded = (inner: CodecStream): CodecStream => {
     const record: Recorded = { calls: [], overlap: 0 };
@@ -543,16 +541,14 @@ async function withRecordedStreams(
       },
     };
   };
-  setBackend({
-    ...original,
-    createCompressStream: (...args) => recorded(original.createCompressStream(...args)),
-    createDecompressStream: (...args) => recorded(original.createDecompressStream(...args)),
-  });
-  try {
-    await body();
-  } finally {
-    setBackend(original);
-  }
+  await withBackend(
+    (original) => ({
+      ...original,
+      createCompressStream: (...args) => recorded(original.createCompressStream(...args)),
+      createDecompressStream: (...args) => recorded(original.createDecompressStream(...args)),
+    }),
+    body,
+  );
   return records;
 }
 

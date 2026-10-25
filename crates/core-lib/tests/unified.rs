@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use common::{drive, noise, text};
 use comprs_core::dictionary::{Dictionary, DictionaryFormat};
+use comprs_core::output::Decoded;
 use comprs_core::unified::{
     self, CompressContext, CompressOptions, DecompressContext, DecompressOptions, Detection,
     DictionaryRef, Format, GzipHeaderOptions,
@@ -211,6 +212,117 @@ fn every_format_and_level_gives_the_output_of_the_per_format_function() {
         unified::compress(&input, Format::Zstd, &at_level(Some(0.0))).unwrap(),
         unified::compress(&input, Format::Zstd, &at_level(None)).unwrap()
     );
+}
+
+/// [`unified::decompress_into`] with an allocator of `Vec`s.
+fn decompress_into(
+    data: &[u8],
+    options: &DecompressOptions,
+) -> Result<Decoded<Vec<u8>>, ComprsError> {
+    unified::decompress_into(data, options, |size| Ok(Vec::with_capacity(size)))
+}
+
+#[test]
+fn decompress_into_decodes_frames_with_content_sizes_into_the_allocation() {
+    let input = text(100_000);
+    let compressed = zstd::compress(&input, None).unwrap();
+    let with_dict = zstd::compress_with_dict(&input, DICT, None).unwrap();
+    let raw = DecompressOptions {
+        format: Some(Format::Zstd),
+        dictionary: Some(DictionaryRef::Raw(DICT)),
+        ..DecompressOptions::default()
+    };
+    let prepared = DecompressOptions {
+        dictionary: Some(DictionaryRef::Prepared(&ZSTD_DICT)),
+        ..DecompressOptions::default()
+    };
+    let several = [&compressed[..], &zstd::compress(b"and more", None).unwrap()].concat();
+    let lz4 = lz4::compress(&input).unwrap();
+    let several_lz4 = [&lz4[..], &lz4::compress(b"and more").unwrap()].concat();
+    let cases = [
+        (&compressed, as_format(Some(Format::Zstd)), input.clone()),
+        (&compressed, as_format(None), input.clone()),
+        (&with_dict, raw, input.clone()),
+        (&with_dict, prepared, input.clone()),
+        (
+            &several,
+            as_format(None),
+            [&input[..], b"and more"].concat(),
+        ),
+        (&lz4, as_format(Some(Format::Lz4)), input.clone()),
+        (&lz4, as_format(None), input.clone()),
+        (
+            &several_lz4,
+            as_format(None),
+            [&input[..], b"and more"].concat(),
+        ),
+    ];
+    for (data, options, expected) in cases {
+        match decompress_into(data, &options).unwrap() {
+            Decoded::Allocated(output) => assert!(output == expected),
+            Decoded::Grown(_) => panic!("expected the allocated output"),
+        }
+    }
+}
+
+#[test]
+fn decompress_into_returns_other_output_and_errors_as_decompress_does() {
+    let input = text(100_000);
+    // Frames that a stream writes declare no content size.
+    let streamed = |format| {
+        let mut ctx = CompressContext::new(format, &CompressOptions::default()).unwrap();
+        drive(&mut ctx, &input, &[64 * 1024]).unwrap()
+    };
+    let mut cases = vec![
+        (streamed(Format::Zstd), as_format(None)),
+        (streamed(Format::Lz4), as_format(None)),
+    ];
+    let others = Format::ALL
+        .into_iter()
+        .filter(|format| ![Format::Zstd, Format::Lz4].contains(format));
+    for format in others {
+        let compressed = per_format(&input, format, None);
+        cases.push((compressed.clone(), as_format(Some(format))));
+        if DETECTED.contains(&format) {
+            cases.push((compressed, as_format(None)));
+        }
+    }
+    for (data, options) in &cases {
+        let expected = unified::decompress(data, options).unwrap();
+        match decompress_into(data, options).unwrap() {
+            Decoded::Grown(output) => {
+                assert!(output == expected, "{:?}", options.format);
+                assert_eq!(
+                    output.capacity(),
+                    expected.capacity(),
+                    "{:?}",
+                    options.format
+                );
+            }
+            Decoded::Allocated(_) => panic!("expected the grown output"),
+        }
+    }
+
+    let compressed = zstd::compress(&input, None).unwrap();
+    let small = DecompressOptions {
+        max_output_size: Some((input.len() - 1) as f64),
+        ..as_format(Some(Format::Zstd))
+    };
+    let failing = [
+        (&compressed[..], small),
+        (
+            &compressed[..compressed.len() - 1],
+            as_format(Some(Format::Zstd)),
+        ),
+        (b"not compressed".as_slice(), as_format(None)),
+        (&compressed[..], as_format(Some(Format::Gzip))),
+    ];
+    for (data, options) in failing {
+        let expected = unified::decompress(data, &options).unwrap_err();
+        let error = decompress_into(data, &options).unwrap_err();
+        assert_eq!(error.to_string(), expected.to_string());
+        assert_eq!(error.code(), expected.code());
+    }
 }
 
 #[test]

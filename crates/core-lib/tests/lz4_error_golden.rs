@@ -86,10 +86,21 @@ fn corpus() -> Vec<(String, Vec<u8>)> {
     let mut cases: Vec<(String, Vec<u8>)> = Vec::new();
     let mut add = |name: &str, input: Vec<u8>| cases.push((name.to_string(), input));
 
-    // lz4::compress: independent 64 KiB blocks and a content checksum.
-    let small = lz4::compress(&text(1000)).unwrap();
+    // Independent 64 KiB blocks and a content checksum, as lz4::compress
+    // wrote them before it declared the content size.
+    let unsized_frame = |len: usize, block_size: BlockSize| {
+        compress_with(
+            &text(len),
+            FrameInfo::new()
+                .block_size(block_size)
+                .content_checksum(true),
+        )
+    };
+    let small = unsized_frame(1000, BlockSize::Max64KB);
     // 256 KiB blocks.
-    let large = lz4::compress(&text(300_000)).unwrap();
+    let large = unsized_frame(300_000, BlockSize::Max256KB);
+    // lz4::compress, which declares the content size too.
+    let sized = lz4::compress(&text(1000)).unwrap();
     // Linked 64 KiB blocks with every optional field.
     let linked = compress_with(
         &text(200_000),
@@ -272,6 +283,24 @@ fn corpus() -> Vec<(String, Vec<u8>)> {
         add(&format!("{name} alone"), trailing.to_vec());
     }
     add("not lz4", b"this is not lz4 data".to_vec());
+
+    // A frame with a content size, which the one-shot functions decode into
+    // memory of that size: whole, cut inside the content size, the blocks
+    // and the content checksum, corrupt, and before other frames.
+    add("sized", sized.clone());
+    for len in [10, 13, 14, sized.len() / 2, sized.len() - 1] {
+        add(&format!("sized cut to {len}"), sized[..len].to_vec());
+    }
+    let mut flipped = sized.clone();
+    flipped[sized.len() / 2] ^= 0x01;
+    add("sized with a flipped byte", flipped);
+    add("sized then small", [&sized[..], &small[..]].concat());
+    add(
+        "sized then skippable then sized",
+        [&sized[..], &skippable, &sized[..]].concat(),
+    );
+    add("sized then legacy", [&sized[..], LEGACY_FRAME].concat());
+    add("sized then garbage", [&sized[..], b"garbage"].concat());
     cases
 }
 
@@ -771,4 +800,48 @@ not lz4 | decompress | Corrupt: lz4 decompress failed: WrongMagicNumber
 not lz4 | capacity | Corrupt: lz4 decompress failed: WrongMagicNumber
 not lz4 | flush | Corrupt: lz4 stream decompress failed: WrongMagicNumber
 not lz4 | finish | Corrupt: lz4 stream decompress failed: WrongMagicNumber
+sized | decompress | Ok: 1000 bytes
+sized | capacity | Ok: 1000 bytes
+sized | flush | Ok: 1000 bytes
+sized | finish | Ok: 1000 bytes
+sized cut to 10 | decompress | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 10 | capacity | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 10 | flush | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 10 | finish | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 13 | decompress | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 13 | capacity | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 13 | flush | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 13 | finish | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 14 | decompress | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 14 | capacity | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 14 | flush | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 14 | finish | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 233 | decompress | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 233 | capacity | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 233 | flush | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 233 | finish | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 465 | decompress | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 465 | capacity | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 465 | flush | Truncated: lz4 stream is truncated: unexpected end of input
+sized cut to 465 | finish | Truncated: lz4 stream is truncated: unexpected end of input
+sized with a flipped byte | decompress | Corrupt: lz4 decompress failed: ContentChecksumError
+sized with a flipped byte | capacity | Corrupt: lz4 decompress failed: ContentChecksumError
+sized with a flipped byte | flush | Corrupt: lz4 stream decompress failed: ContentChecksumError
+sized with a flipped byte | finish | Corrupt: lz4 stream decompress failed: ContentChecksumError
+sized then small | decompress | Ok: 2000 bytes
+sized then small | capacity | Ok: 2000 bytes
+sized then small | flush | Ok: 2000 bytes
+sized then small | finish | Ok: 2000 bytes
+sized then skippable then sized | decompress | Ok: 2000 bytes
+sized then skippable then sized | capacity | Ok: 2000 bytes
+sized then skippable then sized | flush | Ok: 2000 bytes
+sized then skippable then sized | finish | Ok: 2000 bytes
+sized then legacy | decompress | Ok: 1044 bytes
+sized then legacy | capacity | Ok: 1044 bytes
+sized then legacy | flush | Ok: 1044 bytes
+sized then legacy | finish | Ok: 1044 bytes
+sized then garbage | decompress | Corrupt: lz4 decompress failed: unexpected data after the end of a frame
+sized then garbage | capacity | Corrupt: lz4 decompress failed: unexpected data after the end of a frame
+sized then garbage | flush | Corrupt: lz4 stream decompress failed: unexpected data after the end of a frame
+sized then garbage | finish | Corrupt: lz4 stream decompress failed: unexpected data after the end of a frame
 ";

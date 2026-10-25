@@ -18,6 +18,14 @@
     "src/stream-schedule.ts",
     "src/index.mts",
     "src/next/index.ts",
-    "src/next/index.mts"
+    "src/next/index.mts",
+    "src/next/zstd.ts",
+    "src/next/zstd.mts",
+    "src/next/gzip.ts",
+    "src/next/gzip.mts",
+    "src/next/brotli.ts",
+    "src/next/brotli.mts",
+    "src/next/lz4.ts",
+    "src/next/lz4.mts"
   ]
 }

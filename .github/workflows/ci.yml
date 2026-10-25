@@ -1,14 +1,14 @@
 name: CI
 
 # CI checks the files that it builds, tests, checks or installs with (pushes
-# to develop leave out the website and some files that only the lint jobs
+# to main leave out the website and some files that only the lint jobs
 # check; see the changes job). That includes .gitignore, whose files Biome
 # skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
 # through its prepare script (lefthook install), and README.md, which the
 # package includes.
 on:
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - 'crates/**'
       - '__test__/**'
@@ -54,7 +54,7 @@ on:
   # CI_PATHS there). Its list also names files that the push list leaves out,
   # so that a change to them is checked before it is merged: every workflow,
   # which Workflow Lint checks, the website, which the website job builds, and the chart images and the configuration files that Biome
-  # checks. Pushes to develop leave these out, apart from the workflows that
+  # checks. Pushes to main leave these out, apart from the workflows that
   # CI calls or mirrors, so that a merge that changes only those does not run
   # the full matrix; website.yml builds the website on such a push when it
   # deploys it.
@@ -68,7 +68,7 @@ on:
 
 # A newer push to a pull request cancels its running CI. Dispatched runs group
 # per branch in the same way, so a newer dispatch replaces the running one.
-# Pushes to develop get a group per commit instead: sharing one group would
+# Pushes to main get a group per commit instead: sharing one group would
 # still replace a pending run with the next one, so a burst of merges would
 # leave commits untested.
 concurrency:
@@ -101,7 +101,7 @@ jobs:
         run: |
           # Pull requests that change none of CI_PATHS, such as those that
           # only add a changeset or edit documentation, skip every other job;
-          # CI Complete then passes on its own. Pushes to develop, which the
+          # CI Complete then passes on its own. Pushes to main, which the
           # push paths above already filter, and dispatched runs check
           # everything. CI_PATHS holds the files that the pull_request
           # trigger used to list as paths, as extended regular expressions
@@ -129,7 +129,7 @@ jobs:
           echo "ci=$ci" >> "$GITHUB_OUTPUT"
           echo "ci=$ci"
 
-          # Pushes to develop and dispatched runs always run the full matrix.
+          # Pushes to main and dispatched runs always run the full matrix.
           # Pull requests run it only when something that ends up in the
           # native binary or in the release packaging changed; JS-only PRs and
           # most dependency updates build and test on Linux alone.
@@ -144,7 +144,7 @@ jobs:
             # uses) builds and packages every binary, so a changed line that
             # names napi in the npm manifest, lockfile or workspace file counts
             # as native too. Other dependency updates in those files stay on
-            # Linux; develop runs the full matrix once they are merged. The
+            # Linux; main runs the full matrix once they are merged. The
             # diff is captured before grep -q reads it: grep -q stops at the
             # first match, and under pipefail the git diff it cut off would
             # turn that match into a miss.
@@ -364,12 +364,12 @@ jobs:
       # Rust can bring new lints, so the job can fail without a change to the
       # code: fix what it reports.
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      # comprs-core also builds with one family of formats alone, as the
-      # per-format WebAssembly builds do (#342).
+      # comprs-core and comprs-wasm also build with one family of formats
+      # alone, as the per-format WebAssembly builds do (#342).
       - name: Clippy for each family of formats alone
         run: |
           for family in zstd gzip brotli lz4; do
-            cargo clippy -p comprs-core --all-targets --no-default-features --features "$family" -- -D warnings
+            cargo clippy -p comprs-core -p comprs-wasm --all-targets --no-default-features --features "$family" -- -D warnings
           done
       # The same for rustdoc: a doc comment that links to an item that the
       # documentation does not show, or that reads as HTML, such as `<name>`
@@ -492,10 +492,12 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bindings-wasm-bindgen
+          # The full build, comprs-wasm, and the per-format builds,
+          # comprs-wasm-<family> (see scripts/build-wasm-bindgen.js).
           path: |
-            browser/comprs-wasm.js
-            browser/comprs-wasm.d.ts
-            browser/comprs-wasm_bg.wasm
+            browser/comprs-wasm*.js
+            browser/comprs-wasm*.d.ts
+            browser/comprs-wasm*_bg.wasm
           if-no-files-found: error
       # Fails when the binary is over its size budget, after writing the
       # report that the step summary and the PR comment show.
@@ -516,7 +518,7 @@ jobs:
 
   # Builds the website, the documentation and the playground, with the
   # commands with which website.yml builds the site that it deploys from
-  # develop, on the WebAssembly build of build-wasm-bindgen. It is a job of
+  # main, on the WebAssembly build of build-wasm-bindgen. It is a job of
   # its own so that a website failure fails CI Complete without skipping the
   # jobs that need build-wasm-bindgen.
   website:
@@ -728,8 +730,25 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}-chromium-shell-firefox-webkit
+      # The Ubuntu mirror occasionally stalls: this step normally takes under a
+      # minute, but has taken over 20 and timed the job out. Bound each attempt
+      # so a stalled download is killed and retried; apt keeps the packages it
+      # already fetched, so a retry resumes. dpkg --configure -a finishes an
+      # installation an attempt interrupted.
       - name: Install Playwright system dependencies
-        run: pnpm --dir e2e exec playwright install-deps chromium firefox webkit
+        timeout-minutes: 10
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright system dependency install attempt ${attempt}/3"
+            if timeout --kill-after=30 180 pnpm --dir e2e exec playwright install-deps chromium firefox webkit; then
+              exit 0
+            fi
+            echo "Playwright system dependency install failed or timed out (attempt ${attempt}); retrying..."
+            sudo dpkg --configure -a || true
+            sleep 5
+          done
+          echo "Playwright system dependency install failed after 3 attempts"
+          exit 1
       # Headless Chromium runs the headless shell, so the full browser is not
       # needed.
       - name: Install Playwright browsers

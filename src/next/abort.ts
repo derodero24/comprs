@@ -1,5 +1,5 @@
 import type { AbortSignalLike } from './api.js';
-import { backend, type Withdrawal } from './backend.js';
+import type { Backend, Withdrawal } from './backend.js';
 
 // The `signal` option of the async functions of api.ts (#559). The signal
 // never reaches the backend: a listener of this module, removed when the
@@ -26,9 +26,9 @@ export function isAbortSignal(value: unknown): value is AbortSignalLike {
 }
 
 /**
- * The Promise of `start()`, which starts the work of a call with the
- * {@link Withdrawal} that it gets, settled as `signal` tells, as fetch()
- * settles:
+ * The Promise of `start()`, which starts the work of a call on `codecs`,
+ * the backend that does it, with the {@link Withdrawal} that it gets,
+ * settled as `signal` tells, as fetch() settles:
  *
  * - without a signal, the Promise of `start()` itself, which gets no
  *   Withdrawal;
@@ -42,27 +42,29 @@ export function isAbortSignal(value: unknown): value is AbortSignalLike {
  */
 export function withSignal<T>(
   signal: AbortSignalLike | undefined,
+  codecs: Backend,
   start: (withdrawal: Withdrawal | undefined) => Promise<T>,
 ): Promise<T> {
   // Without a signal, the call costs no more than without the option.
-  return signal === undefined ? start(undefined) : settleWith(signal, start);
+  return signal === undefined ? start(undefined) : settleWith(signal, codecs, start);
 }
 
 /** {@link withSignal} with a signal. */
 async function settleWith<T>(
   signal: AbortSignalLike,
+  codecs: Backend,
   start: (withdrawal: Withdrawal | undefined) => Promise<T>,
 ): Promise<T> {
   if (signal.aborted) {
     throw signal.reason;
   }
-  const withdrawal = backend().createWithdrawal();
+  const withdrawal = codecs.createWithdrawal();
   // The executor of `withdrawn` replaces this at once.
   let onAbort = (): void => {};
   // Rejects when the backend withdraws the work; never settles otherwise.
   const withdrawn = new Promise<never>((_, reject) => {
     onAbort = (): void => {
-      if (withdrawal !== undefined && backend().withdraw(withdrawal)) {
+      if (withdrawal !== undefined && codecs.withdraw(withdrawal)) {
         reject(signal.reason);
       }
     };

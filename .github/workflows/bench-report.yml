@@ -9,7 +9,7 @@ name: Bench Report
 # runs the repository's code and holds a token that can write: the bench job
 # runs the benchmarks with a read-only token, and the publish-branch job,
 # which can push, runs no code from the repository, only git on the files
-# that the bench job uploaded. It never pushes to develop or main.
+# that the bench job uploaded. It never pushes to main.
 on:
   workflow_dispatch:
 

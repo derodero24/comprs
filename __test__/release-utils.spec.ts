@@ -103,7 +103,7 @@ describe('repositoryUrlProblems', () => {
       'https://gitlab.com/derodero24/comprs',
       'https://gitlab.com/derodero24/comprs',
     ],
-    ['a URL inside the repository', `${REPOSITORY}/tree/develop`, `${REPOSITORY}/tree/develop`],
+    ['a URL inside the repository', `${REPOSITORY}/tree/main`, `${REPOSITORY}/tree/main`],
     ['a query', `${REPOSITORY}?tab=readme`, `${REPOSITORY}?tab=readme`],
     ['an empty query', `${REPOSITORY}?`, `${REPOSITORY}?`],
     ['a fragment', `${REPOSITORY}#readme`, `${REPOSITORY}#readme`],
@@ -269,12 +269,17 @@ function sideEffectsWithout(path: string, pattern: string): unknown[] {
   return others;
 }
 
+/** The families of formats, each with entry points of its own (#342). */
+const FAMILIES = ['zstd', 'gzip', 'brotli', 'lz4'] as const;
+
 /** The browser modules of the package, which the tests copy. */
 const BROWSER_MODULES = [
   'browser/index.js',
   'browser/streams.js',
   'browser/wasm.js',
+  ...FAMILIES.map((family) => `browser/wasm-${family}.js`),
   'browser/next/browser.js',
+  ...FAMILIES.map((family) => `browser/next/browser-${family}.js`),
   'browser/next/wasm.js',
   'browser/next/api.js',
   'browser/next/abort.js',
@@ -282,7 +287,12 @@ const BROWSER_MODULES = [
 ];
 
 /** The browser entry points of the package, which the tests check. */
-const BROWSER_ENTRIES = ['browser/index.js', 'browser/streams.js', 'browser/next/browser.js'];
+const BROWSER_ENTRIES = [
+  'browser/index.js',
+  'browser/streams.js',
+  'browser/next/browser.js',
+  ...FAMILIES.map((family) => `browser/next/browser-${family}.js`),
+];
 
 /** The `sideEffects` fields of the manifests of a package. */
 interface SideEffects {
@@ -304,6 +314,10 @@ function browserProblems(sideEffects: SideEffects): string[] {
       'browser/comprs-wasm.js': 'export default async function init() {}\n',
       'browser/comprs-wasm_bg.wasm': '',
     };
+    for (const family of FAMILIES) {
+      files[`browser/comprs-wasm-${family}.js`] = 'export default async function init() {}\n';
+      files[`browser/comprs-wasm-${family}_bg.wasm`] = '';
+    }
     for (const manifest of ['package.json', 'browser/package.json'] as const) {
       const json = readManifest(manifest);
       files[manifest] = JSON.stringify({
@@ -335,6 +349,8 @@ describe('browserEntryProblems', () => {
     ['browser/package.json', './index.js', 'browser/index.js'],
     ['package.json', './browser/next/browser.js', 'browser/next/browser.js'],
     ['browser/package.json', './next/browser.js', 'browser/next/browser.js'],
+    ['package.json', './browser/next/browser-zstd.js', 'browser/next/browser-zstd.js'],
+    ['browser/package.json', './next/browser-lz4.js', 'browser/next/browser-lz4.js'],
   ] as const)(
     'reports an entry point that %s marks side-effect free (%s)',
     (manifest, pattern, entry) => {
@@ -345,15 +361,12 @@ describe('browserEntryProblems', () => {
   );
 
   // browser/index.js imports browser/wasm.js, which initialises the
-  // WebAssembly module, for its side effects alone, as browser/next/browser.js
-  // imports browser/next/wasm.js, which sets the backend of ./next: a bundler
-  // that takes such a module for side-effect free drops the import, whatever
-  // it keeps of the entry.
+  // WebAssembly module, for its side effects alone: a bundler that takes
+  // such a module for side-effect free drops the import, whatever it keeps
+  // of the entry.
   it.each([
     ['package.json', './browser/wasm.js', 'browser/wasm.js', 'browser/index.js'],
     ['browser/package.json', './wasm.js', 'browser/wasm.js', 'browser/index.js'],
-    ['package.json', './browser/next/wasm.js', 'browser/next/wasm.js', 'browser/next/browser.js'],
-    ['browser/package.json', './next/wasm.js', 'browser/next/wasm.js', 'browser/next/browser.js'],
   ] as const)(
     'reports a module imported for its side effects only that %s marks side-effect free (%s)',
     (manifest, pattern, module, importer) => {

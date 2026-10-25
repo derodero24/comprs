@@ -15,7 +15,25 @@ const compressed = compressSync(data, { format: 'zstd' });
 const restored = decompressSync(compressed);
 ```
 
-The entry module fetches and instantiates the WebAssembly binary with top-level `await` when it is imported, so every function works once the import has resolved, and a failed download rejects the import. All three entry points share one WebAssembly module, which holds all four codecs: 1.52 MB, 567 KB with gzip and 425 KB with brotli (see [Platforms](/comprs/reference/platforms/#webassembly-size)).
+The entry module fetches and instantiates the WebAssembly binary with top-level `await` when it is imported, so every function works once the import has resolved, and a failed download rejects the import. All three entry points share one WebAssembly module, which holds all four codecs: 1.52 MB, 568 KB with gzip and 425 KB with brotli (see [Platforms](/comprs/reference/platforms/#webassembly-size)).
+
+## One family of formats
+
+A page that needs one format can load a build with that format's family alone, from `@derodero24/comprs/next/zstd`, `/gzip`, `/brotli` or `/lz4`, which export the unified API for those formats (see [Unified API](/comprs/guides/unified-api/#one-family-of-formats)):
+
+```ts
+import { compressSync, decompressSync } from '@derodero24/comprs/next/zstd';
+```
+
+| Entry point | Formats | Download with gzip | with brotli |
+| --- | --- | ---: | ---: |
+| `@derodero24/comprs/next` | all | 568 KB | 425 KB |
+| `@derodero24/comprs/next/zstd` | zstd | 160 KB | 121 KB |
+| `@derodero24/comprs/next/gzip` | gzip, deflate, deflate-raw | 76 KB | 64 KB |
+| `@derodero24/comprs/next/brotli` | brotli | 337 KB | 249 KB |
+| `@derodero24/comprs/next/lz4` | lz4 | 42 KB | 36 KB |
+
+Each loads its own binary, `browser/comprs-wasm-<family>_bg.wasm`, as the full build loads its own, so importing two families downloads two binaries, and importing a family next to `@derodero24/comprs/next` or the package root adds its binary to the full one.
 
 ## Bundlers
 
@@ -26,7 +44,7 @@ The entry locates the binary, `browser/comprs-wasm_bg.wasm` in the package, with
 | Vite 8 | Nothing, for `vite build` and `vite dev` |
 | Vite 7 and older | `vite dev` needs `optimizeDeps: { exclude: ['@derodero24/comprs'] }`, as the dependency pre-bundling of these versions breaks the URL of the binary. Before Vite 7, the default build target does not support top-level `await`: set `build.target: 'es2022'` or later |
 | webpack 5 | Nothing: it enables top-level `await` by default since 5.83 and emits the binary as an asset |
-| esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle |
+| esbuild | `--format=esm` and a `--target` that supports top-level `await` (the default, `esnext`, does). esbuild leaves `new URL(…)` as it is, so copy `node_modules/@derodero24/comprs/browser/comprs-wasm_bg.wasm` next to the bundle, and `comprs-wasm-<family>_bg.wasm` for each family that the page imports |
 | No bundler | Serve the package's `browser/` directory, and map the package name to its entries with an import map (below) |
 
 ```html
@@ -35,7 +53,8 @@ The entry locates the binary, `browser/comprs-wasm_bg.wasm` in the package, with
     "imports": {
       "@derodero24/comprs": "/node_modules/@derodero24/comprs/browser/index.js",
       "@derodero24/comprs/streams": "/node_modules/@derodero24/comprs/browser/streams.js",
-      "@derodero24/comprs/next": "/node_modules/@derodero24/comprs/browser/next/browser.js"
+      "@derodero24/comprs/next": "/node_modules/@derodero24/comprs/browser/next/browser.js",
+      "@derodero24/comprs/next/zstd": "/node_modules/@derodero24/comprs/browser/next/browser-zstd.js"
     }
   }
 </script>

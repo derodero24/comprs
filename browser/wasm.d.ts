@@ -106,6 +106,11 @@ export declare function nextDecompress(
 
 export declare function nextDetectFormat(data: Uint8Array): Format | null;
 
+export declare function nextDetectPrefix(
+  data: Uint8Array,
+  isFinal: boolean,
+): Format | null | undefined;
+
 export declare function nextTrainDictionary(
   samples: Uint8Array[],
   maxSize: number | undefined,

@@ -7,7 +7,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::async_args::{AsyncArg, Checked, checked};
-use crate::convert::sync_result;
+use crate::convert::{BufferKind, sync_decoded};
 use crate::error::to_napi_error;
 use crate::task::{LegacyBuffer, OneShot};
 
@@ -83,9 +83,11 @@ pub fn decompress(
     max_output_size: Option<f64>,
 ) -> Result<Buffer> {
     let max_size = comprs_core::validate_max_output_size(max_output_size).map_err(to_napi_error)?;
-    sync_result(
+    sync_decoded::<BufferKind>(
         &env,
-        comprs_core::detect::decompress_with_capacity(crate::as_bytes(&data), max_size),
+        |allocate| comprs_core::detect::decompress_into(crate::as_bytes(&data), max_size, allocate),
+        to_napi_error,
+        "decompress",
     )
 }
 

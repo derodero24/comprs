@@ -83,11 +83,13 @@ export interface GzipHeaderOptions {
 }
 /**
  * The options of {@link compress} and {@link compressSync}. Other properties
- * are ignored.
+ * are ignored. `F` is the formats that the entry point includes: every
+ * {@link Format} for `@derodero24/comprs/next`, and those of one family for
+ * `@derodero24/comprs/next/<family>`.
  */
-export interface CompressOptions {
+export interface CompressOptions<F extends Format = Format> {
     /** The format to compress in. */
-    format: Format;
+    format: F;
     /**
      * The compression level, an integer whose range and default depend on the
      * format:
@@ -144,9 +146,10 @@ export interface CompressOptions {
 }
 /**
  * The options of {@link decompress} and {@link decompressSync}. Other
- * properties are ignored.
+ * properties are ignored. `F` is the formats that the entry point includes,
+ * as for {@link CompressOptions}.
  */
-export interface DecompressOptions {
+export interface DecompressOptions<F extends Format = Format> {
     /**
      * The format of the data, or `'auto'`, the default, to detect it from the
      * data. Detection recognizes zstd, gzip, deflate (zlib), brotli and lz4,
@@ -157,7 +160,7 @@ export interface DecompressOptions {
      * With a {@link Dictionary} as the `dictionary`, `'auto'` stands for the
      * format of the dictionary instead.
      */
-    format?: Format | 'auto' | undefined;
+    format?: F | 'auto' | undefined;
     /**
      * The largest output, in bytes: an integer from 0 to
      * `Number.MAX_SAFE_INTEGER`, 268435456 (256 MiB) by default. Output that
@@ -184,10 +187,14 @@ export interface DecompressOptions {
      */
     dictionary?: Dictionary | Input | undefined;
 }
-/** The options of {@link Dictionary.from}. Other properties are ignored. */
-export interface DictionaryOptions {
+/**
+ * The options of {@link Dictionary.from}. Other properties are ignored. `F`
+ * is the formats of dictionaries that the entry point includes, as for
+ * {@link CompressOptions}.
+ */
+export interface DictionaryOptions<F extends 'zstd' | 'brotli' = 'zstd' | 'brotli'> {
     /** The format that the dictionary is for: `'zstd'` or `'brotli'`. */
-    format: 'zstd' | 'brotli';
+    format: F;
     /**
      * The zstd compression level to prepare the dictionary for: an integer
      * from -131072 to 22, 3 by default, which 0 also selects. Compression
@@ -253,6 +260,19 @@ export interface AbortOptions {
      */
     signal?: AbortSignalLike | undefined;
 }
+/** The formats, in the order of their names in error messages. */
+export declare const FORMATS: readonly Format[];
+/**
+ * The formats of each family, which the entry point of the family,
+ * `@derodero24/comprs/next/<family>`, includes (#342), as the WebAssembly
+ * build of the family does.
+ */
+export declare const FAMILY_FORMATS: {
+    readonly zstd: readonly ['zstd'];
+    readonly gzip: readonly ['gzip', 'deflate', 'deflate-raw'];
+    readonly brotli: readonly ['brotli'];
+    readonly lz4: readonly ['lz4'];
+};
 /**
  * Compress `data` in `options.format`.
  *

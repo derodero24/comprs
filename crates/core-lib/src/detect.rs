@@ -15,6 +15,8 @@ use comprs_brotli::{Decoder, Status};
 
 #[cfg(all_formats)]
 use crate::ComprsError;
+#[cfg(all_formats)]
+use crate::output::{Decoded, Output};
 
 /// Zstd magic number: 0xFD2FB528.
 pub(crate) const ZSTD_MAGIC: u32 = 0xFD2F_B528;
@@ -212,6 +214,25 @@ pub fn decompress_with_capacity(data: &[u8], capacity: usize) -> Result<Vec<u8>,
         }
         Format::Lz4 => crate::lz4::decompress_with_capacity(data, capacity),
         Format::Unknown => Err(unknown_format()),
+    }
+}
+
+/// [`decompress_with_capacity`], decoding the output of zstd and LZ4 frames
+/// that declare their content sizes into `allocate(size)` instead of a
+/// `Vec`, as [`crate::zstd::decompress_into`] and
+/// [`crate::lz4::decompress_into`] do. Other input is returned as
+/// [`Decoded::Grown`], with the output and the errors of
+/// [`decompress_with_capacity`].
+#[cfg(all_formats)]
+pub fn decompress_into<B: crate::zstd::WriteBuf + Output>(
+    data: &[u8],
+    capacity: usize,
+    allocate: impl FnOnce(usize) -> Result<B, ComprsError>,
+) -> Result<Decoded<B>, ComprsError> {
+    match detect(data) {
+        Format::Zstd => crate::zstd::decompress_into(data, capacity, allocate),
+        Format::Lz4 => crate::lz4::decompress_into(data, capacity, allocate),
+        _ => decompress_with_capacity(data, capacity).map(Decoded::Grown),
     }
 }
 
@@ -552,6 +573,38 @@ mod tests {
                 err.to_string()
                     .starts_with("unable to detect compression format"),
                 "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn decompress_into_allocates_for_zstd_and_lz4_frames_with_content_sizes() {
+        let input = text(100_000);
+        let allocate = |size| Ok(Vec::with_capacity(size));
+        for compressed in [
+            crate::zstd::compress(&input, None).unwrap(),
+            crate::lz4::compress(&input).unwrap(),
+        ] {
+            match decompress_into(&compressed, input.len(), allocate).unwrap() {
+                Decoded::Allocated(output) => assert!(output == input),
+                Decoded::Grown(_) => panic!("expected the allocated output"),
+            }
+        }
+        for compressed in [
+            crate::gzip::compress(&input, None).unwrap(),
+            crate::brotli::compress(&input, None).unwrap(),
+        ] {
+            match decompress_into(&compressed, input.len(), allocate).unwrap() {
+                Decoded::Grown(output) => assert!(output == input),
+                Decoded::Allocated(_) => panic!("expected the grown output"),
+            }
+        }
+        for input in [&b"not compressed"[..], &[]] {
+            assert_eq!(
+                decompress_into(input, 1000, allocate)
+                    .unwrap_err()
+                    .to_string(),
+                decompress(input).unwrap_err().to_string()
             );
         }
     }

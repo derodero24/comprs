@@ -13,5 +13,11 @@
     "rootDirs": ["src", "browser"]
   },
   "include": [],
-  "files": ["src/next/browser.ts"]
+  "files": [
+    "src/next/browser.ts",
+    "src/next/browser-zstd.ts",
+    "src/next/browser-gzip.ts",
+    "src/next/browser-brotli.ts",
+    "src/next/browser-lz4.ts"
+  ]
 }

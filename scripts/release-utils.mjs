@@ -244,8 +244,8 @@ export function platformNoticeProblems({ path, json }, notices) {
 /**
  * Check that the root package's prepublishOnly script, which `npm publish`
  * runs in the release, is `napi prepublish` with --no-gh-release. napi would
- * otherwise create the GitHub release itself: on the default branch,
- * develop, rather than on the commit that the release publishes, and with
+ * otherwise create the GitHub release itself: at the head of the default
+ * branch, rather than on the commit that the release publishes, and with
  * the platform binaries alone (#709). The GitHub Release job of release.yml
  * creates it instead, with the files that github-release.mjs stages.
  *

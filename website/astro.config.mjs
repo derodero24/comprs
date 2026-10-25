@@ -28,7 +28,7 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/derodero24/comprs' },
         { icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/@derodero24/comprs' },
       ],
-      editLink: { baseUrl: 'https://github.com/derodero24/comprs/edit/develop/website/' },
+      editLink: { baseUrl: 'https://github.com/derodero24/comprs/edit/main/website/' },
       lastUpdated: true,
       customCss: ['./src/styles/custom.css'],
       plugins: [

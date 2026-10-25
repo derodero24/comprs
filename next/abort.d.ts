@@ -1,5 +1,5 @@
 import type { AbortSignalLike } from './api.js';
-import { type Withdrawal } from './backend.js';
+import type { Backend, Withdrawal } from './backend.js';
 /**
  * Whether `value` has the members of an AbortSignal that
  * {@link withSignal} uses: a boolean `aborted`, and the methods
@@ -9,9 +9,9 @@ import { type Withdrawal } from './backend.js';
  */
 export declare function isAbortSignal(value: unknown): value is AbortSignalLike;
 /**
- * The Promise of `start()`, which starts the work of a call with the
- * {@link Withdrawal} that it gets, settled as `signal` tells, as fetch()
- * settles:
+ * The Promise of `start()`, which starts the work of a call on `codecs`,
+ * the backend that does it, with the {@link Withdrawal} that it gets,
+ * settled as `signal` tells, as fetch() settles:
  *
  * - without a signal, the Promise of `start()` itself, which gets no
  *   Withdrawal;
@@ -23,4 +23,4 @@ export declare function isAbortSignal(value: unknown): value is AbortSignalLike;
  *   discarding what it gave. The Promise keeps the result of work that
  *   settled before the abort.
  */
-export declare function withSignal<T>(signal: AbortSignalLike | undefined, start: (withdrawal: Withdrawal | undefined) => Promise<T>): Promise<T>;
+export declare function withSignal<T>(signal: AbortSignalLike | undefined, codecs: Backend, start: (withdrawal: Withdrawal | undefined) => Promise<T>): Promise<T>;

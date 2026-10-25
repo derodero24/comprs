@@ -67,9 +67,9 @@ The stream helpers, the ES module entry and the unified API are written in TypeS
 | `src/stream-schedule.ts` | `stream-schedule.js` and `stream-schedule.d.ts`: `ChunkScheduler`, which decides which calls of the Web Streams helpers and the Node.js transforms run on the libuv thread pool. npm publishes it for those two modules, which import it; `package.json` does not export it |
 | `src/index.mts` | `index.mjs` and `index.d.mts`: the ES module entry |
 | `src/browser/streams.ts` | `browser/streams.js` and `browser/streams.d.ts`: the Web Streams helpers for browsers |
-| `src/next/` | `next/` and `browser/next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)). `api.ts` holds the functions and the stream classes and checks the types of their arguments, `abort.ts` handles the `signal` option of the async functions, and `backend.ts` holds the `Backend` interface, which the backend of each build implements. In `next/`, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) the backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries for Node.js. In `browser/next/`, `wasm.ts` makes the functions of the WebAssembly build (`crates/wasm/src/next.rs`), which `browser/wasm.js` loads, the backend, and `browser.ts` is the entry for browsers |
+| `src/next/` | `next/` and `browser/next/`: the unified API, `@derodero24/comprs/next` ([#577](https://github.com/derodero24/comprs/issues/577)). `api.ts` holds the functions and the stream classes and checks the types of their arguments, `abort.ts` handles the `signal` option of the async functions, and `backend.ts` holds the `Backend` interface, which the backend of each build implements, and the registry of the backend of each format, which `api.ts` routes each call through. In `next/`, `native.ts` makes the hidden binding of the native addon (`crates/core/src/next.rs`) a backend, and `index.ts` and `index.mts` are the CommonJS and ES module entries for Node.js, which register it for every format. In `browser/next/`, `wasm.ts` makes the functions of a WebAssembly build (`crates/wasm/src/next.rs`) a backend, and `browser.ts` is the entry for browsers, which registers the full build that `browser/wasm.js` loads. `<family>.ts` and `<family>.mts` for Node.js, and `browser-<family>.ts` for browsers, with the WebAssembly build of the family that `browser/wasm-<family>.js` loads, are the entries of `@derodero24/comprs/next/<family>` ([#342](https://github.com/derodero24/comprs/issues/342)), which register their backend for the formats of the family alone. With several backends, `api.ts` detects formats itself, over the `detectPrefix()` of each |
 
-The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json`, `tsconfig.browser.json` and `tsconfig.next-browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Each project lists its entries in `files`, and compiles the modules that they import as well. Editors check the sources with `src/tsconfig.json`, `src/browser/tsconfig.json` and `src/next/tsconfig.json`, which take the options and files of those three projects. The projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, and `browser/wasm.js`, which loads the WebAssembly module for the entry and for `browser/next/`, are written by hand, as are their declarations.
+The outputs are committed. Edit the sources, never the outputs, then run `pnpm run build:js` (`scripts/build-js.mjs`, with `tsconfig.build.json`, `tsconfig.browser.json` and `tsconfig.next-browser.json`) and commit the sources and outputs together. CI runs `pnpm run build` and `pnpm run build:js` and fails if they change any file. Each project lists its entries in `files`, and compiles the modules that they import as well. Editors check the sources with `src/tsconfig.json`, `src/browser/tsconfig.json` and `src/next/tsconfig.json`, which take the options and files of those three projects. The projects that `build:js` compiles must stay plain JSON, without comments. A TypeScript update can change the outputs; Renovate proposes it in a pull request of its own, which then needs `pnpm run build:js`. The browser entry, `browser/index.js`, `browser/wasm.js`, which loads the WebAssembly module for the entry and for `browser/next/`, and `browser/wasm-<family>.js`, which loads the build of a family, are written by hand, as are their declarations.
 
 ### Vendored libbrotli
 
@@ -94,7 +94,7 @@ All changes must start from a GitHub Issue.
 2. Fork the repository and create a branch: `type/issue-<number>-<short-summary>`
 3. Make your changes
 4. Run the full verification suite
-5. Open a pull request targeting the `develop` branch
+5. Open a pull request targeting the `main` branch
 
 ### Branch naming
 
@@ -145,12 +145,12 @@ CI's Coverage job runs the Vitest tests with `pnpm test --coverage`, which fails
 CI also tests the WebAssembly build. To run these tests locally:
 
 ```bash
-pnpm run build:wasm-bindgen   # WebAssembly build (needs wasm-pack and the wasm32-unknown-unknown target)
-pnpm run test:wasm            # WebAssembly build, compared with the native addon
-pnpm run size:wasm            # Size of the WebAssembly binary, checked against its budget
+pnpm run build:wasm-bindgen   # WebAssembly builds (needs wasm-pack and the wasm32-unknown-unknown target)
+pnpm run test:wasm            # WebAssembly builds, compared with the native addon
+pnpm run size:wasm            # Size of each WebAssembly binary, checked against its budget
 ```
 
-The size budget is in `scripts/wasm-size.mjs`. Raise it in the pull request that needs the extra bytes, and explain why there.
+`build:wasm-bindgen` builds the full build, `browser/comprs-wasm*`, with every format and both APIs, and one build of the unified API for each family of formats, `browser/comprs-wasm-{zstd,gzip,brotli,lz4}*`, from the Cargo features of `crates/wasm` ([#342](https://github.com/derodero24/comprs/issues/342)). `node scripts/build-wasm-bindgen.js full` builds only the full build, and naming families builds those. Each binary has its own size budget in `scripts/wasm-size.mjs`. Raise a budget in the pull request that needs the extra bytes, and explain why there.
 
 CI then tests the package as it would be published (see [Package tests](#package-tests)).
 
@@ -223,7 +223,7 @@ pnpm changeset
 
 ## Release packaging
 
-CI and the release build the native binaries with the same workflow, `.github/workflows/build.yml`. On pushes to `develop` and on pull requests that change native code, CI's `test` job runs the tests with each binary on its own platform, in an Alpine Linux container for the musl ones; other pull requests build and test Linux x64 only.
+CI and the release build the native binaries with the same workflow, `.github/workflows/build.yml`. On pushes to `main` and on pull requests that change native code, CI's `test` job runs the tests with each binary on its own platform, in an Alpine Linux container for the musl ones; other pull requests build and test Linux x64 only.
 
 The `Release Dry Run` CI job assembles the npm packages from the build artifacts with `scripts/prepare-release.mjs`, the script the release workflow runs before `npm publish`, then checks them with `scripts/check-release.mjs`. Nothing is published. To reproduce a failure locally, download the run's `bindings-*` artifacts into `artifacts/`, one directory per artifact, and run both scripts:
 
@@ -250,13 +250,14 @@ A new dependency whose crate publishes no license file fails the dry run until i
 
 This section is for maintainers. Releases go through `.github/workflows/release.yml`:
 
-1. Pull requests into `develop` add [changesets](#changesets).
-2. On each push to `develop`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
-3. Once it is merged, no changeset is left, and the Version job opens or updates the release pull request from `develop` into `main`, which lists the versions to publish.
-4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
-5. The Merge Back job merges `main` into `develop`, or opens a pull request for that when it cannot.
+1. Pull requests into `main` add [changesets](#changesets). `main` is the only long-lived branch: it holds released and unreleased changes alike, and the tags `v<version>` mark the releases.
+2. On each push to `main`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
+3. Squash-merging the Version Packages pull request publishes the versions that it lists. On that push, the Check Version job finds a version in `package.json` that npm does not have yet; on other pushes it finds the version published, and nothing is built. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
+4. If a publish fails, fix the cause in a pull request: the push that merges it publishes the versions that are still missing on npm. To retry without a change, run the Release workflow on `main` from the Actions tab (**Release** → **Run workflow**).
 
-The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. Those runs are not a failure of the pull request. Instead, after each update of the Version Packages pull request, the Version job dispatches the CI workflow on its branch, `changeset-release/develop`, which `GITHUB_TOKEN` may do: the checks of that run show on the pull request. If they are missing, run CI on the branch from the Actions tab (**CI** → **Run workflow**) before merging it. The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
+The Version job opens and updates the Version Packages pull request with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of that pull request do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. Those runs are not a failure of the pull request. Instead, after each update of the pull request, the Version job dispatches the CI workflow on its branch, `changeset-release/main`, which `GITHUB_TOKEN` may do: the checks of that run show on the pull request. If they are missing, run CI on the branch from the Actions tab (**CI** → **Run workflow**) before merging it.
+
+The Release workflow publishes from `main` only. A patch release while `main` holds unreleased breaking changes needs a `release/<major>.x` branch from the last release tag, with the fix and its changeset cherry-picked onto it, and the Release workflow's triggers extended to that branch for the release.
 
 Both publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
 
@@ -314,7 +315,7 @@ pnpm --dir website run check       # astro check: the types of the site
 
 Without the WebAssembly build, the build of the playground page fails. To work on the playground without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
 
-CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `develop`.
+CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `main`.
 
 ## Pull request checklist
 
@@ -351,9 +352,9 @@ The tables of the [Benchmarks page](https://derodero24.github.io/comprs/referenc
 
 The repository publishes only numbers from the Bench Report workflow (`.github/workflows/bench-report.yml`), which runs on a GitHub-hosted runner and records its run in the paragraph above the tables. Numbers from another machine cannot be compared with them: never commit the output of a local run. To regenerate the numbers:
 
-1. Run the workflow on `develop` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the report, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
-2. Its `publish-branch` job, which can push but runs no code from the repository, commits the report and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `develop` or `main`. The summary of the run links to a pull request from that branch.
-3. Open that pull request into `develop`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Takeaways of the Benchmarks page and the text around the charts in the README to match them in the same pull request, and squash-merge it. If `develop` changed the report in the meantime, merge `develop` into the branch, keeping the generated report.
+1. Run the workflow on `main` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the report, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
+2. Its `publish-branch` job, which can push but runs no code from the repository, commits the report and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `main`. The summary of the run links to a pull request from that branch.
+3. Open that pull request into `main`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Takeaways of the Benchmarks page and the text around the charts in the README to match them in the same pull request, and squash-merge it. If `main` changed the report in the meantime, merge `main` into the branch, keeping the generated report.
 
 To check what the script writes without publishing numbers, run it locally with `BENCH_SMOKE=1`: every benchmark runs once, the run takes under a minute, and the text says that the numbers mean nothing. Then revert its changes:
 
