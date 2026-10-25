@@ -103,7 +103,7 @@ describe('repositoryUrlProblems', () => {
       'https://gitlab.com/derodero24/comprs',
       'https://gitlab.com/derodero24/comprs',
     ],
-    ['a URL inside the repository', `${REPOSITORY}/tree/develop`, `${REPOSITORY}/tree/develop`],
+    ['a URL inside the repository', `${REPOSITORY}/tree/main`, `${REPOSITORY}/tree/main`],
     ['a query', `${REPOSITORY}?tab=readme`, `${REPOSITORY}?tab=readme`],
     ['an empty query', `${REPOSITORY}?`, `${REPOSITORY}?`],
     ['a fragment', `${REPOSITORY}#readme`, `${REPOSITORY}#readme`],

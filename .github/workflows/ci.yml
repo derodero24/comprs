@@ -1,14 +1,14 @@
 name: CI
 
 # CI checks the files that it builds, tests, checks or installs with (pushes
-# to develop leave out the website and some files that only the lint jobs
+# to main leave out the website and some files that only the lint jobs
 # check; see the changes job). That includes .gitignore, whose files Biome
 # skips (vcs.useIgnoreFile), lefthook.yml, which every pnpm install reads
 # through its prepare script (lefthook install), and README.md, which the
 # package includes.
 on:
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - 'crates/**'
       - '__test__/**'
@@ -54,7 +54,7 @@ on:
   # CI_PATHS there). Its list also names files that the push list leaves out,
   # so that a change to them is checked before it is merged: every workflow,
   # which Workflow Lint checks, the website, which the website job builds, and the chart images and the configuration files that Biome
-  # checks. Pushes to develop leave these out, apart from the workflows that
+  # checks. Pushes to main leave these out, apart from the workflows that
   # CI calls or mirrors, so that a merge that changes only those does not run
   # the full matrix; website.yml builds the website on such a push when it
   # deploys it.
@@ -68,7 +68,7 @@ on:
 
 # A newer push to a pull request cancels its running CI. Dispatched runs group
 # per branch in the same way, so a newer dispatch replaces the running one.
-# Pushes to develop get a group per commit instead: sharing one group would
+# Pushes to main get a group per commit instead: sharing one group would
 # still replace a pending run with the next one, so a burst of merges would
 # leave commits untested.
 concurrency:
@@ -101,7 +101,7 @@ jobs:
         run: |
           # Pull requests that change none of CI_PATHS, such as those that
           # only add a changeset or edit documentation, skip every other job;
-          # CI Complete then passes on its own. Pushes to develop, which the
+          # CI Complete then passes on its own. Pushes to main, which the
           # push paths above already filter, and dispatched runs check
           # everything. CI_PATHS holds the files that the pull_request
           # trigger used to list as paths, as extended regular expressions
@@ -129,7 +129,7 @@ jobs:
           echo "ci=$ci" >> "$GITHUB_OUTPUT"
           echo "ci=$ci"
 
-          # Pushes to develop and dispatched runs always run the full matrix.
+          # Pushes to main and dispatched runs always run the full matrix.
           # Pull requests run it only when something that ends up in the
           # native binary or in the release packaging changed; JS-only PRs and
           # most dependency updates build and test on Linux alone.
@@ -144,7 +144,7 @@ jobs:
             # uses) builds and packages every binary, so a changed line that
             # names napi in the npm manifest, lockfile or workspace file counts
             # as native too. Other dependency updates in those files stay on
-            # Linux; develop runs the full matrix once they are merged. The
+            # Linux; main runs the full matrix once they are merged. The
             # diff is captured before grep -q reads it: grep -q stops at the
             # first match, and under pipefail the git diff it cut off would
             # turn that match into a miss.
@@ -518,7 +518,7 @@ jobs:
 
   # Builds the website, the documentation and the playground, with the
   # commands with which website.yml builds the site that it deploys from
-  # develop, on the WebAssembly build of build-wasm-bindgen. It is a job of
+  # main, on the WebAssembly build of build-wasm-bindgen. It is a job of
   # its own so that a website failure fails CI Complete without skipping the
   # jobs that need build-wasm-bindgen.
   website:

@@ -2,7 +2,7 @@ name: CodSpeed
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -11,7 +11,7 @@ on:
       - "rust-toolchain*"
       - ".github/workflows/codspeed.yml"
   pull_request:
-    branches: [develop]
+    branches: [main]
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
 
 # A newer pull request push supersedes the running benchmarks. Pushes to
-# develop get a group per commit, so every develop commit gets the baseline
+# main get a group per commit, so every main commit gets the baseline
 # that later pull requests compare against.
 concurrency:
   group: codspeed-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
@@ -34,7 +34,7 @@ jobs:
   rust-benchmarks:
     name: Rust Benchmarks
     # Pinned rather than ubuntu-latest. Simulation mode counts instructions
-    # inside libc as well, so develop baselines and pull requests must run on
+    # inside libc as well, so main baselines and pull requests must run on
     # the same image. CodSpeed's runner (5.4.x) ships valgrind-codspeed
     # packages only for Ubuntu 22.04/24.04 and Debian 12, and elsewhere
     # builds valgrind from source on a "best effort" basis. Move to a newer
