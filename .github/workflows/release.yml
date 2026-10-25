@@ -75,7 +75,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         if: steps.pending.outputs.found == 'true'
         with:
           toolchain: stable
@@ -237,7 +237,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -302,7 +302,7 @@ jobs:
       # id-token: write, runs no crate code. --locked keeps them to the
       # versions in Cargo.lock, whose checksums cargo checks each downloaded
       # crate against, and the job still restores no cache.
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
 
