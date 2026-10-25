@@ -9,7 +9,7 @@
     "url": "git+https://github.com/derodero24/comprs.git",
     "directory": "packages/middleware"
   },
-  "homepage": "https://github.com/derodero24/comprs/tree/develop/packages/middleware",
+  "homepage": "https://github.com/derodero24/comprs/tree/main/packages/middleware",
   "bugs": {
     "url": "https://github.com/derodero24/comprs/issues"
   },

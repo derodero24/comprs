@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [develop, main]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -12,15 +12,15 @@ concurrency:
 permissions: {}
 
 # Jobs here restore no caches, and neither does build.yml, which runs here
-# without its `cache` input: develop is the default branch, so caches saved
-# by other workflows' develop runs are readable from runs on main, and a
-# poisoned cache would reach the published packages. setup-node's
+# without its `cache` input: caches that the other workflows save on main,
+# the default branch, are readable from runs here, and a poisoned cache
+# would reach the published packages. setup-node's
 # package-manager-cache is off explicitly, in case a later setup-node release
 # starts caching pnpm by default. Installs pass --ignore-scripts: the only
 # install scripts pnpm would run here set up the lefthook git hooks, which CI
 # does not need.
 jobs:
-  # ──── On develop push: manage version PR and create release PR ────
+  # ──── On main push: manage the Version Packages PR ────
   # Neither job here both runs the repository's code and holds a token that
   # can write. changesets/action runs its version script with GITHUB_TOKEN in
   # the environment, and `pnpm run changeset:version` builds the native addon,
@@ -30,12 +30,11 @@ jobs:
   # `git apply` of the patch as its version script. The build cannot be a
   # step of the version job instead: a process that one step starts can
   # outlive it and read the environment of later steps, and changesets/action
-  # resets the working tree before it runs the version script. Both jobs run
-  # only on develop, so the patch never reaches the publish job on main,
-  # which downloads only the build artifacts anyway.
+  # resets the working tree before it runs the version script. The publish
+  # jobs below download only the build artifacts, never the patch.
   version-prepare:
     name: Prepare Version
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -107,10 +106,10 @@ jobs:
   version:
     name: Version
     needs: version-prepare
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write # changesets/action commits the version PR branch
-      pull-requests: write # create or update the version and release PRs
+      pull-requests: write # create or update the version PR
       actions: write # dispatch CI on the version PR branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -148,7 +147,7 @@ jobs:
       # changesets/action runs the version script only when it finds
       # changesets. If the patch is missing when it does, git apply fails and
       # nothing is pushed.
-      - name: Create version PR or detect release
+      - name: Create or update the version PR
         id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
@@ -162,77 +161,19 @@ jobs:
       # request. workflow_dispatch is one of the two events that GITHUB_TOKEN
       # may start: the dispatched run checks the head commit of the branch,
       # and its checks, CI Complete among them, show on the pull request
-      # (#574). The release PR needs none: its head is develop, which CI ran
-      # on when it was pushed.
+      # (#574).
       - name: Run CI on the version PR
         if: steps.changesets.outputs.has-changesets == 'true' && steps.changesets.outputs.pr-number != ''
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/develop
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create or update release PR
-        if: steps.changesets.outputs.has-changesets == 'false'
-        run: |
-          CORE_NAME=$(node -p "require('./package.json').name")
-          CORE_VERSION=$(node -p "require('./package.json').version")
-          MW_NAME=$(node -p "require('./packages/middleware/package.json').name")
-          MW_VERSION=$(node -p "require('./packages/middleware/package.json').version")
-
-          # Check publish status (distinguish E404 "not found" from other errors)
-          check_published() {
-            local pkg="$1" ver="$2"
-            local err
-            if err=$(npm view "${pkg}@${ver}" version 2>&1); then
-              echo "published"
-            elif echo "$err" | grep -q "E404"; then
-              echo "unpublished"
-            else
-              echo "Error checking ${pkg}@${ver}: $err" >&2
-              exit 1
-            fi
-          }
-
-          CORE_STATUS=$(check_published "$CORE_NAME" "$CORE_VERSION")
-          MW_STATUS=$(check_published "$MW_NAME" "$MW_VERSION")
-
-          EXISTING=$(gh pr list --base main --head develop --json number --jq '.[0].number')
-
-          if [ "$CORE_STATUS" = "published" ] && [ "$MW_STATUS" = "published" ]; then
-            echo "All packages already published, skipping release PR"
-            # A push to develop while main is still publishing opens a
-            # release PR for the versions being published. Close it once
-            # they are on npm, so it does not offer an empty release.
-            if [ -n "$EXISTING" ]; then
-              gh pr close "$EXISTING" --comment "${CORE_NAME}@${CORE_VERSION} and ${MW_NAME}@${MW_VERSION} are already on npm, so this PR has nothing left to release."
-              echo "Closed release PR #${EXISTING}"
-            fi
-            exit 0
-          fi
-
-          echo "Core: ${CORE_NAME}@${CORE_VERSION} → ${CORE_STATUS}"
-          echo "Middleware: ${MW_NAME}@${MW_VERSION} → ${MW_STATUS}"
-
-          CORE_BADGE=$([ "$CORE_STATUS" = "published" ] && echo "published" || echo "**new**")
-          MW_BADGE=$([ "$MW_STATUS" = "published" ] && echo "published" || echo "**new**")
-          BODY=$(printf '## Release\n\n| Package | Version | Status |\n|---------|---------|--------|\n| %s | %s | %s |\n| %s | %s | %s |\n\nMerging this PR will build and publish unpublished packages to npm with provenance.' \
-            "$CORE_NAME" "$CORE_VERSION" "$CORE_BADGE" \
-            "$MW_NAME" "$MW_VERSION" "$MW_BADGE")
-
-          if [ -n "$EXISTING" ]; then
-            gh pr edit "$EXISTING" --title "chore(release): release packages" --body "$BODY"
-            echo "Updated existing release PR #${EXISTING}"
-          else
-            gh pr create --base main --head develop \
-              --title "chore(release): release packages" \
-              --body "$BODY"
-            echo "Created release PR"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   # ──── On main push: check if publish is needed ────
-  # Manual dispatches publish only from main as well; on any other ref this
-  # job and every job that needs it are skipped.
+  # A push publishes when package.json names a version that npm does not
+  # have yet: the merge of the Version Packages PR, or a push after a
+  # publish that failed. Other pushes find it published and skip the jobs
+  # below. Manual dispatches publish only from main as well; on any other
+  # ref this job and every job that needs it are skipped.
   check:
     name: Check Version
     if: github.ref == 'refs/heads/main'
@@ -406,8 +347,8 @@ jobs:
         run: npm publish --provenance --access public
 
   # ──── Create the GitHub release of the published version ────
-  # napi prepublish used to create it, with the tag on the default branch,
-  # develop, instead of the commit that the release published, and with the
+  # napi prepublish used to create it, with the tag at the head of the
+  # default branch instead of on the commit that the release published, and with the
   # platform binaries alone (#709). This job creates the release v<version>
   # on that commit, with the files and the notes that the publish job staged
   # (scripts/github-release.mjs). The job can write to the repository, so it
@@ -520,121 +461,3 @@ jobs:
           npm publish "$TARBALL" --provenance --access public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ──── Merge main back into develop to prevent divergence ────
-  # Pushes and pull requests made with GITHUB_TOKEN start no workflow runs, so
-  # CI does not run on the merge commit this job pushes to develop, nor on the
-  # pull request it opens. Switching to a GitHub App token is tracked in #574.
-  merge-back:
-    name: Merge Back
-    needs: [publish, publish-middleware]
-    if: always() && github.ref == 'refs/heads/main'
-    permissions:
-      contents: write # push the merge commit or the merge-back branch
-      pull-requests: write # open a pull request when the merge cannot land
-      actions: write # dispatch CI on the merge-back branch
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      # Credentials stay in .git/config: this job pushes with git.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: develop
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Merge main into develop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          if git merge-base --is-ancestor origin/main HEAD; then
-            echo "develop already contains main"
-            exit 0
-          fi
-
-          # main holds the squashed release PR, whose tree is that of a
-          # develop commit when main was merged back after the last release.
-          # Later commits on develop then conflict with main for no reason,
-          # so record the merge with develop's tree. Anything else, such as a
-          # fix pushed to main, goes through a normal merge.
-          main_tree=$(git rev-parse 'origin/main^{tree}')
-          snapshot=false
-          # grep reads all of git log: with -q, an early exit would fail the
-          # pipeline under pipefail.
-          if git log --format=%T HEAD | grep -xF "$main_tree" >/dev/null; then
-            snapshot=true
-            git merge -s ours --no-edit -m "chore(release): merge main into develop" origin/main
-            merged=true
-          elif git merge origin/main --no-edit; then
-            merged=true
-          else
-            git merge --abort
-            merged=false
-            reason="the merge conflicts"
-          fi
-
-          if [ "$merged" = true ]; then
-            if git push origin HEAD:develop; then
-              exit 0
-            fi
-            # A concurrent push may already have brought main into develop;
-            # then there is nothing left to merge and no PR to open.
-            git fetch origin develop
-            if git merge-base --is-ancestor origin/main origin/develop; then
-              echo "develop already contains main"
-              exit 0
-            fi
-            # Branch protection on develop, or a concurrent push.
-            reason="develop rejected the push"
-          fi
-
-          # Hand the merge to a pull request instead of leaving develop
-          # behind main. The branch carries the merge commit when there is
-          # one, and main itself when the merge conflicts, for a maintainer to
-          # resolve. A re-run reuses the branch and the pull request.
-          branch="chore/merge-main-$(git rev-parse --short origin/main)"
-          url=$(gh pr list --base develop --head "$branch" --json url --jq '.[0].url // empty')
-          if [ -z "$url" ]; then
-            if [ -z "$(git ls-remote --heads origin "$branch")" ]; then
-              if [ "$merged" = true ]; then
-                git push origin "HEAD:refs/heads/${branch}"
-              else
-                git push origin "origin/main:refs/heads/${branch}"
-              fi
-            fi
-            if [ "$snapshot" = true ]; then
-              steps="- This branch already merges \`main\` into \`develop\`, keeping the tree of \`develop\`: \`main\` holds a release of it."
-            elif [ "$merged" = true ]; then
-              steps="- This branch already merges \`main\` into \`develop\`."
-            else
-              steps="- Resolve the conflicts on this branch, for example by merging \`develop\` into it."
-            fi
-            url=$(gh pr create --base develop --head "$branch" \
-              --title "chore(release): merge main into develop" \
-              --body-file - <<EOF
-          The [release run](${RUN_URL}) could not merge \`main\` into \`develop\`: ${reason}.
-
-          ${steps}
-          - Merge this pull request with a merge commit, not a squash, so that \`main\` stays an ancestor of \`develop\`.
-          EOF
-            )
-          fi
-          # A pull request opened with GITHUB_TOKEN starts no workflow, and
-          # develop requires CI Complete. workflow_dispatch is one of the two
-          # events that GITHUB_TOKEN may start, so dispatch CI on the branch:
-          # its checks show on the pull request. A re-run dispatches again,
-          # for the same commit.
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
-          if [ "$merged" = true ]; then
-            # Nothing is left for a maintainer: merge once CI passes.
-            if gh pr merge "$url" --auto --merge; then
-              echo "Merges ${url} once CI passes"
-              exit 0
-            fi
-            echo "::warning::Could not enable auto-merge on ${url}; merge it with a merge commit once CI passes"
-            exit 0
-          fi
-          echo "::warning::Could not merge main into develop (${reason}); finish it in ${url}"

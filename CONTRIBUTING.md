@@ -94,7 +94,7 @@ All changes must start from a GitHub Issue.
 2. Fork the repository and create a branch: `type/issue-<number>-<short-summary>`
 3. Make your changes
 4. Run the full verification suite
-5. Open a pull request targeting the `develop` branch
+5. Open a pull request targeting the `main` branch
 
 ### Branch naming
 
@@ -223,7 +223,7 @@ pnpm changeset
 
 ## Release packaging
 
-CI and the release build the native binaries with the same workflow, `.github/workflows/build.yml`. On pushes to `develop` and on pull requests that change native code, CI's `test` job runs the tests with each binary on its own platform, in an Alpine Linux container for the musl ones; other pull requests build and test Linux x64 only.
+CI and the release build the native binaries with the same workflow, `.github/workflows/build.yml`. On pushes to `main` and on pull requests that change native code, CI's `test` job runs the tests with each binary on its own platform, in an Alpine Linux container for the musl ones; other pull requests build and test Linux x64 only.
 
 The `Release Dry Run` CI job assembles the npm packages from the build artifacts with `scripts/prepare-release.mjs`, the script the release workflow runs before `npm publish`, then checks them with `scripts/check-release.mjs`. Nothing is published. To reproduce a failure locally, download the run's `bindings-*` artifacts into `artifacts/`, one directory per artifact, and run both scripts:
 
@@ -250,13 +250,14 @@ A new dependency whose crate publishes no license file fails the dry run until i
 
 This section is for maintainers. Releases go through `.github/workflows/release.yml`:
 
-1. Pull requests into `develop` add [changesets](#changesets).
-2. On each push to `develop`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
-3. Once it is merged, no changeset is left, and the Version job opens or updates the release pull request from `develop` into `main`, which lists the versions to publish.
-4. Squash-merging the release pull request publishes them. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
-5. The Merge Back job merges `main` into `develop`. `develop` takes changes only through pull requests, so it pushes the merge to a `chore/merge-main-<sha>` branch, opens a pull request, dispatches CI on the branch and turns on auto-merge, which merges it with a merge commit once CI passes. `main` normally holds a squashed release of a `develop` commit, so the merge keeps the tree of `develop` and never conflicts with what landed on `develop` since. When `main` has changes of its own and they conflict, the branch points at `main` instead: resolve the conflicts on it, for example by merging `develop` into it, and merge the pull request with a merge commit, not a squash.
+1. Pull requests into `main` add [changesets](#changesets). `main` is the only long-lived branch: it holds released and unreleased changes alike, and the tags `v<version>` mark the releases.
+2. On each push to `main`, the Prepare Version job applies the changesets with a read-only token: versions, changelogs, and the versions of the Rust crates and of the platform packages in `npm/`. The Version job (changesets/action) then commits the result and opens or updates the Version Packages pull request. It runs none of the repository's code, so no build sees its token, which can write.
+3. Squash-merging the Version Packages pull request publishes the versions that it lists. On that push, the Check Version job finds a version in `package.json` that npm does not have yet; on other pushes it finds the version published, and nothing is built. The workflow builds the native binaries with `build.yml` and the WebAssembly build, then the Publish job assembles the packages with `scripts/prepare-release.mjs` and runs `npm publish` on the core package, whose `prepublishOnly` script, `napi prepublish --no-gh-release`, first publishes the platform packages. The GitHub Release job then creates the GitHub release `v<version>` on the published commit, with the version's section of `CHANGELOG.md` as its notes, and attaches `LICENSE` and each platform binary, `comprs.<abi>.node`, next to the license notices of the code that it links, `THIRD_PARTY_LICENSES.<abi>.txt`. The Publish job stages these files with `scripts/github-release.mjs` before it publishes anything; the GitHub Release job, which can write to the repository, runs only `gh` on them. If it fails, re-run it: it uploads the files to the release that an earlier attempt created. The Publish Middleware job publishes the middleware, if its version is new.
+4. If a publish fails, fix the cause in a pull request: the push that merges it publishes the versions that are still missing on npm. To retry without a change, run the Release workflow on `main` from the Actions tab (**Release** → **Run workflow**).
 
-The Version job opens and updates both pull requests with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of those pull requests do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. Those runs are not a failure of the pull request. Instead, after each update of the Version Packages pull request, the Version job dispatches the CI workflow on its branch, `changeset-release/develop`, which `GITHUB_TOKEN` may do: the checks of that run show on the pull request. If they are missing, run CI on the branch from the Actions tab (**CI** → **Run workflow**) before merging it. The release pull request shows the checks of its head commit, which CI ran when a merge pushed that commit to `develop`; if it shows none, run CI on `develop` in the same way.
+The Version job opens and updates the Version Packages pull request with `GITHUB_TOKEN`. Its pushes start no workflow, and the `pull_request` workflows of that pull request do not run either: GitHub lists their runs with the conclusion `action_required` and runs no job. Those runs are not a failure of the pull request. Instead, after each update of the pull request, the Version job dispatches the CI workflow on its branch, `changeset-release/main`, which `GITHUB_TOKEN` may do: the checks of that run show on the pull request. If they are missing, run CI on the branch from the Actions tab (**CI** → **Run workflow**) before merging it.
+
+The Release workflow publishes from `main` only. A patch release while `main` holds unreleased breaking changes needs a `release/<major>.x` branch from the last release tag, with the fix and its changeset cherry-picked onto it, and the Release workflow's triggers extended to that branch for the release.
 
 Both publish jobs run in the `npm-publish` environment and publish through trusted publishing: the repository stores no npm token.
 
@@ -314,7 +315,7 @@ pnpm --dir website run check       # astro check: the types of the site
 
 Without the WebAssembly build, the build of the playground page fails. To work on the playground without it, set `COMPRS_PLAYGROUND_MOCK=1`, which replaces the package with fake compressors.
 
-CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `develop`.
+CI checks and builds the site with these commands in its `Build website` job, on the WebAssembly build of its `Build - wasm-bindgen` job, so a pull request that breaks the build fails there, and the Website workflow deploys it from `main`.
 
 ## Pull request checklist
 
@@ -351,9 +352,9 @@ The tables of the [Benchmarks page](https://derodero24.github.io/comprs/referenc
 
 The repository publishes only numbers from the Bench Report workflow (`.github/workflows/bench-report.yml`), which runs on a GitHub-hosted runner and records its run in the paragraph above the tables. Numbers from another machine cannot be compared with them: never commit the output of a local run. To regenerate the numbers:
 
-1. Run the workflow on `develop` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the report, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
-2. Its `publish-branch` job, which can push but runs no code from the repository, commits the report and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `develop` or `main`. The summary of the run links to a pull request from that branch.
-3. Open that pull request into `develop`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Takeaways of the Benchmarks page and the text around the charts in the README to match them in the same pull request, and squash-merge it. If `develop` changed the report in the meantime, merge `develop` into the branch, keeping the generated report.
+1. Run the workflow on `main` from the Actions tab (**Bench Report** → **Run workflow**). Its `bench` job builds the release addon, runs the script, and uploads the report, the two charts and the raw results (Vitest's JSON report and the sizes) as the `bench-report` artifact. It has a read-only token.
+2. Its `publish-branch` job, which can push but runs no code from the repository, commits the report and the charts on top of the measured commit, as `github-actions[bot]`, to a new branch, `bench-report/<run id>-<run attempt>`, so that a re-run of the workflow pushes to a branch of its own. It never pushes to `main`. The summary of the run links to a pull request from that branch.
+3. Open that pull request into `main`. Pushes made with `GITHUB_TOKEN` start no workflow, but a pull request that you open runs CI as usual. Review the new numbers, update the Takeaways of the Benchmarks page and the text around the charts in the README to match them in the same pull request, and squash-merge it. If `main` changed the report in the meantime, merge `main` into the branch, keeping the generated report.
 
 To check what the script writes without publishing numbers, run it locally with `BENCH_SMOKE=1`: every benchmark runs once, the run takes under a minute, and the text says that the numbers mean nothing. Then revert its changes:
 

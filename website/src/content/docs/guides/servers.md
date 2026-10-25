@@ -7,7 +7,7 @@ sidebar:
 
 ## HTTP compression middleware
 
-[`@derodero24/comprs-middleware`](https://github.com/derodero24/comprs/tree/develop/packages/middleware) compresses responses with zstd, brotli, gzip or deflate, whichever the client accepts first in the server's order, for Express, Fastify and Hono:
+[`@derodero24/comprs-middleware`](https://github.com/derodero24/comprs/tree/main/packages/middleware) compresses responses with zstd, brotli, gzip or deflate, whichever the client accepts first in the server's order, for Express, Fastify and Hono:
 
 ```sh
 npm install @derodero24/comprs @derodero24/comprs-middleware
@@ -37,7 +37,7 @@ comprs({
 });
 ```
 
-zstd levels above 19 are rejected: they need a window larger than the 8 MiB that [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659#section-3) allows for the `zstd` content coding, and Chromium-based browsers refuse such responses. The [middleware README](https://github.com/derodero24/comprs/tree/develop/packages/middleware#readme) documents every option and behavior.
+zstd levels above 19 are rejected: they need a window larger than the 8 MiB that [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659#section-3) allows for the `zstd` content coding, and Chromium-based browsers refuse such responses. The [middleware README](https://github.com/derodero24/comprs/tree/main/packages/middleware#readme) documents every option and behavior.
 
 The middleware needs the native addon, so it does not run on edge runtimes such as Cloudflare Workers, which compress responses themselves.
 
