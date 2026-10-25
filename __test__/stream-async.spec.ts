@@ -1023,39 +1023,33 @@ describe.each(CONTEXT_CASES)('$name', ({ stream, create, input }) => {
   });
 });
 
-// The call holds the state that the context shares with it, so the
-// finalizer of a context leaves it to the call, which drops it when it
-// settles. In a process of its own, which can collect garbage at will: zstd
-// at level 19 on 200 KB runs long enough for a collection in the call. When
-// the collection comes is up to V8: on a macOS runner, a call once settled
-// before its context was collected. So the process collects garbage until
-// the call settles, and tries again, up to five calls, until a context is
-// collected while its call is in flight.
-describe('a context collected while a call is in flight', () => {
-  it('settles the call', { timeout: 2 * PROCESS_TIMEOUT }, () => {
+// napi-rs keeps the receiver of a method that returns an asynchronous task
+// alive until the task settles, so a context with a call in flight is not
+// collected, and is collected once the call settles. In a process of its
+// own, which can collect garbage at will: zstd at level 19 on 200 KB runs
+// long enough for several collections in the call.
+describe('a context with a call in flight', () => {
+  it('is collected only once the call settles', { timeout: 2 * PROCESS_TIMEOUT }, () => {
     const script = [
       "const comprs = require('./index.js');",
       "const data = Buffer.from(Array.from({ length: 40000 }, (_, i) => (i * 2654435761 >>> 13).toString(36)).join(' '));",
-      'const calls = [];',
-      'const registry = new FinalizationRegistry((call) => { call.collectedInFlight = !call.settled; });',
+      'const call = { collectedInFlight: false, collected: false, settled: false, output: false };',
+      'const registry = new FinalizationRegistry(() => { call.collected = true; call.collectedInFlight = !call.settled; });',
       '(async () => {',
-      '  for (let attempt = 0; attempt < 5; attempt++) {',
-      '    const call = { collectedInFlight: false, settled: false, output: 0 };',
-      '    calls.push(call);',
-      '    let ctx = new comprs.ZstdCompressContext(19);',
-      '    registry.register(ctx, call);',
-      '    const pending = ctx.transformAsync(data).finally(() => { call.settled = true; });',
-      '    ctx = null;',
-      '    while (!call.collectedInFlight && !call.settled) {',
-      '      globalThis.gc();',
-      '      await new Promise(setImmediate);',
-      '    }',
-      '    call.output = (await pending).length;',
-      '    if (call.collectedInFlight) break;',
+      '  let ctx = new comprs.ZstdCompressContext(19);',
+      '  registry.register(ctx, undefined);',
+      '  const pending = ctx.transformAsync(data).finally(() => { call.settled = true; });',
+      '  ctx = null;',
+      '  while (!call.settled) {',
+      '    globalThis.gc();',
+      '    await new Promise(setImmediate);',
       '  }',
-      '  const settled = calls.every((call) => call.settled && call.output > 0);',
-      '  const { collectedInFlight } = calls[calls.length - 1];',
-      '  process.stdout.write(JSON.stringify({ calls: calls.length, collectedInFlight, settled }));',
+      '  call.output = (await pending).length > 0;',
+      '  for (let attempt = 0; attempt < 100 && !call.collected; attempt++) {',
+      '    globalThis.gc();',
+      '    await new Promise(setImmediate);',
+      '  }',
+      '  process.stdout.write(JSON.stringify(call));',
       '})();',
     ].join('\n');
     const result: unknown = JSON.parse(
@@ -1065,9 +1059,12 @@ describe('a context collected while a call is in flight', () => {
         timeout: PROCESS_TIMEOUT,
       }),
     );
-    // Every call settled with output, and the last one after its context
-    // was collected.
-    expect(result).toMatchObject({ collectedInFlight: true, settled: true });
+    expect(result).toStrictEqual({
+      collectedInFlight: false,
+      collected: true,
+      settled: true,
+      output: true,
+    });
   });
 });
 

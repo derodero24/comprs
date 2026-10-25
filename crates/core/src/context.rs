@@ -383,7 +383,7 @@ macro_rules! stream_context_methods {
             /// nothing. `[Symbol.dispose]()` is the same method, for `using`
             /// declarations.
             #[napi]
-            pub fn close(&mut self, env: Env) {
+            pub fn close(&self, env: Env) {
                 self.inner.close(&env);
             }
 
