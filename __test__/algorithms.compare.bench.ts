@@ -10,11 +10,12 @@ import {
 } from '../index.js';
 import { compareLibraries } from './bench-fixtures.js';
 
-// The formats of comprs, each at its default level: zstd 3, gzip 6 and
-// brotli quality 6 (lz4 has no levels). Each decompresses its own output.
+// The formats of comprs, with their default settings: zstd level 3, gzip
+// level 6, brotli quality 6, and lz4, which has no levels. Each decompresses
+// its own output.
 compareLibraries(
   'comprs',
-  'default levels',
+  'default settings',
   [
     {
       name: 'zstd',

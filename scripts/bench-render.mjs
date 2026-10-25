@@ -521,7 +521,7 @@ function describeMethod(report, method) {
       .filter((section) => section.format !== CROSS_ALGORITHM)
       .map((section) => `${section.format} ${section.setting}`),
     `streams: ${[...new Set(report.streams.map((row) => `${row.format} ${row.setting}`))].join(', ')}`,
-    "cross-algorithm: each format's default level",
+    "cross-algorithm: each format's default settings (lz4 has no levels)",
   ];
   const paragraph = [
     `Measured on ${method.date} with comprs ${method.version} (\`${method.commit}\`), ${list([`Node.js ${method.node}`, ...libraries])}, on ${method.cpu} × ${method.cpuCount} (${method.platform}), ${where}.`,
@@ -733,7 +733,7 @@ export function renderCompressChart(report, method) {
 
 /**
  * The compression and decompression speeds and the compression ratio of each
- * of comprs's formats, at its default level, on CHART_INPUT.
+ * of comprs's formats, with its default settings, on CHART_INPUT.
  *
  * @param {Report} report
  * @param {Method} method
@@ -749,7 +749,7 @@ export function renderCrossAlgorithmChart(report, method) {
   const lines = chartHeader(
     'bench-cross-algorithm-title',
     height,
-    `comprs formats at their default levels — ${CHART_INPUT}`,
+    `comprs formats with their default settings — ${CHART_INPUT}`,
     chartSubtitle(method),
   );
   lines.push(
