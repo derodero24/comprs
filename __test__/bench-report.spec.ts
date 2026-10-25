@@ -81,7 +81,7 @@ const METHOD: Method = {
 const SIZES: Sizes = {
   'gzip level 6 - JSON 84KB': { inputLength: 100_000, sizes: { comprs: 10_000, pako: 12_500 } },
   'gzip level 6 - text 150B': { inputLength: 150, sizes: { comprs: 50, pako: 60 } },
-  'comprs default levels - JSON 84KB': {
+  'comprs default settings - JSON 84KB': {
     inputLength: 100_000,
     sizes: { zstd: 10_000, gzip: 12_500, brotli: 8_000, lz4: 20_000 },
   },
@@ -99,8 +99,8 @@ const TIMINGS = {
   'gzip compress level 6 - text 150B': { comprs: 0.001 },
   'gzip decompress level 6 - text 150B': { comprs: 0.0005, pako: 0.002 },
   'gzip stream compress level 6 - patterned 1MB in 16KB chunks': { 'node:zlib': 5, comprs: 10 },
-  'comprs compress default levels - JSON 84KB': { zstd: 0.2, lz4: 0.25, gzip: 1, brotli: 4 },
-  'comprs decompress default levels - JSON 84KB': { zstd: 0.1, lz4: 0.1, gzip: 0.5, brotli: 1 },
+  'comprs compress default settings - JSON 84KB': { zstd: 0.2, lz4: 0.25, gzip: 1, brotli: 4 },
+  'comprs decompress default settings - JSON 84KB': { zstd: 0.1, lz4: 0.1, gzip: 0.5, brotli: 1 },
 };
 
 function report(timings: Record<string, Record<string, number>> = TIMINGS): Report {
@@ -175,7 +175,7 @@ describe('bench report', () => {
       ' role="img" aria-labelledby="bench-compress-title">\n<title id="bench-compress-title">gzip compression, level 6 — JSON 84KB</title>\n',
     );
     expect(render.renderCrossAlgorithmChart(report(), METHOD)).toContain(
-      ' role="img" aria-labelledby="bench-cross-algorithm-title">\n<title id="bench-cross-algorithm-title">comprs formats at their default levels — JSON 84KB</title>\n',
+      ' role="img" aria-labelledby="bench-cross-algorithm-title">\n<title id="bench-cross-algorithm-title">comprs formats with their default settings — JSON 84KB</title>\n',
     );
   });
 
@@ -215,7 +215,7 @@ describe('bench report', () => {
       ...TIMINGS,
       // A median of 0 gives an infinite speed, and NaN no speed at all.
       'gzip compress level 6 - JSON 84KB': { comprs: 0, pako: 1 },
-      'comprs decompress default levels - JSON 84KB': {
+      'comprs decompress default settings - JSON 84KB': {
         zstd: Number.NaN,
         lz4: 0.1,
         gzip: 0.5,
