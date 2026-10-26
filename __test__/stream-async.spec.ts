@@ -613,11 +613,17 @@ describe('zstd compression in small chunks', { timeout: CODEC_TIMEOUT }, () => {
 // The event loop
 // ---------------------------------------------------------------------------
 
-// Brotli at quality 9 takes about 17 ms per 64 KiB chunk in the release
+// Brotli at quality 9 takes about 10 ms per 64 KiB chunk in the release
 // build. Called synchronously on input from memory, a stream of such chunks
 // blocked the event loop until it ended: the timer did not tick once.
+//
+// The streams compress 4 MiB, several hundred milliseconds of work, so that
+// the timer ticks well over 10 times even on a fast runner where it ticks
+// only every 15.6 ms (Windows). Since libbrotli replaced the Rust port
+// (2.2.0), which took about 17 ms per chunk, 1 MiB left a margin of a few
+// ticks, and a Windows run saw 8.
 describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
-  const input = text(MiB);
+  const input = text(4 * MiB);
 
   it('turns while a Web stream compresses with brotli at quality 9', async ({ annotate }) => {
     let output = new Uint8Array();

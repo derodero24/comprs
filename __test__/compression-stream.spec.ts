@@ -694,7 +694,11 @@ describe('the event loop', { timeout: CODEC_TIMEOUT }, () => {
   it('turns while a CompressionStream compresses with brotli at quality 9', async ({
     annotate,
   }) => {
-    const data = text(MiB);
+    // Several hundred milliseconds of work in the release build, so that
+    // the timer ticks well over 10 times even where it ticks only every
+    // 15.6 ms (Windows). 1 MiB was over in about 100 ms on a Windows
+    // runner, which saw 8 ticks.
+    const data = text(4 * MiB);
     let output: Uint8Array = new Uint8Array();
     const result = await eventLoopTicks(async () => {
       output = await through(
