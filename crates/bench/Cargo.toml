@@ -12,7 +12,7 @@ publish = false
 # update the wasm-bindgen and js-sys of crates/wasm (#640). CodSpeed draws no
 # plots, and a local `cargo bench` still writes HTML reports when gnuplot is
 # installed.
-criterion = { version = "5.0.0", package = "codspeed-criterion-compat", default-features = false, features = ["cargo_bench_support", "rayon"] }
+criterion = { version = "6.0.0", package = "codspeed-criterion-compat", default-features = false, features = ["cargo_bench_support", "rayon"] }
 # With the features of the native addon, so the benchmarks measure the code
 # that comprs ships.
 comprs-core = { path = "../core-lib", features = ["zstdmt"] }
