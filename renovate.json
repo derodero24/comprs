@@ -104,6 +104,13 @@
       "allowedVersions": "<6"
     },
     {
+      "description": "The website type-checks with astro check, which does not support TypeScript 7 (@astrojs/check 0.9 takes ^5 || ^6), and typedoc 0.28 accepts TypeScript up to 6.0. Keep the website on TypeScript 6 until both support 7, or until the website moves to Astro's TypeScript 7 checker (@astrojs/ts-content-mapper)",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["website/package.json"],
+      "matchDepNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
       "description": "TypeScript compiles the JavaScript modules that npm publishes (scripts/build-js.mjs), and CI fails when their output changes. Update it in a pull request of its own, so that a release that changes the output, which then needs pnpm run build:js, holds up no other update",
       "matchManagers": ["npm"],
       "matchDepNames": ["typescript"],
