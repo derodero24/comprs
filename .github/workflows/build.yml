@@ -74,13 +74,13 @@ jobs:
       matrix:
         settings: ${{ fromJSON(needs.targets.outputs.settings) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       # package-manager-cache is set explicitly, in case a later setup-node
       # release starts caching pnpm by default.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: ${{ inputs.cache && 'pnpm' || '' }}
@@ -90,7 +90,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
       - if: inputs.cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: build-${{ matrix.settings.target }}
 
@@ -100,7 +100,7 @@ jobs:
 
       - name: Install cargo-zigbuild
         if: matrix.settings.use-zig
-        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2.87.12
         with:
           # renovate: datasource=crate depName=cargo-zigbuild versioning=semver
           tool: cargo-zigbuild@0.23.4
@@ -125,7 +125,7 @@ jobs:
           ${{ matrix.settings.use-zig && '--cross-compile' || '' }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bindings-${{ matrix.settings.target }}
           path: comprs.*.node

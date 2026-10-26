@@ -41,7 +41,7 @@
       "automerge": true
     },
     {
-      "description": "Pin GitHub Actions digests; group and automerge non-major updates, digests included, once they are 3 days old: a retargeted tag is how the tj-actions/changed-files compromise spread. A digest update is aged by the release its tag resolves to but carries no timestamp of its own, which must not hold it forever",
+      "description": "Pin GitHub Actions digests; group and automerge non-major updates, digests included, once they are 3 days old: a retargeted tag is how the tj-actions/changed-files compromise spread. A digest update is aged by the release its tag resolves to but carries no timestamp of its own, which must not hold it forever. Mark each digest with its exact release (`# v2.87.12`, not `# v2`): Renovate then picks the newest release that is 3 days old, whereas a major tag resolves only to the newest release, which for an action that releases every few days, such as taiki-e/install-action, is never 3 days old when Renovate runs",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "groupName": "github-actions (non-major)",
