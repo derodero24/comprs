@@ -1,5 +1,11 @@
 # comprs
 
+## 2.3.1
+
+### Patch Changes
+
+- d06e1cb: The browser WebAssembly builds use wasm-bindgen 0.2.130, which no longer leaks a value when converting some arguments. Each build is about 2 KB larger with gzip.
+
 ## 2.3.0
 
 ### Minor Changes
