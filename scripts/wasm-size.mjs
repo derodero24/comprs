@@ -47,11 +47,17 @@ const BUILDS = [
   { file: 'browser/comprs-wasm_bg.wasm', budget: { raw: 1_560_000, gzip: 585_000 } },
   // About 5% over the sizes of the builds that introduced them (#342):
   // zstd 533,577 and 159,949 bytes, gzip 177,339 and 76,097, brotli 829,581
-  // and 337,431, lz4 106,554 and 42,402.
+  // and 337,431, lz4 106,554 and 42,402. wasm-bindgen 0.2.130 added about
+  // 8.7 KB raw and 2.3 KB with gzip to every build: it now finds the
+  // reference-types feature in our stripped binaries and adds its externref
+  // glue, along with fixes for values it leaked while converting arguments.
+  // The two smallest builds went over, so their budgets are about 5% over
+  // the sizes with it: gzip 186,283 and 78,528 bytes, lz4 116,760 and
+  // 45,378.
   { file: 'browser/comprs-wasm-zstd_bg.wasm', budget: { raw: 560_000, gzip: 168_000 } },
-  { file: 'browser/comprs-wasm-gzip_bg.wasm', budget: { raw: 186_000, gzip: 80_000 } },
+  { file: 'browser/comprs-wasm-gzip_bg.wasm', budget: { raw: 196_000, gzip: 83_000 } },
   { file: 'browser/comprs-wasm-brotli_bg.wasm', budget: { raw: 870_000, gzip: 350_000 } },
-  { file: 'browser/comprs-wasm-lz4_bg.wasm', budget: { raw: 112_000, gzip: 44_000 } },
+  { file: 'browser/comprs-wasm-lz4_bg.wasm', budget: { raw: 123_000, gzip: 48_000 } },
 ];
 
 const { values } = parseArgs({ options: { markdown: { type: 'string' } } });
