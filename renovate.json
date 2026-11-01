@@ -86,7 +86,7 @@
       "automerge": true
     },
     {
-      "description": "napi-rs toolchain: the CLI and the napi crates build and package every binary, so they update together and are reviewed, never automerged (#518, #526, #529). Keep this rule after the generic ones, as later rules win",
+      "description": "napi-rs toolchain: the CLI and the napi crates build and package every binary, so they update together and are reviewed, never automerged (#518, #526, #529). The crates are at exact versions in Cargo.toml, so that the monthly Cargo.lock refresh, which ignores minimumReleaseAge, cannot move them. Keep this rule after the generic ones, as later rules win",
       "matchPackageNames": ["@napi-rs/*", "napi", "napi-derive", "napi-build"],
       "groupName": "napi-rs toolchain",
       "automerge": false
