@@ -15,7 +15,7 @@ const compressed = compressSync(data, { format: 'zstd' });
 const restored = decompressSync(compressed);
 ```
 
-The entry module fetches and instantiates the WebAssembly binary with top-level `await` when it is imported, so every function works once the import has resolved, and a failed download rejects the import. All three entry points share one WebAssembly module, which holds all four codecs: 1.52 MB, 568 KB with gzip and 425 KB with brotli (see [Platforms](/comprs/reference/platforms/#webassembly-size)).
+The entry module fetches and instantiates the WebAssembly binary with top-level `await` when it is imported, so every function works once the import has resolved, and a failed download rejects the import. All three entry points share one WebAssembly module, which holds all four codecs: 1.55 MB, 572 KB with gzip and 440 KB with brotli (see [Platforms](/comprs/reference/platforms/#webassembly-size)).
 
 ## One family of formats
 
@@ -27,11 +27,11 @@ import { compressSync, decompressSync } from '@derodero24/comprs/next/zstd';
 
 | Entry point | Formats | Download with gzip | with brotli |
 | --- | --- | ---: | ---: |
-| `@derodero24/comprs/next` | all | 568 KB | 425 KB |
-| `@derodero24/comprs/next/zstd` | zstd | 160 KB | 121 KB |
-| `@derodero24/comprs/next/gzip` | gzip, deflate, deflate-raw | 76 KB | 64 KB |
-| `@derodero24/comprs/next/brotli` | brotli | 337 KB | 249 KB |
-| `@derodero24/comprs/next/lz4` | lz4 | 42 KB | 36 KB |
+| `@derodero24/comprs/next` | all | 572 KB | 440 KB |
+| `@derodero24/comprs/next/zstd` | zstd | 163 KB | 123 KB |
+| `@derodero24/comprs/next/gzip` | gzip, deflate, deflate-raw | 79 KB | 66 KB |
+| `@derodero24/comprs/next/brotli` | brotli | 341 KB | 251 KB |
+| `@derodero24/comprs/next/lz4` | lz4 | 45 KB | 38 KB |
 
 Each loads its own binary, `browser/comprs-wasm-<family>_bg.wasm`, as the full build loads its own, so importing two families downloads two binaries, and importing a family next to `@derodero24/comprs/next` or the package root adds its binary to the full one.
 
