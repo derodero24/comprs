@@ -137,7 +137,7 @@ jobs:
         with:
           toolchain: ${{ env.NIGHTLY }}
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2.87.12
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           # renovate: datasource=crate depName=cargo-fuzz versioning=semver
           tool: cargo-fuzz@0.13.2
