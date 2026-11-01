@@ -157,6 +157,12 @@ jobs:
           restore-keys: fuzz-corpus-${{ matrix.target }}-
       - name: Fuzz
         env:
+          # cc 1.9 passes -Zsanitizer=address on to the C compiler, so the
+          # zstd and libbrotli C sources are instrumented too. GCC's
+          # instrumentation does not match the LLVM AddressSanitizer runtime
+          # that Rust links: it reports a stack-use-after-scope on a global
+          # table in zstd_opt.c within seconds. Clang's matches it.
+          CC: clang
           TARGET: ${{ matrix.target }}
           FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
         # libFuzzer first runs every input in both directories, so a target
