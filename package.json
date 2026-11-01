@@ -277,7 +277,7 @@
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "@napi-rs/cli": "3.10.9",
-    "@types/node": "^24.13.2",
+    "@types/node": "^26.0.0",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",
