@@ -82,7 +82,7 @@ const restored = compressed.pipeThrough(
 console.log(await new Response(restored).text());
 ```
 
-For a page that needs one format, `@derodero24/comprs/next/zstd`, `/gzip`, `/brotli` and `/lz4` export the same API for one family of formats, with a WebAssembly build of that family alone: 42 KB to 337 KB gzipped, against 568 KB for every format (see [Browsers](https://derodero24.github.io/comprs/guides/browsers/#one-family-of-formats)).
+For a page that needs one format, `@derodero24/comprs/next/zstd`, `/gzip`, `/brotli` and `/lz4` export the same API for one family of formats, with a WebAssembly build of that family alone: 45 KB to 341 KB gzipped, against 572 KB for every format (see [Browsers](https://derodero24.github.io/comprs/guides/browsers/#one-family-of-formats)).
 
 The errors that comprs raises have a stable `code`, such as `ERR_COMPRS_SIZE_LIMIT` or `ERR_COMPRS_TRUNCATED` (see [Errors and limits](https://derodero24.github.io/comprs/reference/errors-and-limits/)).
 
