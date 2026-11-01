@@ -251,10 +251,10 @@ describe('compression with a Dictionary', () => {
     const options = { format: 'brotli', dictionary, level: 5 } as const;
     expect(compressSync(input, options)).toEqual(expected);
     const compressing = compress(input, options);
-    const streamed = new Blob([input])
+    const streamed = new Blob([new Uint8Array(input)])
       .stream()
       .pipeThrough(new CompressionStream('brotli', { dictionary, level: 5 }));
-    const restored = new Blob([expected])
+    const restored = new Blob([new Uint8Array(expected)])
       .stream()
       .pipeThrough(new DecompressionStream('brotli', { dictionary }));
     // The calls and streams under way keep what they need of it.

@@ -359,7 +359,7 @@ async function startStream(
 describe.each(cases)('Web stream of $name', ({ prototype, input, createStream }) => {
   it('should close the context when the stream ends', async () => {
     const close = vi.spyOn(prototype, 'close');
-    await collect(new Blob([input]).stream().pipeThrough(createStream()));
+    await collect(new Blob([new Uint8Array(input)]).stream().pipeThrough(createStream()));
     expect(close).toHaveBeenCalled();
   });
 
@@ -442,7 +442,7 @@ describe('auto-detecting streams', () => {
   it('should close the detected context when they end', async () => {
     const close = vi.spyOn(Lz4DecompressContext.prototype, 'close');
     const output = await collect(
-      new Blob([lz4Compress(data)]).stream().pipeThrough(createDecompressStream()),
+      new Blob([new Uint8Array(lz4Compress(data))]).stream().pipeThrough(createDecompressStream()),
     );
     expect(Buffer.compare(output, data)).toBe(0);
     expect(close).toHaveBeenCalled();
