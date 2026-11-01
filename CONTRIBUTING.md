@@ -169,14 +169,16 @@ A target fails when the code under test panics, outputs more than its limit, giv
 
 One kind of panic does not fail a target: brotli 9.0.0's encoder panics on some inputs with a custom dictionary ([#623](https://github.com/derodero24/comprs/issues/623)), and `comprs-core` catches that panic and compresses again without the dictionary ([#624](https://github.com/derodero24/comprs/pull/624)). The `brotli` and `round_trip` targets let exactly these panics unwind to `comprs-core` (`crates/core-lib/fuzz/src/panic_hook.rs`), and log a line for each; any other panic, including an encoder panic outside that `catch_unwind`, still aborts the target. The exception names the brotli version, so it ends with the next brotli upgrade; once a release fixes the encoder, remove it together with the fallback in `comprs-core`.
 
-To fuzz locally (Linux or macOS), install a nightly toolchain and cargo-fuzz, then run a target for as long as you like:
+To fuzz locally (Linux or macOS), install a nightly toolchain, cargo-fuzz and Clang, then run a target for as long as you like:
 
 ```bash
 rustup toolchain install nightly --profile minimal
 cargo install cargo-fuzz --locked
 cargo +nightly fuzz list --fuzz-dir crates/core-lib/fuzz
-cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd -- -max_total_time=60
+CC=clang cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd -- -max_total_time=60
 ```
+
+`CC=clang` matters: since cc 1.9, the AddressSanitizer flag reaches the zstd and libbrotli C sources too, and GCC's instrumentation of them does not match the sanitizer runtime that Rust links, so with GCC the targets report false errors.
 
 The corpus and failing inputs go to `corpus/` and `artifacts/` in the fuzz crate, which git ignores.
 
@@ -184,7 +186,7 @@ To reproduce a failure from CI, download the input and pass it to the target:
 
 ```bash
 gh run download <run-id> --name fuzz-zstd --dir fuzz-zstd
-cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd fuzz-zstd/crash-<hash>
+CC=clang cargo +nightly fuzz run --fuzz-dir crates/core-lib/fuzz zstd fuzz-zstd/crash-<hash>
 ```
 
 With the fix, add the input to `crates/core-lib/fuzz/regressions/<target>/`, so that every Fuzz run checks it.
