@@ -12,9 +12,9 @@ repository = "https://github.com/derodero24/comprs"
 # napi-rs, at exact versions: the toolchain builds and packages every
 # binary, so it moves only in the reviewed napi-rs toolchain pull request
 # (renovate.json), never in a lock file refresh.
-napi = { version = "=3.15.0", default-features = false, features = ["napi9"] }
+napi = { version = "=3.16.1", default-features = false, features = ["napi9"] }
 napi-build = "=2.6.0"
-napi-derive = { version = "=3.6.13", default-features = false, features = ["type-def"] }
+napi-derive = { version = "=3.7.0", default-features = false, features = ["type-def"] }
 
 # Compression
 brotli = { version = "9", default-features = false, features = ["std"] }
