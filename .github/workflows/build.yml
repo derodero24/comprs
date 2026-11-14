@@ -103,7 +103,7 @@ jobs:
         uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
           # renovate: datasource=crate depName=cargo-zigbuild versioning=semver
-          tool: cargo-zigbuild@0.24.0
+          tool: cargo-zigbuild@0.24.1
           fallback: none
 
       # The hash pins the x86_64 wheel, the only file these x64 hosts install.
@@ -114,7 +114,7 @@ jobs:
         if: matrix.settings.use-zig
         run: |
           # renovate: datasource=pypi depName=ziglang
-          echo 'ziglang==0.17.0 --hash=sha256:97079827064a7492cce5541ceb438ae8003ce1e54e399676da2d62fb7a5dc08b' > "$RUNNER_TEMP/zig-requirements.txt"
+          echo 'ziglang==0.17.1 --hash=sha256:97079827064a7492cce5541ceb438ae8003ce1e54e399676da2d62fb7a5dc08b' > "$RUNNER_TEMP/zig-requirements.txt"
           pip3 install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/zig-requirements.txt"
 
       - name: Build native

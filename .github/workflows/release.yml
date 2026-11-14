@@ -246,7 +246,7 @@ jobs:
         uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
           # renovate: datasource=crate depName=wasm-pack versioning=semver
-          tool: wasm-pack@0.15.0
+          tool: wasm-pack@0.15.1
           fallback: none
       - name: Build wasm-bindgen
         run: pnpm run build:wasm-bindgen
