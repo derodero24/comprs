@@ -13,3 +13,6 @@ minimumReleaseAge: 4320
 # Node.js. pnpm 12 keeps only auth and registry keys from .npmrc, so the
 # setting lives here.
 engineStrict: true
+minimumReleaseAgeExclude:
+  # Renovate security update: hono@4.13.16
+  - hono@4.13.16
