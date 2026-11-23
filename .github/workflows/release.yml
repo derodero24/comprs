@@ -75,7 +75,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         if: steps.pending.outputs.found == 'true'
         with:
           toolchain: stable
@@ -237,13 +237,13 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install wasm-pack
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           # renovate: datasource=crate depName=wasm-pack versioning=semver
           tool: wasm-pack@0.15.0
@@ -302,7 +302,7 @@ jobs:
       # id-token: write, runs no crate code. --locked keeps them to the
       # versions in Cargo.lock, whose checksums cargo checks each downloaded
       # crate against, and the job still restores no cache.
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
 
