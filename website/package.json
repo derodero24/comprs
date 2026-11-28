@@ -2,7 +2,7 @@
   "name": "comprs-website",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.16.1",
+  "packageManager": "pnpm@12.23.0",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.11",
-    "@astrojs/starlight": "^0.42.6",
+    "@astrojs/starlight": "^0.43.0",
     "astro": "^7.4.1",
     "sharp": "^0.35.5",
     "starlight-links-validator": "^0.27.0",

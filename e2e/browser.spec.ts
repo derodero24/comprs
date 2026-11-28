@@ -12,6 +12,13 @@ const FIXTURES = {
   'import map': `http://localhost:${STATIC_PORT}/browser/importmap.html`,
 };
 
+// Firefox 159 (Playwright 1.65) logs this warning on any page that pipes a
+// stream through a TransformStream, also one without the package: it reports
+// how the browser scheduled its own microtasks, not a problem of the page.
+const BROWSER_NOTICES: readonly string[] = [
+  '[JavaScript Warning: "The execution of microtasks on this page was reordered to avoid unsafe execution."',
+];
+
 for (const [name, url] of Object.entries(FIXTURES)) {
   test(name, async ({ page }) => {
     // What goes wrong before the checks can report: the bundle or the
@@ -21,6 +28,12 @@ for (const [name, url] of Object.entries(FIXTURES)) {
     const problems: string[] = [];
     page.on('pageerror', (error) => problems.push(`Uncaught ${error.stack ?? error.message}`));
     page.on('console', (message) => {
+      if (
+        message.type() === 'warning' &&
+        BROWSER_NOTICES.some((notice) => message.text().startsWith(notice))
+      ) {
+        return;
+      }
       if (message.type() === 'error' || message.type() === 'warning') {
         problems.push(`console.${message.type()}: ${message.text()}`);
       }
