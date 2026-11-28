@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "comprs-core"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "comprs-brotli",
  "crc32fast",
